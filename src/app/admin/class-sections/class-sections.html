@@ -1,0 +1,43 @@
+<div class="sections-header">
+  <h1>👥 Class Sections Management</h1>
+  <button class="btn-primary">+ Create Section</button>
+</div>
+
+<div class="sections-container">
+  <div class="table-responsive">
+    <table class="sections-table">
+      <thead>
+        <tr>
+          <th>Section Code</th>
+          <th>Course</th>
+          <th>Section</th>
+          <th>Instructor</th>
+          <th>Enrollment</th>
+          <th>Schedule</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr *ngFor="let section of sections">
+          <td>{{ section.code }}</td>
+          <td>{{ section.course }}</td>
+          <td>{{ section.section }}</td>
+          <td>{{ section.instructor }}</td>
+          <td>
+            <div class="enrollment-bar">
+              <span class="enrollment-text">{{ section.enrolled }}/{{ section.capacity }}</span>
+              <div class="progress-bar">
+                <div class="progress-fill" [style.width.%]="(section.enrolled / section.capacity) * 100"></div>
+              </div>
+            </div>
+          </td>
+          <td>{{ section.schedule }}</td>
+          <td>
+            <button class="btn-sm btn-edit">Edit</button>
+            <button class="btn-sm btn-delete">Delete</button>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>

@@ -1,0 +1,112 @@
+.grading-header {
+  background: white;
+  padding: 2rem;
+  border-radius: 8px;
+  margin-bottom: 2rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  border-left: 4px solid #00d4ff;
+}
+
+.grading-header h1 {
+  margin: 0 0 0.5rem 0;
+  color: #1a1a2e;
+}
+
+.subtitle {
+  margin: 0;
+  color: #666;
+  font-size: 0.95rem;
+}
+
+.grading-container {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2rem;
+}
+
+.grading-table-wrapper {
+  background: white;
+  padding: 1.5rem;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  overflow-x: auto;
+}
+
+.grading-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0;
+}
+
+.grading-table thead {
+  background: #f5f5f5;
+  border-bottom: 2px solid #ddd;
+}
+
+.grading-table th {
+  padding: 1rem;
+  text-align: left;
+  font-weight: 600;
+  color: #333;
+  font-size: 0.9rem;
+  text-transform: uppercase;
+}
+
+.grading-table td {
+  padding: 1rem;
+  border-bottom: 1px solid #eee;
+  color: #666;
+}
+
+.grading-table tbody tr {
+  transition: all 0.3s ease;
+}
+
+.grading-table tbody tr:hover {
+  background: #f9f9f9;
+}
+
+.grade-point {
+  font-weight: 700;
+  font-size: 1.1rem;
+  color: #00d4ff;
+}
+
+.grading-info {
+  background: white;
+  padding: 1.5rem;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.grading-info h3 {
+  margin: 0 0 1rem 0;
+  color: #1a1a2e;
+  font-size: 1.1rem;
+}
+
+.grading-info ul {
+  margin: 0;
+  padding-left: 1.5rem;
+  color: #666;
+  line-height: 1.8;
+}
+
+.grading-info li {
+  margin-bottom: 0.75rem;
+}
+
+@media (max-width: 768px) {
+  .grading-container {
+    grid-template-columns: 1fr;
+  }
+
+  .grading-table {
+    font-size: 0.85rem;
+  }
+
+  .grading-table th,
+  .grading-table td {
+    padding: 0.75rem 0.5rem;
+  }
+}

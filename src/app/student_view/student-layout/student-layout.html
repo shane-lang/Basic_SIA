@@ -1,0 +1,81 @@
+<div class="app-container">
+  <!-- Material Sidenav Container -->
+  <mat-sidenav-container class="sidenav-container" [class.sidebar-opened]="getSidebarOpenedClass()">
+    <!-- Sidebar -->
+    <mat-sidenav #sidenav [mode]="getSidenavMode()" [opened]="sidebarOpen()" class="mat-sidenav-custom">
+      <!-- Sidebar Header -->
+      <div class="sidebar-header">
+        <div class="sidebar-logo">
+          <div class="logo-icon">🎓</div>
+          <div class="logo-text">
+            <h3 class="logo-title">BASIC SIA</h3>
+            <p class="logo-subtitle">Student Portal</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Navigation Menu -->
+      <nav class="nav-menu">
+        <ul class="nav-links-list">
+          <li>
+            <a routerLink="/student/dashboard" routerLinkActive="active" class="nav-link" (click)="closeSidebarOnMobile()">
+              <span class="nav-icon">📊</span>
+              <span class="nav-label">Dashboard</span>
+            </a>
+          </li>
+          <li>
+            <a routerLink="/student/profile" routerLinkActive="active" class="nav-link" (click)="closeSidebarOnMobile()">
+              <span class="nav-icon">👤</span>
+              <span class="nav-label">Profile</span>
+            </a>
+          </li>
+          <li>
+            <a routerLink="/student/enrollment" routerLinkActive="active" class="nav-link" (click)="closeSidebarOnMobile()">
+              <span class="nav-icon">📝</span>
+              <span class="nav-label">Enrollment</span>
+            </a>
+          </li>
+          <li>
+            <a routerLink="/student/schedule" routerLinkActive="active" class="nav-link" (click)="closeSidebarOnMobile()">
+              <span class="nav-icon">📅</span>
+              <span class="nav-label">Schedule</span>
+            </a>
+          </li>
+          <li>
+            <a routerLink="/student/about" routerLinkActive="active" class="nav-link" (click)="closeSidebarOnMobile()">
+              <span class="nav-icon">ℹ️</span>
+              <span class="nav-label">About This Site</span>
+            </a>
+          </li>
+        </ul>
+      </nav>
+    </mat-sidenav>
+
+    <!-- Main Content -->
+    <mat-sidenav-content>
+      <!-- Header -->
+      <header class="app-header">
+        <button class="toggle-sidebar-icon" (click)="toggleSidebar()" [title]="sidebarOpen() ? 'Hide Sidebar' : 'Show Sidebar'" aria-label="Toggle sidebar">
+          <span class="hamburger"></span>
+          <span class="hamburger"></span>
+          <span class="hamburger"></span>
+        </button>
+        <div class="logo-container-header">
+          <div class="logo-header">🎓</div>
+        </div>
+        <div class="header-content">
+          <h1 class="app-title">St. Binelde BASIC System</h1>
+          <p class="header-subtitle">Student Information & Registration</p>
+        </div>
+      </header>
+
+      <!-- Main Content Area -->
+      <main class="main-content">
+        <section class="content">
+          <router-outlet></router-outlet>
+        </section>
+      </main>
+    </mat-sidenav-content>
+  </mat-sidenav-container>
+</div>
+

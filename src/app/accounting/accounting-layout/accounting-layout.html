@@ -1,0 +1,102 @@
+<div class="app-container">
+  <!-- Material Sidenav Container -->
+  <mat-sidenav-container class="sidenav-container" [class.sidebar-opened]="getSidebarOpenedClass()">
+    <!-- Sidebar -->
+    <mat-sidenav #sidenav [mode]="getSidenavMode()" [opened]="sidebarOpen()" class="mat-sidenav-custom">
+      <!-- Sidebar Header -->
+      <div class="sidebar-header">
+        <div class="sidebar-logo">
+          <div class="logo-icon">💰</div>
+          <div class="logo-text">
+            <h3 class="logo-title">BASIC SIA</h3>
+            <p class="logo-subtitle">Accounting module</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Navigation Menu -->
+      <nav class="nav-menu">
+        <ul class="nav-links-list">
+          <li>
+            <a routerLink="/accounting/dashboard" routerLinkActive="active" class="nav-link" (click)="closeSidebarOnMobile()">
+              <span class="nav-icon">📊</span>
+              <span class="nav-label">Finance Dashboard</span>
+            </a>
+          </li>
+          <li>
+            <a routerLink="/accounting/transactions" routerLinkActive="active" class="nav-link" (click)="closeSidebarOnMobile()">
+              <span class="nav-icon">💳</span>
+              <span class="nav-label">Transactions</span>
+            </a>
+          </li>
+          <li>
+            <a routerLink="/accounting/reports" routerLinkActive="active" class="nav-link" (click)="closeSidebarOnMobile()">
+              <span class="nav-icon">📈</span>
+              <span class="nav-label">Financial Reports</span>
+            </a>
+          </li>
+          <li>
+            <a routerLink="/accounting/permits" routerLinkActive="active" class="nav-link" (click)="closeSidebarOnMobile()">
+              <span class="nav-icon">📄</span>
+              <span class="nav-label">Permit Reports</span>
+            </a>
+          </li>
+          
+          <li>
+            <a routerLink="/accounting/settings" routerLinkActive="active" class="nav-link" (click)="closeSidebarOnMobile()">
+              <span class="nav-icon">⚙️</span>
+              <span class="nav-label">Settings</span>
+            </a>
+          </li>
+        </ul>
+      </nav>
+
+      <!-- Sidebar Footer -->
+      <div class="sidebar-footer">
+        <div class="user-info">
+          <div class="user-avatar">👨‍💼</div>
+          <div class="user-details">
+            <p class="user-name">Admin</p>
+            <p class="user-role">{{ userRole() }}</p>
+          </div>
+        </div>
+      </div>
+    </mat-sidenav>
+
+    <!-- Main Content -->
+    <mat-sidenav-content>
+      <!-- Header -->
+      <header class="app-header">
+        <button class="toggle-sidebar-icon" (click)="toggleSidebar()" [title]="sidebarOpen() ? 'Hide Sidebar' : 'Show Sidebar'" aria-label="Toggle sidebar">
+          <span class="hamburger"></span>
+          <span class="hamburger"></span>
+          <span class="hamburger"></span>
+        </button>
+        <div class="logo-container-header">
+          <div class="logo-header">💰</div>
+        </div>
+        <div class="header-content">
+          <h1 class="app-title">St. Binelde BASIC System</h1>
+          <p class="header-subtitle">Financial Management & Accounting</p>
+        </div>
+
+        <!-- Header Right Actions -->
+        <div class="header-actions">
+          <button mat-icon-button class="notification-btn" [matBadge]="notificationCount()" matBadgeColor="warn">
+            <mat-icon>notifications</mat-icon>
+          </button>
+          <button mat-icon-button class="profile-btn">
+            <mat-icon>account_circle</mat-icon>
+          </button>
+        </div>
+      </header>
+
+      <!-- Main Content Area -->
+      <main class="main-content">
+        <section class="content">
+          <router-outlet></router-outlet>
+        </section>
+      </main>
+    </mat-sidenav-content>
+  </mat-sidenav-container>
+</div>

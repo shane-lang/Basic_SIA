@@ -1,0 +1,38 @@
+<div class="students-header">
+  <h1>👨‍🎓 Student Management</h1>
+  <button class="btn-primary">+ Add New Student</button>
+</div>
+
+<div class="students-container">
+  <div class="table-responsive">
+    <table class="students-table">
+      <thead>
+        <tr>
+          <th>Student ID</th>
+          <th>Name</th>
+          <th>Email</th>
+          <th>Grade Level</th>
+          <th>Status</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr *ngFor="let student of students">
+          <td>{{ student.id }}</td>
+          <td>{{ student.name }}</td>
+          <td>{{ student.email }}</td>
+          <td>{{ student.grade }}</td>
+          <td>
+            <span class="status-badge" [ngClass]="student.status.toLowerCase()">
+              {{ student.status }}
+            </span>
+          </td>
+          <td>
+            <button class="btn-sm btn-edit">Edit</button>
+            <button class="btn-sm btn-delete">Delete</button>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>

@@ -1,0 +1,113 @@
+.grade-submission-header {
+  background: white;
+  padding: 2rem;
+  border-radius: 8px;
+  margin-bottom: 2rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  border-left: 4px solid #00d4ff;
+}
+
+.grade-submission-header h1 {
+  margin: 0 0 0.5rem 0;
+  color: #1a1a2e;
+}
+
+.subtitle {
+  margin: 0;
+  color: #666;
+  font-size: 0.95rem;
+}
+
+.grade-submission-container {
+  background: white;
+  padding: 1.5rem;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  overflow-x: auto;
+}
+
+.table-responsive {
+  overflow-x: auto;
+}
+
+.submission-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0;
+}
+
+.submission-table thead {
+  background: #f5f5f5;
+  border-bottom: 2px solid #ddd;
+}
+
+.submission-table th {
+  padding: 1rem;
+  text-align: left;
+  font-weight: 600;
+  color: #333;
+  font-size: 0.9rem;
+  text-transform: uppercase;
+}
+
+.submission-table td {
+  padding: 1rem;
+  border-bottom: 1px solid #eee;
+  color: #666;
+}
+
+.submission-table tbody tr {
+  transition: all 0.3s ease;
+}
+
+.submission-table tbody tr:hover {
+  background: #f9f9f9;
+}
+
+.status-badge {
+  display: inline-block;
+  padding: 0.4rem 0.8rem;
+  border-radius: 20px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.status-badge.completed {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.status-badge.pending {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.btn-sm {
+  padding: 0.4rem 0.8rem;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  transition: all 0.3s ease;
+}
+
+.btn-view {
+  background: #3b82f6;
+  color: white;
+}
+
+.btn-view:hover {
+  background: #2563eb;
+}
+
+@media (max-width: 768px) {
+  .submission-table {
+    font-size: 0.85rem;
+  }
+
+  .submission-table th,
+  .submission-table td {
+    padding: 0.75rem 0.5rem;
+  }
+}

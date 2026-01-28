@@ -1,0 +1,39 @@
+<div class="grade-submission-header">
+  <h1>✏️ Grade Submission</h1>
+  <p class="subtitle">Track faculty grade submissions for all courses</p>
+</div>
+
+<div class="grade-submission-container">
+  <div class="table-responsive">
+    <table class="submission-table">
+      <thead>
+        <tr>
+          <th>Instructor</th>
+          <th>Course</th>
+          <th>Students</th>
+          <th>Submitted</th>
+          <th>Status</th>
+          <th>Deadline</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr *ngFor="let sub of submissions">
+          <td>{{ sub.instructor }}</td>
+          <td>{{ sub.course }}</td>
+          <td>{{ sub.students }}</td>
+          <td>{{ sub.submitted }}/{{ sub.students }}</td>
+          <td>
+            <span class="status-badge" [ngClass]="sub.status.toLowerCase()">
+              {{ sub.status }}
+            </span>
+          </td>
+          <td>{{ sub.deadline }}</td>
+          <td>
+            <button class="btn-sm btn-view">View</button>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>

@@ -1,0 +1,171 @@
+<!-- Header Section -->
+<div class="dashboard-header">
+  <div class="header-content">
+    <h1>📚 Student Dashboard</h1>
+    <p class="header-subtitle">Academic Year 2024-2025 | 1st Semester</p>
+  </div>
+  <div class="header-info">
+    <div class="info-item">
+      <span class="info-label">Student ID</span>
+      <span class="info-value">{{ studentId }}</span>
+    </div>
+    <div class="info-item">
+      <span class="info-label">GPA</span>
+      <span class="info-value">{{ gpa }}</span>
+    </div>
+  </div>
+</div>
+
+<div class="dashboard-container">
+  <!-- Welcome Section -->
+  <section class="welcome-section">
+    <div class="welcome-card">
+      <div class="welcome-icon">👋</div>
+      <div class="welcome-content">
+        <h2>Welcome back, {{ studentName }}!</h2>
+        <p>You have {{ enrolledCourses.length }} active courses this semester</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Quick Stats -->
+  <section class="quick-stats">
+    <div class="stat-card">
+      <div class="stat-icon">📖</div>
+      <div class="stat-info">
+        <h3>Total Courses</h3>
+        <p class="stat-number">{{ enrolledCourses.length }}</p>
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon">⏰</div>
+      <div class="stat-info">
+        <h3>Credit Hours</h3>
+        <p class="stat-number">{{ totalCredits }}</p>
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon">🎯</div>
+      <div class="stat-info">
+        <h3>Current GPA</h3>
+        <p class="stat-number">{{ gpa }}</p>
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon">📅</div>
+      <div class="stat-info">
+        <h3>Next Class</h3>
+        <p class="stat-value">{{ nextClassTime }}</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Next Class Alert -->
+  <section class="next-class-section" *ngIf="nextClass">
+    <div class="next-class-card">
+      <div class="next-class-icon">🔔</div>
+      <div class="next-class-content">
+        <h3>Your Next Class</h3>
+        <p class="class-name">{{ nextClass.name }}</p>
+        <p class="class-details">📍 {{ nextClass.room }} | ⏱️ {{ nextClass.time }}</p>
+        <p class="class-instructor">👨‍🏫 {{ nextClass.instructor }}</p>
+      </div>
+      <button class="btn-set-reminder">Set Reminder</button>
+    </div>
+  </section>
+
+  <!-- Enrolled Courses Grid -->
+  <section class="courses-section">
+    <div class="section-header">
+      <h2>🎓 Your Enrolled Courses</h2>
+      <p class="section-subtitle">Click on a course for more details</p>
+    </div>
+    <div class="courses-grid">
+      <div *ngFor="let course of enrolledCourses" class="course-card">
+        <div class="course-header">
+          <span class="course-code">{{ course.code }}</span>
+          <span class="course-credits">{{ course.credits }} Units</span>
+        </div>
+        <div class="course-body">
+          <h3>{{ course.name }}</h3>
+          <p class="instructor">👨‍🏫 {{ course.instructor }}</p>
+          <p class="schedule">📅 {{ course.schedule }}</p>
+          <p class="room">📍 {{ course.room }}</p>
+          <div class="progress-container" *ngIf="course.progress">
+            <div class="progress-label">Course Progress</div>
+            <div class="progress-bar">
+              <div class="progress-fill" [style.width.%]="course.progress"></div>
+            </div>
+            <span class="progress-text">{{ course.progress }}%</span>
+          </div>
+        </div>
+        <div class="course-footer">
+          <button class="btn-view">View Course</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Announcements Section -->
+  <section class="announcements-section">
+    <div class="section-header">
+      <h2>📢 Announcements</h2>
+    </div>
+    <div class="announcements-list">
+      <div *ngFor="let announcement of announcements" class="announcement-item">
+        <div class="announcement-icon">{{ announcement.icon }}</div>
+        <div class="announcement-content">
+          <h4>{{ announcement.title }}</h4>
+          <p>{{ announcement.message }}</p>
+          <span class="announcement-date">{{ announcement.date }}</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Academic Schedule -->
+  <section class="schedule-section">
+    <div class="section-header">
+      <h2>📅 Weekly Schedule</h2>
+    </div>
+    <div class="schedule-table">
+      <div class="schedule-header">
+        <div class="schedule-day" *ngFor="let day of weekDays">{{ day }}</div>
+      </div>
+      <div class="schedule-row">
+        <div class="schedule-slot" *ngFor="let day of weekDays">
+          <div *ngFor="let class of getClassesByDay(day)" class="class-slot">
+            <p class="class-name-small">{{ class.name }}</p>
+            <p class="class-time-small">{{ class.time }}</p>
+          </div>
+          <div *ngIf="getClassesByDay(day).length === 0" class="no-class">—</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Quick Actions -->
+  <section class="actions-section">
+    <div class="section-header">
+      <h2>⚡ Quick Actions</h2>
+    </div>
+    <div class="actions-grid">
+      <button class="action-btn">
+        <span class="action-icon">📝</span>
+        <span class="action-text">View Grades</span>
+      </button>
+      <button class="action-btn">
+        <span class="action-icon">📚</span>
+        <span class="action-text">Course Materials</span>
+      </button>
+      <button class="action-btn">
+        <span class="action-icon">💬</span>
+        <span class="action-text">Messages</span>
+      </button>
+      <button class="action-btn">
+        <span class="action-icon">⚙️</span>
+        <span class="action-text">Settings</span>
+      </button>
+    </div>
+  </section>
+</div>

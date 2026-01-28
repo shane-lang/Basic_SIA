@@ -1,0 +1,30 @@
+<div class="settings-header">
+  <h1>⚙️ Settings</h1>
+  <p class="subtitle">Manage system and academic configuration</p>
+</div>
+
+<div class="settings-container">
+  <div *ngFor="let section of settingsSections" class="settings-section">
+    <h3>{{ section.title }}</h3>
+    <div class="settings-list">
+      <div *ngFor="let setting of section.settings" class="setting-item">
+        <label>{{ setting.name }}</label>
+        <div class="setting-value">
+          <span *ngIf="setting.type === 'text'" class="setting-badge">{{ setting.value }}</span>
+          <span *ngIf="setting.type === 'email'" class="setting-badge">{{ setting.value }}</span>
+          <span *ngIf="setting.type === 'date'" class="setting-badge">{{ setting.value }}</span>
+          <span *ngIf="setting.type === 'select'" class="setting-badge">{{ setting.value }}</span>
+          <span *ngIf="setting.type === 'toggle'" class="toggle-badge" [ngClass]="setting.value.toLowerCase()">{{ setting.value }}</span>
+          <button class="btn-edit-setting">Edit</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="danger-zone">
+  <h3>Danger Zone</h3>
+  <p>Be careful with these actions - they may have serious consequences</p>
+  <button class="btn-danger">Clear Cache</button>
+  <button class="btn-danger">Reset Database</button>
+</div>

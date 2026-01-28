@@ -1,0 +1,150 @@
+.schedule-container {
+  padding: 30px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.schedule-header {
+  margin-bottom: 30px;
+}
+
+.schedule-header h1 {
+  margin: 0 0 5px 0;
+  color: #333;
+  font-size: 2.5em;
+}
+
+.schedule-header p {
+  margin: 0;
+  color: #666;
+  font-size: 1em;
+}
+
+.schedule-view {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 15px;
+  margin-bottom: 30px;
+}
+
+.day-column {
+  background: white;
+  border: 1px solid #e0e0e0;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+
+.day-header {
+  background: linear-gradient(135deg, #00d4ff 0%, #0099cc 100%);
+  color: white;
+  padding: 15px;
+  text-align: center;
+  font-weight: bold;
+  font-size: 1.1em;
+}
+
+.classes {
+  padding: 10px;
+  min-height: 300px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.class-card {
+  background: #e3f2fd;
+  border-left: 4px solid #00d4ff;
+  padding: 12px;
+  border-radius: 6px;
+  transition: all 0.3s ease;
+}
+
+.class-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0,212,255,0.2);
+}
+
+.class-time {
+  font-size: 0.85em;
+  color: #00d4ff;
+  font-weight: bold;
+  margin-bottom: 5px;
+}
+
+.class-info {
+  font-size: 0.9em;
+}
+
+.class-info h3 {
+  margin: 0 0 3px 0;
+  color: #333;
+  font-size: 0.95em;
+}
+
+.course-code {
+  margin: 0 0 5px 0;
+  color: #00d4ff;
+  font-weight: bold;
+  font-size: 0.85em;
+}
+
+.instructor,
+.location {
+  margin: 3px 0;
+  color: #666;
+  font-size: 0.85em;
+}
+
+.no-class {
+  color: #ccc;
+  text-align: center;
+  padding: 40px 10px;
+  font-style: italic;
+}
+
+.schedule-legend {
+  background: white;
+  border: 1px solid #e0e0e0;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+
+.schedule-legend h3 {
+  margin: 0 0 15px 0;
+  color: #333;
+  border-bottom: 2px solid #00d4ff;
+  padding-bottom: 10px;
+}
+
+.legend-items {
+  display: flex;
+  gap: 30px;
+  flex-wrap: wrap;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.legend-color {
+  width: 30px;
+  height: 30px;
+  border-radius: 4px;
+  border: 1px solid #e0e0e0;
+}
+
+@media (max-width: 1200px) {
+  .schedule-view {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .schedule-view {
+    grid-template-columns: 1fr;
+  }
+}

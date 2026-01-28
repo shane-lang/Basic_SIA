@@ -1,0 +1,38 @@
+<div class="audit-header">
+  <h1>📝 Audit Logs</h1>
+  <p class="subtitle">System activity and user action history</p>
+</div>
+
+<div class="audit-container">
+  <div class="filters">
+    <input type="text" placeholder="Filter by user or action...">
+    <input type="date">
+  </div>
+
+  <div class="table-responsive">
+    <table class="audit-table">
+      <thead>
+        <tr>
+          <th>Timestamp</th>
+          <th>User</th>
+          <th>Action</th>
+          <th>Details</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr *ngFor="let log of logs">
+          <td>{{ log.timestamp }}</td>
+          <td>{{ log.user }}</td>
+          <td>{{ log.action }}</td>
+          <td class="details-cell">{{ log.details }}</td>
+          <td>
+            <span class="status-badge" [ngClass]="log.status.toLowerCase()">
+              {{ log.status }}
+            </span>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>

@@ -1,0 +1,103 @@
+.analytics-header {
+  background: white;
+  padding: 2rem;
+  border-radius: 8px;
+  margin-bottom: 2rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  border-left: 4px solid #00d4ff;
+}
+
+.analytics-header h1 {
+  margin: 0 0 0.5rem 0;
+  color: #1a1a2e;
+}
+
+.subtitle {
+  margin: 0;
+  color: #666;
+  font-size: 0.95rem;
+}
+
+.analytics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.analytics-card {
+  background: white;
+  padding: 1.5rem;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  text-align: center;
+  transition: all 0.3s ease;
+  border-top: 3px solid #00d4ff;
+}
+
+.analytics-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.analytics-icon {
+  font-size: 2.5rem;
+  margin-bottom: 1rem;
+}
+
+.analytics-card h3 {
+  margin: 0 0 1rem 0;
+  color: #666;
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+.analytics-value {
+  font-size: 2rem;
+  font-weight: 700;
+  color: #1a1a2e;
+  margin-bottom: 0.5rem;
+}
+
+.analytics-change {
+  margin: 0;
+  color: #10b981;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.analytics-insights {
+  background: white;
+  padding: 1.5rem;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  border-left: 4px solid #00d4ff;
+}
+
+.analytics-insights h3 {
+  margin: 0 0 1rem 0;
+  color: #1a1a2e;
+  font-size: 1.1rem;
+}
+
+.analytics-insights ul {
+  margin: 0;
+  padding-left: 1.5rem;
+  color: #666;
+  line-height: 1.8;
+}
+
+.analytics-insights li {
+  margin-bottom: 0.75rem;
+}
+
+@media (max-width: 768px) {
+  .analytics-grid {
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  }
+
+  .analytics-value {
+    font-size: 1.5rem;
+  }
+}

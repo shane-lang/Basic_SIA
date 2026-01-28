@@ -1,0 +1,99 @@
+<div class="profile-container">
+  <!-- Header Section -->
+  <div class="profile-header">
+    <div class="header-background"></div>
+    <div class="profile-content">
+      <div class="profile-picture-wrapper">
+        <img [src]="student.profilePicture" alt="{{ student.firstName }} {{ student.lastName }}" class="profile-picture">
+      </div>
+      <div class="basic-info">
+        <h1>{{ student.firstName }} {{ student.lastName }}</h1>
+        <p class="student-id">ID: {{ student.id }}</p>
+        <div class="status-badge" [ngClass]="'status-' + student.enrollmentStatus.toLowerCase()">
+          {{ student.enrollmentStatus }}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Content -->
+  <div class="profile-body">
+    <!-- Left Column -->
+    <div class="profile-left">
+      <!-- Academic Information -->
+      <div class="card">
+        <h2>Academic Information</h2>
+        <div class="info-group">
+          <label>Program:</label>
+          <p>{{ student.program }}</p>
+        </div>
+        <div class="info-group">
+          <label>Year Level:</label>
+          <p>{{ student.yearLevel }}</p>
+        </div>
+        <div class="info-group">
+          <label>GPA:</label>
+          <p class="gpa-value">{{ student.gpa | number: '1.2-2' }} <span class="gpa-status">{{ getGPAStatus() }}</span></p>
+        </div>
+        <div class="info-group">
+          <label>Enrollment Status:</label>
+          <p>{{ student.enrollmentStatus }}</p>
+        </div>
+        <div class="info-group">
+          <label>Enrollment Date:</label>
+          <p>{{ student.enrollmentDate | date: 'MMM dd, yyyy' }}</p>
+        </div>
+      </div>
+
+      <!-- Contact Information -->
+      <div class="card">
+        <h2>Contact Information</h2>
+        <div class="info-group">
+          <label>Email:</label>
+          <p><a [href]="'mailto:' + student.email">{{ student.email }}</a></p>
+        </div>
+        <div class="info-group">
+          <label>Phone:</label>
+          <p><a [href]="'tel:' + student.phone">{{ student.phone }}</a></p>
+        </div>
+        <div class="info-group">
+          <label>Address:</label>
+          <p>{{ student.address }}</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right Column -->
+    <div class="profile-right">
+      <!-- Personal Information -->
+      <div class="card">
+        <h2>Personal Information</h2>
+        <div class="info-group">
+          <label>Full Name:</label>
+          <p>{{ student.firstName }} {{ student.lastName }}</p>
+        </div>
+        <div class="info-group">
+          <label>Date of Birth:</label>
+          <p>{{ student.dateOfBirth | date: 'MMM dd, yyyy' }}</p>
+        </div>
+        <div class="info-group">
+          <label>Student ID:</label>
+          <p>{{ student.id }}</p>
+        </div>
+      </div>
+
+      <!-- Emergency Contact -->
+      <div class="card">
+        <h2>Emergency Contact</h2>
+        <div class="info-group">
+          <label>Contact Person:</label>
+          <p>{{ student.emergencyContact }}</p>
+        </div>
+        <div class="info-group">
+          <label>Phone Number:</label>
+          <p><a [href]="'tel:' + student.emergencyPhone">{{ student.emergencyPhone }}</a></p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

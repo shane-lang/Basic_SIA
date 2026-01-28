@@ -1,0 +1,40 @@
+<div class="faculty-header">
+  <h1>👨‍🏫 Faculty Management</h1>
+  <button class="btn-primary">+ Add Faculty Member</button>
+</div>
+
+<div class="faculty-container">
+  <div class="table-responsive">
+    <table class="faculty-table">
+      <thead>
+        <tr>
+          <th>Faculty ID</th>
+          <th>Name</th>
+          <th>Email</th>
+          <th>Department</th>
+          <th>Specialization</th>
+          <th>Status</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr *ngFor="let member of faculty">
+          <td>{{ member.id }}</td>
+          <td>{{ member.name }}</td>
+          <td>{{ member.email }}</td>
+          <td>{{ member.department }}</td>
+          <td>{{ member.specialization }}</td>
+          <td>
+            <span class="status-badge" [ngClass]="member.status.toLowerCase()">
+              {{ member.status }}
+            </span>
+          </td>
+          <td>
+            <button class="btn-sm btn-edit">Edit</button>
+            <button class="btn-sm btn-delete">Delete</button>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>

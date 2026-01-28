@@ -1,0 +1,40 @@
+<div class="grading-header">
+  <h1>📈 Grading System</h1>
+  <p class="subtitle">Manage and view the official grading scale for the institution</p>
+</div>
+
+<div class="grading-container">
+  <div class="grading-table-wrapper">
+    <table class="grading-table">
+      <thead>
+        <tr>
+          <th>Grade</th>
+          <th>Score Range</th>
+          <th>Description</th>
+          <th>GPA Equivalent</th>
+          <th>Quality</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr *ngFor="let grade of gradingScales">
+          <td class="grade-point">{{ grade.gradePoint }}</td>
+          <td>{{ grade.range }}</td>
+          <td>{{ grade.description }}</td>
+          <td>{{ grade.equivalent }}</td>
+          <td>{{ grade.quality }}</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="grading-info">
+    <h3>Grading Guidelines</h3>
+    <ul>
+      <li>Grades are computed and released at the end of each semester</li>
+      <li>Students must maintain a minimum GPA of 2.0 to continue enrollment</li>
+      <li>Incomplete (INC) grades must be removed within one semester</li>
+      <li>Grade appeals must be filed within 5 days of grade posting</li>
+      <li>Academic probation is triggered by GPA below 2.0</li>
+    </ul>
+  </div>
+</div>

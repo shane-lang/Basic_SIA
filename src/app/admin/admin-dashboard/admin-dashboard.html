@@ -1,0 +1,58 @@
+<!-- Header -->
+<div class="dashboard-header">
+  <div class="header-content">
+    <h1>📊 Admin Dashboard</h1>
+    <p class="header-subtitle">{{ semesterInfo.current }}</p>
+  </div>
+</div>
+
+<!-- Stats Grid -->
+<div class="stats-container">
+  <div *ngFor="let stat of stats" class="stat-card" [style.border-top]="'3px solid ' + stat.color">
+    <div class="stat-header">
+      <span class="stat-icon">{{ stat.icon }}</span>
+      <div class="stat-info">
+        <h3 class="stat-label">{{ stat.label }}</h3>
+        <p class="stat-change">{{ stat.change }}</p>
+      </div>
+    </div>
+    <div class="stat-value">{{ stat.value }}</div>
+  </div>
+</div>
+
+<!-- Semester Info -->
+<div class="semester-info">
+  <h3>Current Semester Information</h3>
+  <div class="semester-grid">
+    <div class="semester-item">
+      <span class="semester-label">Semester:</span>
+      <span class="semester-value">{{ semesterInfo.current }}</span>
+    </div>
+    <div class="semester-item">
+      <span class="semester-label">Start Date:</span>
+      <span class="semester-value">{{ semesterInfo.startDate }}</span>
+    </div>
+    <div class="semester-item">
+      <span class="semester-label">End Date:</span>
+      <span class="semester-value">{{ semesterInfo.endDate }}</span>
+    </div>
+    <div class="semester-item">
+      <span class="semester-label">Enrollment Cutoff:</span>
+      <span class="semester-value">{{ semesterInfo.enrollmentCutoff }}</span>
+    </div>
+  </div>
+</div>
+
+<!-- Recent Activities -->
+<div class="recent-activities">
+  <h3>Recent Activities</h3>
+  <div class="activities-list">
+    <div *ngFor="let activity of recentActivities" class="activity-item">
+      <div class="activity-icon">{{ activity.icon }}</div>
+      <div class="activity-content">
+        <p class="activity-text">{{ activity.activity }}</p>
+        <p class="activity-time">{{ activity.timestamp }}</p>
+      </div>
+    </div>
+  </div>
+</div>

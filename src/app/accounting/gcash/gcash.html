@@ -1,0 +1,168 @@
+<div class="gcash-container">
+  <!-- Header Section -->
+  <div class="header-section">
+    <div class="header-content">
+      <div class="logo-icon">💳</div>
+      <div class="header-text">
+        <h1>GCash Reference Encoder</h1>
+        <p>Encode and track GCash payment references</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="content-wrapper">
+    <!-- Input Form Card -->
+    <mat-card class="form-card">
+      <mat-card-header>
+        <h2>Encode Payment Reference</h2>
+      </mat-card-header>
+
+      <mat-card-content>
+        <form class="gcash-form">
+          <!-- GCash Reference Number -->
+          <mat-form-field class="full-width">
+            <mat-label>GCash Reference Number *</mat-label>
+            <input 
+              matInput 
+              [(ngModel)]="referenceNumber" 
+              name="referenceNumber"
+              placeholder="e.g., G1234567890123"
+              type="text">
+            <mat-icon matSuffix>receipt</mat-icon>
+          </mat-form-field>
+
+          <!-- Student ID -->
+          <mat-form-field class="full-width">
+            <mat-label>Student ID *</mat-label>
+            <input 
+              matInput 
+              [(ngModel)]="studentId" 
+              name="studentId"
+              placeholder="e.g., STU-2024-001">
+            <mat-icon matSuffix>person</mat-icon>
+          </mat-form-field>
+
+          <!-- Amount -->
+          <mat-form-field class="full-width">
+            <mat-label>Amount (₱) *</mat-label>
+            <input 
+              matInput 
+              [(ngModel)]="amount" 
+              name="amount"
+              placeholder="0.00"
+              type="number"
+              min="0"
+              step="0.01">
+            <mat-icon matSuffix>attach_money</mat-icon>
+          </mat-form-field>
+
+          <!-- Payment Date -->
+          <mat-form-field class="full-width">
+            <mat-label>Payment Date</mat-label>
+            <input 
+              matInput 
+              [(ngModel)]="paymentDate" 
+              name="paymentDate"
+              type="date">
+            <mat-icon matSuffix>date_range</mat-icon>
+          </mat-form-field>
+
+          <!-- Action Buttons -->
+          <div class="button-group">
+            <button 
+              mat-raised-button 
+              class="encode-btn"
+              (click)="encodeReference()"
+              [disabled]="isProcessing()">
+              <mat-icon>check_circle</mat-icon>
+              {{ isProcessing() ? 'Encoding...' : 'Encode Reference' }}
+            </button>
+            <button 
+              mat-stroked-button 
+              class="clear-btn"
+              (click)="clearForm()">
+              <mat-icon>refresh</mat-icon>
+              Clear
+            </button>
+          </div>
+        </form>
+      </mat-card-content>
+    </mat-card>
+
+    <!-- Result Card -->
+    <mat-card *ngIf="encodedData()" class="result-card">
+      <mat-card-header>
+        <h2>Encoded Payment Details</h2>
+        <div class="status-badge success">✓ Encoded</div>
+      </mat-card-header>
+
+      <mat-card-content>
+        <div class="result-grid">
+          <!-- Reference Number -->
+          <div class="result-item">
+            <label>GCash Reference Number</label>
+            <div class="result-value">
+              <span class="reference-text">{{ encodedData().referenceNumber }}</span>
+              <button 
+                mat-icon-button 
+                (click)="copyToClipboard(encodedData().referenceNumber)"
+                class="copy-btn">
+                <mat-icon>content_copy</mat-icon>
+              </button>
+            </div>
+          </div>
+
+          <!-- Transaction ID -->
+          <div class="result-item">
+            <label>Transaction ID</label>
+            <div class="result-value">
+              <span class="transaction-id">{{ encodedData().transactionId }}</span>
+              <button 
+                mat-icon-button 
+                (click)="copyToClipboard(encodedData().transactionId)"
+                class="copy-btn">
+                <mat-icon>content_copy</mat-icon>
+              </button>
+            </div>
+          </div>
+
+          <!-- Student ID -->
+          <div class="result-item">
+            <label>Student ID</label>
+            <span>{{ encodedData().studentId }}</span>
+          </div>
+
+          <!-- Amount -->
+          <div class="result-item">
+            <label>Amount</label>
+            <span class="amount-text">₱{{ encodedData().amount }}</span>
+          </div>
+
+          <!-- Payment Date -->
+          <div class="result-item">
+            <label>Payment Date</label>
+            <span>{{ encodedData().paymentDate }}</span>
+          </div>
+
+          <!-- Status -->
+          <div class="result-item">
+            <label>Status</label>
+            <span class="status-text pending">{{ encodedData().status }}</span>
+          </div>
+
+          <!-- Encoded At -->
+          <div class="result-item full-width">
+            <label>Encoded At</label>
+            <span class="timestamp">{{ encodedData().encodedAt }}</span>
+          </div>
+        </div>
+
+        <!-- Info Box -->
+        <div class="info-box">
+          <mat-icon>info</mat-icon>
+          <p>Please save this encoded reference number for your records. Use the Transaction ID for tracking and verification.</p>
+        </div>
+      </mat-card-content>
+    </mat-card>
+  </div>
+</div>

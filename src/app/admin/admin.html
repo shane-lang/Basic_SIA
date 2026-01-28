@@ -1,0 +1,148 @@
+<div class="admin-container">
+  <!-- Material Sidenav Container -->
+  <mat-sidenav-container class="sidenav-container" [class.sidebar-opened]="getSidebarOpenedClass()">
+    <!-- Sidebar -->
+    <mat-sidenav #sidenav [mode]="getSidenavMode()" [opened]="sidebarOpen()" class="mat-sidenav-custom">
+      <!-- Sidebar Header -->
+      <div class="sidebar-header">
+        <div class="sidebar-logo">
+          <div class="logo-icon">⚙️</div>
+          <div class="logo-text">
+            <h3 class="logo-title">ADMIN</h3>
+            <p class="logo-subtitle">Management Portal</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Navigation Menu -->
+      <nav class="nav-menu">
+        <!-- Dashboard Section -->
+        <div class="nav-section">
+          <h4 class="nav-section-title">MAIN</h4>
+          <ul class="nav-links-list">
+            <li>
+              <a routerLink="/admin/dashboard" routerLinkActive="active" class="nav-link" (click)="closeSidebarOnMobile()">
+                <span class="nav-icon">📊</span>
+                <span class="nav-label">Dashboard</span>
+              </a>
+            </li>
+          </ul>
+        </div>
+
+        <!-- Academic Management -->
+        <div class="nav-section">
+          <h4 class="nav-section-title">ACADEMIC MANAGEMENT</h4>
+          <ul class="nav-links-list">
+            <li>
+              <a routerLink="/admin/students" routerLinkActive="active" class="nav-link" (click)="closeSidebarOnMobile()">
+                <span class="nav-icon">👨‍🎓</span>
+                <span class="nav-label">Students</span>
+              </a>
+            </li>
+            <li>
+              <a routerLink="/admin/faculty" routerLinkActive="active" class="nav-link" (click)="closeSidebarOnMobile()">
+                <span class="nav-icon">👨‍🏫</span>
+                <span class="nav-label">Faculty</span>
+              </a>
+            </li>
+            <li>
+              <a routerLink="/admin/courses" routerLinkActive="active" class="nav-link" (click)="closeSidebarOnMobile()">
+                <span class="nav-icon">📚</span>
+                <span class="nav-label">Courses</span>
+              </a>
+            </li>
+            <li>
+              <a routerLink="/admin/class-sections" routerLinkActive="active" class="nav-link" (click)="closeSidebarOnMobile()">
+                <span class="nav-icon">👥</span>
+                <span class="nav-label">Class Sections</span>
+              </a>
+            </li>
+          </ul>
+        </div>
+
+        <!-- Grading & Assessment -->
+        <div class="nav-section">
+          <h4 class="nav-section-title">GRADING & ASSESSMENT</h4>
+          <ul class="nav-links-list">
+            <li>
+              <a routerLink="/admin/grading" routerLinkActive="active" class="nav-link" (click)="closeSidebarOnMobile()">
+                <span class="nav-icon">📈</span>
+                <span class="nav-label">Grading System</span>
+              </a>
+            </li>
+            <li>
+              <a routerLink="/admin/grade-submission" routerLinkActive="active" class="nav-link" (click)="closeSidebarOnMobile()">
+                <span class="nav-icon">✏️</span>
+                <span class="nav-label">Grade Submission</span>
+              </a>
+            </li>
+          </ul>
+        </div>
+
+        <!-- Reports & Analytics -->
+        <div class="nav-section">
+          <h4 class="nav-section-title">REPORTS & ANALYTICS</h4>
+          <ul class="nav-links-list">
+            <li>
+              <a routerLink="/admin/reports" routerLinkActive="active" class="nav-link" (click)="closeSidebarOnMobile()">
+                <span class="nav-icon">📋</span>
+                <span class="nav-label">Reports</span>
+              </a>
+            </li>
+            <li>
+              <a routerLink="/admin/analytics" routerLinkActive="active" class="nav-link" (click)="closeSidebarOnMobile()">
+                <span class="nav-icon">📊</span>
+                <span class="nav-label">Analytics</span>
+              </a>
+            </li>
+          </ul>
+        </div>
+
+        <!-- System Management -->
+        <div class="nav-section">
+          <h4 class="nav-section-title">SYSTEM</h4>
+          <ul class="nav-links-list">
+            <li>
+              <a routerLink="/admin/settings" routerLinkActive="active" class="nav-link" (click)="closeSidebarOnMobile()">
+                <span class="nav-icon">⚙️</span>
+                <span class="nav-label">Settings</span>
+              </a>
+            </li>
+            <li>
+              <a routerLink="/admin/audit-logs" routerLinkActive="active" class="nav-link" (click)="closeSidebarOnMobile()">
+                <span class="nav-icon">📝</span>
+                <span class="nav-label">Audit Logs</span>
+              </a>
+            </li>
+          </ul>
+        </div>
+      </nav>
+    </mat-sidenav>
+
+    <!-- Main Content -->
+    <mat-sidenav-content>
+      <!-- Header -->
+      <header class="admin-header">
+        <button class="toggle-sidebar-icon" (click)="toggleSidebar()" [title]="sidebarOpen() ? 'Hide Sidebar' : 'Show Sidebar'" aria-label="Toggle sidebar">
+          <span class="hamburger"></span>
+          <span class="hamburger"></span>
+          <span class="hamburger"></span>
+        </button>
+        <div class="logo-container-header">
+          <div class="logo-header">⚙️</div>
+        </div>
+        <div class="header-content">
+          <h1 class="admin-title">Admin Management System</h1>
+          <p class="header-subtitle">School Administration Portal</p>
+        </div>
+      </header>
+
+      <!-- Main Content Area -->
+      <main class="main-content">
+        <section class="content">
+          <router-outlet></router-outlet>
+        </section>
+      </main>
+    </mat-sidenav-content>
+  </mat-sidenav-container>
+</div>

@@ -1,0 +1,23 @@
+<div class="analytics-header">
+  <h1>📊 Analytics</h1>
+  <p class="subtitle">Key performance indicators and institutional metrics</p>
+</div>
+
+<div class="analytics-grid">
+  <div *ngFor="let data of analyticsData" class="analytics-card">
+    <div class="analytics-icon">{{ data.icon }}</div>
+    <h3>{{ data.metric }}</h3>
+    <div class="analytics-value">{{ data.value }}</div>
+    <p class="analytics-change">{{ data.change }}</p>
+  </div>
+</div>
+
+<div class="analytics-insights">
+  <h3>Key Insights</h3>
+  <ul>
+    <li>Enrollment has increased by 12.5% compared to last year</li>
+    <li>Student academic performance shows positive trend with average GPA improvement</li>
+    <li>Course completion rate remains high at 94.2%</li>
+    <li>Faculty resources are being utilized efficiently across departments</li>
+  </ul>
+</div>

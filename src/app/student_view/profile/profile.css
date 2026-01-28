@@ -1,0 +1,186 @@
+.profile-container {
+  width: 100%;
+  background-color: #f5f7fa;
+  min-height: 100vh;
+}
+
+/* Header Section */
+.profile-header {
+  position: relative;
+  background: white;
+  margin-bottom: 30px;
+}
+
+.header-background {
+  height: 200px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+.profile-content {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 20px;
+  display: flex;
+  align-items: flex-start;
+  gap: 30px;
+  transform: translateY(-80px);
+  position: relative;
+  z-index: 10;
+}
+
+.profile-picture-wrapper {
+  flex-shrink: 0;
+}
+
+.profile-picture {
+  width: 150px;
+  height: 150px;
+  border-radius: 50%;
+  border: 5px solid white;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+  object-fit: cover;
+}
+
+.basic-info {
+  padding-top: 20px;
+}
+
+.basic-info h1 {
+  margin: 0 0 5px 0;
+  font-size: 28px;
+  font-weight: 600;
+  color: #1a202c;
+}
+
+.student-id {
+  margin: 0 0 15px 0;
+  color: #718096;
+  font-size: 14px;
+}
+
+.status-badge {
+  display: inline-block;
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.status-active {
+  background-color: #c6f6d5;
+  color: #22543d;
+}
+
+.status-inactive {
+  background-color: #fed7d7;
+  color: #742a2a;
+}
+
+/* Main Content */
+.profile-body {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 20px 40px 20px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 30px;
+}
+
+.card {
+  background: white;
+  border-radius: 8px;
+  padding: 25px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  transition: box-shadow 0.3s ease;
+}
+
+.card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.card h2 {
+  margin: 0 0 20px 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #1a202c;
+  border-bottom: 2px solid #f0f0f0;
+  padding-bottom: 15px;
+}
+
+.info-group {
+  margin-bottom: 18px;
+}
+
+.info-group label {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  color: #718096;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+}
+
+.info-group p {
+  margin: 0;
+  font-size: 15px;
+  color: #2d3748;
+  line-height: 1.5;
+}
+
+.info-group a {
+  color: #667eea;
+  text-decoration: none;
+  transition: color 0.3s ease;
+}
+
+.info-group a:hover {
+  color: #764ba2;
+  text-decoration: underline;
+}
+
+.gpa-value {
+  font-size: 18px;
+  font-weight: 600;
+  color: #667eea;
+}
+
+.gpa-status {
+  font-size: 12px;
+  font-weight: 600;
+  color: #718096;
+  margin-left: 8px;
+  background-color: #edf2f7;
+  padding: 3px 8px;
+  border-radius: 4px;
+}
+
+/* Layout for different screen sizes */
+@media (max-width: 768px) {
+  .profile-content {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    transform: translateY(-60px);
+  }
+
+  .profile-picture {
+    width: 120px;
+    height: 120px;
+  }
+
+  .basic-info h1 {
+    font-size: 24px;
+  }
+
+  .profile-body {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+
+  .card {
+    padding: 20px;
+  }
+}

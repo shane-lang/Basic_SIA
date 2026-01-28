@@ -1,0 +1,34 @@
+<div class="schedule-container">
+  <div class="schedule-header">
+    <h1>My Schedule</h1>
+    <p>Fall Semester 2024 - 2025</p>
+  </div>
+
+  <div class="schedule-view">
+    <div class="day-column" *ngFor="let day of days">
+      <div class="day-header">{{ day }}</div>
+      <div class="classes">
+        <div class="class-card" *ngFor="let classItem of getClassesByDay(day)">
+          <div class="class-time">{{ classItem.time }}</div>
+          <div class="class-info">
+            <h3>{{ classItem.courseName }}</h3>
+            <p class="course-code">{{ classItem.courseCode }}</p>
+            <p class="instructor">Instructor: {{ classItem.instructor }}</p>
+            <p class="location">📍 {{ classItem.room }}</p>
+          </div>
+        </div>
+        <div class="no-class" *ngIf="getClassesByDay(day).length === 0">No classes</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="schedule-legend">
+    <h3>Legend</h3>
+    <div class="legend-items">
+      <div class="legend-item">
+        <div class="legend-color" style="background: #e3f2fd;"></div>
+        <span>Class Session</span>
+      </div>
+    </div>
+  </div>
+</div>

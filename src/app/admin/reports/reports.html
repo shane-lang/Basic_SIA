@@ -1,0 +1,16 @@
+<div class="reports-header">
+  <h1>📋 Reports</h1>
+  <p class="subtitle">Generate and download institutional reports</p>
+</div>
+
+<div class="reports-grid">
+  <div *ngFor="let report of reports" class="report-card">
+    <div class="report-icon">{{ report.icon }}</div>
+    <h3>{{ report.name }}</h3>
+    <p>{{ report.description }}</p>
+    <div class="report-footer">
+      <span class="generated-date">Generated: {{ report.generated }}</span>
+      <button class="btn-download">Download</button>
+    </div>
+  </div>
+</div>
