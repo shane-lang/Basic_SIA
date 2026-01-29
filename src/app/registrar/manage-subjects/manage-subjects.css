@@ -1,0 +1,49 @@
+.manage-subjects-container {
+  padding: 20px;
+}
+
+.manage-subjects-container h1 {
+  margin-bottom: 20px;
+  color: #333;
+  font-size: 28px;
+}
+
+.search-card {
+  margin-bottom: 20px;
+}
+
+.search-field {
+  width: 100%;
+  max-width: 500px;
+}
+
+.subjects-card {
+  overflow-x: auto;
+}
+
+.subjects-table {
+  width: 100%;
+}
+
+table th {
+  background-color: #f5f5f5;
+  font-weight: 600;
+}
+
+table td {
+  padding: 12px;
+}
+
+table tbody tr:hover {
+  background-color: #f9f9f9;
+}
+
+@media (max-width: 768px) {
+  .subjects-card {
+    overflow-x: auto;
+  }
+
+  table {
+    font-size: 12px;
+  }
+}

@@ -1,0 +1,54 @@
+<div class="add-subject-container">
+  <h1>Add Subject to Student</h1>
+
+  <mat-card class="form-card">
+    <mat-card-content>
+      <form (ngSubmit)="addSubject()">
+        <!-- Student ID -->
+        <mat-form-field class="full-width">
+          <mat-label>Student ID</mat-label>
+          <input matInput [(ngModel)]="formData.studentId" name="studentId" placeholder="Enter student ID" />
+        </mat-form-field>
+
+        <!-- Student Name -->
+        <mat-form-field class="full-width">
+          <mat-label>Student Name</mat-label>
+          <input matInput [(ngModel)]="formData.studentName" name="studentName" placeholder="Enter student name" />
+        </mat-form-field>
+
+        <!-- Available Subjects -->
+        <div class="subjects-section">
+          <h3>Select Subjects</h3>
+          <div class="subjects-grid">
+            <div *ngFor="let subject of availableSubjects" class="subject-checkbox">
+              <input
+                type="checkbox"
+                [id]="subject"
+                [checked]="isSubjectSelected(subject)"
+                (change)="toggleSubject(subject)"
+              />
+              <label [for]="subject">{{ subject }}</label>
+            </div>
+          </div>
+        </div>
+
+        <!-- Selected Subjects -->
+        <div *ngIf="selectedSubjects.length > 0" class="selected-subjects">
+          <h3>Selected Subjects ({{ selectedSubjects.length }})</h3>
+          <div class="subject-list">
+            <div *ngFor="let subject of selectedSubjects" class="subject-tag">
+              <span>{{ subject }}</span>
+              <button type="button" (click)="toggleSubject(subject)" class="remove-btn">×</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Buttons -->
+        <div class="button-group">
+          <button mat-raised-button color="primary" type="submit">Add Subject</button>
+          <button mat-button type="button" (click)="resetForm()">Reset</button>
+        </div>
+      </form>
+    </mat-card-content>
+  </mat-card>
+</div>

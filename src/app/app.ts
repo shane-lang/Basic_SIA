@@ -10,6 +10,8 @@ import { MatSidenavModule } from '@angular/material/sidenav';
     MatSidenavModule
   ],
   templateUrl: './app.html',
-  styleUrls: ['./app.css']
+  styleUrls: ['./app.css'],
+  template: '<router-outlet></router-outlet>',
+  
 })
 export class App {}

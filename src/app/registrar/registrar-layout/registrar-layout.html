@@ -1,0 +1,138 @@
+<mat-sidenav-container class="sidenav-container" autosize>
+  <!-- SIDEBAR -->
+  <mat-sidenav
+    #sidenav
+    [mode]="getSidenavMode()"
+    [opened]="sidebarOpen()"
+    class="sidenav"
+  >
+    <!-- LOGO & BRANDING -->
+    <div class="sidebar-brand">
+      <div class="brand-icon">
+        <mat-icon>school</mat-icon>
+      </div>
+      <div class="brand-text">
+        <h3>SIA</h3>
+        <p>Registrar</p>
+      </div>
+    </div>
+
+    <mat-divider></mat-divider>
+
+    <!-- USER INFO -->
+    <div class="user-info">
+      <div class="user-avatar">
+        <mat-icon>account_circle</mat-icon>
+      </div>
+      <div class="user-details">
+        <p class="user-name">{{ userName }}</p>
+        <p class="user-role">{{ userRole }}</p>
+      </div>
+    </div>
+
+    <mat-divider></mat-divider>
+
+    <!-- NAVIGATION MENU -->
+    <mat-nav-list class="nav-menu">
+      <mat-list-item
+        *ngFor="let item of menuItems"
+        class="nav-item"
+      >
+        <a
+          [routerLink]="item.route"
+          routerLinkActive="active"
+          class="menu-link"
+          (click)="closeSidebarOnMobile()"
+        >
+          <mat-icon class="menu-icon" [style.color]="item.color">{{ item.icon }}</mat-icon>
+          <span class="menu-label">{{ item.label }}</span>
+        </a>
+      </mat-list-item>
+    </mat-nav-list>
+
+    <mat-divider></mat-divider>
+
+    <!-- LOGOUT BUTTON -->
+    <div class="sidebar-footer">
+      <button
+        mat-stroked-button
+        color="warn"
+        (click)="logout()"
+        class="logout-btn"
+      >
+        <mat-icon>logout</mat-icon>
+        Logout
+      </button>
+    </div>
+  </mat-sidenav>
+
+  <!-- MAIN CONTENT -->
+  <mat-sidenav-content class="content">
+    <!-- TOP TOOLBAR -->
+    <mat-toolbar class="top-toolbar">
+      <button mat-icon-button (click)="sidenav.toggle()" class="menu-toggle">
+        <mat-icon>menu</mat-icon>
+      </button>
+
+      <span class="toolbar-title">{{ title() }}</span>
+
+      <span class="spacer"></span>
+
+      <!-- NOTIFICATIONS -->
+      <button mat-icon-button [matMenuTriggerFor]="notificationsMenu" class="notification-btn">
+        <mat-icon [matBadge]="notificationCount()" matBadgeColor="warn">
+          notifications
+        </mat-icon>
+      </button>
+
+      <!-- PROFILE MENU -->
+      <button mat-icon-button [matMenuTriggerFor]="profileMenu" class="profile-btn">
+        <mat-icon>account_circle</mat-icon>
+      </button>
+    </mat-toolbar>
+
+    <!-- MAIN CONTENT AREA -->
+    <div class="main-content">
+      <router-outlet></router-outlet>
+    </div>
+  </mat-sidenav-content>
+</mat-sidenav-container>
+
+<!-- NOTIFICATIONS MENU -->
+<mat-menu #notificationsMenu="matMenu">
+  <button mat-menu-item>
+    <mat-icon>info</mat-icon>
+    <span>New enrollment requests (5)</span>
+  </button>
+  <button mat-menu-item>
+    <mat-icon>warning</mat-icon>
+    <span>Subject schedule conflicts</span>
+  </button>
+  <button mat-menu-item>
+    <mat-icon>assignment</mat-icon>
+    <span>Pending approvals</span>
+  </button>
+  <mat-divider></mat-divider>
+  <button mat-menu-item>View all notifications</button>
+</mat-menu>
+
+<!-- PROFILE MENU -->
+<mat-menu #profileMenu="matMenu">
+  <button mat-menu-item>
+    <mat-icon>person</mat-icon>
+    <span>My Profile</span>
+  </button>
+  <button mat-menu-item>
+    <mat-icon>settings</mat-icon>
+    <span>Settings</span>
+  </button>
+  <button mat-menu-item>
+    <mat-icon>help</mat-icon>
+    <span>Help</span>
+  </button>
+  <mat-divider></mat-divider>
+  <button mat-menu-item (click)="logout()">
+    <mat-icon>logout</mat-icon>
+    <span>Logout</span>
+  </button>
+</mat-menu>

@@ -1,0 +1,70 @@
+<div class="login-container">
+  <mat-card class="login-card">
+    <mat-card-header>
+      <div class="header-content">
+        <h1>Student Information System</h1>
+        <p>Login to your account</p>
+      </div>
+    </mat-card-header>
+
+    <mat-card-content>
+      <!-- Error Message -->
+      <div *ngIf="errorMessage" class="error-message">
+        <strong>Error:</strong> {{ errorMessage }}
+      </div>
+
+      <!-- Success Message -->
+      <div *ngIf="successMessage" class="success-message">
+        <strong>Success:</strong> {{ successMessage }}
+      </div>
+
+      <!-- Login Form -->
+      <form (ngSubmit)="login()" class="login-form">
+        <!-- Email Field -->
+        <mat-form-field class="full-width">
+          <mat-label>Email Address</mat-label>
+          <input 
+            matInput 
+            type="email" 
+            [(ngModel)]="email" 
+            name="email"
+            placeholder="Enter your email"
+            [disabled]="loading"
+            required>
+        </mat-form-field>
+
+        <!-- Password Field -->
+        <mat-form-field class="full-width">
+          <mat-label>Password</mat-label>
+          <input 
+            matInput 
+            type="password" 
+            [(ngModel)]="password" 
+            name="password"
+            placeholder="Enter your password"
+            [disabled]="loading"
+            required>
+        </mat-form-field>
+
+        <!-- Login Button -->
+        <button 
+          mat-raised-button 
+          color="primary" 
+          type="submit"
+          class="login-button"
+          [disabled]="loading">
+          {{ loading ? 'Logging in...' : 'Login' }}
+        </button>
+      </form>
+
+      <!-- Demo Credentials -->
+      <div class="demo-credentials">
+        <p><strong>Demo Accounts:</strong></p>
+        <p>👤 Student: student@example.com / password123</p>
+        <p>🔐 Admin: admin@example.com / admin123</p>
+        <p>💼 Accounting: accounting@example.com / acc123</p>
+        <p>🎓 Registrar: registrar@example.com / registrar123</p>
+      </div>
+    </mat-card-content>
+  </mat-card>
+</div>
