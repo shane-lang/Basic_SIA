@@ -1,0 +1,18 @@
+1. download node.js latest tapos install
+2. Open browser tapos search - https://github.com/shane-lang/Basic_SIA
+3. Click code - open with github desktop   
+4. clone mo yung project 
+5. Open Text editor -  Visual Studio Code
+   Open Terminal - Required for running Angular CLI commands
+
+   Install muna Angular CLI
+   CMD TERMINAL type - npm install -g @angular/cli
+
+6. After install type - ng serve
+    lalabas tong link - http://localhost:4200/ click nyo
+7. pag open ng project sa browser type nyo to
+  student view -  http://localhost:4200/student-dashboard
+  admin view - http://localhost:4200/admin-dashboard
+  accounting - http://localhost:4200/accounting-dashboard
+
+  pwede nyo open yan 3 sa ibat ibang tab.
