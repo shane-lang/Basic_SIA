@@ -1,9 +1,11 @@
 download xampp
 open xampp - start apche and mysql
 click mysql admin
-
+lilink kayo sa browser 
 sa admin makikita nyo sa taas tabi ng structure yung SQL click nyo lang yan
 sabay copy paste nyo yung na sa sia_db.sql sa query tapos go nyona okaya import nyo nalang
-pag okay na lipat nyo naman tong file ng sia-api yung mismong folder na andito sa 
+pag okay na lipat nyo naman tong file ng sia-api yung mismong folder na andito papunta sa 
 C:\xampp\htdocs 
 pagtapos nyan run nyo na system| type ng serve
+
+yung acc na gagamitin nyo nilagay kona sa demo acc ng login pansamantala
