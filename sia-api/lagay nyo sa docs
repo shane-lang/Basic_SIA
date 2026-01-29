@@ -1,0 +1,9 @@
+download xampp
+open xampp - start apche and mysql
+click mysql admin
+
+sa admin makikita nyo sa taas tabi ng structure yung SQL click nyo lang yan
+sabay copy paste nyo yung na sa sia_db.sql sa query tapos go nyona okaya import nyo nalang
+pag okay na lipat nyo naman tong file ng sia-api yung mismong folder na andito sa 
+C:\xampp\htdocs 
+pagtapos nyan run nyo na system| type ng serve
