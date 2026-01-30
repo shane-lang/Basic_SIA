@@ -34,6 +34,9 @@ import { RegistrarDashboardComponent } from './registrar/registrar-dashboard/reg
 import { ManageSubjectsComponent } from './registrar/manage-subjects/manage-subjects';
 import { AddSubjectComponent } from './registrar/add-subject/add-subject';
 import { DropSubjectComponent } from './registrar/drop-subject/drop-subject';
+import { ClassSections } from './admin/class-sections/class-sections';
+import { GradeSubmission } from './admin/grade-submission/grade-submission';
+import { Reports } from './admin/reports/reports';
 
 export const routes: Routes = [
   { path: 'login', component: LoginComponent },
@@ -61,14 +64,17 @@ export const routes: Routes = [
     canActivate: [AuthGuard], 
     data: { role: 'admin' },
     children: [
-      { path: 'dashboard', component: Admin },
+      { path: 'dashboard', component: AdminDashboard },
       { path: 'students', component: Students },
       { path: 'courses', component: Courses },
       { path: 'faculty', component: Faculty },
       { path: 'grading', component: Grading },
+      { path: 'grade-submission', component: GradeSubmission },
       { path: 'analytics', component: Analytics },
+      { path: 'reports', component: Reports },
       { path: 'audit-logs', component: AuditLogs },
       { path: 'settings', component: Settings },
+      { path: 'class-sections', component: ClassSections },
       { path: '', redirectTo: 'dashboard', pathMatch: 'full' }
     ]
   },
@@ -82,7 +88,7 @@ export const routes: Routes = [
     children: [
       { path: 'asr', component: ASR },
       { path: 'gcash', component: Gcash },
-      { path: 'permit-generation', component: PermitGeneration },
+      { path: 'permits', component: PermitGeneration },
       { path: 'report', component: Report },
       { path: '', redirectTo: 'asr', pathMatch: 'full' }
     ]
