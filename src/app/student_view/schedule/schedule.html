@@ -1,34 +1,147 @@
 <div class="schedule-container">
+
+  <!-- Header -->
   <div class="schedule-header">
-    <h1>My Schedule</h1>
-    <p>Fall Semester 2024 - 2025</p>
+    <div class="header-left">
+      <h1>📅 My Class Schedule</h1>
+      <p class="subtitle">{{ currentSemester }}</p>
+    </div>
+    <button class="btn-refresh" (click)="loadSchedule()" [disabled]="isLoading">
+      {{ isLoading ? '⏳' : '🔄' }} Refresh
+    </button>
   </div>
 
-  <div class="schedule-view">
-    <div class="day-column" *ngFor="let day of days">
-      <div class="day-header">{{ day }}</div>
-      <div class="classes">
-        <div class="class-card" *ngFor="let classItem of getClassesByDay(day)">
-          <div class="class-time">{{ classItem.time }}</div>
-          <div class="class-info">
-            <h3>{{ classItem.courseName }}</h3>
-            <p class="course-code">{{ classItem.courseCode }}</p>
-            <p class="instructor">Instructor: {{ classItem.instructor }}</p>
-            <p class="location">📍 {{ classItem.room }}</p>
+  <!-- Loading -->
+  <div *ngIf="isLoading" class="loading-state">
+    <div class="spinner"></div>
+    <p>Loading your schedule...</p>
+  </div>
+
+  <!-- Error -->
+  <div *ngIf="!isLoading && errorMessage" class="error-state">
+    <div class="error-icon">⚠️</div>
+    <h3>{{ errorMessage }}</h3>
+    <button class="btn-retry" (click)="loadSchedule()">Try Again</button>
+  </div>
+
+  <!-- Empty state -->
+  <div *ngIf="!isLoading && !errorMessage && schedule.length === 0" class="empty-state">
+    <div class="empty-icon">📅</div>
+    <h3>No Classes Scheduled</h3>
+    <p>You don't have any enlisted subjects yet. Go to <strong>Enrollment</strong> and enlist subjects to see your schedule here.</p>
+  </div>
+
+  <!-- Schedule content -->
+  <ng-container *ngIf="!isLoading && !errorMessage   && schedule.length > 0">
+
+    <!-- Summary Cards -->
+    <div class="summary-cards">
+      <div class="summary-card">
+        <span class="summary-number">{{ totalSubjects }}</span>
+        <span class="summary-label">Subjects</span>
+      </div>
+      <div class="summary-card">
+        <span class="summary-number">{{ totalCredits }}</span>
+        <span class="summary-label">Total Units</span>
+      </div>
+      <div class="summary-card">
+        <span class="summary-number">{{ activeDays.length }}</span>
+        <span class="summary-label">School Days</span>
+      </div>
+    </div>
+
+    <!-- Day-by-day schedule -->
+    <div class="schedule-days">
+      <div *ngFor="let day of DAYS">
+
+        <!-- Day has classes -->
+        <div *ngIf="hasCourses(day)" class="day-section">
+          <div class="day-header">
+            <span class="day-label">{{ day }}</span>
+            <span class="day-count">{{ getCoursesForDay(day).length }} class{{ getCoursesForDay(day).length > 1 ? 'es' : '' }}</span>
+          </div>
+          <div class="day-courses">
+            <div *ngFor="let course of getCoursesForDay(day)"
+              class="schedule-card"
+              [style.border-left-color]="getCourseColor(course.courseId)">
+              <div class="schedule-card-left" [style.background-color]="getCourseColor(course.courseId)" >
+                <span class="card-code" >{{ course.courseCode }}</span>
+                <span class="card-credits">{{ course.credits }} units</span>
+              </div>
+              <div class="schedule-card-body">
+                <h3 class="card-name">{{ course.courseName }}</h3>
+                <div class="card-details">
+                  <span class="card-detail">🕐 {{ course.time }}</span>
+                  <span class="card-detail">🚪 {{ course.room }}</span>
+                  <span class="card-detail">👨‍🏫 {{ course.instructor }}</span>
+                </div>
+              </div>
+              <div class="schedule-card-status">
+                <span class="status-badge enrolled">✅ Enrolled</span>
+              </div>
+            </div>
           </div>
         </div>
-        <div class="no-class" *ngIf="getClassesByDay(day).length === 0">No classes</div>
-      </div>
-    </div>
-  </div>
 
-  <div class="schedule-legend">
-    <h3>Legend</h3>
-    <div class="legend-items">
-      <div class="legend-item">
-        <div class="legend-color" style="background: #e3f2fd;"></div>
-        <span>Class Session</span>
+        <!-- Day has no classes -->
+        <div *ngIf="!hasCourses(day)" class="day-section day-empty">
+          <div class="day-header">
+            <span class="day-label" style="color:#a0aec0;">{{ day }}</span>
+            <span class="day-count" style="color:#cbd5e0;">No classes</span>
+          </div>
+        </div>
+
       </div>
     </div>
-  </div>
+
+    <!-- Full subject table -->
+    <div class="subject-table-section">
+      <h2 class="section-title">📋 All Enlisted Subjects</h2>
+      <div class="table-wrapper">
+        <table class="subjects-table">
+          <thead>
+            <tr>
+              <th>Code</th>
+              <th>Subject Name</th>
+              <th>Instructor</th>
+              <th>Days</th>
+              <th>Time</th>
+              <th>Room</th>
+              <th>Units</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr *ngFor="let course of uniqueCourses">
+              <td>
+                <span class="table-code" [style.color]="getCourseColor(course.courseId)">
+                  {{ course.courseCode }}
+                </span>
+              </td>
+              <td class="table-name">{{ course.courseName }}</td>
+              <td class="table-muted">{{ course.instructor }}</td>
+              <td>
+                <span class="day-tag" *ngFor="let d of course.day.split(',')">{{ d.trim() }}</span>
+              </td>
+              <td class="table-muted">{{ course.time }}</td>
+              <td class="table-muted">{{ course.room }}</td>
+              <td class="table-credits">{{ course.credits }}</td>
+              <td>
+                <span class="status-badge enrolled">✅ Enrolled</span>
+              </td>
+            </tr>
+          </tbody>
+          <tfoot>
+            <tr class="total-row">
+              <td colspan="6" style="text-align:right; padding-right:16px; color:#718096; font-weight:700;">Total Units:</td>
+              <td style="color:#667eea; font-size:18px; font-weight:800;">{{ totalCredits }}</td>
+              <td></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+
+  </ng-container>
+
 </div>

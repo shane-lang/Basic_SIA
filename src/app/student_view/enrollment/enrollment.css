@@ -2804,6 +2804,46 @@
   transform: translateY(-2px);
 }
 
+/* Payment Status Styling */
+.payment-badge {
+  display: inline-block;
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 14px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.payment-paid {
+  background-color: #d1fae5;
+  color: #065f46;
+  border: 1px solid #6ee7b7;
+}
+
+.payment-pending {
+  background-color: #fef3c7;
+  color: #78350f;
+  border: 1px solid #fcd34d;
+}
+
+.payment-overdue {
+  background-color: #fee2e2;
+  color: #7f1d1d;
+  border: 1px solid #fca5a5;
+}
+
+.status-card.payment {
+  background: linear-gradient(135deg, #e0f2fe 0%, #d1fae5 100%);
+  border-left: 4px solid #10b981;
+}
+
+.status-card.payment .count {
+  font-size: 18px;
+  font-weight: 600;
+  color: #065f46;
+}
+
 /* Responsive Design */
 @media (max-width: 768px) {
   .enrollment-header {
@@ -2873,3 +2913,77 @@
     width: 100%;
   }
 }
+/* ── GCash Payment Form ── */
+.gcash-instructions {
+  background: #f0f7ff;
+  border-left: 4px solid #0099cc;
+  border-radius: 8px;
+  padding: 18px 20px;
+  margin-bottom: 20px;
+}
+.gcash-instructions h3 { margin: 0 0 10px; color: #0077a8; font-size: 15px; font-weight: 700; }
+.instruction-list { margin: 0; padding-left: 20px; color: #444; line-height: 1.9; font-size: 14px; }
+
+.gcash-form-section { margin-bottom: 20px; }
+.gcash-form-section h3 { margin: 0 0 14px; font-size: 15px; font-weight: 700; color: #1a202c; }
+
+.gcash-form-section .form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+.gcash-form-section label { font-size: 13px; font-weight: 600; color: #4a5568; }
+.required { color: #e53e3e; }
+.gcash-form-section .form-control {
+  padding: 10px 14px;
+  border: 2px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.2s;
+}
+.gcash-form-section .form-control:focus { border-color: #667eea; }
+.gcash-form-section .form-control:disabled { background: #f7fafc; color: #a0aec0; }
+/* ── Cash Payment Pending Info ── */
+.cash-pending-info {
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  border-radius: 10px;
+  padding: 20px 24px;
+  margin: 20px 0;
+}
+
+.cash-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.cash-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.cash-step .step-num {
+  width: 30px;
+  height: 30px;
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  color: white;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.cash-step strong { display: block; font-size: 14px; color: #1a202c; margin-bottom: 2px; }
+.cash-step p { margin: 0; font-size: 13px; color: #718096; }
+
+.badge-gcash { background: #e8f4fd !important; color: #0369a1 !important; }
+.badge-cash  { background: #f0fdf4 !important; color: #166534 !important; }

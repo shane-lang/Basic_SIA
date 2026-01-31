@@ -1,37 +1,127 @@
-import { Component } from '@angular/core';
+import { Component, OnInit, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
+import { HttpClient } from '@angular/common/http';
 
-interface ScheduleClass {
-  day: string;
-  time: string;
+interface ScheduleEntry {
+  courseId:   number;
+  day:        string;
+  time:       string;
   courseName: string;
   courseCode: string;
   instructor: string;
-  room: string;
+  room:       string;
+  semester:   string;
+  credits:    number;
+  status:     string;
+  grade:      string;
 }
 
 @Component({
   selector: 'app-schedule',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, FormsModule],
   templateUrl: './schedule.html',
-  styleUrls: ['./schedule.css']
+  styleUrl: './schedule.css',
 })
-export class Schedule {
-  scheduleItems: ScheduleClass[] = [
-    { day: 'Monday', time: '8:00 AM - 9:30 AM', courseName: 'Introduction to Computer Science', courseCode: 'CS101', instructor: 'Dr. Juan Dela Cruz', room: 'IT Building Room 101' },
-    { day: 'Monday', time: '1:00 PM - 2:30 PM', courseName: 'Web Development', courseCode: 'CS103', instructor: 'Eng. Carlos Reyes', room: 'IT Building Room 301' },
-    { day: 'Tuesday', time: '10:00 AM - 11:30 AM', courseName: 'Data Structures', courseCode: 'CS102', instructor: 'Prof. Maria Santos', room: 'IT Building Room 205' },
-    { day: 'Wednesday', time: '8:00 AM - 9:30 AM', courseName: 'Introduction to Computer Science', courseCode: 'CS101', instructor: 'Dr. Juan Dela Cruz', room: 'IT Building Room 101' },
-    { day: 'Wednesday', time: '1:00 PM - 2:30 PM', courseName: 'Web Development', courseCode: 'CS103', instructor: 'Eng. Carlos Reyes', room: 'IT Building Room 301' },
-    { day: 'Thursday', time: '10:00 AM - 11:30 AM', courseName: 'Data Structures', courseCode: 'CS102', instructor: 'Prof. Maria Santos', room: 'IT Building Room 205' },
-    { day: 'Friday', time: '8:00 AM - 9:30 AM', courseName: 'Introduction to Computer Science', courseCode: 'CS101', instructor: 'Dr. Juan Dela Cruz', room: 'IT Building Room 101' },
-    { day: 'Friday', time: '1:00 PM - 2:30 PM', courseName: 'Web Development', courseCode: 'CS103', instructor: 'Eng. Carlos Reyes', room: 'IT Building Room 301' }
+export class Schedule implements OnInit {
+  private apiUrl = 'http://localhost/sia-api/enrollment.php';
+
+  constructor(private http: HttpClient, private cdr: ChangeDetectorRef) {}
+
+  userId:   number = 0;
+  schedule: ScheduleEntry[] = [];
+  isLoading = true;
+  errorMessage      = '';
+
+  currentSemester = '1st Semester, AY 2024-2025';
+
+  readonly DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+  // Color palette for courses
+  private COLORS = [
+    '#667eea', '#48bb78', '#ed8936', '#e53e3e',
+    '#38b2ac', '#9f7aea', '#f6ad55', '#4299e1',
   ];
+  private colorMap: Record<number, string> = {};
 
-  days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+  ngOnInit(): void {
+    const stored = localStorage.getItem('currentUser');
+    if (!stored) {
+      this.errorMessage = 'Not logged in.';
+      this.isLoading = false;
+      this.cdr.detectChanges();
+      return;
+    }
+    this.userId = JSON.parse(stored).id;
+    this.loadSchedule();
+  }
 
-  getClassesByDay(day: string): ScheduleClass[] {
-    return this.scheduleItems.filter(item => item.day === day);
+  loadSchedule(): void {
+    this.isLoading = true;
+    this.cdr.detectChanges();
+
+    this.http.get<any>(`${this.apiUrl}?action=get_schedule&user_id=${this.userId}`)
+      .subscribe({
+        next: (res) => {
+          this.isLoading = false;
+          if (res.success) {
+            this.schedule = res.schedule ?? [];
+            // Assign a color to each unique courseId
+            let colorIdx = 0;
+            this.schedule.forEach(e => {
+              if (this.colorMap[e.courseId] === undefined) {
+                this.colorMap[e.courseId] = this.COLORS[colorIdx % this.COLORS.length];
+                colorIdx++;
+              }
+            });
+          } else {
+            this.errorMessage = res.message || 'Failed to load schedule.';
+          }
+          this.cdr.detectChanges();
+        },
+        error: () => {
+          this.isLoading = false;
+          this.errorMessage = 'Cannot connect to server. Make sure XAMPP is running.';
+          this.cdr.detectChanges();
+        }
+      });
+  }
+
+  // Courses for a specific day
+  getCoursesForDay(day: string): ScheduleEntry[] {
+    return this.schedule.filter(e => e.day === day);
+  }
+
+  // Whether a day has classes
+  hasCourses(day: string): boolean {
+    return this.getCoursesForDay(day).length > 0;
+  }
+
+  // Color for a course card
+  getCourseColor(courseId: number): string {
+    return this.colorMap[courseId] ?? '#667eea';
+  }
+
+  // Unique courses list (for summary)
+  get uniqueCourses(): ScheduleEntry[] {
+    const seen = new Set<number>();
+    return this.schedule.filter(e => {
+      if (seen.has(e.courseId)) return false;
+      seen.add(e.courseId);
+      return true;
+    });
+  }
+
+  get totalCredits(): number {
+    return this.uniqueCourses.reduce((sum, e) => sum + e.credits, 0);
+  }
+
+  get totalSubjects(): number {
+    return this.uniqueCourses.length;
+  }
+
+  get activeDays(): string[] {
+    return this.DAYS.filter(d => this.hasCourses(d));
   }
 }

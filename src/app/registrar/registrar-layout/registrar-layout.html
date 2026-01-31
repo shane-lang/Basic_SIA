@@ -80,9 +80,13 @@
 
       <!-- NOTIFICATIONS -->
       <button mat-icon-button [matMenuTriggerFor]="notificationsMenu" class="notification-btn">
-        <mat-icon [matBadge]="notificationCount()" matBadgeColor="warn">
-          notifications
-        </mat-icon>
+        <mat-icon
+  aria-hidden="false"
+  [matBadge]="notificationCount()"
+  matBadgeColor="warn">
+  notifications
+</mat-icon>
+
       </button>
 
       <!-- PROFILE MENU -->

@@ -8,54 +8,39 @@
     </mat-card-header>
 
     <mat-card-content>
-      <!-- Error Message -->
       <div *ngIf="errorMessage" class="error-message">
         <strong>Error:</strong> {{ errorMessage }}
       </div>
-
-      <!-- Success Message -->
       <div *ngIf="successMessage" class="success-message">
         <strong>Success:</strong> {{ successMessage }}
       </div>
 
-      <!-- Login Form -->
       <form (ngSubmit)="login()" class="login-form">
-        <!-- Email Field -->
         <mat-form-field class="full-width">
           <mat-label>Email Address</mat-label>
-          <input 
-            matInput 
-            type="email" 
-            [(ngModel)]="email" 
-            name="email"
-            placeholder="Enter your email"
-            [disabled]="loading"
-            required>
+          <input matInput type="email" [(ngModel)]="email" name="email"
+            placeholder="Enter your email" [disabled]="loading" required>
         </mat-form-field>
 
-        <!-- Password Field -->
         <mat-form-field class="full-width">
           <mat-label>Password</mat-label>
-          <input 
-            matInput 
-            type="password" 
-            [(ngModel)]="password" 
-            name="password"
-            placeholder="Enter your password"
-            [disabled]="loading"
-            required>
+          <input matInput type="password" [(ngModel)]="password" name="password"
+            placeholder="Enter your password" [disabled]="loading" required>
         </mat-form-field>
 
-        <!-- Login Button -->
-        <button 
-          mat-raised-button 
-          color="primary" 
-          type="submit"
-          class="login-button"
-          [disabled]="loading">
+        <button mat-raised-button color="primary" type="submit"
+          class="login-button" [disabled]="loading">
           {{ loading ? 'Logging in...' : 'Login' }}
         </button>
       </form>
+
+      <!-- New Student Enrollment Button -->
+      <div class="enroll-section">
+        <p class="enroll-divider">New to our university?</p>
+        <button mat-stroked-button class="enroll-button" (click)="openModal()" [disabled]="loading">
+          🎓 New Student Enrollment
+        </button>
+      </div>
 
       <!-- Demo Credentials -->
       <div class="demo-credentials">
@@ -67,4 +52,212 @@
       </div>
     </mat-card-content>
   </mat-card>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════
+     ENROLLMENT MODAL
+══════════════════════════════════════════════════════════ -->
+<div class="modal-overlay" *ngIf="showModal" (click)="closeModal()">
+  <div class="modal-box" (click)="$event.stopPropagation()">
+
+    <!-- Modal Header -->
+    <div class="modal-header">
+      <div class="modal-title">
+        <span class="modal-icon">🎓</span>
+        <div>
+          <h2>New Student Enrollment</h2>
+          <p>{{ modalStep === 'program-select' ? 'Step 1 of 4 — Choose Program'
+              : modalStep === 'payment-method'  ? 'Step 2 of 4 — Payment Method'
+              : modalStep === 'registration'   ? 'Step 3 of 4 — Personal Info'
+              : modalStep === 'account'        ? 'Step 4 of 4 — Create Account'
+              : 'Enrollment Complete!' }}</p>
+        </div>
+      </div>
+      <button class="modal-close" (click)="closeModal()" [disabled]="isSubmitting">✕</button>
+    </div>
+
+    <!-- Progress Bar -->
+    <div class="progress-bar" *ngIf="modalStep !== 'done'">
+      <div class="progress-fill"
+        [style.width]="modalStep === 'program-select' ? '25%'
+                     : modalStep === 'payment-method' ? '50%'
+                     : modalStep === 'registration'   ? '75%'
+                     : '100%'">
+      </div>
+    </div>
+
+    <!-- Modal Error -->
+    <div class="modal-error" *ngIf="modalError">⚠️ {{ modalError }}</div>
+
+    <!-- ── STEP 1: Program Select ── -->
+    <div class="modal-body" *ngIf="modalStep === 'program-select'">
+      <h3 class="step-title">Choose your program</h3>
+      <div class="programs-grid">
+        <div *ngFor="let p of programs" class="program-card"
+          (click)="selectProgram(p.id)"
+          [class.selected]="selectedProgram === p.id">
+          <div class="program-badge">{{ p.code }}</div>
+          <h4>{{ p.name }}</h4>
+          <p>{{ p.description }}</p>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ── STEP 2: Payment Method ── -->
+    <div class="modal-body" *ngIf="modalStep === 'payment-method'">
+      <h3 class="step-title">Choose your payment method</h3>
+      <p class="step-subtitle">Select how you would like to pay your enrollment fee for <em>{{ getProgramName() }}</em>.</p>
+
+      <div class="type-options">
+        <div class="type-card" (click)="selectPaymentMethod('gcash')">
+          <div class="type-icon">📱</div>
+          <h4>GCash</h4>
+          <p>Pay online via GCash. Submit your reference number after enrollment.</p>
+        </div>
+        <div class="type-card" (click)="selectPaymentMethod('cash')">
+          <div class="type-icon">💵</div>
+          <h4>Cash</h4>
+          <p>Pay in person at the Accounting Office. Bring your enrollment slip.</p>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn-back" (click)="backTo('program-select')">← Back</button>
+      </div>
+    </div>
+
+    <!-- ── STEP 3: Registration Form ── -->
+    <div class="modal-body" *ngIf="modalStep === 'registration'">
+      <h3 class="step-title">Personal Information — <em>{{ getProgramName() }}</em></h3>
+
+      <div class="form-section">
+        <h4>Basic Information</h4>
+        <div class="form-row">
+          <div class="form-group">
+            <label>First Name <span class="req">*</span></label>
+            <input type="text" class="form-control" placeholder="Juan"
+              [(ngModel)]="regForm.firstName" [disabled]="isSubmitting">
+          </div>
+          <div class="form-group">
+            <label>Last Name <span class="req">*</span></label>
+            <input type="text" class="form-control" placeholder="Dela Cruz"
+              [(ngModel)]="regForm.lastName" [disabled]="isSubmitting">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Email Address <span class="req">*</span></label>
+            <input type="email" class="form-control" placeholder="juan@email.com"
+              [(ngModel)]="regForm.email" [disabled]="isSubmitting">
+          </div>
+          <div class="form-group">
+            <label>Phone Number</label>
+            <input type="tel" class="form-control" placeholder="09123456789"
+              [(ngModel)]="regForm.phone" [disabled]="isSubmitting">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Date of Birth</label>
+            <input type="date" class="form-control"
+              [(ngModel)]="regForm.dateOfBirth" [disabled]="isSubmitting">
+          </div>
+          <div class="form-group">
+            <label>Address</label>
+            <input type="text" class="form-control" placeholder="City, Province"
+              [(ngModel)]="regForm.address" [disabled]="isSubmitting">
+          </div>
+        </div>
+      </div>
+
+      <div class="form-section">
+        <h4>Emergency Contact</h4>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Contact Name</label>
+            <input type="text" class="form-control" placeholder="Maria Dela Cruz"
+              [(ngModel)]="regForm.emergencyContact" [disabled]="isSubmitting">
+          </div>
+          <div class="form-group">
+            <label>Contact Phone</label>
+            <input type="tel" class="form-control" placeholder="09987654321"
+              [(ngModel)]="regForm.emergencyPhone" [disabled]="isSubmitting">
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn-back" (click)="backTo('payment-method')" [disabled]="isSubmitting">← Back</button>
+        <button class="btn-next" (click)="nextToAccount()" [disabled]="isSubmitting">
+          Next: Create Account →
+        </button>
+      </div>
+    </div>
+
+    <!-- ── STEP 4: Create Account ── -->
+    <div class="modal-body" *ngIf="modalStep === 'account'">
+      <h3 class="step-title">Create Your Student Account</h3>
+      <p class="step-subtitle">This will be your login credentials for the Student Portal.</p>
+
+      <div class="form-section">
+        <div class="form-group full">
+          <label>Email / Username <span class="req">*</span></label>
+          <input type="email" class="form-control" placeholder="your@email.com"
+            [(ngModel)]="accountForm.username" [disabled]="isSubmitting">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Password <span class="req">*</span></label>
+            <input type="password" class="form-control" placeholder="Min. 6 characters"
+              [(ngModel)]="accountForm.password" [disabled]="isSubmitting">
+          </div>
+          <div class="form-group">
+            <label>Confirm Password <span class="req">*</span></label>
+            <input type="password" class="form-control" placeholder="Repeat password"
+              [(ngModel)]="accountForm.confirmPassword" [disabled]="isSubmitting">
+          </div>
+        </div>
+      </div>
+
+      <div class="account-info-box">
+        <p *ngIf="selectedPaymentMethod === 'gcash'">📱 After creating your account, you'll be logged in automatically and directed to complete your <strong>GCash payment</strong> for enrollment approval by the Accounting Office.</p>
+        <p *ngIf="selectedPaymentMethod === 'cash'">💵 After creating your account, you'll be logged in automatically. Proceed to the <strong>Accounting Office</strong> in person to complete your <strong>cash payment</strong> and finalize your enrollment.</p>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn-back" (click)="backTo('registration')" [disabled]="isSubmitting">← Back</button>
+        <button class="btn-submit" (click)="submitEnrollment()" [disabled]="isSubmitting">
+          {{ isSubmitting ? 'Creating Account...' : '✓ Create Account & Enroll' }}
+        </button>
+      </div>
+    </div>
+
+    <!-- ── DONE ── -->
+    <div class="modal-body done-body" *ngIf="modalStep === 'done'">
+      <div class="done-icon">🎉</div>
+      <h3>Enrollment Submitted!</h3>
+      <p>Your student account has been created successfully.</p>
+
+      <div class="credentials-box">
+        <h4>Your Login Credentials</h4>
+        <div class="cred-row">
+          <span>Email:</span>
+          <strong>{{ createdEmail }}</strong>
+        </div>
+        <div class="cred-row">
+          <span>Password:</span>
+          <strong>{{ createdPassword }}</strong>
+        </div>
+      </div>
+
+      <p class="done-note" *ngIf="selectedPaymentMethod === 'gcash'">📋 Please save your credentials. You will now be redirected to complete your <strong>GCash payment</strong> for Accounting verification.</p>
+      <p class="done-note" *ngIf="selectedPaymentMethod === 'cash'">📋 Please save your credentials. Proceed to the <strong>Accounting Office</strong> in person with your Student ID to complete your <strong>cash payment</strong>.</p>
+
+      <button class="btn-submit full-btn" (click)="loginWithNewAccount()">
+        {{ selectedPaymentMethod === 'cash' ? 'Login to Portal →' : 'Login & Complete Payment →' }}
+      </button>
+    </div>
+
+  </div>
 </div>

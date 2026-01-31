@@ -1,13 +1,20 @@
 Documents\GitHub\Basic_SIA\Basic_SIA1\src\app\registrar\registrar-layout\registrar-layout.css 
 :host {
   --primary-color: #667eea;
-  --secondary-color: #764ba2;
+  --secondary-color: #7c3aed;
   --accent-color: #00d4ff;
-  --danger-color: #ff6b6b;
-  --success-color: #51cf66;
-  --warning-color: #ffd43b;
+  --danger-color: #ef4444;
+  --success-color: #10b981;
+  --warning-color: #f59e0b;
   --dark-bg: #1a202c;
-  --light-bg: #f7f9fc;
+  --light-bg: #f8fafc;
+  --text-primary: #1e293b;
+  --text-secondary: #64748b;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.1);
+  --shadow-xl: 0 20px 25px rgba(0, 0, 0, 0.15);
+  --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .sidenav-container {
@@ -23,7 +30,9 @@ Documents\GitHub\Basic_SIA\Basic_SIA1\src\app\registrar\registrar-layout\registr
   color: white;
   display: flex;
   flex-direction: column;
-  box-shadow: 2px 0 8px rgba(0, 0, 0, 0.15);
+  box-shadow: 4px 0 12px rgba(0, 0, 0, 0.25);
+  position: relative;
+  z-index: 1000;
 }
 
 /* BRAND SECTION */
@@ -31,39 +40,53 @@ Documents\GitHub\Basic_SIA\Basic_SIA1\src\app\registrar\registrar-layout\registr
   display: flex;
   align-items: center;
   gap: 15px;
-  padding: 25px 20px;
+  padding: 28px 20px;
   background: linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: 2px solid rgba(255, 255, 255, 0.15);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.25);
 }
 
 .brand-icon {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 45px;
-  height: 45px;
-  background-color: rgba(255, 255, 255, 0.2);
-  border-radius: 10px;
+  width: 48px;
+  height: 48px;
+  background-color: rgba(255, 255, 255, 0.25);
+  border-radius: 12px;
+  flex-shrink: 0;
+  transition: var(--transition-smooth);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.sidebar-brand:hover .brand-icon {
+  background-color: rgba(255, 255, 255, 0.35);
+  transform: scale(1.05);
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
 }
 
 .brand-icon mat-icon {
   font-size: 28px;
   width: 28px;
   height: 28px;
+  color: white;
 }
 
 .brand-text h3 {
   margin: 0;
   font-size: 20px;
   font-weight: 700;
-  letter-spacing: 2px;
+  letter-spacing: 1.2px;
+  color: white;
 }
 
 .brand-text p {
-  margin: 0;
+  margin: 2px 0 0 0;
   font-size: 12px;
-  opacity: 0.8;
-  letter-spacing: 1px;
+  opacity: 0.9;
+  letter-spacing: 0.8px;
+  color: rgba(255, 255, 255, 0.9);
+  font-weight: 500;
 }
 
 /* USER INFO */
@@ -71,18 +94,33 @@ Documents\GitHub\Basic_SIA\Basic_SIA1\src\app\registrar\registrar-layout\registr
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 15px 20px;
+  padding: 18px 20px;
+  background: rgba(255, 255, 255, 0.08);
+  transition: var(--transition-smooth);
+  border-left: 4px solid transparent;
+}
+
+.user-info:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-left-color: var(--accent-color);
 }
 
 .user-avatar {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
-  background-color: var(--accent-color);
+  width: 44px;
+  height: 44px;
+  background: linear-gradient(135deg, var(--accent-color) 0%, var(--primary-color) 100%);
   border-radius: 50%;
   flex-shrink: 0;
+  box-shadow: 0 4px 8px rgba(0, 212, 255, 0.2);
+  transition: var(--transition-smooth);
+}
+
+.user-info:hover .user-avatar {
+  transform: scale(1.08);
+  box-shadow: 0 6px 12px rgba(0, 212, 255, 0.3);
 }
 
 .user-avatar mat-icon {
@@ -104,26 +142,31 @@ Documents\GitHub\Basic_SIA\Basic_SIA1\src\app\registrar\registrar-layout\registr
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  color: white;
 }
 
 .user-role {
   margin: 4px 0 0 0;
-  font-size: 12px;
-  opacity: 0.7;
+  font-size: 11px;
+  opacity: 0.75;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  color: rgba(255, 255, 255, 0.85);
+  font-weight: 500;
 }
 
 /* NAVIGATION MENU */
 .nav-menu {
   flex: 1;
-  padding: 15px 10px;
+  padding: 16px 12px;
   overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
 }
 
 .nav-item {
-  margin: 8px 0;
+  margin: 6px 0;
 }
 
 .menu-link {
@@ -131,51 +174,99 @@ Documents\GitHub\Basic_SIA\Basic_SIA1\src\app\registrar\registrar-layout\registr
   align-items: center;
   gap: 15px;
   padding: 12px 16px;
-  border-radius: 8px;
+  border-radius: 10px;
   color: #cbd5e0;
   text-decoration: none;
-  transition: all 0.3s ease;
-  border-left: 3px solid transparent;
+  transition: var(--transition-smooth);
+  border-left: 4px solid transparent;
   position: relative;
+  font-weight: 500;
+  font-size: 14px;
 }
 
 .menu-link:hover {
-  background-color: rgba(255, 255, 255, 0.1);
+  background-color: rgba(255, 255, 255, 0.12);
   color: white;
   padding-left: 18px;
+  border-left-color: var(--accent-color);
+  transform: translateX(2px);
 }
 
 .menu-link.active {
-  background-color: rgba(102, 126, 234, 0.2);
+  background: linear-gradient(90deg, rgba(102, 126, 234, 0.2) 0%, rgba(102, 126, 234, 0.05) 100%);
   color: var(--accent-color);
   border-left-color: var(--accent-color);
+  box-shadow: inset -4px 0 8px rgba(0, 212, 255, 0.1);
+  font-weight: 600;
+  padding-left: 18px;
+}
+
+.menu-link.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: linear-gradient(180deg, var(--accent-color) 0%, var(--primary-color) 100%);
+  border-radius: 0 4px 4px 0;
+  box-shadow: 0 0 8px rgba(0, 212, 255, 0.4);
 }
 
 .menu-icon {
   font-size: 20px;
   width: 20px;
   height: 20px;
+  flex-shrink: 0;
+  transition: var(--transition-smooth);
+}
+
+.menu-link:hover .menu-icon {
+  transform: scale(1.1);
+}
+
+.menu-link.active .menu-icon {
+  filter: drop-shadow(0 0 4px rgba(0, 212, 255, 0.3));
 }
 
 .menu-label {
   font-size: 14px;
   font-weight: 500;
+  flex: 1;
 }
 
 /* SIDEBAR FOOTER */
 .sidebar-footer {
-  padding: 15px 20px;
+  padding: 18px 20px;
   border-top: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
 }
 
 .logout-btn {
   width: 100%;
-  color: var(--danger-color);
-  border-color: var(--danger-color);
+  background: linear-gradient(135deg, var(--danger-color) 0%, #dc2626 100%);
+  color: white !important;
+  border: none !important;
+  border-radius: 8px;
+  padding: 10px 16px !important;
+  font-weight: 600;
+  transition: var(--transition-smooth);
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
 }
 
 .logout-btn:hover {
-  background-color: rgba(255, 107, 107, 0.1);
+  background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(239, 68, 68, 0.35);
+}
+
+.logout-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 8px rgba(239, 68, 68, 0.25);
 }
 
 /* MAIN CONTENT */
@@ -188,26 +279,36 @@ Documents\GitHub\Basic_SIA\Basic_SIA1\src\app\registrar\registrar-layout\registr
 
 /* TOP TOOLBAR */
 .top-toolbar {
-  background: white;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  padding: 0 20px;
+  background: linear-gradient(90deg, #ffffff 0%, #f8f9fc 100%);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  padding: 0 24px;
   position: sticky;
   top: 0;
-  z-index: 10;
+  z-index: 100;
   display: flex;
   align-items: center;
-  height: 70px;
+  height: 72px;
+  gap: 16px;
+  border-bottom: 1px solid rgba(102, 126, 234, 0.1);
 }
 
 .menu-toggle {
-  margin-right: 20px;
+  margin-right: 12px;
+  color: var(--primary-color);
+  transition: var(--transition-smooth);
+}
+
+.menu-toggle:hover {
+  background-color: rgba(102, 126, 234, 0.1);
+  transform: scale(1.05);
 }
 
 .toolbar-title {
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--dark-bg);
-  margin: 0 20px;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0 12px;
+  letter-spacing: 0.5px;
 }
 
 .spacer {
@@ -218,11 +319,20 @@ Documents\GitHub\Basic_SIA\Basic_SIA1\src\app\registrar\registrar-layout\registr
 .profile-btn {
   color: var(--primary-color);
   margin: 0 8px;
+  transition: var(--transition-smooth);
+  position: relative;
 }
 
 .notification-btn:hover,
 .profile-btn:hover {
-  background-color: rgba(102, 126, 234, 0.1);
+  background-color: rgba(102, 126, 234, 0.15);
+  transform: scale(1.05);
+  border-radius: 8px;
+}
+
+.notification-btn:active,
+.profile-btn:active {
+  transform: scale(0.95);
 }
 
 /* MAIN CONTENT AREA */

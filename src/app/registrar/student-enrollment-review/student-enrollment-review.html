@@ -1,0 +1,357 @@
+<div class="enrollment-review-container">
+  <!-- Header -->
+  <div class="header">
+    <h1>Student Enrollment Review</h1>
+    <p>Verify student enrollment information and payment status</p>
+  </div>
+
+  <!-- Notifications -->
+  <div class="notifications-container" *ngIf="notifications.length > 0">
+    <div *ngFor="let notif of notifications" [class]="'notification notification-' + notif.type">
+      <mat-icon>{{ notif.type === 'success' ? 'check_circle' : 'warning' }}</mat-icon>
+      <span>{{ notif.message }}</span>
+      <button mat-icon-button (click)="dismissNotification(notif.id)" class="close-btn">
+        <mat-icon>close</mat-icon>
+      </button>
+    </div>
+  </div>
+
+  <!-- Statistics Cards -->
+  <div class="stats-grid">
+    <mat-card class="stat-card">
+      <mat-card-content>
+        <mat-icon>people</mat-icon>
+        <div class="stat-value">{{ totalEnrollments }}</div>
+        <div class="stat-label">Total Enrollments</div>
+      </mat-card-content>
+    </mat-card>
+    <mat-card class="stat-card">
+      <mat-card-content>
+        <mat-icon style="color: #f59e0b;">schedule</mat-icon>
+        <div class="stat-value" style="color: #f59e0b;">{{ totalPendingEnrollments }}</div>
+        <div class="stat-label">Pending Approvals</div>
+      </mat-card-content>
+    </mat-card>
+    <mat-card class="stat-card">
+      <mat-card-content>
+        <mat-icon style="color: #10b981;">verified_user</mat-icon>
+        <div class="stat-value" style="color: #10b981;">{{ totalApprovedEnrollments }}</div>
+        <div class="stat-label">Approved</div>
+      </mat-card-content>
+    </mat-card>
+    <mat-card class="stat-card">
+      <mat-card-content>
+        <mat-icon style="color: #ef4444;">warning</mat-icon>
+        <div class="stat-value" style="color: #ef4444;">{{ totalUnpaidEnrollments }}</div>
+        <div class="stat-label">Unpaid Enrollments</div>
+      </mat-card-content>
+    </mat-card>
+  </div>
+
+  <!-- Student Cards -->
+  <div class="cards-section">
+    <div class="cards-header">
+      <div class="cards-title">
+        <h2>Students Waiting for Enrollment</h2>
+        <span class="record-count">{{ filteredStudents.length }} students</span>
+      </div>
+      <div class="cards-actions" *ngIf="filteredStudents.length > 0">
+        <button mat-button (click)="selectAllStudents()" *ngIf="!areAllStudentsSelected">
+          <mat-icon>check_box_outline_blank</mat-icon>
+          Select All
+        </button>
+        <button mat-button (click)="deselectAllStudents()" *ngIf="areAllStudentsSelected">
+          <mat-icon>check_box</mat-icon>
+          Deselect All
+        </button>
+        <span *ngIf="selectedStudentCount > 0" class="selected-count">
+          {{ selectedStudentCount }} selected
+        </span>
+      </div>
+    </div>
+
+    <div class="cards-grid">
+      <div *ngFor="let student of filteredStudents"
+           class="student-card"
+           [class.selected]="isStudentSelected(student.id)"
+           (click)="viewStudentDetails(student)">
+
+        <div class="card-checkbox">
+          <input type="checkbox"
+                 [checked]="isStudentSelected(student.id)"
+                 (change)="toggleStudentSelection(student.id)"
+                 (click)="$event.stopPropagation()">
+        </div>
+
+        <div class="card-content">
+          <div class="card-header-section">
+            <div class="student-name">{{ getDisplayName(student) }}</div>
+            <div class="student-id">{{ student.id }}</div>
+          </div>
+
+          <div class="card-program">
+            <mat-icon>school</mat-icon>
+            <span>{{ student.program }}</span>
+          </div>
+
+          <div class="card-badges">
+            <mat-chip [style.background-color]="getStatusColor(student.paymentStatus)" class="payment-badge">
+              <mat-icon *ngIf="student.paymentStatus === 'Paid'" class="badge-icon">check_circle</mat-icon>
+              <mat-icon *ngIf="student.paymentStatus === 'Pending'" class="badge-icon">schedule</mat-icon>
+              <mat-icon *ngIf="student.paymentStatus === 'Overdue'" class="badge-icon">error</mat-icon>
+              {{ student.paymentStatus }}
+            </mat-chip>
+            <mat-chip [style.background-color]="getStatusColor(student.enrollmentStatus)" class="enrollment-badge">
+              {{ student.enrollmentStatus }}
+            </mat-chip>
+          </div>
+
+          <div class="card-footer">
+            <button mat-icon-button class="view-details-btn" matTooltip="View Details">
+              <mat-icon>arrow_forward</mat-icon>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div *ngIf="filteredStudents.length === 0" class="no-data">
+      <mat-icon>search_off</mat-icon>
+      <p>No students found matching the criteria</p>
+    </div>
+  </div>
+
+  <!-- Student Details Modal -->
+  <div *ngIf="showStudentDetails && selectedStudent" class="modal-overlay" (click)="closeStudentDetails()">
+    <mat-card class="modal-content" (click)="$event.stopPropagation()">
+      <mat-card-header>
+        <div class="modal-header">
+          <h2>Student Details</h2>
+          <button mat-icon-button (click)="closeStudentDetails()" class="close-button">
+            <mat-icon>close</mat-icon>
+          </button>
+        </div>
+      </mat-card-header>
+
+      <mat-card-content class="modal-body">
+        <!-- Student Information Sheet -->
+        <div class="student-info-section">
+          <div class="section-title-bar">
+            <h3>📋 Student Information</h3>
+            <mat-chip [class]="'badge-' + selectedStudent.studentType.toLowerCase()">
+              {{ selectedStudent.studentType }} Student
+            </mat-chip>
+          </div>
+
+          <div class="info-columns">
+            <!-- Personal Information -->
+            <div class="info-column">
+              <h4>Personal Information</h4>
+              <div class="info-item">
+                <label>Student ID</label>
+                <span>{{ selectedStudent.id }}</span>
+              </div>
+              <div class="info-item">
+                <label>Full Name</label>
+                <span>{{ getDisplayName(selectedStudent) }}</span>
+              </div>
+              <div class="info-item">
+                <label>Email</label>
+                <span><a [href]="'mailto:' + selectedStudent.email">{{ selectedStudent.email }}</a></span>
+              </div>
+              <div class="info-item">
+                <label>Phone</label>
+                <span><a [href]="'tel:' + selectedStudent.phone">{{ selectedStudent.phone }}</a></span>
+              </div>
+            </div>
+
+            <!-- Academic Information -->
+            <div class="info-column">
+              <h4>Academic Information</h4>
+              <div class="info-item">
+                <label>Program</label>
+                <span>{{ selectedStudent.program }}</span>
+              </div>
+              <div class="info-item">
+                <label>Year Level</label>
+                <span>{{ selectedStudent.yearLevel }}</span>
+              </div>
+              <div class="info-item">
+                <label>Current GPA</label>
+                <span class="gpa-value">{{ selectedStudent.gpa | number: '1.2-2' }}</span>
+              </div>
+              <div class="info-item">
+                <label>Enrollment Status</label>
+                <span>
+                  <mat-chip [style.background-color]="getStatusColor(selectedStudent.enrollmentStatus)">
+                    {{ selectedStudent.enrollmentStatus }}
+                  </mat-chip>
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <mat-divider></mat-divider>
+
+        <!-- Enrollment Status Section -->
+        <div class="enrollment-status-section">
+          <h3>Enrollment Status</h3>
+          <div class="status-grid">
+            <div class="status-item">
+              <label>Enrollment Status</label>
+              <mat-chip [style.background-color]="getStatusColor(selectedStudent.enrollmentStatus)" class="status-chip">
+                {{ selectedStudent.enrollmentStatus }}
+              </mat-chip>
+            </div>
+            <div class="status-item">
+              <label>Approval Status</label>
+              <mat-chip [style.background-color]="getStatusColor(selectedStudent.approvalStatus)" class="status-chip">
+                {{ selectedStudent.approvalStatus }}
+              </mat-chip>
+            </div>
+            <div class="status-item">
+              <label>Enrollment Date</label>
+              <span>{{ selectedStudent.enrollmentDate | date: 'MMM dd, yyyy' }}</span>
+            </div>
+          </div>
+        </div>
+
+        <mat-divider></mat-divider>
+
+        <!-- Payment Status Section -->
+        <div class="payment-status-section">
+          <h3>Payment Information</h3>
+          <div class="payment-details">
+            <div class="payment-status-row">
+              <label>Payment Status</label>
+              <mat-chip [style.background-color]="getStatusColor(selectedStudent.paymentStatus)" class="status-chip">
+                {{ selectedStudent.paymentStatus }}
+              </mat-chip>
+            </div>
+            <div class="payment-info-grid">
+              <div class="info-item">
+                <label>Amount</label>
+                <span>₱{{ selectedStudent.paymentAmount | number: '1.2-2' }}</span>
+              </div>
+              <div class="info-item" *ngIf="selectedStudent.paymentDate">
+                <label>Payment Date</label>
+                <span>{{ selectedStudent.paymentDate | date: 'MMM dd, yyyy' }}</span>
+              </div>
+              <div class="info-item" *ngIf="selectedStudent.paymentReference">
+                <label>Reference Number</label>
+                <span>{{ selectedStudent.paymentReference }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <mat-divider></mat-divider>
+
+        <!-- Enrolled Courses Section -->
+        <div class="courses-section">
+          <h3>📚 Enrolled Courses ({{ getTotalEnrolledCredits(selectedStudentCourses) }} credits)</h3>
+
+          <div *ngIf="selectedStudentCourses.length > 0" class="courses-cards">
+            <div *ngFor="let course of selectedStudentCourses" class="course-detail-card">
+              <div class="course-card-header">
+                <div class="course-info">
+                  <span class="course-code">{{ course.code }}</span>
+                  <h4>{{ course.name }}</h4>
+                </div>
+                <mat-chip [style.background-color]="getStatusColor(course.status)" class="course-status-chip">
+                  {{ course.status }}
+                </mat-chip>
+              </div>
+
+              <div class="course-card-body">
+                <div class="course-detail-row">
+                  <span class="detail-label"><mat-icon>school</mat-icon>Credits:</span>
+                  <span class="detail-value">{{ course.credits }} units</span>
+                </div>
+                <div class="course-detail-row">
+                  <span class="detail-label"><mat-icon>person</mat-icon>Instructor:</span>
+                  <span class="detail-value">{{ course.instructor }}</span>
+                </div>
+                <div class="course-detail-row">
+                  <span class="detail-label"><mat-icon>schedule</mat-icon>Schedule:</span>
+                  <span class="detail-value">{{ course.schedule }}</span>
+                </div>
+                <div class="course-detail-row">
+                  <span class="detail-label"><mat-icon>location_on</mat-icon>Room:</span>
+                  <span class="detail-value">{{ course.room }}</span>
+                </div>
+                <div class="course-detail-row">
+                  <span class="detail-label"><mat-icon>calendar_today</mat-icon>Enrollment Date:</span>
+                  <span class="detail-value">{{ course.enrollmentDate | date: 'MMM dd, yyyy' }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div *ngIf="selectedStudentCourses.length === 0" class="no-courses">
+            <mat-icon>school</mat-icon>
+            <p>No courses enrolled</p>
+          </div>
+        </div>
+
+        <mat-divider></mat-divider>
+
+        <!-- Action Buttons -->
+        <div class="action-buttons" *ngIf="selectedStudent.approvalStatus === 'Pending'">
+          <h3>Approval Actions</h3>
+
+          <!-- Payment Verification Warning -->
+          <div *ngIf="selectedStudent.paymentStatus !== 'Paid'" class="payment-warning-box">
+            <mat-icon class="warning-icon">warning</mat-icon>
+            <div class="warning-content">
+              <h4>⚠️ Payment Verification Required</h4>
+              <p>Student payment status: <strong>{{ selectedStudent.paymentStatus }}</strong></p>
+              <p class="warning-text">Cannot approve enrollment until student completes payment at the cashier.</p>
+              <p class="payment-details" *ngIf="selectedStudent.paymentAmount">
+                Amount Due: <strong>₱{{ selectedStudent.paymentAmount | number: '1.2-2' }}</strong>
+              </p>
+            </div>
+          </div>
+
+          <!-- Payment Verified Success -->
+          <div *ngIf="selectedStudent.paymentStatus === 'Paid'" class="payment-success-box">
+            <mat-icon class="success-icon">verified_user</mat-icon>
+            <div class="success-content">
+              <h4>✓ Payment Verified</h4>
+              <p>Student payment has been confirmed from accounting</p>
+              <p class="payment-details">
+                <span>Payment Date: <strong>{{ selectedStudent.paymentDate | date: 'MMM dd, yyyy' }}</strong></span>
+                <span *ngIf="selectedStudent.paymentReference">Reference: <strong>{{ selectedStudent.paymentReference }}</strong></span>
+              </p>
+              <p class="approval-allowed">Student is eligible for enrollment approval</p>
+            </div>
+          </div>
+
+          <div class="button-group">
+            <button
+              mat-raised-button
+              color="accent"
+              (click)="approveEnrollment(selectedStudent)"
+              [disabled]="!canApproveEnrollment(selectedStudent)"
+              class="approve-btn">
+              <mat-icon>check_circle</mat-icon>
+              Approve Enrollment
+            </button>
+            <button mat-raised-button color="warn" (click)="rejectEnrollment(selectedStudent)">
+              <mat-icon>cancel</mat-icon>
+              Reject Enrollment
+            </button>
+          </div>
+        </div>
+
+        <div *ngIf="selectedStudent.approvalStatus !== 'Pending'" class="action-buttons">
+          <div class="status-message">
+            <mat-icon>{{ selectedStudent.approvalStatus === 'Approved' ? 'check_circle' : 'disabled_by_default' }}</mat-icon>
+            <span>This enrollment has already been {{ selectedStudent.approvalStatus | lowercase }}</span>
+          </div>
+        </div>
+      </mat-card-content>
+    </mat-card>
+  </div>
+</div>

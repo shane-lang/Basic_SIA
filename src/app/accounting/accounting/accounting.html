@@ -1,0 +1,316 @@
+<div class="accounting-container">
+
+  <!-- Header -->
+  <div class="accounting-header">
+    <div class="header-left">
+      <div class="header-icon">🏦</div>
+      <div>
+        <h1>Accounting Office</h1>
+        <p>Payment Verification — Cash & GCash</p>
+      </div>
+    </div>
+    <div class="header-stats">
+      <div class="stat-box">
+        <span class="stat-number">{{ pendingPayments.length }}</span>
+        <span class="stat-label">Pending</span>
+      </div>
+      <div class="stat-box verified">
+        <span class="stat-number">{{ paymentHistory.length }}</span>
+        <span class="stat-label">Processed</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tab-bar">
+    <button class="tab-btn" [class.active]="currentTab === 'pending'" (click)="switchTab('pending')">
+      ⏳ Pending Verification
+      <span class="tab-badge" *ngIf="pendingPayments.length > 0">{{ pendingPayments.length }}</span>
+    </button>
+    <button class="tab-btn" [class.active]="currentTab === 'history'" (click)="switchTab('history')">
+      📋 Payment History
+    </button>
+  </div>
+
+  <!-- ══ PENDING TAB ══ -->
+  <div *ngIf="currentTab === 'pending'">
+
+    <div *ngIf="isLoadingPending" class="loading-state">
+      <div class="spinner"></div>
+      <p>Loading pending payments...</p>
+    </div>
+
+    <div *ngIf="!isLoadingPending && pendingPayments.length === 0" class="empty-state">
+      <div class="empty-icon">✅</div>
+      <h3>No Pending Payments</h3>
+      <p>All submitted payments have been processed.</p>
+    </div>
+
+    <div *ngIf="!isLoadingPending && pendingPayments.length > 0" class="payments-grid">
+      <div *ngFor="let p of pendingPayments" class="payment-card">
+
+        <!-- Card Header -->
+        <div class="card-header">
+          <div class="student-info">
+            <div class="avatar">{{ p.firstName[0] }}{{ p.lastName[0] }}</div>
+            <div>
+              <h3>{{ p.firstName }} {{ p.lastName }}</h3>
+              <span class="student-number">{{ p.studentNumber }}</span>
+            </div>
+          </div>
+          <div style="display:flex; flex-direction:column; align-items:flex-end; gap:6px;">
+            <span class="badge" [class.badge-gcash]="isGCash(p)" [class.badge-cash]="isCash(p)">
+              {{ isCash(p) ? '💵 Cash' : '📱 GCash' }}
+            </span>
+            <span class="badge pending">⏳ Pending</span>
+          </div>
+        </div>
+
+        <!-- Card Body -->
+        <div class="card-body">
+          <div class="info-row">
+            <span class="info-label">Program</span>
+            <span class="info-value">{{ p.program }}</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Year Level</span>
+            <span class="info-value">{{ p.yearLevel }}</span>
+          </div>
+          <div class="info-row">
+            <span class="info-label">Semester</span>
+            <span class="info-value">{{ p.semester }}</span>
+          </div>
+
+          <div class="divider"></div>
+
+          <!-- ── GCash Details ── -->
+          <ng-container *ngIf="isGCash(p)">
+            <div class="info-row highlight">
+              <span class="info-label">GCash Reference</span>
+              <span class="info-value mono">{{ p.gcashReference }}</span>
+            </div>
+            <div class="info-row highlight">
+              <span class="info-label">Transaction ID</span>
+              <span class="info-value mono small">{{ p.transactionId }}</span>
+            </div>
+            <div class="info-row">
+              <span class="info-label">Amount Paid</span>
+              <span class="info-value amount">₱{{ formatAmount(p.gcashAmount) }}</span>
+            </div>
+            <div class="info-row">
+              <span class="info-label">Payment Date</span>
+              <span class="info-value">{{ formatDate(p.gcashDate) }}</span>
+            </div>
+          </ng-container>
+
+          <!-- ── Cash Details ── -->
+          <ng-container *ngIf="isCash(p)">
+            <div class="info-row" style="background:#fffbeb; padding:8px; border-radius:6px; margin: 0 -8px;">
+              <span class="info-label">Payment Type</span>
+              <span class="info-value" style="color:#92400e; font-weight:700;">🕐 Awaiting Cash at Cashier Window</span>
+            </div>
+            <div class="info-row">
+              <span class="info-label">Amount Due</span>
+              <span class="info-value amount">₱25,000.00</span>
+            </div>
+            <div style="background:#fef3c7; border-left:3px solid #f59e0b; border-radius:6px; padding:10px 12px; margin:10px 0; font-size:12px; color:#92400e;">
+              ⚠️ Confirm student has paid in person at the cashier window before approving.
+            </div>
+          </ng-container>
+
+          <div class="info-row">
+            <span class="info-label">Submitted</span>
+            <span class="info-value muted">{{ formatDateTime(p.submittedAt) }}</span>
+          </div>
+        </div>
+
+        <!-- Card Actions -->
+        <div class="card-actions">
+          <button class="btn-approve" (click)="openApprove(p)">
+            {{ isCash(p) ? '✓ Confirm Cash Received' : '✓ Approve GCash Payment' }}
+          </button>
+          <button class="btn-reject" (click)="openReject(p)">✗ Reject</button>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ HISTORY TAB ══ -->
+  <div *ngIf="currentTab === 'history'">
+
+    <div *ngIf="isLoadingHistory" class="loading-state">
+      <div class="spinner"></div>
+      <p>Loading payment history...</p>
+    </div>
+
+    <div *ngIf="!isLoadingHistory && paymentHistory.length === 0" class="empty-state">
+      <div class="empty-icon">📋</div>
+      <h3>No Payment History</h3>
+      <p>Processed payments will appear here.</p>
+    </div>
+
+    <div *ngIf="!isLoadingHistory && paymentHistory.length > 0" class="history-table-wrapper">
+      <table class="history-table">
+        <thead>
+          <tr>
+            <th>Student</th>
+            <th>Program</th>
+            <th>Method</th>
+            <th>Reference / Details</th>
+            <th>Amount</th>
+            <th>Payment Date</th>
+            <th>Status</th>
+            <th>Verified By</th>
+            <th>Verified At</th>
+            <th>Notes</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr *ngFor="let h of paymentHistory">
+            <td>
+              <div class="table-student">
+                <strong>{{ h.firstName }} {{ h.lastName }}</strong>
+                <span class="muted">{{ h.studentNumber }}</span>
+              </div>
+            </td>
+            <td>{{ h.program }}</td>
+            <td>
+              <span class="badge" [class.badge-gcash]="isGCash(h)" [class.badge-cash]="isCash(h)">
+                {{ isCash(h) ? '💵 Cash' : '📱 GCash' }}
+              </span>
+            </td>
+            <td>
+              <span class="mono" *ngIf="isGCash(h)">{{ h.gcashReference }}</span>
+              <span class="muted" *ngIf="isCash(h)">Walk-in Cash Payment</span>
+            </td>
+            <td>
+              <!-- Cash always shows ₱25,000.00; GCash shows actual amount submitted -->
+              <strong class="amount">
+                {{ isCash(h) ? '₱25,000.00' : '₱' + formatAmount(h.gcashAmount) }}
+              </strong>
+            </td>
+            <td>{{ isGCash(h) ? formatDate(h.gcashDate) : '—' }}</td>
+            <td>
+              <span class="badge"
+                [class.verified]="h.status === 'Verified'"
+                [class.rejected]="h.status === 'Rejected'">
+                {{ h.status === 'Verified' ? '✓ Verified' : '✗ Rejected' }}
+              </span>
+            </td>
+            <td>{{ h.verifiedByName || '—' }}</td>
+            <td class="muted">{{ formatDateTime(h.verifiedAt) }}</td>
+            <td class="notes-cell">{{ h.notes || '—' }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<!-- ══ APPROVE / REJECT MODAL ══ -->
+<div class="modal-overlay" *ngIf="showModal" (click)="closeModal()">
+  <div class="modal-box" (click)="$event.stopPropagation()">
+
+    <div class="modal-header"
+      [class.approve-header]="modalMode === 'approve'"
+      [class.reject-header]="modalMode === 'reject'">
+      <h2>
+        <ng-container *ngIf="modalMode === 'approve'">
+          {{ isCash(selectedPayment) ? '💵 Confirm Cash Payment Received' : '📱 Approve GCash Payment' }}
+        </ng-container>
+        <ng-container *ngIf="modalMode === 'reject'">✗ Reject Payment</ng-container>
+      </h2>
+      <button class="modal-close" (click)="closeModal()">✕</button>
+    </div>
+
+    <div class="modal-body" *ngIf="selectedPayment">
+
+      <div class="modal-student">
+        <strong>{{ selectedPayment.firstName }} {{ selectedPayment.lastName }}</strong>
+        <span>{{ selectedPayment.studentNumber }}</span>
+        <span class="badge" [class.badge-gcash]="isGCash(selectedPayment)" [class.badge-cash]="isCash(selectedPayment)">
+          {{ isCash(selectedPayment) ? '💵 Cash' : '📱 GCash' }}
+        </span>
+      </div>
+
+      <!-- GCash details in modal -->
+      <div class="modal-details" *ngIf="isGCash(selectedPayment)">
+        <div class="modal-row">
+          <span>GCash Reference</span>
+          <span class="mono">{{ selectedPayment.gcashReference }}</span>
+        </div>
+        <div class="modal-row">
+          <span>Amount Submitted</span>
+          <span class="amount">₱{{ formatAmount(selectedPayment.gcashAmount) }}</span>
+        </div>
+        <div class="modal-row">
+          <span>Transaction ID</span>
+          <span class="mono small">{{ selectedPayment.transactionId }}</span>
+        </div>
+        <div class="modal-row">
+          <span>Payment Date</span>
+          <span>{{ formatDate(selectedPayment.gcashDate) }}</span>
+        </div>
+      </div>
+
+      <!-- Cash details in modal -->
+      <div class="modal-details" *ngIf="isCash(selectedPayment)">
+        <div class="modal-row">
+          <span>Payment Type</span>
+          <span>Walk-in Cash Payment</span>
+        </div>
+        <div class="modal-row">
+          <span>Amount Due</span>
+          <span class="amount">₱25,000.00</span>
+        </div>
+        <div class="modal-row">
+          <span>Program</span>
+          <span>{{ selectedPayment.program }}</span>
+        </div>
+      </div>
+
+      <!-- Info boxes -->
+      <div *ngIf="modalMode === 'approve' && isCash(selectedPayment)" class="modal-info" style="background:#d4edda; color:#155724; border-left:4px solid #28a745; border-radius:8px; padding:12px 14px; margin-bottom:16px;">
+        <p>💵 Only click <strong>Confirm</strong> if this student has <strong>physically paid cash</strong> at the cashier window.</p>
+      </div>
+      <div *ngIf="modalMode === 'approve' && isGCash(selectedPayment)" class="modal-info approve-info">
+        <p>✅ Approving will mark the student's payment as <strong>Paid</strong> and automatically <strong>approve their enrollment</strong>.</p>
+      </div>
+      <div *ngIf="modalMode === 'reject' && isCash(selectedPayment)" class="modal-info reject-info">
+        <p>⚠️ Rejecting means the student has <strong>not yet paid</strong>. They will need to return and pay at the cashier window.</p>
+      </div>
+      <div *ngIf="modalMode === 'reject' && isGCash(selectedPayment)" class="modal-info reject-info">
+        <p>⚠️ Rejecting will require the student to resubmit a valid GCash reference. Please provide a reason.</p>
+      </div>
+
+      <div class="form-group">
+        <label>Notes / Remarks {{ modalMode === 'reject' ? '(required)' : '(optional)' }}</label>
+        <textarea
+          [(ngModel)]="modalNotes"
+          rows="3"
+          class="modal-textarea"
+          [placeholder]="isCash(selectedPayment)
+            ? (modalMode === 'approve' ? 'e.g., Student paid ₱25,000 cash at window — OR 3' : 'e.g., Student has not come to the cashier yet')
+            : (modalMode === 'approve' ? 'e.g., Payment verified via GCash app' : 'e.g., Reference number not found in GCash records')">
+        </textarea>
+      </div>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn-cancel" (click)="closeModal()" [disabled]="isProcessing">Cancel</button>
+      <button
+        [class]="modalMode === 'approve' ? 'btn-confirm-approve' : 'btn-confirm-reject'"
+        (click)="confirmAction()"
+        [disabled]="isProcessing || (modalMode === 'reject' && !modalNotes.trim())">
+        {{ isProcessing
+            ? 'Processing...'
+            : (modalMode === 'approve'
+                ? (isCash(selectedPayment) ? '✓ Confirm Cash Received' : '✓ Confirm Approval')
+                : '✗ Confirm Rejection') }}
+      </button>
+    </div>
+
+  </div>
+</div>

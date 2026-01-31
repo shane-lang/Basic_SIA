@@ -34,9 +34,11 @@ import { RegistrarDashboardComponent } from './registrar/registrar-dashboard/reg
 import { ManageSubjectsComponent } from './registrar/manage-subjects/manage-subjects';
 import { AddSubjectComponent } from './registrar/add-subject/add-subject';
 import { DropSubjectComponent } from './registrar/drop-subject/drop-subject';
+import { StudentEnrollmentReviewComponent } from './registrar/student-enrollment-review/student-enrollment-review';
 import { ClassSections } from './admin/class-sections/class-sections';
 import { GradeSubmission } from './admin/grade-submission/grade-submission';
 import { Reports } from './admin/reports/reports';
+import { Accounting } from './accounting/accounting/accounting';
 
 export const routes: Routes = [
   { path: 'login', component: LoginComponent },
@@ -80,7 +82,7 @@ export const routes: Routes = [
   },
   
   // Accounting Routes
-  { 
+ { 
     path: 'accounting', 
     component: AccountingLayout, 
     canActivate: [AuthGuard], 
@@ -88,12 +90,12 @@ export const routes: Routes = [
     children: [
       { path: 'asr', component: ASR },
       { path: 'gcash', component: Gcash },
+      { path: 'accounting', component: Accounting },
       { path: 'permits', component: PermitGeneration },
       { path: 'report', component: Report },
       { path: '', redirectTo: 'asr', pathMatch: 'full' }
     ]
   },
-
   // Registrar Routes
   { 
     path: 'registrar', 
@@ -105,6 +107,7 @@ export const routes: Routes = [
       { path: 'manage-subjects', component: ManageSubjectsComponent },
       { path: 'add-subject', component: AddSubjectComponent },
       { path: 'drop-subject', component: DropSubjectComponent },
+      { path: 'student-enrollment-review', component: StudentEnrollmentReviewComponent },
       { path: '', redirectTo: 'dashboard', pathMatch: 'full' }
     ]
   },

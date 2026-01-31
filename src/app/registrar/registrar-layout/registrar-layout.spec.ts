@@ -1,18 +1,18 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 
-import { RegistrarLayout } from './registrar-layout';
+import { RegistrarLayoutComponent } from './registrar-layout';
 
-describe('RegistrarLayout', () => {
-  let component: RegistrarLayout;
-  let fixture: ComponentFixture<RegistrarLayout>;
+describe('RegistrarLayoutComponent', () => {
+  let component: RegistrarLayoutComponent;
+  let fixture: ComponentFixture<RegistrarLayoutComponent>;
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
-      imports: [RegistrarLayout]
+      imports: [RegistrarLayoutComponent]
     })
     .compileComponents();
 
-    fixture = TestBed.createComponent(RegistrarLayout);
+    fixture = TestBed.createComponent(RegistrarLayoutComponent);
     component = fixture.componentInstance;
     await fixture.whenStable();
   });

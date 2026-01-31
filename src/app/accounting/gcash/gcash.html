@@ -1,11 +1,11 @@
 <div class="gcash-container">
-  <!-- Header Section -->
+  <!-- Header -->
   <div class="header-section">
     <div class="header-content">
       <div class="logo-icon">💳</div>
       <div class="header-text">
-        <h1>GCash Reference Encoder</h1>
-        <p>Encode and track GCash payment references</p>
+        <h1>GCash Payment</h1>
+        <p>Submit your GCash payment for accounting verification</p>
       </div>
     </div>
   </div>
@@ -14,73 +14,69 @@
     <!-- Input Form Card -->
     <mat-card class="form-card">
       <mat-card-header>
-        <h2>Encode Payment Reference</h2>
+        <h2>{{ submitted ? 'Payment Submitted ✓' : 'Submit GCash Payment' }}</h2>
       </mat-card-header>
 
       <mat-card-content>
-        <form class="gcash-form">
+        <!-- Student Info Banner -->
+        <div class="student-banner" *ngIf="studentId">
+          <div class="banner-row">
+            <span class="banner-label">Student ID:</span>
+            <span class="banner-value">{{ studentId }}</span>
+          </div>
+          <div class="banner-row">
+            <span class="banner-label">Name:</span>
+            <span class="banner-value">{{ studentName }}</span>
+          </div>
+          <div class="banner-row">
+            <span class="banner-label">Program:</span>
+            <span class="banner-value">{{ program }}</span>
+          </div>
+          <div class="banner-row">
+            <span class="banner-label">Semester:</span>
+            <span class="banner-value">{{ semester }}</span>
+          </div>
+        </div>
+
+        <!-- Already submitted notice -->
+        <div class="submitted-notice" *ngIf="submitted">
+          <span>⏳</span>
+          <p>Your payment has been submitted and is now <strong>pending verification</strong> by the Accounting Office. You will be notified once it's approved.</p>
+        </div>
+
+        <form class="gcash-form" *ngIf="!submitted">
           <!-- GCash Reference Number -->
           <mat-form-field class="full-width">
             <mat-label>GCash Reference Number *</mat-label>
-            <input 
-              matInput 
-              [(ngModel)]="referenceNumber" 
-              name="referenceNumber"
-              placeholder="e.g., G1234567890123"
-              type="text">
+            <input matInput [(ngModel)]="referenceNumber" name="referenceNumber"
+              placeholder="e.g., G1234567890123" type="text">
             <mat-icon matSuffix>receipt</mat-icon>
-          </mat-form-field>
-
-          <!-- Student ID -->
-          <mat-form-field class="full-width">
-            <mat-label>Student ID *</mat-label>
-            <input 
-              matInput 
-              [(ngModel)]="studentId" 
-              name="studentId"
-              placeholder="e.g., STU-2024-001">
-            <mat-icon matSuffix>person</mat-icon>
           </mat-form-field>
 
           <!-- Amount -->
           <mat-form-field class="full-width">
-            <mat-label>Amount (₱) *</mat-label>
-            <input 
-              matInput 
-              [(ngModel)]="amount" 
-              name="amount"
-              placeholder="0.00"
-              type="number"
-              min="0"
-              step="0.01">
+            <mat-label>Amount Paid (₱) *</mat-label>
+            <input matInput [(ngModel)]="amount" name="amount"
+              placeholder="25000.00" type="number" min="0" step="0.01">
             <mat-icon matSuffix>attach_money</mat-icon>
           </mat-form-field>
 
           <!-- Payment Date -->
           <mat-form-field class="full-width">
-            <mat-label>Payment Date</mat-label>
-            <input 
-              matInput 
-              [(ngModel)]="paymentDate" 
-              name="paymentDate"
-              type="date">
+            <mat-label>Date of Payment</mat-label>
+            <input matInput [(ngModel)]="paymentDate" name="paymentDate" type="date">
             <mat-icon matSuffix>date_range</mat-icon>
           </mat-form-field>
 
-          <!-- Action Buttons -->
+          <!-- Buttons -->
           <div class="button-group">
-            <button 
-              mat-raised-button 
-              class="encode-btn"
+            <button mat-raised-button class="encode-btn"
               (click)="encodeReference()"
               [disabled]="isProcessing()">
-              <mat-icon>check_circle</mat-icon>
-              {{ isProcessing() ? 'Encoding...' : 'Encode Reference' }}
+              <mat-icon>send</mat-icon>
+              {{ isProcessing() ? 'Submitting...' : 'Submit to Accounting' }}
             </button>
-            <button 
-              mat-stroked-button 
-              class="clear-btn"
-              (click)="clearForm()">
+            <button mat-stroked-button class="clear-btn" (click)="clearForm()">
               <mat-icon>refresh</mat-icon>
               Clear
             </button>
@@ -90,23 +86,20 @@
     </mat-card>
 
     <!-- Result Card -->
-    <mat-card *ngIf="encodedData()" class="result-card">
+    <mat-card *ngIf="encodedData" class="result-card">
       <mat-card-header>
-        <h2>Encoded Payment Details</h2>
-        <div class="status-badge success">✓ Encoded</div>
+        <h2>Payment Receipt</h2>
+        <div class="status-badge pending">⏳ Pending Verification</div>
       </mat-card-header>
 
       <mat-card-content>
         <div class="result-grid">
           <!-- Reference Number -->
           <div class="result-item">
-            <label>GCash Reference Number</label>
+            <label>GCash Reference</label>
             <div class="result-value">
-              <span class="reference-text">{{ encodedData().referenceNumber }}</span>
-              <button 
-                mat-icon-button 
-                (click)="copyToClipboard(encodedData().referenceNumber)"
-                class="copy-btn">
+              <span class="reference-text">{{ encodedData.referenceNumber }}</span>
+              <button mat-icon-button (click)="copyToClipboard(encodedData.referenceNumber)" class="copy-btn">
                 <mat-icon>content_copy</mat-icon>
               </button>
             </div>
@@ -116,51 +109,57 @@
           <div class="result-item">
             <label>Transaction ID</label>
             <div class="result-value">
-              <span class="transaction-id">{{ encodedData().transactionId }}</span>
-              <button 
-                mat-icon-button 
-                (click)="copyToClipboard(encodedData().transactionId)"
-                class="copy-btn">
+              <span class="transaction-id">{{ encodedData.transactionId }}</span>
+              <button mat-icon-button (click)="copyToClipboard(encodedData.transactionId)" class="copy-btn">
                 <mat-icon>content_copy</mat-icon>
               </button>
             </div>
           </div>
 
-          <!-- Student ID -->
           <div class="result-item">
             <label>Student ID</label>
-            <span>{{ encodedData().studentId }}</span>
+            <span>{{ encodedData.studentId }}</span>
           </div>
 
-          <!-- Amount -->
           <div class="result-item">
-            <label>Amount</label>
-            <span class="amount-text">₱{{ encodedData().amount }}</span>
+            <label>Student Name</label>
+            <span>{{ encodedData.studentName }}</span>
           </div>
 
-          <!-- Payment Date -->
+          <div class="result-item">
+            <label>Program</label>
+            <span>{{ encodedData.program }}</span>
+          </div>
+
+          <div class="result-item">
+            <label>Semester</label>
+            <span>{{ encodedData.semester }}</span>
+          </div>
+
+          <div class="result-item">
+            <label>Amount Paid</label>
+            <span class="amount-text">₱{{ encodedData.amount }}</span>
+          </div>
+
           <div class="result-item">
             <label>Payment Date</label>
-            <span>{{ encodedData().paymentDate }}</span>
+            <span>{{ encodedData.paymentDate }}</span>
           </div>
 
-          <!-- Status -->
           <div class="result-item">
             <label>Status</label>
-            <span class="status-text pending">{{ encodedData().status }}</span>
+            <span class="status-text pending">{{ encodedData.status }}</span>
           </div>
 
-          <!-- Encoded At -->
           <div class="result-item full-width">
-            <label>Encoded At</label>
-            <span class="timestamp">{{ encodedData().encodedAt }}</span>
+            <label>Submitted At</label>
+            <span class="timestamp">{{ encodedData.encodedAt }}</span>
           </div>
         </div>
 
-        <!-- Info Box -->
         <div class="info-box">
           <mat-icon>info</mat-icon>
-          <p>Please save this encoded reference number for your records. Use the Transaction ID for tracking and verification.</p>
+          <p>Save your <strong>Transaction ID</strong> and <strong>GCash Reference Number</strong>. The Accounting Office will verify your payment. Once approved, your enrollment will be confirmed.</p>
         </div>
       </mat-card-content>
     </mat-card>

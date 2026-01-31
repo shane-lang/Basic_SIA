@@ -43,7 +43,8 @@ export class RegistrarLayoutComponent implements OnInit, OnDestroy {
     { label: 'Dashboard', icon: 'dashboard', route: '/registrar/dashboard', color: '#667eea' },
     { label: 'Manage Subjects', icon: 'library_books', route: '/registrar/manage-subjects', color: '#764ba2' },
     { label: 'Add Subject', icon: 'add_circle_outline', route: '/registrar/add-subject', color: '#00d4ff' },
-    { label: 'Drop Subject', icon: 'remove_circle_outline', route: '/registrar/drop-subject', color: '#ff6b6b' }
+    { label: 'Drop Subject', icon: 'remove_circle_outline', route: '/registrar/drop-subject', color: '#ff6b6b' },
+    { label: 'Student Enrollment Review', icon: 'person', route: '/registrar/student-enrollment-review', color: '#ff9f40' }
   ];
 
   constructor(private router: Router) {}

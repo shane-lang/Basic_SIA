@@ -6,368 +6,203 @@
   </div>
 </div>
 
-<!-- STUDENT TYPE SELECTION -->
-<div class="enrollment-container" *ngIf="workflowStep === 'type-select'">
-  <div class="enrollment-header">
-    <div class="header-content">
-      <h1>🎓 Welcome to University Enrollment System</h1>
-      <p class="subtitle">Let's Get You Started</p>
-    </div>
-  </div>
-
-  <div class="type-selection-container">
-    <h2>Are You a New or Existing Student?</h2>
-    <p class="instructions">Select your student type to continue with enrollment</p>
-
-    <div class="type-options">
-      <div class="type-card" (click)="selectStudentType('new')">
-        <div class="type-icon">👤</div>
-        <h3>New Student</h3>
-        <p class="type-description">First time enrolling. You'll select your program and complete registration.</p>
-        <button class="btn-select-type">Select as New Student</button>
-      </div>
-
-      <div class="type-card" (click)="selectStudentType('existing')">
-        <div class="type-icon">📚</div>
-        <h3>Existing Student</h3>
-        <p class="type-description">Returning student. Continue your enrollment and add/drop subjects.</p>
-        <button class="btn-select-type">I'm an Existing Student</button>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- PROGRAM SELECTION STEP -->
-<div class="enrollment-container" *ngIf="workflowStep === 'program-select'">
-  <div class="enrollment-header">
-    <div class="header-content">
-      <h1>🎓 Welcome to University</h1>
-      <p class="subtitle">Select Your Program</p>
-    </div>
-  </div>
-
-  <div class="program-selection-container">
-    <h2>Choose Your Program</h2>
-    <p class="instructions">Select the program you want to enroll in. You'll be able to add subjects after registration.</p>
-
-    <div class="programs-grid">
-      <div *ngFor="let program of programs" 
-           class="program-card" 
-           (click)="selectProgram(program.id)"
-           [class.selected]="selectedProgram === program.id">
-        <div class="program-icon">📚</div>
-        <h3>{{ program.name }}</h3>
-        <p class="program-code">{{ program.code }}</p>
-        <p class="program-description">{{ program.description }}</p>
-        <button class="btn-select">Select Program</button>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- REGISTRATION FORM STEP -->
-<div class="enrollment-container" *ngIf="workflowStep === 'registration'">
-  <div class="enrollment-header">
-    <div class="header-content">
-      <h1>📝 Student Registration Form</h1>
-      <p class="subtitle">{{ getSelectedProgramName() }}</p>
-    </div>
-  </div>
-
-  <div class="registration-container">
-    <button class="btn-back" (click)="backToProgram()">← Back to Programs</button>
-
-    <div class="registration-form">
-      <h2>Complete Your Registration</h2>
-      
-      <!-- Error Message -->
-      <div class="error-message" *ngIf="registrationError">
-        <p>⚠️ {{ registrationError }}</p>
-      </div>
-
-      <!-- Personal Information Section -->
-      <div class="form-section">
-        <h3>Personal Information</h3>
-        
-        <div class="form-row">
-          <div class="form-group">
-            <label for="firstName">First Name <span class="required">*</span></label>
-            <input 
-              type="text" 
-              id="firstName" 
-              class="form-control" 
-              placeholder="Juan"
-              [(ngModel)]="registrationForm.firstName"
-              [disabled]="isSubmittingRegistration">
-          </div>
-          <div class="form-group">
-            <label for="lastName">Last Name <span class="required">*</span></label>
-            <input 
-              type="text" 
-              id="lastName" 
-              class="form-control" 
-              placeholder="Dela Cruz"
-              [(ngModel)]="registrationForm.lastName"
-              [disabled]="isSubmittingRegistration">
-          </div>
-        </div>
-
-        <div class="form-row">
-          <div class="form-group">
-            <label for="email">Email Address <span class="required">*</span></label>
-            <input 
-              type="email" 
-              id="email" 
-              class="form-control" 
-              placeholder="juan.delacruz@university.edu"
-              [(ngModel)]="registrationForm.email"
-              [disabled]="isSubmittingRegistration">
-          </div>
-          <div class="form-group">
-            <label for="phone">Phone Number <span class="required">*</span></label>
-            <input 
-              type="tel" 
-              id="phone" 
-              class="form-control" 
-              placeholder="09123456789"
-              [(ngModel)]="registrationForm.phone"
-              [disabled]="isSubmittingRegistration">
-          </div>
-        </div>
-
-        <div class="form-row">
-          <div class="form-group">
-            <label for="dob">Date of Birth</label>
-            <input 
-              type="date" 
-              id="dob" 
-              class="form-control"
-              [(ngModel)]="registrationForm.dateOfBirth"
-              [disabled]="isSubmittingRegistration">
-          </div>
-          <div class="form-group">
-            <label for="address">Address</label>
-            <input 
-              type="text" 
-              id="address" 
-              class="form-control" 
-              placeholder="Street Address, City, Province"
-              [(ngModel)]="registrationForm.address"
-              [disabled]="isSubmittingRegistration">
-          </div>
-        </div>
-      </div>
-
-      <!-- Emergency Contact Section -->
-      <div class="form-section">
-        <h3>Emergency Contact</h3>
-        
-        <div class="form-row">
-          <div class="form-group">
-            <label for="emergencyName">Contact Person Name</label>
-            <input 
-              type="text" 
-              id="emergencyName" 
-              class="form-control" 
-              placeholder="Maria Dela Cruz"
-              [(ngModel)]="registrationForm.emergencyContact"
-              [disabled]="isSubmittingRegistration">
-          </div>
-          <div class="form-group">
-            <label for="emergencyPhone">Contact Person Phone</label>
-            <input 
-              type="tel" 
-              id="emergencyPhone" 
-              class="form-control" 
-              placeholder="09987654321"
-              [(ngModel)]="registrationForm.emergencyPhone"
-              [disabled]="isSubmittingRegistration">
-          </div>
-        </div>
-      </div>
-
-      <!-- Info Box -->
-      <div class="info-box">
-        <p>✅ After submitting this form, you'll need to complete payment before course enrollment with {{ getSelectedProgramName() }}.</p>
-      </div>
-
-      <!-- Buttons -->
-      <div class="form-actions">
-        <button class="btn-cancel" (click)="backToProgram()" [disabled]="isSubmittingRegistration">Cancel</button>
-        <button class="btn-submit" (click)="submitRegistration()" [disabled]="isSubmittingRegistration">
-          {{ isSubmittingRegistration ? 'Submitting...' : 'Complete Registration' }}
-        </button>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- PAYMENT STEP -->
+<!-- ══ GCASH PAYMENT FORM ══ -->
 <div class="enrollment-container" *ngIf="workflowStep === 'payment'">
   <div class="enrollment-header">
     <div class="header-content">
-      <h1>💳 Payment & Verification</h1>
-      <p class="subtitle">Complete Your Enrollment</p>
+      <h1>📱 GCash Payment</h1>
+      <p class="subtitle">Submit your GCash payment for Accounting verification</p>
     </div>
   </div>
-
   <div class="payment-container">
     <div class="payment-card">
-      <h2>Enrollment Fee</h2>
-
-      <!-- Student Summary -->
+      <h2>Enrollment Fee Payment</h2>
       <div class="student-summary">
         <h3>Enrollment Summary</h3>
-        <div class="summary-row">
-          <label>Student ID:</label>
-          <p>{{ student.id }}</p>
-        </div>
-        <div class="summary-row">
-          <label>Name:</label>
-          <p>{{ student.firstName }} {{ student.lastName }}</p>
-        </div>
-        <div class="summary-row">
-          <label>Program:</label>
-          <p>{{ student.program }}</p>
-        </div>
-        <div class="summary-row">
-          <label>Email:</label>
-          <p>{{ student.email }}</p>
-        </div>
+        <div class="summary-row"><label>Student ID:</label><p>{{ student.id }}</p></div>
+        <div class="summary-row"><label>Name:</label><p>{{ student.firstName }} {{ student.lastName }}</p></div>
+        <div class="summary-row"><label>Program:</label><p>{{ student.program }}</p></div>
+        <div class="summary-row"><label>Semester:</label><p>{{ currentSemester }}</p></div>
       </div>
-
-      <!-- Payment Details -->
       <div class="payment-details">
-        <h3>Payment Details</h3>
-        <div class="payment-row">
-          <span>Tuition Fee</span>
-          <span class="amount">₱{{ paymentInfo.amount | number:'1.0-0' }}</span>
-        </div>
-        <div class="payment-row total">
-          <span>Total Amount Due</span>
-          <span class="amount">₱{{ paymentInfo.amount | number:'1.0-0' }}</span>
-        </div>
+        <h3>Amount Due</h3>
+        <div class="payment-row"><span>Tuition Fee</span><span class="amount">₱{{ paymentInfo.amount | number:'1.0-0' }}</span></div>
+        <div class="payment-row total"><span>Total Amount Due</span><span class="amount">₱{{ paymentInfo.amount | number:'1.0-0' }}</span></div>
         <p class="payment-due">Due by: {{ paymentInfo.dueDate | date: 'MMMM dd, yyyy' }}</p>
       </div>
-
-      <!-- Payment Methods -->
-      <div class="payment-methods">
-        <h3>Payment Method</h3>
-        <div class="method-options">
-          <div class="method-option selected">
-            <input type="radio" id="online" name="method" value="online" checked>
-            <label for="online">Online Payment</label>
-          </div>
-          <div class="method-option">
-            <input type="radio" id="bank" name="method" value="bank">
-            <label for="bank">Bank Transfer</label>
-          </div>
-          <div class="method-option">
-            <input type="radio" id="cash" name="method" value="cash">
-            <label for="cash">Cash Payment (Cashier)</label>
-          </div>
+      <div class="gcash-instructions">
+        <h3>📱 How to Pay via GCash</h3>
+        <ol class="instruction-list">
+          <li>Open your GCash app and tap <strong>Send Money</strong></li>
+          <li>Send <strong>₱{{ paymentInfo.amount | number:'1.0-0' }}</strong> to the university GCash number</li>
+          <li>Note your <strong>GCash Reference Number</strong></li>
+          <li>Enter the reference number below and click <strong>Submit to Accounting</strong></li>
+        </ol>
+      </div>
+      <div class="gcash-form-section">
+        <h3>Enter GCash Payment Details</h3>
+        <div class="form-group">
+          <label for="gcashRef">GCash Reference Number <span class="required">*</span></label>
+          <input type="text" id="gcashRef" class="form-control" placeholder="e.g., G1234567890123"
+            [(ngModel)]="gcashReference" [disabled]="isProcessingPayment">
+        </div>
+        <div class="form-group">
+          <label for="gcashAmt">Amount Paid (₱) <span class="required">*</span></label>
+          <input type="number" id="gcashAmt" class="form-control" [(ngModel)]="gcashAmount" [disabled]="isProcessingPayment">
+        </div>
+        <div class="form-group">
+          <label for="gcashDate">Date of Payment</label>
+          <input type="date" id="gcashDate" class="form-control" [(ngModel)]="gcashDate" [disabled]="isProcessingPayment">
         </div>
       </div>
-
-      <!-- Payment Button -->
       <div class="payment-actions">
-        <button class="btn-cancel" (click)="backToProgram()" [disabled]="isProcessingPayment">Cancel</button>
-        <button class="btn-pay" (click)="processPayment()" [disabled]="isProcessingPayment">
-          {{ isProcessingPayment ? 'Processing Payment...' : 'Proceed with Payment' }}
+        <button class="btn-pay" (click)="processPayment()" [disabled]="isProcessingPayment || !gcashReference.trim()">
+          {{ isProcessingPayment ? '⏳ Submitting...' : '✅ Submit to Accounting' }}
         </button>
       </div>
-
       <div class="info-box">
-        <p>🔒 Your payment information is secure and encrypted.</p>
+        <p>⏳ Your payment will be verified by the <strong>Accounting Office</strong> before enrollment is approved.</p>
       </div>
     </div>
   </div>
 </div>
 
-<!-- APPROVAL STEP -->
+<!-- ══ CASH PENDING SCREEN ══ -->
+<div class="enrollment-container" *ngIf="workflowStep === 'cash-pending'">
+  <div class="enrollment-header">
+    <div class="header-content">
+      <h1>💵 Cash Payment</h1>
+      <p class="subtitle">Please proceed to the Accounting Office to complete your payment</p>
+    </div>
+  </div>
+  <div class="payment-container">
+    <div class="payment-card">
+      <h2>Cash Payment Instructions</h2>
+      <div class="student-summary">
+        <h3>Enrollment Summary</h3>
+        <div class="summary-row"><label>Student ID:</label><p>{{ student.id }}</p></div>
+        <div class="summary-row"><label>Name:</label><p>{{ student.firstName }} {{ student.lastName }}</p></div>
+        <div class="summary-row"><label>Program:</label><p>{{ student.program }}</p></div>
+        <div class="summary-row"><label>Semester:</label><p>{{ currentSemester }}</p></div>
+      </div>
+      <div class="payment-details">
+        <h3>Amount to Pay</h3>
+        <div class="payment-row"><span>Tuition Fee</span><span class="amount">₱{{ paymentInfo.amount | number:'1.0-0' }}</span></div>
+        <div class="payment-row total"><span>Total Amount Due</span><span class="amount">₱{{ paymentInfo.amount | number:'1.0-0' }}</span></div>
+        <p class="payment-due">Due by: {{ paymentInfo.dueDate | date: 'MMMM dd, yyyy' }}</p>
+      </div>
+      <div class="cash-pending-info">
+        <div class="cash-steps">
+          <div class="cash-step">
+            <span class="step-num">1</span>
+            <div>
+              <strong>Go to the Accounting Office</strong>
+              <p>Bring your Student ID. Tell the cashier you are a new enrollee paying via cash.</p>
+            </div>
+          </div>
+          <div class="cash-step">
+            <span class="step-num">2</span>
+            <div>
+              <strong>Pay ₱{{ paymentInfo.amount | number:'1.0-0' }} at the cashier window</strong>
+              <p>The Accounting staff will record your payment and confirm it in the system.</p>
+            </div>
+          </div>
+          <div class="cash-step">
+            <span class="step-num">3</span>
+            <div>
+              <strong>Return here and wait for automatic approval</strong>
+              <p>Once confirmed, this page will automatically redirect you to course enlistment.</p>
+            </div>
+          </div>
+        </div>
+        <p class="poll-notice">🔄 Checking approval status automatically every 10 seconds...</p>
+      </div>
+      <div class="info-box">
+        <p>⏳ Your enrollment will be <strong>automatically approved</strong> once the Accounting Office confirms your cash payment.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ APPROVAL / WAITING SCREEN ══ -->
 <div class="enrollment-container" *ngIf="workflowStep === 'approval'">
   <div class="enrollment-header">
     <div class="header-content">
-      <h1>✅ Registration Approval</h1>
-      <p class="subtitle">Finalizing Your Enrollment</p>
+      <h1>{{ isApprovalPending ? '⏳ Awaiting Approval' : '✅ Payment Approved!' }}</h1>
+      <p class="subtitle">{{ isApprovalPending ? 'Your payment is being reviewed' : 'Your enrollment has been approved' }}</p>
     </div>
   </div>
-
   <div class="approval-container">
     <div class="approval-card">
-      <div class="approval-status" [class.pending]="isApprovalPending" [class.approved]="!isApprovalPending">
-        <div class="status-icon">
-          <span *ngIf="isApprovalPending">⏳</span>
-          <span *ngIf="!isApprovalPending">✅</span>
-        </div>
-        <h2>{{ isApprovalPending ? 'Processing Your Application...' : 'Registration Approved!' }}</h2>
-        <p *ngIf="isApprovalPending">Your enrollment is being reviewed by the registrar. Please wait...</p>
-        <p *ngIf="!isApprovalPending">{{ approvalMessage }}</p>
+
+      <div class="approval-status pending" *ngIf="isApprovalPending">
+        <div class="status-icon">⏳</div>
+        <h2>Waiting for Accounting Verification...</h2>
+        <p *ngIf="paymentMethod !== 'Cash'">Your GCash reference has been submitted. The Accounting Office is verifying your payment.</p>
+        <p *ngIf="paymentMethod === 'Cash'">Please go to the Accounting Office to pay. This page will update automatically once confirmed.</p>
       </div>
 
-      <!-- Student Information -->
+      <div class="approval-status approved" *ngIf="!isApprovalPending">
+        <div class="status-icon">✅</div>
+        <h2>Payment Verified & Approved!</h2>
+        <p>{{ approvalMessage }}</p>
+      </div>
+
+      <!-- GCash details while pending -->
+      <div *ngIf="isApprovalPending && paymentMethod !== 'Cash' && gcashSubmitted" class="approval-info">
+        <h3>Submitted Payment Details</h3>
+        <div class="info-row"><label>GCash Reference:</label><p>{{ gcashReference }}</p></div>
+        <div class="info-row"><label>Amount:</label><p>₱{{ gcashAmount | number:'1.0-0' }}</p></div>
+        <div class="info-row"><label>Date:</label><p>{{ gcashDate }}</p></div>
+        <p class="poll-notice">🔄 Checking every 10 seconds...</p>
+      </div>
+
+      <!-- Cash steps while pending -->
+      <div *ngIf="isApprovalPending && paymentMethod === 'Cash'" class="cash-pending-info">
+        <div class="cash-steps">
+          <div class="cash-step">
+            <span class="step-num">1</span>
+            <div><strong>Go to the Accounting Office</strong><p>Bring your Student ID: <strong>{{ student.id }}</strong></p></div>
+          </div>
+          <div class="cash-step">
+            <span class="step-num">2</span>
+            <div><strong>Pay ₱{{ paymentInfo.amount | number:'1.0-0' }}</strong><p>The cashier will confirm your payment.</p></div>
+          </div>
+          <div class="cash-step">
+            <span class="step-num">3</span>
+            <div><strong>This page will auto-update</strong><p>Redirects automatically after confirmation.</p></div>
+          </div>
+        </div>
+        <p class="poll-notice">🔄 Checking every 10 seconds...</p>
+      </div>
+
+      <!-- Student info -->
       <div class="approval-info">
         <h3>Enrollment Information</h3>
+        <div class="info-row"><label>Student ID:</label><p>{{ student.id }}</p></div>
+        <div class="info-row"><label>Name:</label><p>{{ student.firstName }} {{ student.lastName }}</p></div>
+        <div class="info-row"><label>Program:</label><p>{{ student.program }}</p></div>
         <div class="info-row">
-          <label>Student ID:</label>
-          <p>{{ student.id }}</p>
-        </div>
-        <div class="info-row">
-          <label>Student Name:</label>
-          <p>{{ student.firstName }} {{ student.lastName }}</p>
-        </div>
-        <div class="info-row">
-          <label>Program:</label>
-          <p>{{ student.program }}</p>
-        </div>
-        <div class="info-row">
-          <label>Enrollment Status:</label>
-          <p>
-            <span class="badge" [class]="'badge-' + student.enrollmentStatus.toLowerCase()">
-              {{ student.enrollmentStatus }}
-            </span>
-          </p>
-        </div>
-        <div class="info-row">
-          <label>Payment Status:</label>
-          <p>
-            <span class="badge badge-paid">{{ student.paymentStatus }}</span>
-          </p>
+          <label>Payment Method:</label>
+          <p><span class="badge" [class.badge-gcash]="paymentMethod !== 'Cash'" [class.badge-cash]="paymentMethod === 'Cash'">
+            {{ paymentMethod === 'Cash' ? '💵 Cash' : '📱 GCash' }}
+          </span></p>
         </div>
         <div class="info-row">
           <label>Approval Status:</label>
-          <p>
-            <span class="badge" [class]="'badge-' + student.approvalStatus.toLowerCase()">
-              {{ student.approvalStatus }}
-            </span>
-          </p>
+          <p><span class="badge" [class]="'badge-' + (student.approvalStatus?.toLowerCase() || 'pending')">{{ student.approvalStatus }}</span></p>
         </div>
       </div>
 
-      <!-- Next Steps -->
-      <div *ngIf="!isApprovalPending" class="next-steps">
-        <h3>Next Steps</h3>
-        <ol>
-          <li>Proceed to course enrollment</li>
-          <li>Select subjects for this semester</li>
-          <li>Confirm your schedule</li>
-          <li>Download your class schedule</li>
-        </ol>
-      </div>
-
-      <!-- Action Button -->
-      <div class="approval-actions" *ngIf="!isApprovalPending">
-        <button class="btn-proceed" (click)="proceedToDashboard()">
-          Proceed to Course Enrollment →
-        </button>
+      <div *ngIf="!isApprovalPending" class="approval-actions">
+        <button class="btn-proceed" (click)="proceedToDashboard()">🎓 Proceed to Course Enlistment →</button>
       </div>
     </div>
   </div>
 </div>
 
-<!-- DASHBOARD & COURSE ENROLLMENT STEP -->
+<!-- ══ DASHBOARD — Subject Enlistment ══ -->
 <div class="enrollment-container" *ngIf="workflowStep === 'dashboard'">
-  <!-- Header Section -->
   <div class="enrollment-header">
     <div class="header-content">
       <h1>🎓 Student Enrollment System</h1>
@@ -381,171 +216,114 @@
       <span class="warning-icon">⏰</span>
       <div class="warning-text">
         <p><strong>Enrollment Deadline Approaching!</strong></p>
-        <p>You have {{ daysUntilDeadline }} days left to enroll in courses (Deadline: {{ enrollmentDeadline | date: 'MMMM dd, yyyy' }})</p>
+        <p>{{ daysUntilDeadline }} days left (Deadline: {{ enrollmentDeadline | date: 'MMMM dd, yyyy' }})</p>
       </div>
     </div>
   </div>
 
   <!-- Navigation Tabs -->
   <div class="nav-tabs">
-    <button 
-      class="nav-tab" 
-      [class.active]="currentView === 'dashboard'"
-      (click)="currentView = 'dashboard'">
-      <span>📊</span> Dashboard
+    <button class="nav-tab" [class.active]="currentView === 'dashboard'" (click)="currentView = 'dashboard'">
+      📊 Dashboard
     </button>
-    <button 
-      class="nav-tab" 
-      [class.active]="currentView === 'enroll'"
-      (click)="currentView = 'enroll'">
-      <span>➕</span> Enroll Subjects
+    <button class="nav-tab" [class.active]="currentView === 'enroll'" (click)="currentView = 'enroll'">
+      ➕ Enlist Subjects
     </button>
-    <button 
-      class="nav-tab" 
-      [class.active]="currentView === 'manage'"
-      (click)="currentView = 'manage'">
-      <span>⚙️</span> Manage Subjects
+    <button class="nav-tab" [class.active]="currentView === 'manage'" (click)="currentView = 'manage'">
+      ⚙️ Manage Subjects
+    </button>
+    <button class="nav-tab" [class.active]="currentView === 'schedule'" (click)="currentView = 'schedule'">
+      📅 My Schedule
+      <span *ngIf="approvedCourses.length > 0"
+        style="background:#667eea;color:white;font-size:11px;padding:2px 7px;border-radius:10px;margin-left:6px;font-weight:700;">
+        {{ approvedCourses.length }}
+      </span>
     </button>
   </div>
 
-  <!-- Dashboard View -->
+  <!-- ── DASHBOARD VIEW ── -->
   <div class="view-container" *ngIf="currentView === 'dashboard'">
-    <!-- Student Data Sheet -->
     <div class="student-data-sheet">
       <div class="sheet-header">
         <h2>📋 Student Information Sheet</h2>
-        <span class="student-type-badge" [class]="'badge-' + student.studentType.toLowerCase()">
+        <span class="student-type-badge" [class]="'badge-' + student.studentType?.toLowerCase()">
           {{ student.studentType }} Student
         </span>
       </div>
-
       <div class="student-data-grid">
         <div class="data-column">
           <h3>Personal Information</h3>
-          <div class="data-item">
-            <label>Student ID:</label>
-            <p>{{ student.id }}</p>
-          </div>
-          <div class="data-item">
-            <label>Full Name:</label>
-            <p>{{ student.firstName }} {{ student.lastName }}</p>
-          </div>
-          <div class="data-item">
-            <label>Date of Birth:</label>
-            <p>{{ student.dateOfBirth | date: 'MMMM dd, yyyy' }}</p>
-          </div>
-          <div class="data-item">
-            <label>Address:</label>
-            <p>{{ student.address }}</p>
-          </div>
+          <div class="data-item"><label>Student ID:</label><p>{{ student.id }}</p></div>
+          <div class="data-item"><label>Full Name:</label><p>{{ student.firstName }} {{ student.lastName }}</p></div>
+          <div class="data-item"><label>Date of Birth:</label><p>{{ student.dateOfBirth | date: 'MMMM dd, yyyy' }}</p></div>
+          <div class="data-item"><label>Address:</label><p>{{ student.address }}</p></div>
         </div>
-
         <div class="data-column">
           <h3>Academic Information</h3>
-          <div class="data-item">
-            <label>Program:</label>
-            <p>{{ student.program }}</p>
-          </div>
-          <div class="data-item">
-            <label>Year Level:</label>
-            <p>{{ student.yearLevel }}</p>
-          </div>
-          <div class="data-item">
-            <label>Current GPA:</label>
-            <p class="gpa-value">{{ student.gpa | number: '1.2-2' }}</p>
-          </div>
-          <div class="data-item">
-            <label>Status:</label>
-            <p><span class="badge" [class]="'badge-' + student.enrollmentStatus.toLowerCase()">{{ student.enrollmentStatus }}</span></p>
-          </div>
+          <div class="data-item"><label>Program:</label><p>{{ student.program }}</p></div>
+          <div class="data-item"><label>Year Level:</label><p>{{ student.yearLevel }}</p></div>
+          <div class="data-item"><label>Current GPA:</label><p class="gpa-value">{{ student.gpa | number: '1.2-2' }}</p></div>
+          <div class="data-item"><label>Status:</label><p><span class="badge" [class]="'badge-' + student.enrollmentStatus?.toLowerCase()">{{ student.enrollmentStatus }}</span></p></div>
         </div>
-
         <div class="data-column">
           <h3>Contact Information</h3>
+          <div class="data-item"><label>Email:</label><p><a [href]="'mailto:' + student.email">{{ student.email }}</a></p></div>
+          <div class="data-item"><label>Phone:</label><p>{{ student.phone }}</p></div>
+          <div class="data-item"><label>Emergency Contact:</label><p>{{ student.emergencyContact }}</p></div>
+          <div class="data-item"><label>Enrollment Date:</label><p>{{ student.enrollmentDate | date: 'MMMM dd, yyyy' }}</p></div>
+        </div>
+        <div class="data-column">
+          <h3>Payment Information</h3>
           <div class="data-item">
-            <label>Email:</label>
-            <p><a [href]="'mailto:' + student.email">{{ student.email }}</a></p>
+            <label>Payment Method:</label>
+            <p><span class="badge" [class.badge-gcash]="student.paymentMethod !== 'Cash'" [class.badge-cash]="student.paymentMethod === 'Cash'">
+              {{ student.paymentMethod === 'Cash' ? '💵 Cash' : '📱 GCash' }}
+            </span></p>
           </div>
-          <div class="data-item">
-            <label>Phone:</label>
-            <p><a [href]="'tel:' + student.phone">{{ student.phone }}</a></p>
+          <div class="data-item"><label>Payment Status:</label>
+            <p><span class="payment-badge" [class]="'payment-' + student.paymentStatus?.toLowerCase()">{{ student.paymentStatus }}</span></p>
           </div>
-          <div class="data-item">
-            <label>Emergency Contact:</label>
-            <p>{{ student.emergencyContact }}</p>
-          </div>
-          <div class="data-item">
-            <label>Enrollment Date:</label>
-            <p>{{ student.enrollmentDate | date: 'MMMM dd, yyyy' }}</p>
-          </div>
+          <div class="data-item"><label>Amount Paid:</label><p>₱{{ paymentInfo.amount | number:'1.0-0' }}</p></div>
         </div>
       </div>
     </div>
 
-    <!-- Enrollment Status Summary -->
+    <!-- Status Cards -->
     <div class="enrollment-status">
-      <div class="status-card pending" *ngIf="pendingCourses.length > 0">
-        <h3>⏳ Pending Approval</h3>
-        <p class="count">{{ pendingCourses.length }}</p>
-        <p class="subtitle">Subjects awaiting approval</p>
-      </div>
       <div class="status-card enrolled">
-        <h3>✅ Enrolled</h3>
+        <h3>✅ Enlisted Subjects</h3>
         <p class="count">{{ approvedCourses.length }}</p>
-        <p class="subtitle">Subjects approved</p>
+        <p class="subtitle">Approved subjects</p>
       </div>
       <div class="status-card credits">
         <h3>📖 Total Credits</h3>
         <p class="count">{{ totalEnrolledCredits }}</p>
         <p class="subtitle">Out of {{ maxCredits }} units</p>
       </div>
-    </div>
-
-    <!-- Credit Warning -->
-    <div class="credit-warning" *ngIf="creditWarning">
-      <p>⚠️ {{ creditWarning }}</p>
-    </div>
-
-    <!-- Pending Courses -->
-    <div class="pending-section" *ngIf="pendingCourses.length > 0">
-      <div class="section-header">
-        <h2>⏳ Pending For Approval</h2>
-        <button class="btn-approve-all" (click)="approveAllPendingCourses()" *ngIf="pendingCourses.length > 0">
-          Approve All
-        </button>
-      </div>
-      <div class="courses-grid">
-        <div *ngFor="let course of pendingCourses" class="course-card pending-card">
-          <div class="status-indicator">Pending</div>
-          <div class="course-header">
-            <span class="course-code">{{ course.code }}</span>
-            <h3>{{ course.name }}</h3>
-          </div>
-          <div class="course-body">
-            <p class="course-detail"><strong>Credits:</strong> {{ course.credits }}</p>
-            <p class="course-detail"><strong>Instructor:</strong> {{ course.instructor }}</p>
-            <p class="course-detail"><strong>Schedule:</strong> {{ course.schedule }}</p>
-            <p class="course-detail"><strong>Room:</strong> {{ course.room }}</p>
-            <p class="course-detail"><strong>Enrolled:</strong> {{ course.enrollmentDate | date: 'MMM dd, yyyy' }}</p>
-          </div>
-        </div>
+      <div class="status-card payment">
+        <h3>💳 Payment</h3>
+        <p class="count" style="font-size:18px">{{ student.paymentStatus }}</p>
+        <p class="subtitle">Verified by Accounting</p>
       </div>
     </div>
 
-    <!-- Enrolled Courses -->
+    <div class="credit-warning" *ngIf="creditWarning"><p>⚠️ {{ creditWarning }}</p></div>
+
+    <!-- Enlisted Courses on Dashboard -->
     <div class="enrolled-section" *ngIf="approvedCourses.length > 0">
-      <h2>✅ Enrolled Subjects</h2>
+      <h2>✅ My Enlisted Subjects</h2>
       <div class="courses-grid">
         <div *ngFor="let course of approvedCourses" class="course-card enrolled-card">
-          <div class="status-indicator enrolled">Enrolled</div>
+          <div class="status-indicator enrolled">✅ Enrolled</div>
           <div class="course-header">
             <span class="course-code">{{ course.code }}</span>
             <h3>{{ course.name }}</h3>
           </div>
           <div class="course-body">
-            <p class="course-detail"><strong>Credits:</strong> {{ course.credits }}</p>
+            <p class="course-detail"><strong>Credits:</strong> {{ course.credits }} units</p>
             <p class="course-detail"><strong>Instructor:</strong> {{ course.instructor }}</p>
-            <p class="course-detail"><strong>Schedule:</strong> {{ course.schedule }}</p>
+            <p class="course-detail"><strong>Schedule:</strong> {{ course.schedule || course.time }}</p>
+            <p class="course-detail"><strong>Days:</strong> {{ course.day }}</p>
             <p class="course-detail"><strong>Room:</strong> {{ course.room }}</p>
           </div>
           <div class="course-footer">
@@ -556,35 +334,28 @@
     </div>
 
     <div *ngIf="enrolledCourses.length === 0" class="no-data">
-      <p>📚 No subjects enrolled yet. Click "Enroll Subjects" to get started!</p>
+      <p>📚 No subjects enlisted yet. Click <strong>"Enlist Subjects"</strong> to get started!</p>
     </div>
   </div>
 
-  <!-- Enroll View -->
+  <!-- ── ENLIST VIEW ── -->
   <div class="view-container" *ngIf="currentView === 'enroll'">
     <div class="enroll-header">
-      <h2>Enroll New Subjects</h2>
-      <p>Semester: {{ currentSemester }}</p>
-      <p *ngIf="!canAddCourse()" class="deadline-expired">❌ Enrollment deadline has passed. Contact registrar for late enrollment.</p>
+      <h2>Enlist Subjects</h2>
+      <p>Semester: {{ currentSemester }} &nbsp;|&nbsp; Credits: {{ totalEnrolledCredits }}/{{ maxCredits }}</p>
+      <p *ngIf="!canAddCourse()" class="deadline-expired">❌ Enrollment deadline has passed.</p>
     </div>
 
-    <!-- Search and Filter -->
     <div class="search-filters" *ngIf="canAddCourse()">
-      <input 
-        type="text" 
-        class="search-input" 
-        placeholder="Search by course code or name (e.g., CS111, Programming)..."
-        [(ngModel)]="searchQuery">
+      <input type="text" class="search-input" placeholder="Search by course code or name..." [(ngModel)]="searchQuery">
       <select class="filter-select" [(ngModel)]="filterDepartment">
         <option [value]="null">All Departments</option>
         <option *ngFor="let dept of departments" [value]="dept">{{ dept }}</option>
       </select>
     </div>
 
-    <!-- Available Courses -->
     <div *ngIf="availableCoursesFiltered.length === 0" class="no-data">
-      <p *ngIf="canAddCourse()">No courses match your search criteria.</p>
-      <p *ngIf="!canAddCourse()">Enrollment period has closed. Please contact the registrar.</p>
+      <p>No courses available to enlist.</p>
     </div>
 
     <div class="courses-grid">
@@ -596,21 +367,13 @@
           </div>
           <span class="credits-badge">{{ course.credits }} Units</span>
         </div>
-
         <div class="course-body">
           <p class="course-description">{{ course.description }}</p>
-          <div class="course-detail">
-            <strong>Department:</strong> {{ course.department }}
-          </div>
-          <div class="course-detail">
-            <strong>Instructor:</strong> {{ course.instructor }}
-          </div>
-          <div class="course-detail">
-            <strong>Schedule:</strong> {{ course.schedule }}
-          </div>
-          <div class="course-detail">
-            <strong>Room:</strong> {{ course.room }}
-          </div>
+          <div class="course-detail"><strong>Department:</strong> {{ course.department }}</div>
+          <div class="course-detail"><strong>Instructor:</strong> {{ course.instructor }}</div>
+          <div class="course-detail"><strong>Schedule:</strong> {{ course.schedule }}</div>
+          <div class="course-detail"><strong>Days:</strong> {{ course.day }}</div>
+          <div class="course-detail"><strong>Room:</strong> {{ course.room }}</div>
           <div class="course-detail seats">
             <strong>Available Seats:</strong>
             <span [class.almost-full]="isCourseAlmostFull(course)">
@@ -619,187 +382,195 @@
             </span>
           </div>
         </div>
-
         <div class="course-footer">
-          <button 
-            class="btn-enroll" 
-            (click)="openEnrollModal(course)"
-            [disabled]="!canEnroll(course) || !canAddCourse()">
-            {{ canEnroll(course) ? 'Enroll Now' : 'No Seats' }}
+          <button class="btn-enroll" (click)="openEnrollModal(course)" [disabled]="!canEnroll(course) || !canAddCourse()">
+            {{ canEnroll(course) ? 'Enlist Now' : 'No Seats' }}
           </button>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- Manage View -->
+  <!-- ── MANAGE VIEW ── -->
   <div class="view-container" *ngIf="currentView === 'manage'">
     <div class="manage-header">
       <h2>Manage Your Subjects</h2>
-      <p>Add or drop subjects from your enrollment</p>
       <p *ngIf="canDropCourse()" class="deadline-info">✅ Add/Drop deadline: {{ addDropDeadline | date: 'MMMM dd, yyyy' }}</p>
       <p *ngIf="!canDropCourse()" class="deadline-expired">❌ Add/Drop deadline has passed</p>
     </div>
 
     <div *ngIf="enrolledCourses.length === 0" class="no-data">
-      <p>No subjects enrolled. Enroll subjects first to manage them.</p>
+      <p>No subjects enlisted. Go to "Enlist Subjects" to add subjects.</p>
     </div>
 
-    <div *ngIf="enrolledCourses.length > 0">
-      <!-- Pending Approval -->
-      <div *ngIf="pendingCourses.length > 0" class="manage-section">
-        <h3>⏳ Pending Approval</h3>
-        <div class="manage-table">
-          <div class="table-header">
-            <div class="col-code">Code</div>
-            <div class="col-name">Course Name</div>
-            <div class="col-credits">Credits</div>
-            <div class="col-status">Status</div>
-            <div class="col-action">Action</div>
-          </div>
-          <div *ngFor="let course of pendingCourses" class="table-row">
-            <div class="col-code">{{ course.code }}</div>
-            <div class="col-name">{{ course.name }}</div>
-            <div class="col-credits">{{ course.credits }}</div>
-            <div class="col-status"><span class="badge pending">Pending</span></div>
-            <div class="col-action">
-              <button class="btn-drop-table" (click)="openDropModal(course)" [disabled]="!canDropCourse()">Drop</button>
-            </div>
-          </div>
+    <div *ngIf="approvedCourses.length > 0" class="manage-section">
+      <h3>✅ Enlisted Subjects</h3>
+      <div class="manage-table">
+        <div class="table-header">
+          <div class="col-code">Code</div>
+          <div class="col-name">Course Name</div>
+          <div class="col-credits">Credits</div>
+          <div class="col-status">Status</div>
+          <div class="col-action">Action</div>
         </div>
-      </div>
-
-      <!-- Enrolled -->
-      <div *ngIf="approvedCourses.length > 0" class="manage-section">
-        <h3>✅ Enrolled Subjects</h3>
-        <div class="manage-table">
-          <div class="table-header">
-            <div class="col-code">Code</div>
-            <div class="col-name">Course Name</div>
-            <div class="col-credits">Credits</div>
-            <div class="col-status">Status</div>
-            <div class="col-action">Action</div>
-          </div>
-          <div *ngFor="let course of approvedCourses" class="table-row">
-            <div class="col-code">{{ course.code }}</div>
-            <div class="col-name">{{ course.name }}</div>
-            <div class="col-credits">{{ course.credits }}</div>
-            <div class="col-status"><span class="badge enrolled">Enrolled</span></div>
-            <div class="col-action">
-              <button class="btn-drop-table" (click)="openDropModal(course)" [disabled]="!canDropCourse()">Drop</button>
-            </div>
+        <div *ngFor="let course of approvedCourses" class="table-row">
+          <div class="col-code">{{ course.code }}</div>
+          <div class="col-name">{{ course.name }}</div>
+          <div class="col-credits">{{ course.credits }}</div>
+          <div class="col-status"><span class="badge enrolled">Enrolled</span></div>
+          <div class="col-action">
+            <button class="btn-drop-table" (click)="openDropModal(course)" [disabled]="!canDropCourse()">Drop</button>
           </div>
         </div>
       </div>
     </div>
   </div>
+
+  <!-- ── SCHEDULE VIEW ── -->
+  <div class="view-container" *ngIf="currentView === 'schedule'">
+    <div class="manage-header">
+      <h2>📅 My Class Schedule</h2>
+      <p>{{ currentSemester }} &nbsp;|&nbsp; {{ approvedCourses.length }} subject(s) &nbsp;|&nbsp; {{ totalEnrolledCredits }} units</p>
+    </div>
+
+    <div *ngIf="approvedCourses.length === 0" class="no-data">
+      <p>📅 No enlisted subjects yet. Enlist subjects to see your schedule here.</p>
+    </div>
+
+    <!-- Schedule grid by day -->
+    <div *ngIf="approvedCourses.length > 0">
+
+      <!-- Day-by-day schedule cards -->
+      <div *ngFor="let day of DAYS">
+        <div *ngIf="getCoursesForDay(day).length > 0" style="margin-bottom: 24px;">
+          <h3 style="font-size:16px; font-weight:700; color:#1a202c; margin-bottom:12px; padding-bottom:8px; border-bottom:2px solid #667eea;">
+            📆 {{ day }}
+          </h3>
+          <div class="courses-grid">
+            <div *ngFor="let course of getCoursesForDay(day)" class="course-card"
+              style="border-left: 4px solid #667eea;">
+              <div class="course-header" style="padding:16px 20px;">
+                <div>
+                  <span class="course-code">{{ course.code }}</span>
+                  <h3 style="margin:6px 0 0; font-size:15px;">{{ course.name }}</h3>
+                </div>
+                <span class="credits-badge">{{ course.credits }} Units</span>
+              </div>
+              <div class="course-body" style="padding:14px 20px;">
+                <div class="course-detail">
+                  <strong>🕐 Time:</strong> {{ course.time }}
+                </div>
+                <div class="course-detail">
+                  <strong>👨‍🏫 Instructor:</strong> {{ course.instructor }}
+                </div>
+                <div class="course-detail">
+                  <strong>🚪 Room:</strong> {{ course.room }}
+                </div>
+                <div class="course-detail">
+                  <strong>📅 Days:</strong> {{ course.day }}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Full list table -->
+      <div style="margin-top: 32px;">
+        <h3 style="font-size:16px; font-weight:700; color:#1a202c; margin-bottom:12px; padding-bottom:8px; border-bottom:2px solid #667eea;">
+          📋 Complete Subject List
+        </h3>
+        <div class="history-table-wrapper" style="background:white; border-radius:12px; box-shadow:0 2px 8px rgba(0,0,0,0.06); overflow-x:auto;">
+          <table style="width:100%; border-collapse:collapse; font-size:13px;">
+            <thead>
+              <tr style="background:#f8faff;">
+                <th style="padding:14px 16px; text-align:left; font-size:11px; font-weight:700; color:#718096; text-transform:uppercase; border-bottom:2px solid #e8edf5;">Code</th>
+                <th style="padding:14px 16px; text-align:left; font-size:11px; font-weight:700; color:#718096; text-transform:uppercase; border-bottom:2px solid #e8edf5;">Subject Name</th>
+                <th style="padding:14px 16px; text-align:left; font-size:11px; font-weight:700; color:#718096; text-transform:uppercase; border-bottom:2px solid #e8edf5;">Days</th>
+                <th style="padding:14px 16px; text-align:left; font-size:11px; font-weight:700; color:#718096; text-transform:uppercase; border-bottom:2px solid #e8edf5;">Time</th>
+                <th style="padding:14px 16px; text-align:left; font-size:11px; font-weight:700; color:#718096; text-transform:uppercase; border-bottom:2px solid #e8edf5;">Room</th>
+                <th style="padding:14px 16px; text-align:left; font-size:11px; font-weight:700; color:#718096; text-transform:uppercase; border-bottom:2px solid #e8edf5;">Instructor</th>
+                <th style="padding:14px 16px; text-align:center; font-size:11px; font-weight:700; color:#718096; text-transform:uppercase; border-bottom:2px solid #e8edf5;">Units</th>
+                <th style="padding:14px 16px; text-align:center; font-size:11px; font-weight:700; color:#718096; text-transform:uppercase; border-bottom:2px solid #e8edf5;">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr *ngFor="let course of approvedCourses" style="border-bottom:1px solid #f0f4f8;">
+                <td style="padding:12px 16px; font-weight:700; color:#667eea; font-family:'Courier New',monospace;">{{ course.code }}</td>
+                <td style="padding:12px 16px; color:#1a202c; font-weight:500;">{{ course.name }}</td>
+                <td style="padding:12px 16px; color:#4a5568;">{{ course.day }}</td>
+                <td style="padding:12px 16px; color:#4a5568;">{{ course.time }}</td>
+                <td style="padding:12px 16px; color:#4a5568;">{{ course.room }}</td>
+                <td style="padding:12px 16px; color:#4a5568;">{{ course.instructor }}</td>
+                <td style="padding:12px 16px; text-align:center; color:#4a5568; font-weight:600;">{{ course.credits }}</td>
+                <td style="padding:12px 16px; text-align:center;">
+                  <span class="badge enrolled">✅ Enrolled</span>
+                </td>
+              </tr>
+              <tr style="background:#f8faff; font-weight:700;">
+                <td colspan="6" style="padding:12px 16px; text-align:right; color:#718096;">Total Units:</td>
+                <td style="padding:12px 16px; text-align:center; color:#667eea; font-size:16px; font-weight:800;">{{ totalEnrolledCredits }}</td>
+                <td></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
 </div>
 
-<!-- Enroll Modal -->
+<!-- ── Enlist Confirm Modal ── -->
 <div class="modal-overlay" *ngIf="showEnrollModal" (click)="closeEnrollModal()">
   <div class="modal-content" (click)="$event.stopPropagation()">
     <div class="modal-header">
-      <h2>Confirm Enrollment</h2>
+      <h2>Confirm Enlistment</h2>
       <button class="modal-close" (click)="closeEnrollModal()">✕</button>
     </div>
-
     <div class="modal-body" *ngIf="selectedCourseForEnroll">
       <div class="course-summary">
-        <div class="summary-row">
-          <label>Course Code:</label>
-          <p>{{ selectedCourseForEnroll.code }}</p>
-        </div>
-        <div class="summary-row">
-          <label>Course Name:</label>
-          <p>{{ selectedCourseForEnroll.name }}</p>
-        </div>
-        <div class="summary-row">
-          <label>Credits:</label>
-          <p>{{ selectedCourseForEnroll.credits }} units</p>
-        </div>
-        <div class="summary-row">
-          <label>Instructor:</label>
-          <p>{{ selectedCourseForEnroll.instructor }}</p>
-        </div>
-        <div class="summary-row">
-          <label>Schedule:</label>
-          <p>{{ selectedCourseForEnroll.schedule }}</p>
-        </div>
-        <div class="summary-row">
-          <label>Room:</label>
-          <p>{{ selectedCourseForEnroll.room }}</p>
-        </div>
-        <div class="summary-row">
-          <label>Department:</label>
-          <p>{{ selectedCourseForEnroll.department }}</p>
-        </div>
+        <div class="summary-row"><label>Course Code:</label><p>{{ selectedCourseForEnroll.code }}</p></div>
+        <div class="summary-row"><label>Course Name:</label><p>{{ selectedCourseForEnroll.name }}</p></div>
+        <div class="summary-row"><label>Credits:</label><p>{{ selectedCourseForEnroll.credits }} units</p></div>
+        <div class="summary-row"><label>Instructor:</label><p>{{ selectedCourseForEnroll.instructor }}</p></div>
+        <div class="summary-row"><label>Schedule:</label><p>{{ selectedCourseForEnroll.schedule }}</p></div>
+        <div class="summary-row"><label>Days:</label><p>{{ selectedCourseForEnroll.day }}</p></div>
+        <div class="summary-row"><label>Time:</label><p>{{ selectedCourseForEnroll.time }}</p></div>
+        <div class="summary-row"><label>Room:</label><p>{{ selectedCourseForEnroll.room }}</p></div>
       </div>
-
       <div class="form-group">
-        <label for="priority">Priority:</label>
-        <select 
-          id="priority" 
-          class="form-control" 
-          [(ngModel)]="enrollmentForm.priority">
-          <option value="Low">Low</option>
-          <option value="Medium">Medium</option>
-          <option value="High">High</option>
-        </select>
+        <label for="notes">Notes (optional):</label>
+        <textarea id="notes" class="form-control" rows="2" placeholder="Any special notes..." [(ngModel)]="enrollmentForm.notes"></textarea>
       </div>
-
-      <div class="form-group">
-        <label for="notes">Notes:</label>
-        <textarea 
-          id="notes" 
-          class="form-control" 
-          rows="3" 
-          placeholder="Add any special notes..."
-          [(ngModel)]="enrollmentForm.notes"></textarea>
-      </div>
-
       <div class="info-box">
-        <p>📌 This subject will be marked as <strong>PENDING</strong> until approved by the registrar.</p>
+        <p>✅ This subject will be immediately added to your enrolled subjects and schedule.</p>
       </div>
     </div>
-
     <div class="modal-footer">
       <button class="btn-cancel" (click)="closeEnrollModal()">Cancel</button>
-      <button class="btn-confirm" (click)="confirmEnrollment()">Enroll Subject</button>
+      <button class="btn-confirm" (click)="confirmEnrollment()">✅ Enlist Subject</button>
     </div>
   </div>
 </div>
 
-<!-- Drop Modal -->
+<!-- ── Drop Modal ── -->
 <div class="modal-overlay" *ngIf="showDropModal" (click)="closeDropModal()">
   <div class="modal-content modal-small" (click)="$event.stopPropagation()">
     <div class="modal-header">
       <h2>Drop Subject</h2>
       <button class="modal-close" (click)="closeDropModal()">✕</button>
     </div>
-
     <div class="modal-body" *ngIf="selectedCourseForDrop">
       <div class="warning-box">
-        <p class="warning-text">⚠️ Are you sure you want to drop this subject?</p>
+        <p class="warning-text">⚠️ Are you sure you want to drop <strong>{{ selectedCourseForDrop.code }}</strong>?</p>
       </div>
-
       <div class="course-summary">
-        <div class="summary-row">
-          <label>Subject:</label>
-          <p>{{ selectedCourseForDrop.code }} - {{ selectedCourseForDrop.name }}</p>
-        </div>
-        <div class="summary-row">
-          <label>Credits:</label>
-          <p>{{ selectedCourseForDrop.credits }} units</p>
-        </div>
-        <div class="summary-row">
-          <label>Current Status:</label>
-          <p><span class="badge" [class]="'badge-' + selectedCourseForDrop.status.toLowerCase()">{{ selectedCourseForDrop.status }}</span></p>
-        </div>
+        <div class="summary-row"><label>Subject:</label><p>{{ selectedCourseForDrop.code }} — {{ selectedCourseForDrop.name }}</p></div>
+        <div class="summary-row"><label>Credits:</label><p>{{ selectedCourseForDrop.credits }} units</p></div>
       </div>
-
-      <p class="note-text">This action will remove the subject from your enrollment record.</p>
+      <p class="note-text">This will remove the subject from your enrollment and schedule.</p>
     </div>
-
     <div class="modal-footer">
       <button class="btn-cancel" (click)="closeDropModal()">Cancel</button>
       <button class="btn-danger" (click)="confirmDrop()">Drop Subject</button>
@@ -807,23 +578,22 @@
   </div>
 </div>
 
-<!-- Confirmation Modal -->
+<!-- ── Success Modal ── -->
 <div class="modal-overlay" *ngIf="showConfirmationModal" (click)="closeConfirmationModal()">
   <div class="modal-content modal-success" (click)="$event.stopPropagation()">
     <div class="modal-header success">
-      <h2>✅ Enrollment Successful</h2>
+      <h2>✅ Enlistment Successful!</h2>
     </div>
-
     <div class="modal-body">
       <div class="success-box">
-        <p>Your enrollment request has been submitted successfully!</p>
-        <p>Your subject is now <strong>PENDING</strong> approval from the registrar.</p>
-        <p>You will receive a notification once it's approved.</p>
+        <p><strong>{{ lastEnlistedCourse?.code }} — {{ lastEnlistedCourse?.name }}</strong></p>
+        <p>Successfully enlisted! This subject is now <strong>ENROLLED</strong> and showing in your schedule.</p>
+        <p>Go to the <strong>📅 My Schedule</strong> tab to view your complete class schedule.</p>
       </div>
     </div>
-
     <div class="modal-footer">
-      <button class="btn-confirm" (click)="closeConfirmationModal()">OK</button>
+      <button class="btn-confirm" (click)="closeConfirmationModal(); currentView = 'schedule'">📅 View My Schedule</button>
+      <button class="btn-cancel" (click)="closeConfirmationModal()">OK</button>
     </div>
   </div>
 </div>
