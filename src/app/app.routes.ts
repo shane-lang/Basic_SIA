@@ -54,6 +54,7 @@ export const routes: Routes = [
       { path: 'enrollment', component: Enrollment },
       { path: 'profile', component: Profile },
       { path: 'schedule', component: Schedule },
+      { path: 'grades', component: GradeSubmission },
       { path: 'about', component: About },
       { path: '', redirectTo: 'dashboard', pathMatch: 'full' }
     ]

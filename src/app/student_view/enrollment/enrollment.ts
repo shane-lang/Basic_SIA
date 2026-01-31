@@ -99,10 +99,10 @@ export class Enrollment implements OnInit {
   // ── Courses ───────────────────────────────────────────────
   currentSemester  = '1st Semester, AY 2024-2025';
   availableCourses: Course[]        = [];
-  enrolledCourses:  StudentCourse[] = []; 
+  enrolledCourses:  StudentCourse[] = [];
 
   // ── UI state ─────────────────────────────────────────────
-  currentView: 'dashboard' | 'enroll' | 'manage' | 'schedule' = 'dashboard';
+  currentView: 'dashboard' | 'enroll' | 'manage' = 'dashboard';
   showEnrollModal       = false;
   showDropModal         = false;
   showConfirmationModal = false;
@@ -123,7 +123,6 @@ export class Enrollment implements OnInit {
   isDeadlineApproaching = false;
   creditWarning         = '';
 
-  readonly DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
   // ── ngOnInit ─────────────────────────────────────────────
   ngOnInit(): void {
@@ -132,11 +131,23 @@ export class Enrollment implements OnInit {
     const user  = JSON.parse(storedUser);
     this.userId = user.id;
 
+    // Restore workflowStep immediately so navigating away+back doesn't flash payment screen
+    const savedStep = localStorage.getItem('enrollmentStep') as typeof this.workflowStep | null;
+    if (savedStep) {
+      this.workflowStep = savedStep;
+      if (savedStep === 'dashboard') {
+        this.loadEnrolledCourses();
+        this.loadAvailableCourses();
+      }
+    }
+
     this.http.get<any>(`${this.apiUrl}?action=get_profile&user_id=${this.userId}`).subscribe({
       next: (res) => {
         if (res.success) {
           this.student     = res.student;
           this.studentDbId = res.student.dbId;
+          // Save studentDbId so schedule component can use it directly
+          localStorage.setItem('studentDbId', String(res.student.dbId));
 
           const storedPm = localStorage.getItem('pendingPaymentMethod');
           if (storedPm === 'Cash' || storedPm === 'GCash') {
@@ -148,22 +159,23 @@ export class Enrollment implements OnInit {
 
           this.paymentInfo.status = res.student.paymentStatus === 'Paid' ? 'Paid' : 'Pending';
 
+          // DB is source of truth — always re-derive step from latest status
           if (res.student.approvalStatus === 'Approved' || res.student.enrollmentStatus === 'Enrolled') {
             localStorage.removeItem('pendingPaymentMethod');
-            this.workflowStep = 'dashboard';
+            this.setStep('dashboard');
             this.loadEnrolledCourses();
             this.loadAvailableCourses();
           } else if (res.student.paymentStatus === 'Paid') {
-            this.workflowStep      = 'approval';
+            this.setStep('approval');
             this.isApprovalPending = true;
             this.startApprovalPolling();
           } else {
             if (this.paymentMethod === 'Cash') {
-              this.workflowStep      = 'cash-pending';
+              this.setStep('cash-pending');
               this.isApprovalPending = true;
               this.startApprovalPolling();
             } else {
-              this.workflowStep = 'payment';
+              this.setStep('payment');
             }
           }
         }
@@ -172,6 +184,12 @@ export class Enrollment implements OnInit {
       error: () => { this.cdr.detectChanges(); }
     });
     this.calculateDeadlineInfo();
+  }
+
+  // Save workflowStep to localStorage so it survives navigation
+  setStep(step: typeof this.workflowStep): void {
+    this.workflowStep = step;
+    localStorage.setItem('enrollmentStep', step);
   }
 
   // ── Load data ─────────────────────────────────────────────
@@ -281,7 +299,7 @@ export class Enrollment implements OnInit {
   }
 
   proceedToDashboard(): void {
-    this.workflowStep = 'dashboard';
+    this.setStep('dashboard');
     this.loadAvailableCourses();
     this.loadEnrolledCourses();
     this.cdr.detectChanges();
@@ -322,7 +340,7 @@ export class Enrollment implements OnInit {
         if (res.success) {
           this.lastEnlistedCourse   = courseToEnlist;
           this.showConfirmationModal = true;
-          this.addNotification('success', `✅ ${courseToEnlist.code} enlisted! Now showing in your schedule.`);
+          this.addNotification('success', `✅ ${courseToEnlist.code} enlisted successfully!`);
           this.loadEnrolledCourses();
           this.loadAvailableCourses();
         } else {
@@ -406,10 +424,10 @@ export class Enrollment implements OnInit {
     return [...new Set(this.availableCourses.map(c => c.department))];
   }
 
-  canEnroll(c: Course):      boolean { return c.available > 0; }
+  canEnroll(c: Course):      boolean { return c.available == null || c.available > 0; }
   isCourseAlmostFull(c: Course): boolean { return c.available < 5 && c.available > 0; }
   getAvailableSeats(c: Course):  number  { return c.available; }
-  canAddCourse():  boolean { return this.totalEnrolledCredits < this.maxCredits && new Date() <= new Date(this.enrollmentDeadline); }
+  canAddCourse():  boolean { return this.totalEnrolledCredits < this.maxCredits; }
   canDropCourse(): boolean { return new Date() <= new Date(this.addDropDeadline); }
 
   calculateDeadlineInfo(): void {

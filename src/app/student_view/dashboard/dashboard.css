@@ -676,3 +676,162 @@ body {
     grid-template-columns: repeat(2, 1fr);
   }
 }
+
+/* ════════════════ NEW ADDITIONS ════════════════ */
+
+/* Loading */
+.loading-card {
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center; padding: 60px; text-align: center;
+  color: var(--gray-600); background: white; border-radius: 16px;
+  margin-bottom: 30px; box-shadow: 0 4px 12px rgba(0,0,0,.06);
+}
+.spinner {
+  width: 40px; height: 40px; border: 4px solid var(--gray-200);
+  border-top-color: #667eea; border-radius: 50%;
+  animation: spin .8s linear infinite; margin-bottom: 16px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Header extras */
+.header-badges { display: flex; gap: 8px; margin-bottom: 10px; }
+.hbadge {
+  font-size: 12px; font-weight: 700; padding: 4px 12px;
+  background: rgba(255,255,255,.2); border-radius: 20px;
+}
+.hbadge-gold { background: rgba(255,215,0,.3); color: #ffd700; }
+.info-status-pill {
+  font-size: 14px; background: rgba(255,255,255,.2);
+  padding: 4px 12px; border-radius: 20px;
+}
+
+/* Welcome extras */
+.name-hl     { color: var(--primary); }
+.prog-line   { margin: 4px 0 10px; color: var(--gray-600); font-size: 14px; }
+.welcome-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+.wchip {
+  font-size: 12px; font-weight: 600; padding: 5px 12px;
+  border-radius: 20px; background: var(--gray-100); color: var(--gray-700);
+}
+.wchip-green  { background: #d1fae5; color: #065f46; }
+.wchip-orange { background: #fef3c7; color: #92400e; }
+.wchip-red    { background: #fee2e2; color: #991b1b; }
+.welcome-sub  { margin: 0; font-size: 13px; color: var(--gray-600); }
+.welcome-sub strong { color: var(--primary); }
+
+/* Next class badge */
+.next-class-badge {
+  font-size: 13px; font-weight: 800; padding: 12px 20px;
+  border-radius: 10px; background: rgba(255,255,255,.25);
+  font-family: 'Courier New', monospace; letter-spacing: .05em;
+  position: relative; z-index: 1; flex-shrink: 0;
+}
+.next-when { color: #ffd700; font-weight: 700; }
+
+/* Empty + enrolled badge */
+.empty-card {
+  background: white; padding: 28px; border-radius: 12px;
+  text-align: center; color: var(--gray-600);
+  box-shadow: 0 2px 8px rgba(0,0,0,.05);
+}
+.enrolled-badge {
+  font-size: 12px; font-weight: 700; padding: 5px 14px;
+  border-radius: 20px; background: #d1fae5; color: #065f46;
+}
+
+/* ── Financial Section ── */
+.fees-section { margin-bottom: 40px; }
+.fees-card { background: white; border-radius: 16px; box-shadow: 0 4px 12px rgba(0,0,0,.06); overflow: hidden; }
+.fees-tabs { display: flex; border-bottom: 2px solid var(--gray-200); }
+.fees-tabs button {
+  flex: 1; padding: 16px; border: none; background: none;
+  font-size: 14px; font-weight: 600; color: var(--gray-600); cursor: pointer; transition: all .2s;
+}
+.fees-tabs button.active { color: var(--primary); border-bottom: 3px solid var(--primary); background: #f8faff; }
+.fees-body { padding: 28px; }
+.fees-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 24px; }
+
+.fee-block-title { font-size: 12px; font-weight: 700; color: var(--gray-600); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 14px; }
+.fee-row { display: flex; justify-content: space-between; font-size: 13px; padding: 9px 0; border-bottom: 1px solid var(--gray-100); color: var(--gray-700); }
+.fee-row:last-child { border-bottom: none; }
+.fee-subtotal { font-weight: 700; color: var(--gray-900); }
+.fee-muted   { color: var(--gray-400); }
+.discount span:last-child { color: #16a34a; font-weight: 700; }
+.fee-paid span:last-child { color: #16a34a; font-weight: 700; }
+.fee-balance strong { font-size: 18px; color: var(--danger); }
+.fee-balance.zero strong { color: #16a34a; }
+.fee-due .due-txt { color: var(--danger); font-weight: 700; }
+.fee-summary { background: #f8faff; border-radius: 12px; padding: 18px; }
+.fee-status-chip { margin-top: 14px; padding: 10px; border-radius: 8px; text-align: center; font-weight: 700; font-size: 13px; background: #fef3c7; color: #92400e; }
+.fee-status-chip.paid { background: #d1fae5; color: #065f46; }
+
+.pay-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.pay-table th { padding: 10px 12px; text-align: left; background: var(--gray-50); font-size: 11px; font-weight: 700; color: var(--gray-600); text-transform: uppercase; border-bottom: 2px solid var(--gray-200); }
+.pay-table td { padding: 11px 12px; border-bottom: 1px solid var(--gray-100); vertical-align: middle; }
+.pay-table tr:hover td { background: #f8faff; }
+.pay-method { font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 20px; background: #ebf8ff; color: #1e40af; }
+.pay-method.cash { background: #fffff0; color: #92400e; }
+.mono { font-family: 'Courier New', monospace; font-size: 12px; }
+.td-muted { color: var(--gray-600); }
+.pay-stat { font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 20px; }
+.pay-stat.verified { background: #d1fae5; color: #065f46; }
+.pay-stat.pending  { background: #fef3c7; color: #92400e; }
+.pay-stat.rejected { background: #fee2e2; color: #991b1b; }
+.empty-inline { color: var(--gray-400); font-size: 13px; padding: 24px 0; text-align: center; }
+
+/* ── Announcements filter ── */
+.ann-filter-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
+.ann-filter-btn {
+  padding: 7px 16px; border: 2px solid var(--gray-200); border-radius: 20px;
+  font-size: 13px; font-weight: 600; color: var(--gray-600); background: white; cursor: pointer; transition: all .2s;
+}
+.ann-filter-btn.active { background: var(--primary); color: white; border-color: var(--primary); }
+.ann-filter-btn:hover:not(.active) { border-color: var(--primary); color: var(--primary); }
+.announcement-item.urgent { border-left-color: var(--danger); background: #fff5f5; }
+.urgent-dot { color: var(--danger); font-size: 14px; }
+
+/* ── Calendar Section ── */
+.calendar-section { margin-bottom: 40px; }
+.calendar-wrapper { display: grid; grid-template-columns: 1fr 320px; gap: 24px; }
+
+.calendar-card { background: white; border-radius: 16px; padding: 24px; box-shadow: 0 4px 12px rgba(0,0,0,.06); }
+.cal-nav-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+.cal-title   { margin: 0; font-size: 18px; font-weight: 700; color: var(--gray-900); }
+.cal-nav-btn { background: var(--gray-100); border: none; border-radius: 8px; padding: 7px 14px; font-size: 18px; font-weight: 700; cursor: pointer; color: var(--gray-700); transition: all .2s; }
+.cal-nav-btn:hover { background: var(--primary); color: white; }
+
+.cal-dow-row { display: grid; grid-template-columns: repeat(7,1fr); margin-bottom: 6px; }
+.cal-dow-row span { text-align: center; font-size: 11px; font-weight: 700; color: var(--gray-400); padding: 4px 0; }
+
+.cal-grid { display: grid; grid-template-columns: repeat(7,1fr); gap: 2px; }
+.cal-cell { min-height: 44px; border-radius: 8px; padding: 4px; display: flex; flex-direction: column; align-items: center; }
+.cal-cell.other-month { opacity: .3; }
+.cal-cell.today { background: var(--primary); }
+.cal-cell.today .cal-num { color: white; font-weight: 800; }
+.cal-cell.has-event { background: #f0f4ff; }
+.cal-num  { font-size: 13px; color: var(--gray-800); }
+.cal-dots { display: flex; gap: 2px; flex-wrap: wrap; justify-content: center; margin-top: 2px; }
+.cal-dot  { width: 6px; height: 6px; border-radius: 50%; }
+
+.cal-legend { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--gray-200); }
+.leg-item   { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--gray-600); font-weight: 500; }
+.leg-dot    { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+
+.events-card  { background: white; border-radius: 16px; padding: 24px; box-shadow: 0 4px 12px rgba(0,0,0,.06); }
+.events-title { margin: 0 0 16px; font-size: 17px; font-weight: 700; color: var(--gray-900); padding-bottom: 12px; border-bottom: 2px solid var(--gray-200); }
+.event-item   { display: flex; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--gray-100); }
+.event-item:last-child { border-bottom: none; }
+.event-bar    { width: 4px; border-radius: 4px; flex-shrink: 0; min-height: 40px; }
+.event-body   { flex: 1; }
+.event-name   { font-size: 14px; font-weight: 700; color: var(--gray-900); margin-bottom: 2px; }
+.event-desc   { font-size: 12px; color: var(--gray-600); margin-bottom: 4px; }
+.event-date   { font-size: 11px; color: var(--gray-400); font-weight: 500; }
+
+/* Responsive additions */
+@media (max-width: 1024px) {
+  .fees-grid       { grid-template-columns: 1fr 1fr; }
+  .calendar-wrapper { grid-template-columns: 1fr; }
+}
+@media (max-width: 768px) {
+  .fees-grid { grid-template-columns: 1fr; }
+}

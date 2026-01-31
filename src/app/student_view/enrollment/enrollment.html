@@ -232,13 +232,7 @@
     <button class="nav-tab" [class.active]="currentView === 'manage'" (click)="currentView = 'manage'">
       ⚙️ Manage Subjects
     </button>
-    <button class="nav-tab" [class.active]="currentView === 'schedule'" (click)="currentView = 'schedule'">
-      📅 My Schedule
-      <span *ngIf="approvedCourses.length > 0"
-        style="background:#667eea;color:white;font-size:11px;padding:2px 7px;border-radius:10px;margin-left:6px;font-weight:700;">
-        {{ approvedCourses.length }}
-      </span>
-    </button>
+
   </div>
 
   <!-- ── DASHBOARD VIEW ── -->
@@ -384,7 +378,7 @@
         </div>
         <div class="course-footer">
           <button class="btn-enroll" (click)="openEnrollModal(course)" [disabled]="!canEnroll(course) || !canAddCourse()">
-            {{ canEnroll(course) ? 'Enlist Now' : 'No Seats' }}
+            {{ !canEnroll(course) ? '🚫 No Seats Available' : 'Enlist Now' }}
           </button>
         </div>
       </div>
@@ -426,98 +420,6 @@
     </div>
   </div>
 
-  <!-- ── SCHEDULE VIEW ── -->
-  <div class="view-container" *ngIf="currentView === 'schedule'">
-    <div class="manage-header">
-      <h2>📅 My Class Schedule</h2>
-      <p>{{ currentSemester }} &nbsp;|&nbsp; {{ approvedCourses.length }} subject(s) &nbsp;|&nbsp; {{ totalEnrolledCredits }} units</p>
-    </div>
-
-    <div *ngIf="approvedCourses.length === 0" class="no-data">
-      <p>📅 No enlisted subjects yet. Enlist subjects to see your schedule here.</p>
-    </div>
-
-    <!-- Schedule grid by day -->
-    <div *ngIf="approvedCourses.length > 0">
-
-      <!-- Day-by-day schedule cards -->
-      <div *ngFor="let day of DAYS">
-        <div *ngIf="getCoursesForDay(day).length > 0" style="margin-bottom: 24px;">
-          <h3 style="font-size:16px; font-weight:700; color:#1a202c; margin-bottom:12px; padding-bottom:8px; border-bottom:2px solid #667eea;">
-            📆 {{ day }}
-          </h3>
-          <div class="courses-grid">
-            <div *ngFor="let course of getCoursesForDay(day)" class="course-card"
-              style="border-left: 4px solid #667eea;">
-              <div class="course-header" style="padding:16px 20px;">
-                <div>
-                  <span class="course-code">{{ course.code }}</span>
-                  <h3 style="margin:6px 0 0; font-size:15px;">{{ course.name }}</h3>
-                </div>
-                <span class="credits-badge">{{ course.credits }} Units</span>
-              </div>
-              <div class="course-body" style="padding:14px 20px;">
-                <div class="course-detail">
-                  <strong>🕐 Time:</strong> {{ course.time }}
-                </div>
-                <div class="course-detail">
-                  <strong>👨‍🏫 Instructor:</strong> {{ course.instructor }}
-                </div>
-                <div class="course-detail">
-                  <strong>🚪 Room:</strong> {{ course.room }}
-                </div>
-                <div class="course-detail">
-                  <strong>📅 Days:</strong> {{ course.day }}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Full list table -->
-      <div style="margin-top: 32px;">
-        <h3 style="font-size:16px; font-weight:700; color:#1a202c; margin-bottom:12px; padding-bottom:8px; border-bottom:2px solid #667eea;">
-          📋 Complete Subject List
-        </h3>
-        <div class="history-table-wrapper" style="background:white; border-radius:12px; box-shadow:0 2px 8px rgba(0,0,0,0.06); overflow-x:auto;">
-          <table style="width:100%; border-collapse:collapse; font-size:13px;">
-            <thead>
-              <tr style="background:#f8faff;">
-                <th style="padding:14px 16px; text-align:left; font-size:11px; font-weight:700; color:#718096; text-transform:uppercase; border-bottom:2px solid #e8edf5;">Code</th>
-                <th style="padding:14px 16px; text-align:left; font-size:11px; font-weight:700; color:#718096; text-transform:uppercase; border-bottom:2px solid #e8edf5;">Subject Name</th>
-                <th style="padding:14px 16px; text-align:left; font-size:11px; font-weight:700; color:#718096; text-transform:uppercase; border-bottom:2px solid #e8edf5;">Days</th>
-                <th style="padding:14px 16px; text-align:left; font-size:11px; font-weight:700; color:#718096; text-transform:uppercase; border-bottom:2px solid #e8edf5;">Time</th>
-                <th style="padding:14px 16px; text-align:left; font-size:11px; font-weight:700; color:#718096; text-transform:uppercase; border-bottom:2px solid #e8edf5;">Room</th>
-                <th style="padding:14px 16px; text-align:left; font-size:11px; font-weight:700; color:#718096; text-transform:uppercase; border-bottom:2px solid #e8edf5;">Instructor</th>
-                <th style="padding:14px 16px; text-align:center; font-size:11px; font-weight:700; color:#718096; text-transform:uppercase; border-bottom:2px solid #e8edf5;">Units</th>
-                <th style="padding:14px 16px; text-align:center; font-size:11px; font-weight:700; color:#718096; text-transform:uppercase; border-bottom:2px solid #e8edf5;">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr *ngFor="let course of approvedCourses" style="border-bottom:1px solid #f0f4f8;">
-                <td style="padding:12px 16px; font-weight:700; color:#667eea; font-family:'Courier New',monospace;">{{ course.code }}</td>
-                <td style="padding:12px 16px; color:#1a202c; font-weight:500;">{{ course.name }}</td>
-                <td style="padding:12px 16px; color:#4a5568;">{{ course.day }}</td>
-                <td style="padding:12px 16px; color:#4a5568;">{{ course.time }}</td>
-                <td style="padding:12px 16px; color:#4a5568;">{{ course.room }}</td>
-                <td style="padding:12px 16px; color:#4a5568;">{{ course.instructor }}</td>
-                <td style="padding:12px 16px; text-align:center; color:#4a5568; font-weight:600;">{{ course.credits }}</td>
-                <td style="padding:12px 16px; text-align:center;">
-                  <span class="badge enrolled">✅ Enrolled</span>
-                </td>
-              </tr>
-              <tr style="background:#f8faff; font-weight:700;">
-                <td colspan="6" style="padding:12px 16px; text-align:right; color:#718096;">Total Units:</td>
-                <td style="padding:12px 16px; text-align:center; color:#667eea; font-size:16px; font-weight:800;">{{ totalEnrolledCredits }}</td>
-                <td></td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  </div>
 
 </div>
 
@@ -588,12 +490,11 @@
       <div class="success-box">
         <p><strong>{{ lastEnlistedCourse?.code }} — {{ lastEnlistedCourse?.name }}</strong></p>
         <p>Successfully enlisted! This subject is now <strong>ENROLLED</strong> and showing in your schedule.</p>
-        <p>Go to the <strong>📅 My Schedule</strong> tab to view your complete class schedule.</p>
+        <p>Go to <strong>📅 Schedule</strong> in the side menu to view your complete class schedule.</p>
       </div>
     </div>
     <div class="modal-footer">
-      <button class="btn-confirm" (click)="closeConfirmationModal(); currentView = 'schedule'">📅 View My Schedule</button>
-      <button class="btn-cancel" (click)="closeConfirmationModal()">OK</button>
+      <button class="btn-confirm" (click)="closeConfirmationModal()">OK, Got it!</button>
     </div>
   </div>
 </div>

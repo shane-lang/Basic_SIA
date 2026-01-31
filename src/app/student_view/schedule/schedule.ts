@@ -29,10 +29,11 @@ export class Schedule implements OnInit {
 
   constructor(private http: HttpClient, private cdr: ChangeDetectorRef) {}
 
-  userId:   number = 0;
+  userId:      number = 0;
+  studentDbId: number = 0;
   schedule: ScheduleEntry[] = [];
   isLoading = true;
-  errorMessage      = '';
+  error     = '';
 
   currentSemester = '1st Semester, AY 2024-2025';
 
@@ -48,12 +49,17 @@ export class Schedule implements OnInit {
   ngOnInit(): void {
     const stored = localStorage.getItem('currentUser');
     if (!stored) {
-      this.errorMessage = 'Not logged in.';
+      this.error     = 'Not logged in.';
       this.isLoading = false;
       this.cdr.detectChanges();
       return;
     }
     this.userId = JSON.parse(stored).id;
+
+    // Prefer studentDbId saved by enrollment component (avoids lookup ambiguity)
+    const savedDbId = localStorage.getItem('studentDbId');
+    if (savedDbId) this.studentDbId = parseInt(savedDbId, 10);
+
     this.loadSchedule();
   }
 
@@ -61,7 +67,12 @@ export class Schedule implements OnInit {
     this.isLoading = true;
     this.cdr.detectChanges();
 
-    this.http.get<any>(`${this.apiUrl}?action=get_schedule&user_id=${this.userId}`)
+    // Use student_id directly if available, else fall back to user_id lookup
+    const param = this.studentDbId > 0
+      ? `student_id=${this.studentDbId}`
+      : `user_id=${this.userId}`;
+
+    this.http.get<any>(`${this.apiUrl}?action=get_schedule&${param}`)
       .subscribe({
         next: (res) => {
           this.isLoading = false;
@@ -76,13 +87,13 @@ export class Schedule implements OnInit {
               }
             });
           } else {
-            this.errorMessage = res.message || 'Failed to load schedule.';
+            this.error = res.message || 'Failed to load schedule.';
           }
           this.cdr.detectChanges();
         },
         error: () => {
           this.isLoading = false;
-          this.errorMessage = 'Cannot connect to server. Make sure XAMPP is running.';
+          this.error     = 'Cannot connect to server. Make sure XAMPP is running.';
           this.cdr.detectChanges();
         }
       });

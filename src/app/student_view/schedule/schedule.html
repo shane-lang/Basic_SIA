@@ -18,21 +18,21 @@
   </div>
 
   <!-- Error -->
-  <div *ngIf="!isLoading && errorMessage" class="error-state">
+  <div *ngIf="!isLoading && error" class="error-state">
     <div class="error-icon">⚠️</div>
-    <h3>{{ errorMessage }}</h3>
+    <h3>{{ error }}</h3>
     <button class="btn-retry" (click)="loadSchedule()">Try Again</button>
   </div>
 
   <!-- Empty state -->
-  <div *ngIf="!isLoading && !errorMessage && schedule.length === 0" class="empty-state">
+  <div *ngIf="!isLoading && !error && schedule.length === 0" class="empty-state">
     <div class="empty-icon">📅</div>
     <h3>No Classes Scheduled</h3>
     <p>You don't have any enlisted subjects yet. Go to <strong>Enrollment</strong> and enlist subjects to see your schedule here.</p>
   </div>
 
   <!-- Schedule content -->
-  <ng-container *ngIf="!isLoading && !errorMessage   && schedule.length > 0">
+  <ng-container *ngIf="!isLoading && !error && schedule.length > 0">
 
     <!-- Summary Cards -->
     <div class="summary-cards">
@@ -64,8 +64,8 @@
             <div *ngFor="let course of getCoursesForDay(day)"
               class="schedule-card"
               [style.border-left-color]="getCourseColor(course.courseId)">
-              <div class="schedule-card-left" [style.background-color]="getCourseColor(course.courseId)" >
-                <span class="card-code" >{{ course.courseCode }}</span>
+              <div class="schedule-card-left" [style.background-color]="getCourseColor(course.courseId)">
+                <span class="card-code">{{ course.courseCode }}</span>
                 <span class="card-credits">{{ course.credits }} units</span>
               </div>
               <div class="schedule-card-body">

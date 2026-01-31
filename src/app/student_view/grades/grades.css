@@ -1,0 +1,134 @@
+* { box-sizing: border-box; }
+:root {
+  --primary: #667eea; --gray-50: #f9fafb; --gray-100: #f3f4f6;
+  --gray-200: #e5e7eb; --gray-400: #9ca3af; --gray-600: #4b5563;
+  --gray-700: #374151; --gray-900: #111827;
+}
+/* Header */
+.grades-header {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  padding: 28px; background: linear-gradient(135deg,#667eea,#764ba2);
+  color: white; border-radius: 16px; margin-bottom: 28px; gap: 20px; flex-wrap: wrap;
+}
+.grades-header h1 { margin: 0 0 4px; font-size: 28px; font-weight: 800; }
+.grades-sub { margin: 0; opacity: .85; font-size: 14px; }
+.sem-wrap   { display: flex; flex-direction: column; gap: 6px; }
+.sem-label  { font-size: 11px; font-weight: 700; opacity: .8; text-transform: uppercase; }
+.sem-select {
+  padding: 10px 14px; border: 2px solid rgba(255,255,255,.3); border-radius: 10px;
+  font-size: 14px; font-weight: 600; color: white; background: rgba(255,255,255,.15);
+  cursor: pointer; min-width: 220px;
+}
+.sem-select option { color: #1a202c; background: white; }
+.sem-select:focus  { outline: none; border-color: rgba(255,255,255,.8); }
+
+/* Container */
+.grades-container { max-width: 1200px; margin: 0 auto; display: flex; flex-direction: column; gap: 28px; }
+
+/* States */
+.grades-loading,.grades-error,.grades-empty {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 60px; text-align: center; color: var(--gray-600);
+  background: white; border-radius: 16px; box-shadow: 0 2px 10px rgba(0,0,0,.06);
+}
+.grades-empty div { font-size: 48px; margin-bottom: 12px; }
+.spinner {
+  width: 40px; height: 40px; border: 4px solid var(--gray-200); border-top-color: var(--primary);
+  border-radius: 50%; animation: spin .8s linear infinite; margin-bottom: 16px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Summary cards */
+.grades-summary {
+  display: grid; grid-template-columns: repeat(4,1fr); gap: 16px;
+}
+.gsc {
+  background: white; border-radius: 16px; padding: 22px;
+  box-shadow: 0 2px 10px rgba(0,0,0,.06); border: 1px solid var(--gray-200);
+  display: flex; flex-direction: column; gap: 8px;
+}
+.gsc-label { font-size: 11px; font-weight: 700; color: var(--gray-600); text-transform: uppercase; letter-spacing: .05em; }
+.gsc-big   { font-size: 36px; font-weight: 800; color: #1a202c; line-height: 1; }
+.gsc-sub   { font-size: 12px; color: var(--gray-400); }
+.gsc.overall { border-left: 5px solid var(--primary); }
+.gsc.overall.st-excel { border-left-color: #16a34a; background: #f0fff4; }
+.gsc.overall.st-good  { border-left-color: #2563eb; background: #eff6ff; }
+.gsc.overall.st-pass  { border-left-color: #d97706; background: #fffbeb; }
+.gsc.overall.st-fail  { border-left-color: #dc2626; background: #fff5f5; }
+
+.standing { font-size: 17px; font-weight: 800; color: var(--primary); padding: 6px 0; }
+.standing.st-excel { color: #16a34a; }
+.standing.st-good  { color: #2563eb; }
+.standing.st-pass  { color: #d97706; }
+.standing.st-fail  { color: #dc2626; }
+
+.stat-chips { display: flex; flex-direction: column; gap: 6px; }
+.sc { font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 10px; }
+.sc-pass { background: #d1fae5; color: #065f46; }
+.sc-prog { background: #fef3c7; color: #92400e; }
+.sc-fail { background: #fee2e2; color: #991b1b; }
+
+/* Section header */
+.section-header     { margin-bottom: 20px; }
+.section-header h2  { margin: 0 0 4px; font-size: 22px; font-weight: 800; color: var(--gray-900); }
+.section-subtitle   { margin: 0; font-size: 13px; color: var(--gray-600); }
+
+/* Grades table */
+.grades-table-section,.sem-history,.legend-section {
+  background: white; border-radius: 16px; padding: 24px;
+  box-shadow: 0 2px 10px rgba(0,0,0,.06);
+}
+.table-wrap   { overflow-x: auto; }
+.grades-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.grades-table th {
+  padding: 11px 14px; text-align: left; background: var(--gray-50);
+  font-size: 11px; font-weight: 700; color: var(--gray-600);
+  text-transform: uppercase; border-bottom: 2px solid var(--gray-200);
+}
+.grades-table td { padding: 13px 14px; border-bottom: 1px solid var(--gray-100); vertical-align: middle; }
+.grades-table tbody tr:hover td { background: #fafcff; }
+.grades-table tr.row-pass { background: #f0fff4; }
+.grades-table tr.row-fail { background: #fff5f5; }
+.tc { text-align: center; }
+.td-code { font-family:'Courier New',monospace; font-weight: 800; color: var(--primary); white-space: nowrap; }
+.td-name { font-weight: 600; color: var(--gray-900); }
+.td-muted { color: var(--gray-600); font-size: 12px; }
+
+/* Grade pills */
+.gpill {
+  display: inline-block; padding: 4px 10px; border-radius: 20px;
+  font-size: 13px; font-weight: 800; font-family: 'Courier New',monospace;
+  background: var(--gray-100); color: var(--gray-400);
+}
+.gpill-lg { font-size: 14px; padding: 5px 14px; }
+.g-excel { background: #d1fae5; color: #14532d; }
+.g-good  { background: #dbeafe; color: #1e3a8a; }
+.g-pass  { background: #fef3c7; color: #78350f; }
+.g-fail  { background: #fee2e2; color: #7f1d1d; }
+.g-none  { background: var(--gray-100); color: var(--gray-400); }
+
+/* Remarks tag */
+.rtag { display: inline-block; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 20px; white-space: nowrap; }
+.rtag-pass { background: #d1fae5; color: #065f46; }
+.rtag-fail { background: #fee2e2; color: #991b1b; }
+.rtag-prog { background: #fef3c7; color: #92400e; }
+
+/* GWA History */
+.sem-list { display: flex; flex-direction: column; gap: 14px; }
+.sem-row  { display: grid; grid-template-columns: 1fr 2fr auto auto; align-items: center; gap: 16px; padding: 10px 0; border-bottom: 1px solid var(--gray-100); }
+.sem-row:last-child { border-bottom: none; }
+.sem-name { font-size: 13px; font-weight: 600; color: var(--gray-900); }
+.sem-bar-bg { background: var(--gray-100); border-radius: 20px; height: 10px; overflow: hidden; }
+.sem-bar-fill { height: 100%; border-radius: 20px; transition: width .6s ease; }
+.sem-gwa  { font-size: 18px; font-weight: 800; text-align: right; min-width: 48px; }
+.sem-cr   { font-size: 12px; color: var(--gray-400); min-width: 60px; text-align: right; }
+
+/* Legend */
+.legend-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 14px; }
+.leg-item    { display: flex; align-items: center; gap: 12px; padding: 12px; background: var(--gray-50); border-radius: 10px; }
+.leg-item div { display: flex; flex-direction: column; gap: 2px; }
+.leg-item strong { font-size: 13px; color: var(--gray-900); }
+.leg-item span   { font-size: 12px; color: var(--gray-600); }
+
+@media (max-width: 1024px) { .grades-summary { grid-template-columns: 1fr 1fr; } .legend-grid { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 640px)  { .grades-summary { grid-template-columns: 1fr; } .legend-grid { grid-template-columns: 1fr; } .sem-row { grid-template-columns: 1fr 1fr; } }

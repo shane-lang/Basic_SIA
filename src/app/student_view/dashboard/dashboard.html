@@ -1,8 +1,14 @@
-<!-- Header Section -->
+<!-- ════════════════════════════════════════════════════
+     DASHBOARD HEADER — Student Info + Academic Year
+════════════════════════════════════════════════════ -->
 <div class="dashboard-header">
   <div class="header-content">
+    <div class="header-badges">
+      <span class="hbadge">{{ academicYear }}</span>
+      <span class="hbadge hbadge-gold">{{ semester }}</span>
+    </div>
     <h1>📚 Student Dashboard</h1>
-    <p class="header-subtitle">Academic Year 2024-2025 | 1st Semester</p>
+    <p class="header-subtitle">{{ getProgramFull(program) || 'Student Portal' }}</p>
   </div>
   <div class="header-info">
     <div class="info-item">
@@ -10,45 +16,61 @@
       <span class="info-value">{{ studentId }}</span>
     </div>
     <div class="info-item">
+      <span class="info-label">Year Level</span>
+      <span class="info-value">{{ yearLevel || '—' }}</span>
+    </div>
+    <div class="info-item">
       <span class="info-label">GPA</span>
       <span class="info-value">{{ gpa }}</span>
+    </div>
+    <div class="info-item">
+      <span class="info-label">Status</span>
+      <span class="info-value info-status-pill">{{ academicStatus || enrollmentStatus || '—' }}</span>
     </div>
   </div>
 </div>
 
 <div class="dashboard-container">
-  <!-- Welcome Section -->
+
+  <!-- Loading -->
+  <div *ngIf="isLoading" class="loading-card">
+    <div class="spinner"></div><p>Loading your dashboard...</p>
+  </div>
+
+  <ng-container *ngIf="!isLoading">
+
+  <!-- ══ WELCOME SECTION ════════════════════════════════════ -->
   <section class="welcome-section">
     <div class="welcome-card">
       <div class="welcome-icon">👋</div>
       <div class="welcome-content">
-        <h2>Welcome back, {{ studentName }}!</h2>
-        <p>You have {{ enrolledCourses.length }} active courses this semester</p>
+        <h2>Welcome back, <span class="name-hl">{{ studentName }}</span>!</h2>
+        <p class="prog-line">{{ getProgramFull(program) }}</p>
+        <div class="welcome-chips">
+          <span class="wchip">📅 {{ academicYear }} · {{ semester }}</span>
+          <span class="wchip" *ngIf="yearLevel">🎓 {{ yearLevel }}</span>
+          <span class="wchip" [class.wchip-green]="enrollmentStatus==='Enrolled'" [class.wchip-orange]="enrollmentStatus!=='Enrolled'">
+            {{ enrollmentStatus || 'Pending' }}
+          </span>
+          <span class="wchip" [class.wchip-green]="paymentStatus==='Paid'" [class.wchip-red]="paymentStatus!=='Paid'">
+            💳 {{ paymentStatus }}
+          </span>
+        </div>
+        <p class="welcome-sub">
+          You have <strong>{{ enrolledCourses.length }}</strong> active course{{ enrolledCourses.length !== 1 ? 's' : '' }} this semester
+          <span *ngIf="enrollmentDate"> · Enrolled {{ fmtDate(enrollmentDate) }}</span>
+        </p>
       </div>
     </div>
   </section>
 
-  <!-- Quick Stats -->
+  <!-- ══ QUICK STATS ════════════════════════════════════════ -->
   <section class="quick-stats">
-    <div class="stat-card">
-      <div class="stat-icon">📖</div>
+    <div *ngFor="let card of dashboardCards" class="stat-card">
+      <div class="stat-icon">{{ card.icon }}</div>
       <div class="stat-info">
-        <h3>Total Courses</h3>
-        <p class="stat-number">{{ enrolledCourses.length }}</p>
-      </div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-icon">⏰</div>
-      <div class="stat-info">
-        <h3>Credit Hours</h3>
-        <p class="stat-number">{{ totalCredits }}</p>
-      </div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-icon">🎯</div>
-      <div class="stat-info">
-        <h3>Current GPA</h3>
-        <p class="stat-number">{{ gpa }}</p>
+        <h3>{{ card.title }}</h3>
+        <p class="stat-number" [style.color]="card.color">{{ card.value }}</p>
       </div>
     </div>
     <div class="stat-card">
@@ -60,25 +82,30 @@
     </div>
   </section>
 
-  <!-- Next Class Alert -->
+  <!-- ══ NEXT CLASS ALERT ═══════════════════════════════════ -->
   <section class="next-class-section" *ngIf="nextClass">
     <div class="next-class-card">
       <div class="next-class-icon">🔔</div>
       <div class="next-class-content">
-        <h3>Your Next Class</h3>
+        <h3>Your Next Class
+          <span class="next-when" *ngIf="nextClassLabel">— {{ nextClassLabel }}</span>
+        </h3>
         <p class="class-name">{{ nextClass.name }}</p>
-        <p class="class-details">📍 {{ nextClass.room }} | ⏱️ {{ nextClass.time }}</p>
+        <p class="class-details">📍 {{ nextClass.room }} &nbsp;|&nbsp; ⏱️ {{ nextClass.time }}</p>
         <p class="class-instructor">👨‍🏫 {{ nextClass.instructor }}</p>
       </div>
-      <button class="btn-set-reminder">Set Reminder</button>
+      <div class="next-class-badge">{{ nextClass.code }}</div>
     </div>
   </section>
 
-  <!-- Enrolled Courses Grid -->
+  <!-- ══ ENROLLED COURSES ═══════════════════════════════════ -->
   <section class="courses-section">
     <div class="section-header">
       <h2>🎓 Your Enrolled Courses</h2>
-      <p class="section-subtitle">Click on a course for more details</p>
+      <p class="section-subtitle">{{ enrolledCourses.length }} courses · {{ totalCredits }} units this semester</p>
+    </div>
+    <div *ngIf="enrolledCourses.length === 0" class="empty-card">
+      <p>📚 No enrolled courses yet. Go to <strong>Enrollment</strong> to enlist subjects.</p>
     </div>
     <div class="courses-grid">
       <div *ngFor="let course of enrolledCourses" class="course-card">
@@ -89,8 +116,8 @@
         <div class="course-body">
           <h3>{{ course.name }}</h3>
           <p class="instructor">👨‍🏫 {{ course.instructor }}</p>
-          <p class="schedule">📅 {{ course.schedule }}</p>
-          <p class="room">📍 {{ course.room }}</p>
+          <p class="schedule">📅 {{ course.day || course.schedule }}</p>
+          <p class="room">📍 {{ course.room }} &nbsp;|&nbsp; ⏱️ {{ course.time }}</p>
           <div class="progress-container" *ngIf="course.progress">
             <div class="progress-label">Course Progress</div>
             <div class="progress-bar">
@@ -100,30 +127,167 @@
           </div>
         </div>
         <div class="course-footer">
-          <button class="btn-view">View Course</button>
+          <span class="enrolled-badge">✅ Enrolled</span>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- Announcements Section -->
+  <!-- ══ FINANCIAL SUMMARY ══════════════════════════════════ -->
+  <section class="fees-section">
+    <div class="section-header">
+      <h2>💰 Financial Summary</h2>
+      <p class="section-subtitle">Tuition, fees, scholarships, payment history & balance</p>
+    </div>
+    <div class="fees-card">
+      <div class="fees-tabs">
+        <button [class.active]="activeFeesTab==='breakdown'" (click)="activeFeesTab='breakdown'">📊 Breakdown</button>
+        <button [class.active]="activeFeesTab==='history'"   (click)="activeFeesTab='history'">🧾 Payment History</button>
+      </div>
+
+      <!-- Breakdown -->
+      <div *ngIf="activeFeesTab==='breakdown'" class="fees-body">
+        <div class="fees-grid">
+
+          <div class="fee-block">
+            <div class="fee-block-title">📖 Tuition & Miscellaneous</div>
+            <div class="fee-row"><span>Tuition Fee</span><span>{{ fmt(fees.tuitionBase) }}</span></div>
+            <div class="fee-row"><span>Miscellaneous Fee</span><span>{{ fmt(fees.miscFee) }}</span></div>
+            <div class="fee-row fee-subtotal"><span>Subtotal</span><span>{{ fmt(fees.totalFees) }}</span></div>
+          </div>
+
+          <div class="fee-block">
+            <div class="fee-block-title">🎁 Scholarships & Discounts</div>
+            <div class="fee-row discount" *ngIf="fees.scholarship > 0">
+              <span>Scholarship Discount</span><span>- {{ fmt(fees.scholarship) }}</span>
+            </div>
+            <div class="fee-row fee-muted" *ngIf="!fees.scholarship || fees.scholarship===0">
+              <span>No scholarships applied</span><span>₱0.00</span>
+            </div>
+          </div>
+
+          <div class="fee-block fee-summary">
+            <div class="fee-block-title">📋 Payment Summary</div>
+            <div class="fee-row"><span>Total Amount Due</span><span>{{ fmt(fees.totalFees - (fees.scholarship||0)) }}</span></div>
+            <div class="fee-row fee-paid"><span>Amount Paid</span><span>{{ fmt(fees.amountPaid) }}</span></div>
+            <div class="fee-row fee-balance" [class.zero]="fees.remainingBal<=0">
+              <span>Remaining Balance</span><strong>{{ fmt(fees.remainingBal) }}</strong>
+            </div>
+            <div class="fee-row fee-due" *ngIf="fees.remainingBal > 0">
+              <span>Due Date</span><span class="due-txt">{{ fmtDate(fees.dueDate) }}</span>
+            </div>
+            <div class="fee-status-chip" [class.paid]="fees.paymentStatus==='Paid'">
+              {{ fees.paymentStatus === 'Paid' ? '✅ Fully Paid' : '⚠️ Has Remaining Balance' }}
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Payment History -->
+      <div *ngIf="activeFeesTab==='history'" class="fees-body">
+        <div *ngIf="paymentHistory.length===0" class="empty-inline">No payment records found.</div>
+        <table *ngIf="paymentHistory.length>0" class="pay-table">
+          <thead>
+            <tr><th>Method</th><th>Reference</th><th>Amount</th><th>Date</th><th>Semester</th><th>Status</th></tr>
+          </thead>
+          <tbody>
+            <tr *ngFor="let h of paymentHistory">
+              <td><span class="pay-method" [class.cash]="h.method==='Cash'">{{ h.method==='Cash' ? '💵 Cash' : '📱 GCash' }}</span></td>
+              <td class="mono">{{ h.reference || '—' }}</td>
+              <td><strong>{{ fmt(h.amount) }}</strong></td>
+              <td class="td-muted">{{ fmtDate(h.date) }}</td>
+              <td class="td-muted">{{ h.semester || '—' }}</td>
+              <td><span class="pay-stat" [class.verified]="h.status==='Verified'" [class.pending]="h.status==='Pending'" [class.rejected]="h.status==='Rejected'">{{ h.status }}</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══ ANNOUNCEMENTS ══════════════════════════════════════ -->
   <section class="announcements-section">
     <div class="section-header">
-      <h2>📢 Announcements</h2>
+      <h2>📢 Announcements & Notifications</h2>
+      <p class="section-subtitle">School · Department · Payment · Enrollment · System alerts</p>
+    </div>
+    <div class="ann-filter-row">
+      <button *ngFor="let t of annTypes"
+        class="ann-filter-btn" [class.active]="annFilter===t.key"
+        (click)="annFilter=t.key">
+        {{ t.icon }} {{ t.label }}
+      </button>
     </div>
     <div class="announcements-list">
-      <div *ngFor="let announcement of announcements" class="announcement-item">
-        <div class="announcement-icon">{{ announcement.icon }}</div>
+      <div *ngIf="filteredAnn.length===0" class="empty-card">No announcements for this category.</div>
+      <div *ngFor="let a of filteredAnn" class="announcement-item" [class.urgent]="a.priority==='high'">
+        <div class="announcement-icon">{{ a.icon }}</div>
         <div class="announcement-content">
-          <h4>{{ announcement.title }}</h4>
-          <p>{{ announcement.message }}</p>
-          <span class="announcement-date">{{ announcement.date }}</span>
+          <h4>{{ a.title }} <span *ngIf="a.priority==='high'" class="urgent-dot">●</span></h4>
+          <p>{{ a.message }}</p>
+          <span class="announcement-date">{{ a.date }}</span>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- Academic Schedule -->
+  <!-- ══ CALENDAR ═══════════════════════════════════════════ -->
+  <section class="calendar-section">
+    <div class="section-header">
+      <h2>📅 School Events Calendar</h2>
+      <p class="section-subtitle">Holidays, exam schedules, enrollment & payment deadlines</p>
+    </div>
+    <div class="calendar-wrapper">
+
+      <div class="calendar-card">
+        <div class="cal-nav-row">
+          <button class="cal-nav-btn" (click)="prevMonth()">‹</button>
+          <h3 class="cal-title">{{ calendarTitle }}</h3>
+          <button class="cal-nav-btn" (click)="nextMonth()">›</button>
+        </div>
+        <div class="cal-dow-row">
+          <span *ngFor="let d of DOW">{{ d }}</span>
+        </div>
+        <div class="cal-grid">
+          <div *ngFor="let cell of calendarDays" class="cal-cell"
+            [class.other-month]="!cell.isCurrentMonth"
+            [class.today]="cell.isToday"
+            [class.has-event]="cell.events.length > 0">
+            <span class="cal-num">{{ cell.date.getDate() }}</span>
+            <div class="cal-dots">
+              <span *ngFor="let ev of cell.events.slice(0,3)"
+                class="cal-dot" [style.background]="eventColor(ev.type)" [title]="ev.title">
+              </span>
+            </div>
+          </div>
+        </div>
+        <div class="cal-legend">
+          <span class="leg-item"><span class="leg-dot" style="background:#e53e3e"></span>Holiday</span>
+          <span class="leg-item"><span class="leg-dot" style="background:#ed8936"></span>Exam</span>
+          <span class="leg-item"><span class="leg-dot" style="background:#667eea"></span>Enrollment</span>
+          <span class="leg-item"><span class="leg-dot" style="background:#9f7aea"></span>Payment</span>
+          <span class="leg-item"><span class="leg-dot" style="background:#48bb78"></span>Activity</span>
+        </div>
+      </div>
+
+      <div class="events-card">
+        <h3 class="events-title">🗓️ Upcoming Events</h3>
+        <div *ngIf="upcomingEvents.length===0" class="empty-inline">No upcoming events.</div>
+        <div *ngFor="let ev of upcomingEvents" class="event-item">
+          <div class="event-bar" [style.background]="eventColor(ev.type)"></div>
+          <div class="event-body">
+            <div class="event-name">{{ ev.title }}</div>
+            <div class="event-desc">{{ ev.description }}</div>
+            <div class="event-date">{{ fmtDate(ev.event_date) }}</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ══ WEEKLY SCHEDULE (keep original) ══════════════════════ -->
   <section class="schedule-section">
     <div class="section-header">
       <h2>📅 Weekly Schedule</h2>
@@ -134,9 +298,9 @@
       </div>
       <div class="schedule-row">
         <div class="schedule-slot" *ngFor="let day of weekDays">
-          <div *ngFor="let class of getClassesByDay(day)" class="class-slot">
-            <p class="class-name-small">{{ class.name }}</p>
-            <p class="class-time-small">{{ class.time }}</p>
+          <div *ngFor="let cls of getClassesByDay(day)" class="class-slot">
+            <p class="class-name-small">{{ cls.name }}</p>
+            <p class="class-time-small">{{ cls.time }}</p>
           </div>
           <div *ngIf="getClassesByDay(day).length === 0" class="no-class">—</div>
         </div>
@@ -144,28 +308,18 @@
     </div>
   </section>
 
-  <!-- Quick Actions -->
+  <!-- ══ QUICK ACTIONS (keep original) ═══════════════════════ -->
   <section class="actions-section">
     <div class="section-header">
       <h2>⚡ Quick Actions</h2>
     </div>
     <div class="actions-grid">
-      <button class="action-btn">
-        <span class="action-icon">📝</span>
-        <span class="action-text">View Grades</span>
-      </button>
-      <button class="action-btn">
-        <span class="action-icon">📚</span>
-        <span class="action-text">Course Materials</span>
-      </button>
-      <button class="action-btn">
-        <span class="action-icon">💬</span>
-        <span class="action-text">Messages</span>
-      </button>
-      <button class="action-btn">
-        <span class="action-icon">⚙️</span>
-        <span class="action-text">Settings</span>
-      </button>
+      <button class="action-btn"><span class="action-icon">📊</span><span class="action-text">View Grades</span></button>
+      <button class="action-btn"><span class="action-icon">📝</span><span class="action-text">Enrollment</span></button>
+      <button class="action-btn"><span class="action-icon">💬</span><span class="action-text">Messages</span></button>
+      <button class="action-btn"><span class="action-icon">⚙️</span><span class="action-text">Settings</span></button>
     </div>
   </section>
+
+  </ng-container>
 </div>

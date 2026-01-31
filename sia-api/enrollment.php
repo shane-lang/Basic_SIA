@@ -209,60 +209,88 @@ function getSchedule($conn) {
 
 // ─────────────────────────────────────────────────────────────
 // GET AVAILABLE COURSES (not yet enrolled by this student)
+// Uses real-time enrollment count from enrollments table.
+// Capacity defaults to 50 if not set (0 or NULL).
 // ─────────────────────────────────────────────────────────────
 function getAvailableCourses($conn) {
     $student_id = getStudentIdFromRequest($conn);
     $semester   = isset($_GET['semester']) ? trim($_GET['semester']) : '';
 
+    // Base query: real-time enrolled count + safe capacity fallback
+    // COALESCE(capacity,50) prevents division by zero / always-full bug
+    // GREATEST(capacity,1) same safeguard
+    $baseSelect = "
+        SELECT
+            c.*,
+            COALESCE(c.capacity, 50)                           AS safe_capacity,
+            COUNT(e.id)                                        AS real_enrolled,
+            GREATEST(COALESCE(c.capacity, 50) - COUNT(e.id), 0) AS available_seats
+        FROM courses c
+        LEFT JOIN enrollments e
+            ON e.course_id = c.id AND e.status IN ('Pending','Enrolled')
+    ";
+
     if ($student_id > 0 && $semester !== '') {
-        $stmt = $conn->prepare("
-            SELECT *, (capacity - enrolled_count) AS available_seats FROM courses
-            WHERE semester = ?
-              AND id NOT IN (
+        $sql  = $baseSelect . "
+            WHERE c.semester = ?
+              AND c.id NOT IN (
                 SELECT course_id FROM enrollments
                 WHERE student_id = ? AND status IN ('Pending','Enrolled')
               )
-            ORDER BY code
-        ");
+            GROUP BY c.id
+            ORDER BY c.code
+        ";
+        $stmt = $conn->prepare($sql);
         $stmt->bind_param("si", $semester, $student_id);
+
     } elseif ($student_id > 0) {
-        $stmt = $conn->prepare("
-            SELECT *, (capacity - enrolled_count) AS available_seats FROM courses
-            WHERE id NOT IN (
+        $sql  = $baseSelect . "
+            WHERE c.id NOT IN (
                 SELECT course_id FROM enrollments
                 WHERE student_id = ? AND status IN ('Pending','Enrolled')
             )
-            ORDER BY code
-        ");
+            GROUP BY c.id
+            ORDER BY c.code
+        ";
+        $stmt = $conn->prepare($sql);
         $stmt->bind_param("i", $student_id);
+
     } elseif ($semester !== '') {
-        $stmt = $conn->prepare("SELECT *, (capacity - enrolled_count) AS available_seats FROM courses WHERE semester = ? ORDER BY code");
+        $sql  = $baseSelect . "WHERE c.semester = ? GROUP BY c.id ORDER BY c.code";
+        $stmt = $conn->prepare($sql);
         $stmt->bind_param("s", $semester);
+
     } else {
-        $stmt = $conn->prepare("SELECT *, (capacity - enrolled_count) AS available_seats FROM courses ORDER BY code");
+        $sql  = $baseSelect . "GROUP BY c.id ORDER BY c.code";
+        $stmt = $conn->prepare($sql);
     }
 
     $stmt->execute();
     $result  = $stmt->get_result();
     $courses = [];
+
     if ($result) {
         while ($r = $result->fetch_assoc()) {
+            $cap       = (int)$r['safe_capacity'];
+            $enrolled  = (int)$r['real_enrolled'];
+            $available = (int)$r['available_seats'];
+
             $courses[] = [
                 'id'          => (int)$r['id'],
                 'code'        => $r['code'],
                 'name'        => $r['name'],
                 'credits'     => (int)$r['credits'],
                 'instructor'  => $r['instructor'],
-                'schedule'    => $r['schedule'],
-                'day'         => $r['day'],
-                'time'        => $r['time'],
-                'room'        => $r['room'],
-                'capacity'    => (int)$r['capacity'],
-                'enrolled'    => (int)$r['enrolled_count'],
-                'available'   => (int)$r['available_seats'],
-                'semester'    => $r['semester'],
-                'description' => $r['description'],
-                'department'  => $r['department'],
+                'schedule'    => $r['schedule'] ?? '',
+                'day'         => $r['day']      ?? '',
+                'time'        => $r['time']     ?? '',
+                'room'        => $r['room']     ?? '',
+                'capacity'    => $cap,
+                'enrolled'    => $enrolled,
+                'available'   => $available,
+                'semester'    => $r['semester']    ?? '',
+                'description' => $r['description'] ?? '',
+                'department'  => $r['department']  ?? '',
             ];
         }
     }
@@ -480,8 +508,17 @@ function enrollCourse($conn, $data) {
         return;
     }
 
-    // Capacity check
-    $cr = $conn->prepare("SELECT capacity, enrolled_count, semester, name FROM courses WHERE id = ? LIMIT 1");
+    // Capacity check — real-time count from enrollments table
+    $cr = $conn->prepare("
+        SELECT c.id, c.name, c.semester,
+               COALESCE(c.capacity, 50) AS safe_capacity,
+               COUNT(e.id)              AS real_enrolled
+        FROM courses c
+        LEFT JOIN enrollments e ON e.course_id = c.id AND e.status IN ('Pending','Enrolled')
+        WHERE c.id = ?
+        GROUP BY c.id
+        LIMIT 1
+    ");
     $cr->bind_param("i", $course_id);
     $cr->execute();
     $crRes = $cr->get_result();
@@ -490,8 +527,8 @@ function enrollCourse($conn, $data) {
         return;
     }
     $course = $crRes->fetch_assoc();
-    if ((int)$course['enrolled_count'] >= (int)$course['capacity']) {
-        echo json_encode(['success' => false, 'message' => 'Course is full']);
+    if ((int)$course['real_enrolled'] >= (int)$course['safe_capacity']) {
+        echo json_encode(['success' => false, 'message' => 'Course is full (' . $course['real_enrolled'] . '/' . $course['safe_capacity'] . ')']);
         return;
     }
 

@@ -1,0 +1,133 @@
+<!-- GRADES HEADER -->
+<div class="grades-header">
+  <div>
+    <h1>📊 Academic Grades</h1>
+    <p class="grades-sub">Prelim · Midterm · Final · GWA · Academic Standing</p>
+  </div>
+  <div class="sem-wrap">
+    <label class="sem-label">📅 View Semester</label>
+    <select class="sem-select" [(ngModel)]="selectedSemester" (ngModelChange)="onSemesterChange()">
+      <option value="">All Semesters</option>
+      <option *ngFor="let s of semesters" [value]="s">{{ s }}</option>
+    </select>
+  </div>
+</div>
+
+<div class="grades-container">
+
+  <div *ngIf="isLoading" class="grades-loading">
+    <div class="spinner"></div><p>Loading grades...</p>
+  </div>
+  <div *ngIf="!isLoading && error" class="grades-error">
+    <span>⚠️</span><h3>{{ error }}</h3>
+  </div>
+
+  <ng-container *ngIf="!isLoading && !error">
+
+  <!-- SUMMARY CARDS -->
+  <section class="grades-summary">
+    <div class="gsc overall" [class]="statusClass(overallGWA)">
+      <div class="gsc-label">Overall GWA</div>
+      <div class="gsc-big">{{ overallGWA !== null ? (overallGWA | number:'1.2-2') : '—' }}</div>
+      <div class="gsc-sub">Cumulative Weighted Average</div>
+    </div>
+    <div class="gsc">
+      <div class="gsc-label">Semester GWA</div>
+      <div class="gsc-big" [style.color]="gradeColor(currentGWA)">
+        {{ currentGWA !== null ? (currentGWA | number:'1.2-2') : '—' }}
+      </div>
+      <div class="gsc-sub">{{ selectedSemester || 'All Semesters' }}</div>
+    </div>
+    <div class="gsc">
+      <div class="gsc-label">Academic Standing</div>
+      <div class="standing" [class]="statusClass(overallGWA)">{{ academicStatus }}</div>
+      <div class="gsc-sub">{{ totalCredits }} units completed</div>
+    </div>
+    <div class="gsc">
+      <div class="gsc-label">Subject Status</div>
+      <div class="stat-chips">
+        <span class="sc sc-pass">✅ {{ passedCount }} Passed</span>
+        <span class="sc sc-prog">⏳ {{ inProgressCount }} In Progress</span>
+        <span class="sc sc-fail" *ngIf="failedCount > 0">❌ {{ failedCount }} Failed</span>
+      </div>
+      <div class="gsc-sub">{{ grades.length }} subjects total</div>
+    </div>
+  </section>
+
+  <!-- GRADES TABLE -->
+  <section class="grades-table-section">
+    <div class="section-header">
+      <h2>📋 Subject Grades — {{ selectedSemester || 'All Semesters' }}</h2>
+    </div>
+    <div *ngIf="grades.length === 0" class="grades-empty">
+      <div>📚</div><h3>No subjects found</h3>
+      <p>Enlist subjects in the Enrollment section to see grades here.</p>
+    </div>
+    <div *ngIf="grades.length > 0" class="table-wrap">
+      <table class="grades-table">
+        <thead>
+          <tr>
+            <th>Code</th><th>Subject</th><th>Instructor</th>
+            <th class="tc">Units</th>
+            <th class="tc">Prelim</th><th class="tc">Midterm</th>
+            <th class="tc">Final</th><th class="tc">Overall</th>
+            <th class="tc">Remarks</th><th>Description</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr *ngFor="let g of grades" [class.row-pass]="g.remarks==='Passed'" [class.row-fail]="g.remarks==='Failed'">
+            <td class="td-code">{{ g.code }}</td>
+            <td class="td-name">{{ g.name }}</td>
+            <td class="td-muted">{{ g.instructor }}</td>
+            <td class="tc">{{ g.credits }}</td>
+            <td class="tc"><span class="gpill" [class]="gradeClass(g.prelim)">{{ fmtGrade(g.prelim) }}</span></td>
+            <td class="tc"><span class="gpill" [class]="gradeClass(g.midterm)">{{ fmtGrade(g.midterm) }}</span></td>
+            <td class="tc"><span class="gpill" [class]="gradeClass(g.final)">{{ fmtGrade(g.final) }}</span></td>
+            <td class="tc"><span class="gpill gpill-lg" [class]="gradeClass(g.overall)">{{ fmtGrade(g.overall) }}</span></td>
+            <td class="tc">
+              <span class="rtag" [class.rtag-pass]="g.remarks==='Passed'" [class.rtag-fail]="g.remarks==='Failed'" [class.rtag-prog]="g.remarks==='In Progress'">
+                {{ g.remarks }}
+              </span>
+            </td>
+            <td class="td-muted">{{ g.description }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- GWA HISTORY -->
+  <section class="sem-history" *ngIf="semesterGWA.length > 0">
+    <div class="section-header">
+      <h2>📈 GWA by Semester</h2>
+      <p class="section-subtitle">Lower GWA = Better (Philippine system: 1.0 highest)</p>
+    </div>
+    <div class="sem-list">
+      <div *ngFor="let s of semesterGWA" class="sem-row">
+        <div class="sem-name">{{ s.semester }}</div>
+        <div class="sem-bar-bg">
+          <div class="sem-bar-fill" [style.width.%]="barWidth(s.gwa)" [style.background]="gradeColor(s.gwa)"></div>
+        </div>
+        <div class="sem-gwa" [style.color]="gradeColor(s.gwa)">
+          {{ s.gwa !== null ? (s.gwa | number:'1.2-2') : '—' }}
+        </div>
+        <div class="sem-cr">{{ s.credits }} units</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- GRADE SCALE -->
+  <section class="legend-section">
+    <div class="section-header"><h2>📖 Philippine Grading Scale</h2></div>
+    <div class="legend-grid">
+      <div class="leg-item"><span class="gpill g-excel">1.00</span><div><strong>Excellent</strong><span>1.00 – 1.25</span></div></div>
+      <div class="leg-item"><span class="gpill g-excel">1.50</span><div><strong>Very Good</strong><span>1.50 – 1.75</span></div></div>
+      <div class="leg-item"><span class="gpill g-good">2.00</span><div><strong>Good</strong><span>2.00 – 2.25</span></div></div>
+      <div class="leg-item"><span class="gpill g-good">2.50</span><div><strong>Satisfactory</strong><span>2.50 – 2.75</span></div></div>
+      <div class="leg-item"><span class="gpill g-pass">3.00</span><div><strong>Passing</strong><span>3.00</span></div></div>
+      <div class="leg-item"><span class="gpill g-fail">5.00</span><div><strong>Failed</strong><span>Above 3.00</span></div></div>
+    </div>
+  </section>
+
+  </ng-container>
+</div>

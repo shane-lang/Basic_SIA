@@ -1,82 +1,342 @@
-import { Component } from '@angular/core';
+import { Component, OnInit, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
+import { HttpClient } from '@angular/common/http';
 
 interface Course {
+  id?: number;
   code: string;
   name: string;
   instructor: string;
   credits: number;
   schedule: string;
-  time: string; // Added this to fix "Property 'time' does not exist"
+  time: string;
+  day?: string;
   room: string;
   progress: number;
+  semester?: string;
 }
 
 interface Announcement {
+  id?: number;
   title: string;
   message: string;
   date: string;
   icon: string;
+  type?: string;
+  priority?: string;
+}
+
+interface SchoolEvent {
+  id: number;
+  title: string;
+  event_date: string;
+  type: string;
+  description: string;
+}
+
+interface PaymentRecord {
+  id: number;
+  method: string;
+  reference: string;
+  amount: number;
+  date: string;
+  semester: string;
+  status: string;
+}
+
+interface CalendarCell {
+  date: Date;
+  isCurrentMonth: boolean;
+  isToday: boolean;
+  events: SchoolEvent[];
 }
 
 @Component({
   selector: 'app-dashboard',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, FormsModule],
   templateUrl: './dashboard.html',
   styleUrls: ['./dashboard.css']
 })
-export class StudentDashboard {
-  studentName: string = 'Alex Rivera';
-  studentId: string = '2024-00123';
-  gpa: string = '3.85';
-  totalCredits: number = 9;
-  nextClassTime: string = '10:30 AM';
-  weekDays: string[] = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+export class StudentDashboard implements OnInit {
+  private apiUrl = 'http://localhost/sia-api/dashboard.php';
 
-  // Added back to satisfy the .spec.ts (testing) file error
+  constructor(private http: HttpClient, private cdr: ChangeDetectorRef) {}
+
+  // ── spec.ts requires dashboardCards.length === 4 ────────────
   dashboardCards = [
-    { title: 'GPA', value: '3.85', icon: '🎯', color: '#4CAF50' }
+    { title: 'Courses',  value: '0',  icon: '📖', color: '#667eea' },
+    { title: 'Credits',  value: '0',  icon: '⏰', color: '#48bb78' },
+    { title: 'GPA',      value: '—',  icon: '🎯', color: '#ed8936' },
+    { title: 'Balance',  value: '₱0', icon: '💳', color: '#e53e3e' },
   ];
 
-  enrolledCourses: Course[] = [
-    {
-      code: 'CS101',
-      name: 'Introduction to Programming',
-      instructor: 'Dr. Smith',
-      credits: 3,
-      schedule: 'Mon/Wed',
-      time: '10:30 AM - 12:00 PM', // Matches template usage
-      room: 'Lab 1',
-      progress: 65
-    },
-    {
-      code: 'MATH202',
-      name: 'Calculus II',
-      instructor: 'Prof. Johnson',
-      credits: 3,
-      schedule: 'Tue/Thu',
-      time: '1:00 PM - 2:30 PM',
-      room: 'Room 302',
-      progress: 40
+  // ── Original props (keep for spec.ts / template compat) ─────
+  studentName   = 'Loading...';
+  studentId     = '—';
+  gpa           = '—';
+  totalCredits  = 0;
+  nextClassTime = '—';
+  weekDays      = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+  enrolledCourses: Course[]       = [];
+  announcements:   Announcement[] = [];
+
+  // ── New state ────────────────────────────────────────────────
+  isLoading         = true;
+  error             = '';
+  program           = '';
+  yearLevel         = '';
+  academicYear      = '2024–2025';
+  semester          = '1st Semester';
+  academicStatus    = '';
+  enrollmentStatus  = '';
+  enrollmentDate    = '';
+  paymentStatus     = '';
+  nextClassObj:     Course | null = null;
+  nextClassLabel    = '';
+
+  fees: any = {
+    tuitionBase: 25000, miscFee: 1500, totalFees: 26500,
+    amountPaid: 0, scholarship: 0, remainingBal: 26500,
+    dueDate: '', paymentStatus: 'Pending'
+  };
+  paymentHistory: PaymentRecord[] = [];
+  activeFeesTab: 'breakdown' | 'history' = 'breakdown';
+
+  annFilter = 'all';
+  annTypes  = [
+    { key: 'all',        label: 'All',        icon: '📢' },
+    { key: 'school',     label: 'School',     icon: '🏫' },
+    { key: 'department', label: 'Department', icon: '📚' },
+    { key: 'payment',    label: 'Payment',    icon: '💳' },
+    { key: 'enrollment', label: 'Enrollment', icon: '📋' },
+    { key: 'system',     label: 'System',     icon: '⚙️' },
+  ];
+
+  events:       SchoolEvent[]  = [];
+  calendarMonth = new Date();
+  calendarDays: CalendarCell[] = [];
+  readonly MONTHS = ['January','February','March','April','May','June',
+                     'July','August','September','October','November','December'];
+  readonly DOW    = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+  // ── Lifecycle ────────────────────────────────────────────────
+  ngOnInit(): void {
+    const stored = localStorage.getItem('currentUser');
+    if (!stored) {
+      this.isLoading = false;
+      this.useFallback();
+      return;
     }
-  ];
+    const user  = JSON.parse(stored);
+    const dbId  = localStorage.getItem('studentDbId');
+    const param = dbId ? `student_id=${dbId}` : `user_id=${user.id}`;
 
-  announcements: Announcement[] = [
-    {
-      title: 'Library Hours Extended',
-      message: 'The library is now open 24/7 for finals.',
-      date: 'Jan 28, 2025',
-      icon: '📖'
-    }
-  ];
-
-  get nextClass() {
-    return this.enrolledCourses[0];
+    this.loadDashboard(param);
+    this.loadAnnouncements();
+    this.loadEvents();
   }
 
-  getClassesByDay(day: string) {
-    // Simple filter: checks if the day (e.g., "Monday") starts with the schedule prefix (e.g., "Mon")
-    return this.enrolledCourses.filter(c => c.schedule.includes(day.substring(0, 3)));
+  loadDashboard(param: string): void {
+    this.http.get<any>(`${this.apiUrl}?action=get_dashboard&${param}`).subscribe({
+      next: (res) => {
+        this.isLoading = false;
+        if (res.success) {
+          const s = res.student;
+          const a = res.academic;
+
+          this.studentName     = `${s.firstName} ${s.lastName}`;
+          this.studentId       = s.id;
+          this.program         = s.program;
+          this.yearLevel       = a.yearLevel;
+          this.gpa             = a.gpa > 0 ? Number(a.gpa).toFixed(2) : '—';
+          this.totalCredits    = a.totalCredits;
+          this.academicStatus  = a.status;
+          this.enrollmentStatus= s.enrollmentStatus;
+          this.enrollmentDate  = s.enrollmentDate;
+          this.paymentStatus   = s.paymentStatus;
+          this.fees            = res.fees ?? this.fees;
+          this.paymentHistory  = res.paymentHistory ?? [];
+
+          this.enrolledCourses = (res.courses ?? []).map((c: any) => ({
+            ...c, schedule: c.day ?? c.schedule ?? '', progress: 0
+          }));
+
+          if (res.nextClass) {
+            const nc          = res.nextClass;
+            this.nextClassObj = { ...nc, schedule: nc.day ?? '', progress: 0 };
+            this.nextClassTime= nc.time ?? '—';
+            this.nextClassLabel = this.getNextLabel(nc.day ?? '');
+          }
+
+          this.dashboardCards = [
+            { title: 'Courses', value: String(this.enrolledCourses.length), icon: '📖', color: '#667eea' },
+            { title: 'Credits', value: String(this.totalCredits),            icon: '⏰', color: '#48bb78' },
+            { title: 'GPA',     value: this.gpa,                             icon: '🎯', color: '#ed8936' },
+            { title: 'Balance', value: this.fmt(this.fees.remainingBal),     icon: '💳', color: '#e53e3e' },
+          ];
+
+          localStorage.setItem('studentDbId', String(s.dbId));
+        } else {
+          this.useFallback();
+        }
+        this.cdr.detectChanges();
+      },
+      error: () => {
+        this.isLoading = false;
+        this.useFallback();
+        this.cdr.detectChanges();
+      }
+    });
+  }
+
+  loadAnnouncements(): void {
+    this.http.get<any>(`${this.apiUrl}?action=get_announcements`).subscribe({
+      next: (res) => {
+        if (res.success) {
+          this.announcements = (res.announcements ?? []).map((a: any) => ({
+            ...a, icon: this.annIcon(a.type)
+          }));
+          this.cdr.detectChanges();
+        }
+      }
+    });
+  }
+
+  loadEvents(): void {
+    this.http.get<any>(`${this.apiUrl}?action=get_events`).subscribe({
+      next: (res) => {
+        if (res.success) {
+          this.events = res.events ?? [];
+          this.buildCalendar();
+          this.cdr.detectChanges();
+        }
+      }
+    });
+  }
+
+  useFallback(): void {
+    this.announcements = [
+      { title: 'Enrollment Open',    message: 'Enrollment for this semester is now open.',        date: 'Today', icon: '📋', type: 'enrollment', priority: 'high' },
+      { title: 'Payment Reminder',   message: 'Tuition fee due soon. Please settle your balance.', date: 'Today', icon: '💳', type: 'payment',    priority: 'high' },
+      { title: 'Library Extended',   message: 'Library is now open 24/7 for the exam period.',    date: 'Jan 28, 2025', icon: '📖', type: 'school', priority: 'normal' },
+    ];
+    this.events = this.sampleEvents();
+    this.buildCalendar();
+  }
+
+  // ── Calendar ─────────────────────────────────────────────────
+  buildCalendar(): void {
+    const year  = this.calendarMonth.getFullYear();
+    const month = this.calendarMonth.getMonth();
+    const first = new Date(year, month, 1);
+    const last  = new Date(year, month + 1, 0);
+    const today = new Date();
+    const days: CalendarCell[] = [];
+
+    for (let i = first.getDay() - 1; i >= 0; i--)
+      days.push({ date: new Date(year, month, -i), isCurrentMonth: false, isToday: false, events: [] });
+
+    for (let d = 1; d <= last.getDate(); d++) {
+      const date = new Date(year, month, d);
+      days.push({
+        date, isCurrentMonth: true,
+        isToday: date.toDateString() === today.toDateString(),
+        events: this.events.filter(e => e.event_date === this.toDateStr(date))
+      });
+    }
+    while (days.length < 42) {
+      const d = days.length - (last.getDate() + first.getDay() - 1);
+      days.push({ date: new Date(year, month + 1, d), isCurrentMonth: false, isToday: false, events: [] });
+    }
+    this.calendarDays = days;
+  }
+
+  prevMonth(): void {
+    this.calendarMonth = new Date(this.calendarMonth.getFullYear(), this.calendarMonth.getMonth() - 1, 1);
+    this.buildCalendar(); this.cdr.detectChanges();
+  }
+  nextMonth(): void {
+    this.calendarMonth = new Date(this.calendarMonth.getFullYear(), this.calendarMonth.getMonth() + 1, 1);
+    this.buildCalendar(); this.cdr.detectChanges();
+  }
+
+  get calendarTitle(): string {
+    return `${this.MONTHS[this.calendarMonth.getMonth()]} ${this.calendarMonth.getFullYear()}`;
+  }
+  get upcomingEvents(): SchoolEvent[] {
+    const t = this.toDateStr(new Date());
+    return this.events.filter(e => e.event_date >= t).slice(0, 6);
+  }
+
+  // ── Helpers ───────────────────────────────────────────────────
+  get nextClass(): Course | null {
+    return this.nextClassObj ?? (this.enrolledCourses[0] ?? null);
+  }
+
+  getClassesByDay(day: string): Course[] {
+    return this.enrolledCourses.filter(c =>
+      (c.day || c.schedule || '').split(',').map(d => d.trim())
+        .some(d => d.toLowerCase().startsWith(day.substring(0, 3).toLowerCase()))
+    );
+  }
+
+  get filteredAnn(): Announcement[] {
+    return this.annFilter === 'all'
+      ? this.announcements
+      : this.announcements.filter(a => a.type === this.annFilter);
+  }
+
+  getNextLabel(day: string): string {
+    const map: Record<string,number> = { Monday:1, Tuesday:2, Wednesday:3, Thursday:4, Friday:5, Saturday:6, Sunday:0 };
+    const diff = ((map[day] ?? 0) - new Date().getDay() + 7) % 7;
+    if (diff === 0) return 'Today';
+    if (diff === 1) return 'Tomorrow';
+    return `In ${diff} days`;
+  }
+
+  annIcon(type: string): string {
+    const m: Record<string,string> = { enrollment:'📋', payment:'💳', school:'🏫', department:'📚', system:'⚙️' };
+    return m[type] ?? '📢';
+  }
+
+  eventColor(type: string): string {
+    const m: Record<string,string> = { holiday:'#e53e3e', exam:'#ed8936', enrollment:'#667eea', activity:'#48bb78', payment:'#9f7aea' };
+    return m[type] ?? '#718096';
+  }
+
+  fmt(n: number | null | undefined): string {
+    if (n == null) return '₱0.00';
+    return '₱' + n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  }
+
+  fmtDate(d: string): string {
+    if (!d) return '—';
+    try { return new Date(d).toLocaleDateString('en-PH', { year:'numeric', month:'long', day:'numeric' }); }
+    catch { return d; }
+  }
+
+  toDateStr(d: Date): string {
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  }
+
+  getProgramFull(code: string): string {
+    const m: Record<string,string> = {
+      'IT':'BS Information Technology', 'CS':'BS Computer Science',
+      'BIS':'BS Information Systems',   'CE':'BS Civil Engineering',
+    };
+    return m[code] ?? code;
+  }
+
+  sampleEvents(): SchoolEvent[] {
+    const y = new Date().getFullYear();
+    const m = String(new Date().getMonth() + 1).padStart(2, '0');
+    return [
+      { id:1, title:'Foundation Day',      event_date:`${y}-${m}-15`, type:'holiday',    description:'University Foundation Day' },
+      { id:2, title:'Midterm Exams',       event_date:`${y}-${m}-20`, type:'exam',       description:'Midterm examinations week' },
+      { id:3, title:'Tuition Due',         event_date:`${y}-${m}-28`, type:'payment',    description:'Tuition fee deadline' },
+      { id:4, title:'Enrollment Deadline', event_date:`${y}-${m}-31`, type:'enrollment', description:'Last day to enroll' },
+    ];
   }
 }

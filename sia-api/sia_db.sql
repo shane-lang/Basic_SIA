@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1
--- Generation Time: Jan 31, 2026 at 01:58 PM
+-- Generation Time: Jan 31, 2026 at 12:52 PM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.2.12
 
@@ -50,10 +50,10 @@ CREATE TABLE `courses` (
 --
 
 INSERT INTO `courses` (`id`, `code`, `name`, `credits`, `instructor`, `schedule`, `day`, `time`, `room`, `capacity`, `enrolled_count`, `semester`, `description`, `department`, `created_at`) VALUES
-(1, 'CS111', 'Introduction to Programming', 3, 'Engr. Maria Santos', 'MWF 8:00 AM - 9:30 AM', 'Monday,Wednesday,Friday', '8:00 AM - 9:30 AM', 'Room 301 (Science Building)', 51, 0, '1st Semester, AY 2024-2025', 'Fundamentals of programming using Python', 'Information Technology', '2026-01-31 08:04:35'),
+(1, 'CS111', 'Introduction to Programming', 3, 'Engr. Maria Santos', 'MWF 8:00 AM - 9:30 AM', 'Monday,Wednesday,Friday', '8:00 AM - 9:30 AM', 'Room 301 (Science Building)', 51, 1, '1st Semester, AY 2024-2025', 'Fundamentals of programming using Python', 'Information Technology', '2026-01-31 08:04:35'),
 (2, 'CS112', 'Web Development Basics', 3, 'Engr. Juan Reyes', 'TTh 10:00 AM - 11:30 AM', 'Tuesday,Thursday', '10:00 AM - 11:30 AM', 'Lab 202 (IT Building)', 35, 0, '1st Semester, AY 2024-2025', 'HTML, CSS, and JavaScript fundamentals', 'Information Technology', '2026-01-31 08:04:35'),
 (3, 'MATH101', 'Discrete Mathematics', 4, 'Engr. Anna Garcia', 'MWF 9:45 AM - 11:15 AM', 'Monday,Wednesday,Friday', '9:45 AM - 11:15 AM', 'Room 205 (Science Building)', 40, 0, '1st Semester, AY 2024-2025', 'Sets, logic, and mathematical proofs', 'Mathematics', '2026-01-31 08:04:35'),
-(4, 'CS113', 'Database Fundamentals', 3, 'Engr. Luis Rodriguez', 'TTh 1:00 PM - 2:30 PM', 'Tuesday,Thursday', '1:00 PM - 2:30 PM', 'Room 401 (IT Building)', 40, 0, '1st Semester, AY 2024-2025', 'Relational databases and SQL', 'Information Technology', '2026-01-31 08:04:35'),
+(4, 'CS113', 'Database Fundamentals', 3, 'Engr. Luis Rodriguez', 'TTh 1:00 PM - 2:30 PM', 'Tuesday,Thursday', '1:00 PM - 2:30 PM', 'Room 401 (IT Building)', 40, 1, '1st Semester, AY 2024-2025', 'Relational databases and SQL', 'Information Technology', '2026-01-31 08:04:35'),
 (5, 'ENG101', 'English Composition', 3, 'Prof. Sarah Kim', 'MWF 1:00 PM - 2:30 PM', 'Monday,Wednesday,Friday', '1:00 PM - 2:30 PM', 'Room 101 (Liberal Arts Building)', 45, 0, '1st Semester, AY 2024-2025', 'Academic writing and communication skills', 'English', '2026-01-31 08:04:35'),
 (6, 'PE101', 'Physical Education 1', 2, 'Coach Robert Lee', 'MWF 3:00 PM - 4:00 PM', 'Monday,Wednesday,Friday', '3:00 PM - 4:00 PM', 'Sports Complex', 60, 0, '1st Semester, AY 2024-2025', 'Basic fitness and wellness', 'Physical Education', '2026-01-31 08:04:35');
 
@@ -74,6 +74,14 @@ CREATE TABLE `enrollments` (
   `notes` varchar(255) DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Dumping data for table `enrollments`
+--
+
+INSERT INTO `enrollments` (`id`, `student_id`, `course_id`, `enrollment_date`, `status`, `grade`, `semester`, `notes`, `created_at`) VALUES
+(1, 20, 1, '2026-01-31', 'Enrolled', NULL, '1st Semester, AY 2024-2025', '', '2026-01-31 10:02:21'),
+(2, 20, 4, '2026-01-31', 'Enrolled', NULL, '1st Semester, AY 2024-2025', '', '2026-01-31 10:12:01');
 
 -- --------------------------------------------------------
 
@@ -105,7 +113,8 @@ INSERT INTO `payment_logs` (`id`, `student_id`, `payment_method`, `gcash_referen
 (7, 16, 'Cash', 'CASH-PAYMENT', 0.00, NULL, NULL, '1st Semester, AY 2024-2025', 'Verified', 3, '2026-01-31 11:31:30', '', '2026-01-31 11:23:35'),
 (8, 17, 'Cash', 'CASH-PAYMENT', 0.00, NULL, NULL, '1st Semester, AY 2024-2025', 'Verified', 3, '2026-01-31 11:31:24', '', '2026-01-31 11:30:43'),
 (9, 18, 'GCash', '1234567890', 25000.00, '2026-01-31', 'TXN-1769861254506-3LFOW', '1st Semester, AY 2024-2025', 'Verified', 16, '2026-01-31 12:07:51', '', '2026-01-31 12:07:34'),
-(10, 19, 'Cash', '', 0.00, NULL, NULL, '1st Semester, AY 2024-2025', 'Verified', 17, '2026-01-31 12:11:02', 'goods', '2026-01-31 12:10:11');
+(10, 19, 'Cash', '', 0.00, NULL, NULL, '1st Semester, AY 2024-2025', 'Verified', 17, '2026-01-31 12:11:02', 'goods', '2026-01-31 12:10:11'),
+(11, 20, 'GCash', '1234452627252728', 25000.00, '2026-01-31', 'TXN-1769853647073-BFB04', '1st Semester, AY 2024-2025', 'Verified', 3, '2026-01-31 10:01:52', '', '2026-01-31 10:00:47');
 
 -- --------------------------------------------------------
 
@@ -153,7 +162,8 @@ INSERT INTO `students` (`id`, `user_id`, `student_number`, `first_name`, `last_n
 (16, 14, 'STU-2026-0001', 'Dave', 'Cuevas', 'cuevasdavezarene@gmail.com', '09029829829', '2002-11-11', 'olongapo', 'shane', '092828292', 'BS Information Technology', '1st Year', 0.00, 'Enrolled', 'New', 'Paid', 'Approved', 'GCash', NULL, NULL, NULL, NULL, 3, '2026-01-31 11:31:30', '', NULL, '2026-01-31', '2026-01-31 11:23:35'),
 (17, 15, 'STU-2026-0002', 'Dave', 'Cuevas', 'cuevasdavezarene123@gmail.com', '0930390390', '2002-11-20', 'olo', 'shane', '039383930', 'BS Information Technology', '1st Year', 0.00, 'Enrolled', 'New', 'Paid', 'Approved', 'GCash', NULL, NULL, NULL, NULL, 3, '2026-01-31 11:31:24', '', NULL, '2026-01-31', '2026-01-31 11:30:43'),
 (18, 16, 'STU-2026-0003', 'Shane Carlo', 'Nodado', 'juantamad@eedu.com', '09300987316', NULL, '118 Avocado Street Purok 3 New Cabalan', 'Shane Carlo Binoya Nodado', '09300987316', 'BS Information Technology', '1st Year', 0.00, 'Enrolled', 'New', 'Paid', 'Approved', 'GCash', '1234567890', 25000.00, '2026-01-31', 'TXN-1769861254506-3LFOW', 16, '2026-01-31 12:07:51', '', NULL, '2026-01-31', '2026-01-31 12:07:16'),
-(19, 17, 'STU-2026-0004', 'Shane Carlo', 'Nodado', 'jasonbarera', '09300987316', '2002-11-11', '118 Avocado Street Purok 3 New Cabalan', 'Shane Carlo Binoya Nodado', '09300987316', 'BS Information Technology', '1st Year', 0.00, 'Enrolled', 'New', 'Paid', 'Approved', 'Cash', NULL, NULL, NULL, NULL, 17, '2026-01-31 12:11:02', 'goods', NULL, '2026-01-31', '2026-01-31 12:10:11');
+(19, 17, 'STU-2026-0004', 'Shane Carlo', 'Nodado', 'jasonbarera', '09300987316', '2002-11-11', '118 Avocado Street Purok 3 New Cabalan', 'Shane Carlo Binoya Nodado', '09300987316', 'BS Information Technology', '1st Year', 0.00, 'Enrolled', 'New', 'Paid', 'Approved', 'Cash', NULL, NULL, NULL, NULL, 17, '2026-01-31 12:11:02', 'goods', NULL, '2026-01-31', '2026-01-31 12:10:11'),
+(20, 18, 'STU-2026-0005', 'shane', 'binoya', 'shanecarlobinoya@gmail.com', '09235272892', '2002-11-11', 'olongapo', 'rochelle', '0918927872', 'BS Information Technology', '1st Year', 0.00, 'Enrolled', 'New', 'Paid', 'Approved', 'GCash', '1234452627252728', 25000.00, '2026-01-31', 'TXN-1769853647073-BFB04', 3, '2026-01-31 10:01:52', '', NULL, '2026-01-31', '2026-01-31 09:59:59');
 
 -- --------------------------------------------------------
 
@@ -192,7 +202,8 @@ INSERT INTO `users` (`id`, `email`, `password`, `role`, `first_name`, `last_name
 (14, 'cuevasdavezar1ene@gmail.com', 'shane1', 'student', 'Dave', 'Cuevas', '2026-01-31 11:23:35'),
 (15, 'cuevasdavezarene123@gmail.com', 'shane1', 'student', 'Dave', 'Cuevas', '2026-01-31 11:30:43'),
 (16, 'juantamad@eedu.com', 'shane1', 'student', 'Shane Carlo', 'Nodado', '2026-01-31 12:07:15'),
-(17, 'jasonbarera', 'shane1', 'student', 'Shane Carlo', 'Nodado', '2026-01-31 12:10:11');
+(17, 'jasonbarera', 'shane1', 'student', 'Shane Carlo', 'Nodado', '2026-01-31 12:10:11'),
+(18, 'shanecarlobinoya@gmail.com', 'shane1', 'student', 'shane', 'binoya', '2026-01-31 09:59:59');
 
 --
 -- Indexes for dumped tables
@@ -249,25 +260,25 @@ ALTER TABLE `courses`
 -- AUTO_INCREMENT for table `enrollments`
 --
 ALTER TABLE `enrollments`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
 
 --
 -- AUTO_INCREMENT for table `payment_logs`
 --
 ALTER TABLE `payment_logs`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=11;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=12;
 
 --
 -- AUTO_INCREMENT for table `students`
 --
 ALTER TABLE `students`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=20;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=21;
 
 --
 -- AUTO_INCREMENT for table `users`
 --
 ALTER TABLE `users`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=18;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=19;
 
 --
 -- Constraints for dumped tables
