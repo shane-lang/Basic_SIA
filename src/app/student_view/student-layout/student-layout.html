@@ -1,9 +1,10 @@
 <div class="app-container">
-  <!-- Material Sidenav Container -->
   <mat-sidenav-container class="sidenav-container" [class.sidebar-opened]="getSidebarOpenedClass()">
-    <!-- Sidebar -->
+
+    <!-- ── Sidebar ── -->
     <mat-sidenav #sidenav [mode]="getSidenavMode()" [opened]="sidebarOpen()" class="mat-sidenav-custom">
-      <!-- Sidebar Header -->
+
+      <!-- Logo -->
       <div class="sidebar-header">
         <div class="sidebar-logo">
           <div class="logo-icon">🎓</div>
@@ -14,53 +15,63 @@
         </div>
       </div>
 
-      <!-- Navigation Menu -->
+      <!-- User Info -->
+      <div class="sidebar-user" *ngIf="currentUserName">
+        <div class="user-avatar">{{ currentUserName.charAt(0).toUpperCase() }}</div>
+        <div class="user-details">
+          <p class="user-name">{{ currentUserName }}</p>
+          <p class="user-email">{{ currentUserEmail }}</p>
+        </div>
+      </div>
+
+      <!-- Nav Links -->
       <nav class="nav-menu">
         <ul class="nav-links-list">
           <li>
             <a routerLink="/student/dashboard" routerLinkActive="active" class="nav-link" (click)="closeSidebarOnMobile()">
-              <span class="nav-icon">📊</span>
-              <span class="nav-label">Dashboard</span>
+              <span class="nav-icon">📊</span><span class="nav-label">Dashboard</span>
             </a>
           </li>
           <li>
             <a routerLink="/student/profile" routerLinkActive="active" class="nav-link" (click)="closeSidebarOnMobile()">
-              <span class="nav-icon">👤</span>
-              <span class="nav-label">Profile</span>
+              <span class="nav-icon">👤</span><span class="nav-label">Profile</span>
             </a>
           </li>
           <li>
             <a routerLink="/student/enrollment" routerLinkActive="active" class="nav-link" (click)="closeSidebarOnMobile()">
-              <span class="nav-icon">📝</span>
-              <span class="nav-label">Enrollment</span>
+              <span class="nav-icon">📝</span><span class="nav-label">Enrollment</span>
             </a>
           </li>
           <li>
             <a routerLink="/student/schedule" routerLinkActive="active" class="nav-link" (click)="closeSidebarOnMobile()">
-              <span class="nav-icon">📅</span>
-              <span class="nav-label">Schedule</span>
+              <span class="nav-icon">📅</span><span class="nav-label">Schedule</span>
             </a>
           </li>
-         
-           <li>
+          <li>
             <a routerLink="/student/grades" routerLinkActive="active" class="nav-link" (click)="closeSidebarOnMobile()">
-              <span class="nav-icon">📈</span>
-              <span class="nav-label">Grades</span>
+              <span class="nav-icon">📈</span><span class="nav-label">Grades</span>
             </a>
+          </li>
           <li>
             <a routerLink="/student/about" routerLinkActive="active" class="nav-link" (click)="closeSidebarOnMobile()">
-              <span class="nav-icon">ℹ️</span>
-              <span class="nav-label">About This Site</span>
+              <span class="nav-icon">ℹ️</span><span class="nav-label">About</span>
             </a>
           </li>
-
         </ul>
       </nav>
+
+      <!-- Logout at bottom of sidebar -->
+      <div class="sidebar-footer">
+        <button class="logout-btn" (click)="logout()">
+          <span class="nav-icon">🚪</span>
+          <span class="nav-label">Logout</span>
+        </button>
+      </div>
+
     </mat-sidenav>
 
-    <!-- Main Content -->
+    <!-- ── Main Content ── -->
     <mat-sidenav-content>
-      <!-- Header -->
       <header class="app-header">
         <button class="toggle-sidebar-icon" (click)="toggleSidebar()" [title]="sidebarOpen() ? 'Hide Sidebar' : 'Show Sidebar'" aria-label="Toggle sidebar">
           <span class="hamburger"></span>
@@ -71,18 +82,21 @@
           <div class="logo-header">🎓</div>
         </div>
         <div class="header-content">
-          <h1 class="app-title">St. Binelde BASIC System</h1>
-          <p class="header-subtitle">Student Information & Registration</p>
+          <h1 class="app-title">BASIC St. Benilde</h1>
+          <p class="header-subtitle">Student Information & Registration System</p>
         </div>
+        <!-- Header logout button (visible on mobile when sidebar is closed) -->
+        <button class="header-logout-btn" (click)="logout()" title="Logout">
+          🚪 Logout
+        </button>
       </header>
 
-      <!-- Main Content Area -->
       <main class="main-content">
         <section class="content">
           <router-outlet></router-outlet>
         </section>
       </main>
     </mat-sidenav-content>
+
   </mat-sidenav-container>
 </div>
-

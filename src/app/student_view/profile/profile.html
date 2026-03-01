@@ -1,125 +1,127 @@
 <div class="profile-container">
 
-  <!-- Loading State -->
-  <div *ngIf="isLoading" style="text-align:center; padding: 80px 20px; color: #718096;">
+  <!-- Loading -->
+  <div *ngIf="isLoading" class="state-center">
+    <div class="spinner"></div>
     <p>Loading profile...</p>
   </div>
 
-  <!-- Error State -->
-  <div *ngIf="!isLoading && errorMessage" style="text-align:center; padding: 80px 20px; color: #e53e3e;">
-    <p>{{ errorMessage }}</p>
+  <!-- Error -->
+  <div *ngIf="!isLoading && errorMessage" class="state-center error-state">
+    <p>⚠️ {{ errorMessage }}</p>
   </div>
 
-  <!-- Profile Content (only when loaded) -->
   <ng-container *ngIf="!isLoading && !errorMessage">
 
-    <!-- Header Section -->
+    <!-- ── Hero Header ── -->
     <div class="profile-header">
       <div class="header-background"></div>
       <div class="profile-content">
         <div class="profile-picture-wrapper">
-          <img [src]="student.profilePicture" alt="{{ student.firstName }} {{ student.lastName }}" class="profile-picture">
+          <img [src]="student.profilePicture" alt="{{ fullName }}" class="profile-picture">
         </div>
         <div class="basic-info">
-          <h1>{{ student.firstName }} {{ student.lastName }}</h1>
-          <p class="student-id">ID: {{ student.id }}</p>
-          <div class="status-badge" [ngClass]="'status-' + student.enrollmentStatus.toLowerCase()">
-            {{ student.enrollmentStatus }}
+          <h1>{{ fullName }}</h1>
+          <p class="student-id">🪪 {{ student.id }}</p>
+          <p class="student-program">{{ student.program }}</p>
+          <div class="badge-row">
+            <span class="status-badge" [ngClass]="'status-' + student.enrollmentStatus.toLowerCase()">
+              {{ student.enrollmentStatus }}
+            </span>
+            <span class="status-badge status-payment" [ngClass]="'pay-' + student.paymentStatus.toLowerCase()">
+              {{ student.paymentStatus }}
+            </span>
+            <span class="scholar-badge" *ngIf="student.isScholar">🎓 Scholar</span>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- Main Content -->
+    <!-- ── Body ── -->
     <div class="profile-body">
-      <!-- Left Column -->
-      <div class="profile-left">
 
-        <!-- Academic Information -->
+      <!-- LEFT COLUMN -->
+      <div class="profile-col">
+
+        <!-- Academic -->
         <div class="card">
-          <h2>Academic Information</h2>
-          <div class="info-group">
-            <label>Program:</label>
-            <p>{{ student.program }}</p>
-          </div>
-          <div class="info-group">
-            <label>Year Level:</label>
-            <p>{{ student.yearLevel }}</p>
-          </div>
-          <div class="info-group">
-            <label>GPA:</label>
-            <p class="gpa-value">
-              {{ student.gpa | number: '1.2-2' }}
-              <span class="gpa-status">{{ getGPAStatus() }}</span>
-            </p>
-          </div>
-          <div class="info-group">
-            <label>Enrollment Status:</label>
-            <p>{{ student.enrollmentStatus }}</p>
-          </div>
-          <div class="info-group">
-            <label>Student Type:</label>
-            <p>{{ student.studentType }}</p>
-          </div>
-          <div class="info-group">
-            <label>Payment Status:</label>
-            <p>{{ student.paymentStatus }}</p>
-          </div>
-          <div class="info-group">
-            <label>Enrollment Date:</label>
-            <p>{{ student.enrollmentDate | date: 'MMM dd, yyyy' }}</p>
+          <h2>🎓 Academic Information</h2>
+          <div class="info-group"><label>Program</label><p>{{ student.program || '—' }}</p></div>
+          <div class="info-group"><label>Level / Category</label><p>{{ student.studentCategory }} — {{ student.yearLevel }}</p></div>
+          <div class="info-group" *ngIf="student.strand"><label>Strand</label><p>{{ student.strand }}</p></div>
+          <div class="info-group" *ngIf="student.lastSchoolAttended"><label>Last School Attended</label><p>{{ student.lastSchoolAttended }}</p></div>
+          <div class="info-group"><label>Student Type</label><p>{{ student.studentType }}</p></div>
+          <div class="info-group"><label>Enrollment Status</label><p>{{ student.enrollmentStatus }}</p></div>
+          <div class="info-group"><label>Enrollment Date</label><p>{{ student.enrollmentDate ? (student.enrollmentDate | date:'MMM dd, yyyy') : '—' }}</p></div>
+          <div class="info-group"><label>GPA</label>
+            <p class="gpa-value">{{ student.gpa | number:'1.2-2' }} <span class="gpa-status">{{ getGPAStatus() }}</span></p>
           </div>
         </div>
 
-        <!-- Contact Information -->
+        <!-- Payment & Scholarship -->
         <div class="card">
-          <h2>Contact Information</h2>
-          <div class="info-group">
-            <label>Email:</label>
-            <p><a [href]="'mailto:' + student.email">{{ student.email }}</a></p>
+          <h2>💳 Payment & Scholarship</h2>
+          <div class="info-group"><label>Payment Method</label><p>{{ student.paymentMethod }}</p></div>
+          <div class="info-group"><label>Payment Status</label><p>{{ student.paymentStatus }}</p></div>
+          <div class="info-group"><label>Approval Status</label><p>{{ student.approvalStatus }}</p></div>
+          <ng-container *ngIf="student.isScholar">
+            <div class="scholar-divider">🎓 Scholarship Details</div>
+            <div class="info-group"><label>Type</label><p>{{ student.scholarType }}</p></div>
+            <div class="info-group" *ngIf="student.scholarGrantor"><label>Grantor</label><p>{{ student.scholarGrantor }}</p></div>
+            <div class="info-group" *ngIf="student.scholarshipAmount > 0"><label>Amount</label><p>₱{{ student.scholarshipAmount | number:'1.0-0' }}</p></div>
+          </ng-container>
+        </div>
+
+        <!-- Special Needs -->
+        <div class="card" *ngIf="student.hasSpecialNeeds || student.hasAssistiveTech">
+          <h2>♿ Special Education Needs</h2>
+          <div class="info-group" *ngIf="student.hasSpecialNeeds">
+            <label>Special Education Needs</label>
+            <p>{{ student.specialNeedsDetails || 'Yes' }}</p>
           </div>
-          <div class="info-group">
-            <label>Phone:</label>
-            <p><a [href]="'tel:' + student.phone">{{ student.phone }}</a></p>
-          </div>
-          <div class="info-group">
-            <label>Address:</label>
-            <p>{{ student.address }}</p>
+          <div class="info-group" *ngIf="student.hasAssistiveTech">
+            <label>Assistive Technology</label>
+            <p>{{ student.assistiveTechDetails || 'Available' }}</p>
           </div>
         </div>
 
       </div>
 
-      <!-- Right Column -->
-      <div class="profile-right">
+      <!-- RIGHT COLUMN -->
+      <div class="profile-col">
 
-        <!-- Personal Information -->
+        <!-- Personal Info -->
         <div class="card">
-          <h2>Personal Information</h2>
-          <div class="info-group">
-            <label>Full Name:</label>
-            <p>{{ student.firstName }} {{ student.lastName }}</p>
-          </div>
-          <div class="info-group">
-            <label>Date of Birth:</label>
-            <p>{{ student.dateOfBirth | date: 'MMM dd, yyyy' }}</p>
-          </div>
-          <div class="info-group">
-            <label>Student ID:</label>
-            <p>{{ student.id }}</p>
-          </div>
+          <h2>🪪 Personal Information</h2>
+          <div class="info-group"><label>Full Name</label><p>{{ fullName }}</p></div>
+          <div class="info-group" *ngIf="student.lrnNo"><label>LRN No.</label><p>{{ student.lrnNo }}</p></div>
+          <div class="info-group"><label>Date of Birth</label><p>{{ student.dateOfBirth ? (student.dateOfBirth | date:'MMM dd, yyyy') : '—' }}</p></div>
+          <div class="info-group" *ngIf="student.age"><label>Age</label><p>{{ student.age }}</p></div>
+          <div class="info-group"><label>Sex</label><p>{{ student.sex || '—' }}</p></div>
+          <div class="info-group" *ngIf="student.religion"><label>Religion</label><p>{{ student.religion }}</p></div>
+          <div class="info-group" *ngIf="student.placeOfBirth"><label>Place of Birth</label><p>{{ student.placeOfBirth }}</p></div>
+          <div class="info-group" *ngIf="student.citizenship"><label>Citizenship</label><p>{{ student.citizenship }}</p></div>
+          <div class="info-group" *ngIf="student.motherTongue"><label>Mother Tongue</label><p>{{ student.motherTongue }}</p></div>
+          <div class="info-group"><label>IP/Indigenous People</label><p>{{ student.isIndigenous ? 'Yes' : 'No' }}</p></div>
+          <div class="info-group" *ngIf="student.psaBirthCertNo"><label>PSA Birth Cert No.</label><p>{{ student.psaBirthCertNo }}</p></div>
         </div>
 
-        <!-- Emergency Contact -->
+        <!-- Contact -->
         <div class="card">
-          <h2>Emergency Contact</h2>
-          <div class="info-group">
-            <label>Contact Person:</label>
-            <p>{{ student.emergencyContact }}</p>
-          </div>
-          <div class="info-group">
-            <label>Phone Number:</label>
-            <p><a [href]="'tel:' + student.emergencyPhone">{{ student.emergencyPhone }}</a></p>
+          <h2>📞 Contact Information</h2>
+          <div class="info-group"><label>Email</label><p><a [href]="'mailto:' + student.email">{{ student.email }}</a></p></div>
+          <div class="info-group"><label>Phone</label><p><a [href]="'tel:' + student.phone">{{ student.phone || '—' }}</a></p></div>
+          <div class="info-group"><label>Home Address</label><p>{{ student.address || '—' }}</p></div>
+          <div class="info-group" *ngIf="student.learningDelivery"><label>Learning Delivery</label><p>{{ student.learningDelivery }}</p></div>
+        </div>
+
+        <!-- Guardian / Emergency -->
+        <div class="card">
+          <h2>👨‍👩‍👧 Parent / Guardian</h2>
+          <div class="info-group"><label>Name</label><p>{{ student.guardianName || student.emergencyContact || '—' }}</p></div>
+          <div class="info-group" *ngIf="student.guardianAddress"><label>Address</label><p>{{ student.guardianAddress }}</p></div>
+          <div class="info-group"><label>Contact Number</label>
+            <p><a [href]="'tel:' + student.emergencyPhone">{{ student.emergencyPhone || '—' }}</a></p>
           </div>
         </div>
 

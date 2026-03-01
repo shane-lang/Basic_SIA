@@ -1,0 +1,464 @@
+<div class="tor-page">
+
+  <!-- Header -->
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">📄 TOR Evaluation</h1>
+      <p class="page-subtitle">Review and credit subjects from transferee students' Transcripts of Records</p>
+    </div>
+    <button class="btn-refresh" (click)="loadPendingTors()" [disabled]="isLoading">
+      {{ isLoading ? '⏳ Loading...' : '🔄 Refresh' }}
+    </button>
+  </div>
+
+  <div class="alert alert-success" *ngIf="successMessage">{{ successMessage }}</div>
+  <div class="alert alert-error"   *ngIf="errorMessage && !showModal">{{ errorMessage }}</div>
+
+  <!-- Tabs -->
+  <div class="tab-bar">
+    <button class="tab-btn" [class.active]="activeTab==='pending'" (click)="switchTab('pending')">
+      ⏳ Pending
+      <span class="tab-badge" *ngIf="pendingTors.length">{{ pendingTors.length }}</span>
+    </button>
+    <button class="tab-btn" [class.active]="activeTab==='evaluated'" (click)="switchTab('evaluated')">
+      ✅ Evaluated
+    </button>
+  </div>
+
+  <!-- PENDING LIST -->
+  <div *ngIf="activeTab==='pending'">
+    <div class="loading-state" *ngIf="isLoading">
+      <span class="spin">⏳</span><span>Loading pending TOR evaluations...</span>
+    </div>
+    <div class="empty-state" *ngIf="!isLoading && !pendingTors.length">
+      <div class="empty-icon">📭</div>
+      <div class="empty-title">No pending TOR evaluations</div>
+      <div class="empty-sub">No transferee students are waiting for TOR review.</div>
+    </div>
+    <div class="tor-list" *ngIf="!isLoading && pendingTors.length">
+      <div class="tor-card" *ngFor="let tor of pendingTors">
+        <div class="tor-card-header">
+          <div class="student-avatar">{{ tor.firstName[0] }}{{ tor.lastName[0] }}</div>
+          <div class="student-info">
+            <div class="student-name">{{ tor.lastName }}, {{ tor.firstName }}</div>
+            <div class="student-meta">
+              <span class="meta-badge program">{{ tor.program }}</span>
+              <span class="meta-badge type">🔄 Transferee</span>
+              <span class="meta-badge sn">{{ tor.studentNumber }}</span>
+            </div>
+          </div>
+          <span class="status-pill pending">⏳ Pending</span>
+        </div>
+        <div class="tor-card-body">
+          <div class="info-grid">
+            <div class="info-item"><label>Previous School</label><span>{{ tor.lastSchoolAttended || '—' }}</span></div>
+            <div class="info-item"><label>Total Program Units</label><span><strong>{{ tor.programUnits || '?' }} units</strong></span></div>
+            <div class="info-item"><label>Submitted</label><span>{{ fd(tor.submittedAt) }}</span></div>
+          </div>
+          <!-- TOR file link -->
+          <div class="tor-file-row" *ngIf="tor.torFileUrl">
+            <a class="tor-file-link" [href]="tor.torFileUrl" target="_blank" rel="noopener">
+              📄 View Uploaded TOR (Soft Copy)
+            </a>
+          </div>
+          <div class="tor-file-missing" *ngIf="!tor.torFileUrl">
+            ⚠️ No soft copy uploaded — use Manual Evaluation based on hard copy
+          </div>
+        </div>
+        <div class="tor-card-actions">
+          <button class="btn-evaluate" (click)="openEvaluate(tor)">✅ Evaluate (Digital)</button>
+          <button class="btn-manual"   (click)="openManual(tor)">📝 Manual Eval</button>
+          <button class="btn-reject"   (click)="openReject(tor)">❌ Reject</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- EVALUATED LIST -->
+  <div *ngIf="activeTab==='evaluated'">
+    <div class="loading-state" *ngIf="isEvalLoading"><span class="spin">⏳</span><span>Loading...</span></div>
+    <div class="empty-state" *ngIf="!isEvalLoading && !evaluatedTors.length">
+      <div class="empty-icon">📋</div><div class="empty-title">No evaluated TORs yet</div>
+    </div>
+    <div class="tor-list" *ngIf="!isEvalLoading && evaluatedTors.length">
+      <div class="tor-card" *ngFor="let tor of evaluatedTors">
+        <div class="tor-card-header">
+          <div class="student-avatar">{{ tor.firstName[0] }}{{ tor.lastName[0] }}</div>
+          <div class="student-info">
+            <div class="student-name">{{ tor.lastName }}, {{ tor.firstName }}</div>
+            <div class="student-meta">
+              <span class="meta-badge program">{{ tor.program }}</span>
+              <span class="meta-badge sn">{{ tor.studentNumber }}</span>
+            </div>
+          </div>
+          <span class="status-pill" [class.evaluated]="tor.status==='Evaluated'" [class.rejected]="tor.status==='Rejected'">
+            {{ tor.status==='Evaluated' ? '✅ Evaluated' : '❌ Rejected' }}
+          </span>
+        </div>
+        <div class="tor-card-body" *ngIf="tor.status==='Evaluated'">
+          <div class="info-grid">
+            <div class="info-item"><label>Credited Units</label><span class="text-green">{{ tor.creditedUnits }}</span></div>
+            <div class="info-item"><label>Units to Take</label><span>{{ tor.approvedUnits }}</span></div>
+            <div class="info-item"><label>Notes</label><span>{{ tor.registrarNotes || '—' }}</span></div>
+          </div>
+          <div class="cs-chips-row" *ngIf="tor.creditedSubjects.length">
+            <span class="cs-chip" *ngFor="let s of tor.creditedSubjects">{{ s.code }} ({{ s.credits }}u)</span>
+          </div>
+        </div>
+        <div class="tor-card-body" *ngIf="tor.status==='Rejected'">
+          <div class="rejected-note">Reason: {{ tor.registrarNotes || '—' }}</div>
+        </div>
+        <div class="tor-card-actions">
+          <button class="btn-view" (click)="openView(tor)">👁️ View Curriculum</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ══════════════════════════════════════════════════════════════ -->
+<!-- OVERLAY + MODAL                                               -->
+<!-- ══════════════════════════════════════════════════════════════ -->
+<div class="modal-overlay" *ngIf="showModal" (click)="closeModal()"></div>
+
+<div class="modal-panel" *ngIf="showModal && selectedTor">
+
+  <!-- ── EVALUATE MODE ── -->
+  <ng-container *ngIf="modalMode==='evaluate'">
+    <div class="modal-header">
+      <div>
+        <h2 class="modal-title">✅ Evaluate TOR — Full Curriculum</h2>
+        <p class="modal-sub">{{ selectedTor.lastName }}, {{ selectedTor.firstName }} · {{ selectedTor.program }} · Previous: {{ selectedTor.lastSchoolAttended }}</p>
+      </div>
+      <button class="modal-close" (click)="closeModal()">✕</button>
+    </div>
+
+    <div class="modal-body">
+      <div class="alert alert-error" *ngIf="errorMessage">{{ errorMessage }}</div>
+
+      <!-- TOR file link inside modal -->
+      <div class="modal-tor-link" *ngIf="selectedTor!.torFileUrl">
+        <a [href]="selectedTor!.torFileUrl" target="_blank" rel="noopener" class="tor-file-link">
+          📄 Open Student's TOR (Soft Copy) — view in new tab
+        </a>
+      </div>
+      <div class="modal-tor-missing" *ngIf="!selectedTor!.torFileUrl">
+        ⚠️ Student did not upload a soft copy. Evaluate based on hard copy submitted to office.
+      </div>
+
+      <!-- Instruction -->
+      <div class="eval-instruction">
+        ☑️ <strong>Check each subject</strong> the student has already taken and passed at their previous school. These will be <strong>permanently credited</strong> — they won't appear in future semester enrollments and won't be counted in tuition.
+      </div>
+
+      <!-- Select All -->
+      <div class="select-all-bar">
+        <label class="select-all-label">
+          <input type="checkbox" [checked]="allSelected" (change)="toggleAll($any($event.target).checked)">
+          Select All Subjects
+        </label>
+        <div class="credit-counter" *ngIf="curriculumCourses.length">
+          <span class="cc-credited">{{ totalCreditedUnits }} units credited</span>
+          <span class="cc-sep">·</span>
+          <span class="cc-approved">{{ approvedUnits }} units remaining</span>
+          <span class="cc-sep">·</span>
+          <span class="cc-total">{{ totalProgramUnits }} total</span>
+        </div>
+      </div>
+
+      <!-- Loading -->
+      <div class="courses-loading" *ngIf="isCoursesLoading">⏳ Loading program curriculum...</div>
+
+      <!-- Empty -->
+      <div class="courses-empty" *ngIf="!isCoursesLoading && !curriculumCourses.length">
+        No subjects found for this program. Try Manual Evaluation instead.
+      </div>
+
+      <!-- ── CURRICULUM GRID grouped by Year → Semester ── -->
+      <div class="curriculum-wrap" *ngIf="!isCoursesLoading && yearGroups.length">
+        <div class="year-block" *ngFor="let yg of yearGroups">
+
+          <!-- Year header -->
+          <div class="year-header">
+            <span class="year-label">{{ yg.yearLevel }}</span>
+            <div class="year-stats">
+              <span class="ys-badge credited" *ngIf="yg.creditedUnits > 0">
+                ✓ {{ yg.creditedUnits }} credited
+              </span>
+              <span class="ys-badge total">{{ yg.totalUnits }} units total</span>
+            </div>
+          </div>
+
+          <!-- Semester groups -->
+          <div class="sem-block" *ngFor="let sg of yg.semesters">
+            <div class="sem-header">
+              <span class="sem-label">{{ sg.semester }}</span>
+              <span class="sem-units">{{ sg.totalUnits }} units</span>
+              <span class="sem-credited" *ngIf="sg.creditedUnits > 0">
+                — {{ sg.creditedUnits }} to be credited
+              </span>
+            </div>
+
+            <!-- Course rows -->
+            <div class="course-row"
+              *ngFor="let course of sg.courses"
+              [class.row-credited]="course.selected"
+              [class.row-already]="course.isCredited && !course.selected">
+
+              <div class="course-check">
+                <input type="checkbox"
+                  [(ngModel)]="course.selected"
+                  (ngModelChange)="onCourseToggle()"
+                  [attr.aria-label]="course.code">
+              </div>
+
+              <div class="course-code">{{ course.code }}</div>
+
+              <div class="course-name-wrap">
+                <div class="course-name">{{ course.name }}</div>
+                <div class="course-desc" *ngIf="course.description">{{ course.description }}</div>
+              </div>
+
+              <div class="course-units">{{ course.credits }}<small>u</small></div>
+
+              <div class="course-status-col">
+                <span class="course-badge credit-badge" *ngIf="course.selected">
+                  ✓ Credited
+                </span>
+                <span class="course-badge already-badge" *ngIf="course.isCredited && !course.selected">
+                  Previously credited
+                </span>
+              </div>
+            </div>
+          </div><!-- end sem-block -->
+        </div><!-- end year-block -->
+      </div><!-- end curriculum-wrap -->
+
+      <!-- Fee recompute preview -->
+      <div class="fee-recompute-card" *ngIf="recomputedFee && totalCreditedUnits > 0">
+        <div class="frc-header">💰 Recomputed Tuition After Crediting ({{ approvedUnits }} units remaining)</div>
+        <div class="frc-body">
+          <div class="frc-row"><span>Tuition ({{ recomputedFee.units }} × ₱650)</span><span>₱{{ fa(recomputedFee.tuitionFee) }}</span></div>
+          <div class="frc-row"><span>Miscellaneous</span><span>₱{{ fa(recomputedFee.miscellaneousFee) }}</span></div>
+          <div class="frc-row"><span>Registration</span><span>₱{{ fa(recomputedFee.registrationFee) }}</span></div>
+          <div class="frc-row"><span>Laboratory ({{ recomputedFee.units }} × ₱1,900)</span><span>₱{{ fa(recomputedFee.laboratoryFee) }}</span></div>
+          <div class="frc-row"><span>Energy Fee</span><span>₱{{ fa(recomputedFee.energyFee) }}</span></div>
+          <div class="frc-row frc-total"><span><strong>NEW TOTAL ASSESSMENT</strong></span><span><strong>₱{{ fa(recomputedFee.totalAssessment) }}</strong></span></div>
+        </div>
+      </div>
+
+      <!-- Notes -->
+      <div class="form-group">
+        <label class="form-label">Registrar Notes <span class="optional">(optional)</span></label>
+        <textarea class="form-control" rows="3"
+          placeholder="Conditions, equivalency basis, special remarks..."
+          [(ngModel)]="registrarNotes"></textarea>
+      </div>
+    </div><!-- end modal-body -->
+
+    <div class="modal-footer">
+      <div class="footer-summary" *ngIf="totalCreditedUnits > 0">
+        <span>Crediting <strong>{{ totalCreditedUnits }} units</strong> → student takes <strong>{{ approvedUnits }} units</strong> this term</span>
+      </div>
+      <button class="btn-cancel" (click)="closeModal()" [disabled]="isSubmitting">Cancel</button>
+      <button class="btn-submit-eval" (click)="submitEvaluation()"
+        [disabled]="isSubmitting || !selectedCourses.length">
+        {{ isSubmitting ? '⏳ Saving...' : '✅ Submit Evaluation (' + totalCreditedUnits + ' units credited)' }}
+      </button>
+    </div>
+  </ng-container>
+
+
+  <!-- ── MANUAL EVALUATION MODE ── -->
+  <ng-container *ngIf="modalMode==='manual'">
+    <div class="modal-header">
+      <div>
+        <h2 class="modal-title">📝 Manual TOR Evaluation</h2>
+        <p class="modal-sub">{{ selectedTor!.lastName }}, {{ selectedTor!.firstName }} · {{ selectedTor!.program }} · Based on hard copy TOR</p>
+      </div>
+      <button class="modal-close" (click)="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="alert alert-error" *ngIf="errorMessage">{{ errorMessage }}</div>
+
+      <div class="eval-instruction">
+        📄 <strong>Manual evaluation</strong> — Enter the subjects from the student's <strong>hard copy TOR</strong> that are equivalent to our curriculum. These will be credited and excluded from tuition computation.
+      </div>
+
+      <!-- Credit summary -->
+      <div class="select-all-bar" *ngIf="manualSubjects.length">
+        <div class="credit-counter">
+          <span class="cc-credited">{{ manualCreditedUnits }} units to credit</span>
+          <span class="cc-sep">·</span>
+          <span class="cc-approved">{{ manualApprovedUnits }} units remaining</span>
+          <span class="cc-sep">·</span>
+          <span class="cc-total">{{ selectedTor!.programUnits }} total</span>
+        </div>
+      </div>
+
+      <!-- Add subject form -->
+      <div class="manual-add-row">
+        <input class="manual-input manual-code" type="text" placeholder="Subject Code (e.g. CS101)"
+          [(ngModel)]="manualNewCode" (keyup.enter)="addManualSubject()">
+        <input class="manual-input manual-name" type="text" placeholder="Subject Name"
+          [(ngModel)]="manualNewName" (keyup.enter)="addManualSubject()">
+        <input class="manual-input manual-units" type="number" min="1" max="9" placeholder="Units"
+          [(ngModel)]="manualNewCredits">
+        <button class="btn-manual-add" (click)="addManualSubject()"
+          [disabled]="!manualNewCode.trim() || !manualNewName.trim()">+ Add</button>
+      </div>
+
+      <!-- Subject list -->
+      <div class="manual-subjects-list" *ngIf="manualSubjects.length">
+        <div class="manual-subject-header">
+          <span>Code</span><span>Subject Name</span><span>Units</span><span></span>
+        </div>
+        <div class="manual-subject-row" *ngFor="let s of manualSubjects; let i = index">
+          <span class="msr-code">{{ s.code }}</span>
+          <span class="msr-name">{{ s.name }}</span>
+          <span class="msr-units"><span class="units-badge">{{ s.credits }}u</span></span>
+          <button class="msr-remove" (click)="removeManualSubject(i)">✕</button>
+        </div>
+        <div class="manual-subject-total">
+          <span></span><span style="font-weight:700;color:#1e3a5f;">Total Credits</span>
+          <span><span class="units-badge units-badge-total">{{ manualCreditedUnits }}u</span></span>
+          <span></span>
+        </div>
+      </div>
+
+      <div class="courses-empty" *ngIf="!manualSubjects.length">
+        No subjects added yet. Add subjects from the student's hard copy TOR above.
+      </div>
+
+      <!-- Fee preview -->
+      <div class="fee-recompute-card" *ngIf="manualSubjects.length && selectedTor!.programUnits">
+        <div class="frc-header">💰 Recomputed Tuition After Crediting ({{ manualApprovedUnits }} units remaining)</div>
+        <div class="frc-body">
+          <div class="frc-row"><span>Tuition ({{ manualApprovedUnits }} × ₱650)</span><span>₱{{ fa(manualApprovedUnits * 650) }}</span></div>
+          <div class="frc-row"><span>Miscellaneous</span><span>₱6,688.00</span></div>
+          <div class="frc-row"><span>Registration</span><span>₱700.00</span></div>
+          <div class="frc-row"><span>Laboratory ({{ manualApprovedUnits }} × ₱1,900)</span><span>₱{{ fa(manualApprovedUnits * 1900) }}</span></div>
+          <div class="frc-row"><span>Energy Fee</span><span>₱{{ fa(manualApprovedUnits * 21 * 3) }}</span></div>
+          <div class="frc-row frc-total"><span><strong>ESTIMATED NEW TOTAL</strong></span><span><strong>₱{{ fa(manualApprovedUnits * 650 + 6688 + 700 + manualApprovedUnits * 1900 + manualApprovedUnits * 21 * 3) }}</strong></span></div>
+        </div>
+      </div>
+
+      <!-- Notes -->
+      <div class="form-group">
+        <label class="form-label">Registrar Notes <span class="optional">(optional)</span></label>
+        <textarea class="form-control" rows="3"
+          placeholder="Basis for crediting (e.g. verified against hard copy TOR dated...), special remarks..."
+          [(ngModel)]="registrarNotes"></textarea>
+      </div>
+    </div>
+
+    <div class="modal-footer">
+      <div class="footer-summary" *ngIf="manualSubjects.length">
+        <span>Crediting <strong>{{ manualCreditedUnits }} units</strong> → student takes <strong>{{ manualApprovedUnits }} units</strong></span>
+      </div>
+      <button class="btn-cancel" (click)="closeModal()" [disabled]="isSubmitting">Cancel</button>
+      <button class="btn-submit-eval" (click)="submitManualEvaluation()"
+        [disabled]="isSubmitting || !manualSubjects.length">
+        {{ isSubmitting ? '⏳ Saving...' : '✅ Submit Manual Evaluation (' + manualCreditedUnits + ' units credited)' }}
+      </button>
+    </div>
+  </ng-container>
+
+  <!-- ── REJECT MODE ── -->
+  <ng-container *ngIf="modalMode==='reject'">
+    <div class="modal-header reject-header">
+      <div>
+        <h2 class="modal-title">❌ Reject TOR</h2>
+        <p class="modal-sub">{{ selectedTor.lastName }}, {{ selectedTor.firstName }} · {{ selectedTor.program }}</p>
+      </div>
+      <button class="modal-close" (click)="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="reject-warning">
+        ⚠️ Rejecting means <strong>no subjects will be credited</strong>. The student will enroll in the <strong>full program</strong> at the full tuition.
+      </div>
+      <div class="alert alert-error" *ngIf="errorMessage">{{ errorMessage }}</div>
+      <div class="form-group">
+        <label class="form-label">Reason for Rejection <span class="req">*</span></label>
+        <textarea class="form-control" rows="4"
+          placeholder="e.g. Subjects are not equivalent to our curriculum, TOR is incomplete or unverified..."
+          [(ngModel)]="registrarNotes"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" (click)="closeModal()" [disabled]="isSubmitting">Cancel</button>
+      <button class="btn-reject-submit" (click)="submitRejection()"
+        [disabled]="isSubmitting || !registrarNotes.trim()">
+        {{ isSubmitting ? '⏳ Processing...' : '❌ Confirm Rejection' }}
+      </button>
+    </div>
+  </ng-container>
+
+
+  <!-- ── VIEW MODE (read-only curriculum) ── -->
+  <ng-container *ngIf="modalMode==='view'">
+    <div class="modal-header">
+      <div>
+        <h2 class="modal-title">📋 Curriculum View — {{ selectedTor.lastName }}, {{ selectedTor.firstName }}</h2>
+        <p class="modal-sub">{{ selectedTor.program }} · {{ selectedTor.lastSchoolAttended }}</p>
+      </div>
+      <button class="modal-close" (click)="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+
+      <!-- Summary pills -->
+      <div class="view-summary-pills">
+        <div class="vsp-item credited"><div class="vsp-val">{{ selectedTor.creditedUnits }}</div><div class="vsp-label">Credited Units</div></div>
+        <div class="vsp-item approved"><div class="vsp-val">{{ selectedTor.approvedUnits }}</div><div class="vsp-label">Units to Take</div></div>
+        <div class="vsp-item total"><div class="vsp-val">{{ selectedTor.programUnits }}</div><div class="vsp-label">Total Program Units</div></div>
+      </div>
+
+      <!-- Registrar notes -->
+      <div class="view-notes" *ngIf="selectedTor.registrarNotes">
+        <strong>Registrar Notes:</strong> {{ selectedTor.registrarNotes }}
+      </div>
+
+      <div class="courses-loading" *ngIf="isCoursesLoading">⏳ Loading curriculum...</div>
+
+      <!-- Read-only curriculum grid -->
+      <div class="curriculum-wrap" *ngIf="!isCoursesLoading && yearGroups.length">
+        <div class="year-block" *ngFor="let yg of yearGroups">
+          <div class="year-header">
+            <span class="year-label">{{ yg.yearLevel }}</span>
+            <div class="year-stats">
+              <span class="ys-badge credited" *ngIf="yg.creditedUnits > 0">✓ {{ yg.creditedUnits }} credited</span>
+              <span class="ys-badge total">{{ yg.totalUnits }} units</span>
+            </div>
+          </div>
+          <div class="sem-block" *ngFor="let sg of yg.semesters">
+            <div class="sem-header">
+              <span class="sem-label">{{ sg.semester }}</span>
+              <span class="sem-units">{{ sg.totalUnits }} units</span>
+            </div>
+            <div class="course-row"
+              *ngFor="let course of sg.courses"
+              [class.row-credited]="course.selected || course.isCredited">
+              <div class="course-check">
+                <span class="view-check" *ngIf="course.selected || course.isCredited">✓</span>
+                <span class="view-dot"   *ngIf="!course.selected && !course.isCredited">·</span>
+              </div>
+              <div class="course-code">{{ course.code }}</div>
+              <div class="course-name-wrap">
+                <div class="course-name">{{ course.name }}</div>
+              </div>
+              <div class="course-units">{{ course.credits }}<small>u</small></div>
+              <div class="course-status-col">
+                <span class="course-badge credit-badge" *ngIf="course.selected || course.isCredited">✓ Credited</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" (click)="closeModal()">Close</button>
+    </div>
+  </ng-container>
+
+</div><!-- end .modal-panel -->

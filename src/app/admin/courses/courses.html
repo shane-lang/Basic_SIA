@@ -1,38 +1,210 @@
-<div class="courses-header">
-  <h1>📚 Course Management</h1>
-  <button class="btn-primary">+ Add New Course</button>
+<div class="page-wrap">
+
+  <!-- Toast -->
+  <div class="toast" [class.toast-show]="toast.show" [class.toast-success]="toast.type==='success'" [class.toast-error]="toast.type==='error'">
+    <span class="toast-icon">{{ toast.type === 'success' ? '✅' : '❌' }}</span>
+    {{ toast.message }}
+  </div>
+
+  <!-- Page Header -->
+  <div class="page-header">
+    <div class="page-header-left">
+      <div class="page-icon">📚</div>
+      <div>
+        <h1>Course Management</h1>
+        <p class="page-sub">Add, edit and manage all courses offered</p>
+      </div>
+    </div>
+    <button class="btn-add" (click)="openAdd()">
+      <span>＋</span> Add Course
+    </button>
+  </div>
+
+  <!-- Stats Bar -->
+  <div class="stats-bar">
+    <div class="stat-item">
+      <span class="stat-val">{{ courseList.length }}</span>
+      <span class="stat-lbl">Total Courses</span>
+    </div>
+    <div class="stat-item stat-blue">
+      <span class="stat-val">{{ uniqueDepts.length }}</span>
+      <span class="stat-lbl">Departments</span>
+    </div>
+    <div class="stat-item stat-green">
+      <span class="stat-val">{{ totalUnits }}</span>
+      <span class="stat-lbl">Total Units</span>
+    </div>
+    <div class="stat-item stat-yellow">
+      <span class="stat-val">{{ avgUnits }}</span>
+      <span class="stat-lbl">Avg Units</span>
+    </div>
+  </div>
+
+  <!-- Toolbar -->
+  <div class="toolbar">
+    <div class="search-wrap">
+      <span class="search-icon">🔍</span>
+      <input class="search-input" type="text" placeholder="Search code, name, department…"
+             [(ngModel)]="searchQuery" (input)="applyFilter()">
+    </div>
+    <select class="filter-select" [(ngModel)]="filterDept" (change)="applyFilter()">
+      <option value="All">All Departments</option>
+      <option *ngFor="let d of uniqueDepts" [value]="d">{{ d }}</option>
+    </select>
+  </div>
+
+  <!-- Loading -->
+  <div *ngIf="isLoading" class="loading-state">
+    <div class="spinner"></div><p>Loading courses…</p>
+  </div>
+
+  <!-- Empty -->
+  <div *ngIf="!isLoading && filteredList.length === 0" class="empty-state">
+    <div class="empty-icon">📚</div>
+    <h3>No courses found</h3>
+    <p>{{ searchQuery ? 'Try a different search.' : 'Add your first course to get started.' }}</p>
+    <button class="btn-add" (click)="openAdd()" *ngIf="!searchQuery">＋ Add Course</button>
+  </div>
+
+  <!-- Cards Grid -->
+  <div *ngIf="!isLoading && filteredList.length > 0" class="courses-grid">
+    <div class="course-card" *ngFor="let c of filteredList">
+      <div class="card-top">
+        <div class="card-code-wrap">
+          <span class="card-code">{{ c.code }}</span>
+          <span class="card-units">{{ c.credits }} units</span>
+        </div>
+        <div class="card-actions">
+          <button class="btn-action btn-edit-sm"  (click)="openEdit(c)" title="Edit">✏️</button>
+          <button class="btn-action btn-view-sm"  (click)="openView(c)" title="View details">👁️</button>
+          <button class="btn-action btn-del-sm"   (click)="confirmDelete(c)" title="Delete">🗑️</button>
+        </div>
+      </div>
+      <h3 class="card-name">{{ c.name }}</h3>
+      <p class="card-desc">{{ c.description || 'No description provided.' }}</p>
+      <div class="card-meta">
+        <span class="meta-pill meta-dept" *ngIf="c.department">{{ c.department }}</span>
+        <span class="meta-pill meta-level" *ngIf="c.year_level">{{ c.year_level }}</span>
+        <span class="meta-pill meta-program" *ngIf="c.program">{{ c.program }}</span>
+      </div>
+    </div>
+  </div>
+
 </div>
 
-<div class="courses-container">
-  <div class="table-responsive">
-    <table class="courses-table">
-      <thead>
-        <tr>
-          <th>Course Code</th>
-          <th>Title</th>
-          <th>Credits</th>
-          <th>Department</th>
-          <th>Status</th>
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr *ngFor="let course of courses">
-          <td>{{ course.code }}</td>
-          <td>{{ course.title }}</td>
-          <td>{{ course.credits }}</td>
-          <td>{{ course.department }}</td>
-          <td>
-            <span class="status-badge" [ngClass]="course.status.toLowerCase()">
-              {{ course.status }}
-            </span>
-          </td>
-          <td>
-            <button class="btn-sm btn-edit">Edit</button>
-            <button class="btn-sm btn-delete">Delete</button>
-          </td>
-        </tr>
-      </tbody>
-    </table>
+<!-- ── Add / Edit Modal ── -->
+<div class="modal-bg" *ngIf="showModal" (click)="closeModal()">
+  <div class="modal-box" (click)="$event.stopPropagation()">
+    <div class="modal-head">
+      <h2>{{ isEditing ? '✏️ Edit Course' : '➕ Add New Course' }}</h2>
+      <button class="modal-x" (click)="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-row two-col">
+        <div class="form-group">
+          <label>Course Code <span class="req">*</span></label>
+          <input class="form-ctrl" type="text" [(ngModel)]="form.code" placeholder="e.g. CS111" style="text-transform:uppercase">
+        </div>
+        <div class="form-group">
+          <label>Units <span class="req">*</span></label>
+          <input class="form-ctrl" type="number" [(ngModel)]="form.credits" min="1" max="9">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Course Name <span class="req">*</span></label>
+        <input class="form-ctrl" type="text" [(ngModel)]="form.name" placeholder="e.g. Introduction to Programming">
+      </div>
+      <div class="form-group">
+        <label>Description</label>
+        <textarea class="form-ctrl" rows="3" [(ngModel)]="form.description" placeholder="Brief description of the course…"></textarea>
+      </div>
+      <div class="form-row two-col">
+        <div class="form-group">
+          <label>Department</label>
+          <select class="form-ctrl" [(ngModel)]="form.department">
+            <option value="">— Select —</option>
+            <option *ngFor="let d of DEPARTMENTS" [value]="d">{{ d }}</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Year Level</label>
+          <select class="form-ctrl" [(ngModel)]="form.year_level">
+            <option *ngFor="let y of YEAR_LEVELS" [value]="y">{{ y }}</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row two-col">
+        <div class="form-group">
+          <label>Program</label>
+          <input class="form-ctrl" type="text" [(ngModel)]="form.program" placeholder="e.g. BS Information Technology">
+        </div>
+        <div class="form-group">
+          <label>Semester</label>
+          <select class="form-ctrl" [(ngModel)]="form.semester">
+            <option value="">— Select —</option>
+            <option *ngFor="let s of SEMESTERS" [value]="s">{{ s }}</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn-cancel" (click)="closeModal()">Cancel</button>
+      <button class="btn-save" (click)="save()" [disabled]="isSaving">
+        {{ isSaving ? 'Saving…' : (isEditing ? '💾 Update Course' : '✅ Create Course') }}
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ── View Details Modal ── -->
+<div class="modal-bg" *ngIf="showViewModal" (click)="closeViewModal()">
+  <div class="modal-box" (click)="$event.stopPropagation()">
+    <div class="modal-head" style="background: linear-gradient(135deg, #0369a1 0%, #0284c7 100%);">
+      <h2>📋 Course Details</h2>
+      <button class="modal-x" (click)="closeViewModal()">✕</button>
+    </div>
+    <div class="modal-body" *ngIf="viewTarget">
+      <div class="view-code-banner">
+        <span class="view-code">{{ viewTarget.code }}</span>
+        <span class="view-units">{{ viewTarget.credits }} Units</span>
+      </div>
+      <h2 class="view-name">{{ viewTarget.name }}</h2>
+      <p class="view-desc">{{ viewTarget.description || 'No description available.' }}</p>
+      <div class="view-grid">
+        <div class="view-item"><label>Department</label><p>{{ viewTarget.department || '—' }}</p></div>
+        <div class="view-item"><label>Year Level</label><p>{{ viewTarget.year_level || '—' }}</p></div>
+        <div class="view-item"><label>Program</label><p>{{ viewTarget.program || '—' }}</p></div>
+        <div class="view-item"><label>Semester</label><p>{{ viewTarget.semester || '—' }}</p></div>
+        <div class="view-item"><label>Enrolled</label><p>{{ viewTarget.enrolled_count ?? 0 }} students</p></div>
+        <div class="view-item"><label>Instructor</label><p>{{ viewTarget.instructor || '—' }}</p></div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn-cancel" (click)="closeViewModal()">Close</button>
+      <button class="btn-save" (click)="closeViewModal(); openEdit(viewTarget!)">✏️ Edit</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Delete Confirm ── -->
+<div class="modal-bg" *ngIf="showDeleteModal" (click)="closeDeleteModal()">
+  <div class="modal-box modal-sm" (click)="$event.stopPropagation()">
+    <div class="modal-head danger-head">
+      <h2>🗑️ Delete Course</h2>
+      <button class="modal-x" (click)="closeDeleteModal()">✕</button>
+    </div>
+    <div class="modal-body" *ngIf="deleteTarget">
+      <div class="danger-info">
+        <p>Delete this course permanently?</p>
+        <strong>{{ deleteTarget.code }} — {{ deleteTarget.name }}</strong>
+        <p class="danger-warn">⚠️ This will also remove it from any program assignments.</p>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn-cancel" (click)="closeDeleteModal()">Cancel</button>
+      <button class="btn-danger" (click)="doDelete()" [disabled]="isDeleting">
+        {{ isDeleting ? 'Deleting…' : '🗑️ Delete Course' }}
+      </button>
+    </div>
   </div>
 </div>

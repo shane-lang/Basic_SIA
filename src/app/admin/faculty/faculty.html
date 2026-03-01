@@ -1,40 +1,226 @@
-<div class="faculty-header">
-  <h1>👨‍🏫 Faculty Management</h1>
-  <button class="btn-primary">+ Add Faculty Member</button>
-</div>
+<div class="page-wrap">
 
-<div class="faculty-container">
-  <div class="table-responsive">
-    <table class="faculty-table">
+  <!-- Toast -->
+  <div class="toast" [class.toast-show]="toast.show" [class.toast-success]="toast.type==='success'" [class.toast-error]="toast.type==='error'">
+    <span class="toast-icon">{{ toast.type === 'success' ? '✅' : '❌' }}</span>
+    {{ toast.message }}
+  </div>
+
+  <!-- Page Header -->
+  <div class="page-header">
+    <div class="page-header-left">
+      <div class="page-icon">👨‍🏫</div>
+      <div>
+        <h1>Faculty Management</h1>
+        <p class="page-sub">Manage teachers, subjects, and specializations</p>
+      </div>
+    </div>
+    <button class="btn-add" (click)="openAdd()">
+      <span>＋</span> Add Faculty
+    </button>
+  </div>
+
+  <!-- Stats Bar -->
+  <div class="stats-bar">
+    <div class="stat-item">
+      <span class="stat-val">{{ facultyList.length }}</span>
+      <span class="stat-lbl">Total</span>
+    </div>
+    <div class="stat-item stat-green">
+      <span class="stat-val">{{ activeCount }}</span>
+      <span class="stat-lbl">Active</span>
+    </div>
+    <div class="stat-item stat-red">
+      <span class="stat-val">{{ inactiveCount }}</span>
+      <span class="stat-lbl">Inactive</span>
+    </div>
+    <div class="stat-item stat-yellow">
+      <span class="stat-val">{{ onLeaveCount }}</span>
+      <span class="stat-lbl">On Leave</span>
+    </div>
+  </div>
+
+  <!-- Filters -->
+  <div class="toolbar">
+    <div class="search-wrap">
+      <span class="search-icon">🔍</span>
+      <input class="search-input" type="text" placeholder="Search name, email, department…"
+             [(ngModel)]="searchQuery" (input)="applyFilter()">
+    </div>
+    <div class="filter-tabs">
+      <button class="filter-tab" [class.active]="filterStatus==='All'"      (click)="filterStatus='All';      applyFilter()">All</button>
+      <button class="filter-tab" [class.active]="filterStatus==='Active'"   (click)="filterStatus='Active';   applyFilter()">Active</button>
+      <button class="filter-tab" [class.active]="filterStatus==='Inactive'" (click)="filterStatus='Inactive'; applyFilter()">Inactive</button>
+      <button class="filter-tab" [class.active]="filterStatus==='On Leave'" (click)="filterStatus='On Leave'; applyFilter()">On Leave</button>
+    </div>
+  </div>
+
+  <!-- Loading -->
+  <div *ngIf="isLoading" class="loading-state">
+    <div class="spinner"></div><p>Loading faculty…</p>
+  </div>
+
+  <!-- Empty State -->
+  <div *ngIf="!isLoading && filteredList.length === 0" class="empty-state">
+    <div class="empty-icon">👨‍🏫</div>
+    <h3>No faculty found</h3>
+    <p>{{ searchQuery ? 'Try a different search term.' : 'Add your first faculty member to get started.' }}</p>
+    <button class="btn-add" (click)="openAdd()" *ngIf="!searchQuery">＋ Add Faculty</button>
+  </div>
+
+  <!-- Table -->
+  <div *ngIf="!isLoading && filteredList.length > 0" class="table-card">
+    <table class="fac-table">
       <thead>
         <tr>
           <th>Faculty ID</th>
           <th>Name</th>
           <th>Email</th>
           <th>Department</th>
-          <th>Specialization</th>
+          <th>Specialty</th>
+          <th>Subjects</th>
           <th>Status</th>
           <th>Actions</th>
         </tr>
       </thead>
       <tbody>
-        <tr *ngFor="let member of faculty">
-          <td>{{ member.id }}</td>
-          <td>{{ member.name }}</td>
-          <td>{{ member.email }}</td>
-          <td>{{ member.department }}</td>
-          <td>{{ member.specialization }}</td>
-          <td>
-            <span class="status-badge" [ngClass]="member.status.toLowerCase()">
-              {{ member.status }}
-            </span>
+        <tr *ngFor="let f of filteredList">
+          <td><span class="id-tag">{{ f.faculty_id }}</span></td>
+          <td class="name-cell">
+            <div class="avatar">{{ f.first_name[0] }}{{ f.last_name[0] }}</div>
+            <span>{{ f.first_name }} {{ f.last_name }}</span>
+          </td>
+          <td class="email-cell">{{ f.email }}</td>
+          <td>{{ f.department }}</td>
+          <td class="specialty-cell">
+            <span class="specialty-tag" *ngIf="f.specialty">{{ f.specialty }}</span>
+          </td>
+          <td class="subjects-cell">
+            <span class="subj-chip" *ngFor="let s of f.subjects.slice(0,3)">{{ s }}</span>
+            <span class="subj-chip subj-more" *ngIf="f.subjects.length > 3">+{{ f.subjects.length - 3 }}</span>
+            <span class="no-subjects" *ngIf="!f.subjects.length">—</span>
           </td>
           <td>
-            <button class="btn-sm btn-edit">Edit</button>
-            <button class="btn-sm btn-delete">Delete</button>
+            <span class="status-pill" [class]="'status-' + f.status.toLowerCase().replace(' ','-')">{{ f.status }}</span>
+          </td>
+          <td class="actions-cell">
+            <button class="btn-action btn-edit-sm" (click)="openEdit(f)" title="Edit">✏️</button>
+            <button class="btn-action btn-del-sm"  (click)="confirmDelete(f)" title="Delete">🗑️</button>
           </td>
         </tr>
       </tbody>
     </table>
+    <div class="table-footer">Showing {{ filteredList.length }} of {{ facultyList.length }} faculty</div>
+  </div>
+
+</div>
+
+<!-- ── Add / Edit Modal ── -->
+<div class="modal-bg" *ngIf="showModal" (click)="closeModal()">
+  <div class="modal-box" (click)="$event.stopPropagation()">
+    <div class="modal-head">
+      <h2>{{ isEditing ? '✏️ Edit Faculty' : '➕ Add Faculty Member' }}</h2>
+      <button class="modal-x" (click)="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-row two-col">
+        <div class="form-group">
+          <label>First Name <span class="req">*</span></label>
+          <input class="form-ctrl" type="text" [(ngModel)]="form.first_name" placeholder="e.g. Maria">
+        </div>
+        <div class="form-group">
+          <label>Last Name <span class="req">*</span></label>
+          <input class="form-ctrl" type="text" [(ngModel)]="form.last_name" placeholder="e.g. Santos">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Email Address <span class="req">*</span></label>
+        <input class="form-ctrl" type="email" [(ngModel)]="form.email" placeholder="e.g. maria@school.edu">
+      </div>
+      <div class="form-row two-col">
+        <div class="form-group">
+          <label>Department</label>
+          <select class="form-ctrl" [(ngModel)]="form.department">
+            <option value="">— Select Department —</option>
+            <option *ngFor="let d of DEPARTMENTS" [value]="d">{{ d }}</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Status</label>
+          <select class="form-ctrl" [(ngModel)]="form.status">
+            <option value="Active">Active</option>
+            <option value="Inactive">Inactive</option>
+            <option value="On Leave">On Leave</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Specialization / Expertise</label>
+        <input class="form-ctrl" type="text" [(ngModel)]="form.specialty" placeholder="e.g. Artificial Intelligence, Web Development">
+      </div>
+
+      <!-- Subjects -->
+      <div class="form-group">
+        <label>Subjects Handled</label>
+        <div class="subject-input-row">
+          <input class="form-ctrl" type="text" [(ngModel)]="newSubjectInput"
+                 placeholder="Type subject code (e.g. CS111) then press Enter or +"
+                 (keydown)="onSubjectKeydown($event)" list="courses-list">
+          <datalist id="courses-list">
+            <option *ngFor="let c of coursesFromDb" [value]="c.code">{{ c.code }} — {{ c.name }}</option>
+          </datalist>
+          <button class="btn-add-subj" type="button" (click)="addSubject()">＋ Add</button>
+        </div>
+        <!-- Quick-add from existing courses -->
+        <div class="quick-courses" *ngIf="coursesFromDb.length > 0 && !newSubjectInput">
+          <p class="form-hint">Quick-add from existing courses:</p>
+          <div class="quick-chips">
+            <button class="quick-chip" type="button"
+                    *ngFor="let c of coursesFromDb.slice(0,12)"
+                    [class.chip-added]="form.subjects!.includes(c.code)"
+                    (click)="newSubjectInput=c.code; addSubject()">
+              {{ c.code }}
+            </button>
+          </div>
+        </div>
+        <div class="subjects-chips" *ngIf="form.subjects!.length > 0">
+          <div class="subj-chip-edit" *ngFor="let s of form.subjects; let i = index">
+            {{ s }}
+            <button class="chip-remove" (click)="removeSubject(i)">×</button>
+          </div>
+        </div>
+        <p class="form-hint" *ngIf="form.subjects!.length === 0">No subjects added yet. Type a subject code above.</p>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn-cancel" (click)="closeModal()">Cancel</button>
+      <button class="btn-save" (click)="save()" [disabled]="isSaving">
+        {{ isSaving ? 'Saving…' : (isEditing ? '💾 Update Faculty' : '✅ Create Faculty') }}
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Delete Confirm Modal ── -->
+<div class="modal-bg" *ngIf="showDeleteModal" (click)="closeDeleteModal()">
+  <div class="modal-box modal-sm" (click)="$event.stopPropagation()">
+    <div class="modal-head danger-head">
+      <h2>🗑️ Delete Faculty</h2>
+      <button class="modal-x" (click)="closeDeleteModal()">✕</button>
+    </div>
+    <div class="modal-body" *ngIf="deleteTarget">
+      <div class="danger-info">
+        <p>Are you sure you want to delete:</p>
+        <strong>{{ deleteTarget.first_name }} {{ deleteTarget.last_name }}</strong>
+        <span class="id-tag" style="margin-left:8px;">{{ deleteTarget.faculty_id }}</span>
+        <p class="danger-warn">This action cannot be undone.</p>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn-cancel" (click)="closeDeleteModal()">Cancel</button>
+      <button class="btn-danger" (click)="doDelete()" [disabled]="isDeleting">
+        {{ isDeleting ? 'Deleting…' : '🗑️ Delete' }}
+      </button>
+    </div>
   </div>
 </div>

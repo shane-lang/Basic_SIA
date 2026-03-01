@@ -35,7 +35,7 @@ export class Schedule implements OnInit {
   isLoading = true;
   error     = '';
 
-  currentSemester = '1st Semester, AY 2024-2025';
+  currentSemester = ''; // loaded from enrolled course data
 
   readonly DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -78,6 +78,8 @@ export class Schedule implements OnInit {
           this.isLoading = false;
           if (res.success) {
             this.schedule = res.schedule ?? [];
+            // Pick semester from first loaded entry
+            if (this.schedule.length > 0) this.currentSemester = this.schedule[0].semester;
             // Assign a color to each unique courseId
             let colorIdx = 0;
             this.schedule.forEach(e => {

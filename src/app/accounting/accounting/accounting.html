@@ -30,60 +30,93 @@
     <button class="tab-btn" [class.active]="currentTab === 'history'" (click)="switchTab('history')">
       📋 Payment History
     </button>
+    <button class="tab-btn" [class.active]="currentTab === 'installment'" (click)="switchTab('installment')">
+      💳 Record Payments
+    </button>
+    <button class="tab-btn" [class.active]="currentTab === 'liquidation'" (click)="switchTab('liquidation')">
+      📊 Liquidation / Audit
+    </button>
   </div>
 
   <!-- ══ PENDING TAB ══ -->
   <div *ngIf="currentTab === 'pending'">
+
+    <!-- Toolbar: search + filter + view toggle -->
+    <div class="toolbar">
+      <div class="toolbar-left">
+        <input type="text" class="search-input" placeholder="🔍 Search student name, ID, program..." [(ngModel)]="searchQuery">
+        <select class="filter-select" [(ngModel)]="filterMethod">
+          <option value="all">All Methods</option>
+          <option value="gcash">📱 GCash Only</option>
+          <option value="cash">💵 Cash Only</option>
+        </select>
+      </div>
+      <div class="view-toggle">
+        <button class="view-btn" [class.active]="viewMode === 'thumbnail'" (click)="viewMode = 'thumbnail'" title="Thumbnail View">
+          ⊞ Cards
+        </button>
+        <button class="view-btn" [class.active]="viewMode === 'list'" (click)="viewMode = 'list'" title="List View">
+          ☰ List
+        </button>
+      </div>
+    </div>
 
     <div *ngIf="isLoadingPending" class="loading-state">
       <div class="spinner"></div>
       <p>Loading pending payments...</p>
     </div>
 
-    <div *ngIf="!isLoadingPending && pendingPayments.length === 0" class="empty-state">
+    <div *ngIf="!isLoadingPending && filteredPending.length === 0" class="empty-state">
       <div class="empty-icon">✅</div>
       <h3>No Pending Payments</h3>
       <p>All submitted payments have been processed.</p>
     </div>
 
-    <div *ngIf="!isLoadingPending && pendingPayments.length > 0" class="payments-grid">
-      <div *ngFor="let p of pendingPayments" class="payment-card">
+    <!-- ── THUMBNAIL (CARD) VIEW ── -->
+    <div *ngIf="!isLoadingPending && filteredPending.length > 0 && viewMode === 'thumbnail'" class="payments-grid">
+      <div *ngFor="let p of filteredPending" class="payment-card">
 
-        <!-- Card Header -->
         <div class="card-header">
           <div class="student-info">
-            <div class="avatar">{{ p.firstName[0] }}{{ p.lastName[0] }}</div>
+            <div class="avatar">{{ getInitials(p) }}</div>
             <div>
               <h3>{{ p.firstName }} {{ p.lastName }}</h3>
               <span class="student-number">{{ p.studentNumber }}</span>
             </div>
           </div>
-          <div style="display:flex; flex-direction:column; align-items:flex-end; gap:6px;">
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
             <span class="badge" [class.badge-gcash]="isGCash(p)" [class.badge-cash]="isCash(p)">
               {{ isCash(p) ? '💵 Cash' : '📱 GCash' }}
             </span>
             <span class="badge pending">⏳ Pending</span>
+            <span class="badge scholar" *ngIf="p.isScholar">🎓 Scholar</span>
           </div>
         </div>
 
-        <!-- Card Body -->
         <div class="card-body">
-          <div class="info-row">
-            <span class="info-label">Program</span>
-            <span class="info-value">{{ p.program }}</span>
-          </div>
-          <div class="info-row">
-            <span class="info-label">Year Level</span>
-            <span class="info-value">{{ p.yearLevel }}</span>
-          </div>
-          <div class="info-row">
-            <span class="info-label">Semester</span>
-            <span class="info-value">{{ p.semester }}</span>
-          </div>
-
+          <div class="info-row"><span class="info-label">Program</span><span class="info-value">{{ p.program }}</span></div>
+          <div class="info-row"><span class="info-label">Year Level</span><span class="info-value">{{ p.yearLevel }}</span></div>
+          <div class="info-row"><span class="info-label">Semester</span><span class="info-value">{{ p.semester }}</span></div>
           <div class="divider"></div>
 
-          <!-- ── GCash Details ── -->
+          <!-- Scholar info -->
+          <div *ngIf="p.isScholar" class="scholar-info-box">
+            <div class="info-row highlight scholar-row">
+              <span class="info-label">Scholarship</span>
+              <span class="info-value">{{ p.scholarType }}</span>
+            </div>
+            <div class="info-row">
+              <span class="info-label">Grantor</span>
+              <span class="info-value">{{ p.scholarGrantor || '—' }}</span>
+            </div>
+            <div class="info-row">
+              <span class="info-label">Discount Amount</span>
+              <span class="info-value amount text-green">₱{{ formatAmount(p.scholarshipAmount || 0) }}</span>
+            </div>
+            <div class="scholar-note">⚠️ Validate scholarship docs before approving discount.</div>
+          </div>
+
+          <!-- GCash Details -->
           <ng-container *ngIf="isGCash(p)">
             <div class="info-row highlight">
               <span class="info-label">GCash Reference</span>
@@ -103,71 +136,143 @@
             </div>
           </ng-container>
 
-          <!-- ── Cash Details ── -->
+          <!-- Cash Details -->
           <ng-container *ngIf="isCash(p)">
-            <div class="info-row" style="background:#fffbeb; padding:8px; border-radius:6px; margin: 0 -8px;">
+            <div class="info-row" style="background:#fffbeb;padding:8px;border-radius:6px;margin:0 -8px;">
               <span class="info-label">Payment Type</span>
-              <span class="info-value" style="color:#92400e; font-weight:700;">🕐 Awaiting Cash at Cashier Window</span>
+              <span class="info-value" style="color:#92400e;font-weight:700;">🕐 Awaiting Cash at Cashier</span>
             </div>
-            <div class="info-row">
-              <span class="info-label">Amount Due</span>
-              <span class="info-value amount">₱25,000.00</span>
-            </div>
-            <div style="background:#fef3c7; border-left:3px solid #f59e0b; border-radius:6px; padding:10px 12px; margin:10px 0; font-size:12px; color:#92400e;">
-              ⚠️ Confirm student has paid in person at the cashier window before approving.
+            <div style="background:#fef3c7;border-left:3px solid #f59e0b;border-radius:6px;padding:10px 12px;margin:10px 0;font-size:12px;color:#92400e;">
+              ⚠️ Confirm student has paid in person. Enter amount and date when approving.
             </div>
           </ng-container>
 
-          <div class="info-row">
-            <span class="info-label">Submitted</span>
-            <span class="info-value muted">{{ formatDateTime(p.submittedAt) }}</span>
-          </div>
+          <div class="info-row"><span class="info-label">Submitted</span><span class="info-value muted">{{ formatDateTime(p.submittedAt) }}</span></div>
         </div>
 
-        <!-- Card Actions -->
         <div class="card-actions">
-          <button class="btn-approve" (click)="openApprove(p)">
-            {{ isCash(p) ? '✓ Confirm Cash Received' : '✓ Approve GCash Payment' }}
-          </button>
-          <button class="btn-reject" (click)="openReject(p)">✗ Reject</button>
+          <button class="btn-edit"    (click)="openEdit(p)">✏️ Edit</button>
+          <button class="btn-approve" (click)="openApprove(p)">{{ isCash(p) ? '✓ Confirm Cash' : '✓ Approve GCash' }}</button>
+          <button class="btn-reject"  (click)="openReject(p)">✗ Reject</button>
         </div>
-
       </div>
     </div>
-  </div>
 
-  <!-- ══ HISTORY TAB ══ -->
-  <div *ngIf="currentTab === 'history'">
-
-    <div *ngIf="isLoadingHistory" class="loading-state">
-      <div class="spinner"></div>
-      <p>Loading payment history...</p>
-    </div>
-
-    <div *ngIf="!isLoadingHistory && paymentHistory.length === 0" class="empty-state">
-      <div class="empty-icon">📋</div>
-      <h3>No Payment History</h3>
-      <p>Processed payments will appear here.</p>
-    </div>
-
-    <div *ngIf="!isLoadingHistory && paymentHistory.length > 0" class="history-table-wrapper">
+    <!-- ── LIST VIEW ── -->
+    <div *ngIf="!isLoadingPending && filteredPending.length > 0 && viewMode === 'list'" class="history-table-wrapper">
       <table class="history-table">
         <thead>
           <tr>
             <th>Student</th>
             <th>Program</th>
             <th>Method</th>
-            <th>Reference / Details</th>
+            <th>Reference</th>
             <th>Amount</th>
-            <th>Payment Date</th>
-            <th>Status</th>
-            <th>Verified By</th>
-            <th>Verified At</th>
-            <th>Notes</th>
+            <th>Date</th>
+            <th>Scholar</th>
+            <th>Submitted</th>
+            <th>Actions</th>
           </tr>
         </thead>
         <tbody>
-          <tr *ngFor="let h of paymentHistory">
+          <tr *ngFor="let p of filteredPending">
+            <td>
+              <div class="table-student">
+                <div class="avatar-sm">{{ getInitials(p) }}</div>
+                <div>
+                  <strong>{{ p.firstName }} {{ p.lastName }}</strong>
+                  <span class="muted">{{ p.studentNumber }}</span>
+                </div>
+              </div>
+            </td>
+            <td>{{ p.program }}</td>
+            <td>
+              <span class="badge" [class.badge-gcash]="isGCash(p)" [class.badge-cash]="isCash(p)">
+                {{ isCash(p) ? '💵 Cash' : '📱 GCash' }}
+              </span>
+            </td>
+            <td><span class="mono" *ngIf="isGCash(p)">{{ p.gcashReference }}</span><span class="muted" *ngIf="isCash(p)">Walk-in</span></td>
+            <td><strong class="amount">{{ isCash(p) ? '—' : '₱' + formatAmount(p.gcashAmount) }}</strong></td>
+            <td>{{ isGCash(p) ? formatDate(p.gcashDate) : '—' }}</td>
+            <td>
+              <span class="badge scholar" *ngIf="p.isScholar">🎓 {{ p.scholarType }}</span>
+              <span class="muted" *ngIf="!p.isScholar">—</span>
+            </td>
+            <td class="muted">{{ formatDateTime(p.submittedAt) }}</td>
+            <td>
+              <div class="action-btns">
+                <button class="btn-edit-sm"    (click)="openEdit(p)">✏️</button>
+                <button class="btn-approve-sm" (click)="openApprove(p)">✓</button>
+                <button class="btn-reject-sm"  (click)="openReject(p)">✗</button>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ══ HISTORY TAB ══ -->
+  <div *ngIf="currentTab === 'history'">
+
+    <!-- Toolbar -->
+    <div class="toolbar">
+      <div class="toolbar-left">
+        <input type="text" class="search-input" placeholder="🔍 Search student..." [(ngModel)]="searchQuery">
+      </div>
+      <div class="view-toggle">
+        <button class="view-btn" [class.active]="historyViewMode === 'thumbnail'" (click)="historyViewMode = 'thumbnail'">⊞ Cards</button>
+        <button class="view-btn" [class.active]="historyViewMode === 'list'"      (click)="historyViewMode = 'list'">☰ List</button>
+      </div>
+    </div>
+
+    <div *ngIf="isLoadingHistory" class="loading-state"><div class="spinner"></div><p>Loading payment history...</p></div>
+
+    <div *ngIf="!isLoadingHistory && filteredHistory.length === 0" class="empty-state">
+      <div class="empty-icon">📋</div><h3>No Payment History</h3><p>Processed payments will appear here.</p>
+    </div>
+
+    <!-- History thumbnail cards -->
+    <div *ngIf="!isLoadingHistory && filteredHistory.length > 0 && historyViewMode === 'thumbnail'" class="payments-grid">
+      <div *ngFor="let h of filteredHistory" class="payment-card history-card">
+        <div class="card-header">
+          <div class="student-info">
+            <div class="avatar" [class.avatar-verified]="h.status === 'Verified'" [class.avatar-rejected]="h.status === 'Rejected'">{{ getInitials(h) }}</div>
+            <div>
+              <h3>{{ h.firstName }} {{ h.lastName }}</h3>
+              <span class="student-number">{{ h.studentNumber }}</span>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
+            <span class="badge" [class.badge-gcash]="isGCash(h)" [class.badge-cash]="isCash(h)">{{ isCash(h) ? '💵 Cash' : '📱 GCash' }}</span>
+            <span class="badge" [class.verified]="h.status === 'Verified'" [class.rejected]="h.status === 'Rejected'">
+              {{ h.status === 'Verified' ? '✓ Verified' : '✗ Rejected' }}
+            </span>
+            <span class="badge scholar" *ngIf="h.isScholar">🎓 Scholar</span>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="info-row"><span class="info-label">Program</span><span class="info-value">{{ h.program }}</span></div>
+          <div class="info-row"><span class="info-label">Amount</span><span class="info-value amount">₱{{ formatAmount(h.gcashAmount) }}</span></div>
+          <div class="info-row" *ngIf="isGCash(h)"><span class="info-label">Reference</span><span class="info-value mono">{{ h.gcashReference }}</span></div>
+          <div class="info-row"><span class="info-label">Verified By</span><span class="info-value">{{ h.verifiedByName }}</span></div>
+          <div class="info-row"><span class="info-label">Verified At</span><span class="info-value muted">{{ formatDateTime(h.verifiedAt) }}</span></div>
+          <div class="info-row" *ngIf="h.notes"><span class="info-label">Notes</span><span class="info-value">{{ h.notes }}</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- History list table -->
+    <div *ngIf="!isLoadingHistory && filteredHistory.length > 0 && historyViewMode === 'list'" class="history-table-wrapper">
+      <table class="history-table">
+        <thead>
+          <tr>
+            <th>Student</th><th>Program</th><th>Method</th><th>Reference / Details</th>
+            <th>Amount</th><th>Payment Date</th><th>Status</th><th>Verified By</th><th>Verified At</th><th>Notes</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr *ngFor="let h of filteredHistory">
             <td>
               <div class="table-student">
                 <strong>{{ h.firstName }} {{ h.lastName }}</strong>
@@ -175,142 +280,356 @@
               </div>
             </td>
             <td>{{ h.program }}</td>
-            <td>
-              <span class="badge" [class.badge-gcash]="isGCash(h)" [class.badge-cash]="isCash(h)">
-                {{ isCash(h) ? '💵 Cash' : '📱 GCash' }}
-              </span>
-            </td>
-            <td>
-              <span class="mono" *ngIf="isGCash(h)">{{ h.gcashReference }}</span>
-              <span class="muted" *ngIf="isCash(h)">Walk-in Cash Payment</span>
-            </td>
-            <td>
-              <!-- Cash always shows ₱25,000.00; GCash shows actual amount submitted -->
-              <strong class="amount">
-                {{ isCash(h) ? '₱25,000.00' : '₱' + formatAmount(h.gcashAmount) }}
-              </strong>
-            </td>
-            <td>{{ isGCash(h) ? formatDate(h.gcashDate) : '—' }}</td>
-            <td>
-              <span class="badge"
-                [class.verified]="h.status === 'Verified'"
-                [class.rejected]="h.status === 'Rejected'">
-                {{ h.status === 'Verified' ? '✓ Verified' : '✗ Rejected' }}
-              </span>
-            </td>
-            <td>{{ h.verifiedByName || '—' }}</td>
+            <td><span class="badge" [class.badge-gcash]="isGCash(h)" [class.badge-cash]="isCash(h)">{{ isCash(h) ? '💵 Cash' : '📱 GCash' }}</span></td>
+            <td><span class="mono" *ngIf="isGCash(h)">{{ h.gcashReference }}</span><span class="muted" *ngIf="isCash(h)">Walk-in Cash</span></td>
+            <td><strong class="amount">₱{{ formatAmount(h.gcashAmount) }}</strong></td>
+            <td>{{ formatDate(h.gcashDate) }}</td>
+            <td><span class="badge" [class.verified]="h.status === 'Verified'" [class.rejected]="h.status === 'Rejected'">{{ h.status === 'Verified' ? '✓ Verified' : '✗ Rejected' }}</span></td>
+            <td>{{ h.verifiedByName }}</td>
             <td class="muted">{{ formatDateTime(h.verifiedAt) }}</td>
-            <td class="notes-cell">{{ h.notes || '—' }}</td>
+            <td>{{ h.notes }}</td>
           </tr>
         </tbody>
       </table>
     </div>
   </div>
-
 </div>
 
-<!-- ══ APPROVE / REJECT MODAL ══ -->
+<!-- ══ MODAL ══ -->
 <div class="modal-overlay" *ngIf="showModal" (click)="closeModal()">
-  <div class="modal-box" (click)="$event.stopPropagation()">
+  <div class="modal-content" (click)="$event.stopPropagation()">
 
-    <div class="modal-header"
-      [class.approve-header]="modalMode === 'approve'"
-      [class.reject-header]="modalMode === 'reject'">
-      <h2>
-        <ng-container *ngIf="modalMode === 'approve'">
-          {{ isCash(selectedPayment) ? '💵 Confirm Cash Payment Received' : '📱 Approve GCash Payment' }}
-        </ng-container>
-        <ng-container *ngIf="modalMode === 'reject'">✗ Reject Payment</ng-container>
-      </h2>
-      <button class="modal-close" (click)="closeModal()">✕</button>
-    </div>
-
-    <div class="modal-body" *ngIf="selectedPayment">
-
-      <div class="modal-student">
-        <strong>{{ selectedPayment.firstName }} {{ selectedPayment.lastName }}</strong>
-        <span>{{ selectedPayment.studentNumber }}</span>
-        <span class="badge" [class.badge-gcash]="isGCash(selectedPayment)" [class.badge-cash]="isCash(selectedPayment)">
-          {{ isCash(selectedPayment) ? '💵 Cash' : '📱 GCash' }}
-        </span>
+    <!-- Approve Modal -->
+    <div *ngIf="modalMode === 'approve'">
+      <div class="modal-header approve-header">
+        <h2>✓ {{ isCash(selectedPayment) ? 'Confirm Cash Payment' : 'Approve GCash Payment' }}</h2>
+        <button class="modal-close" (click)="closeModal()">✕</button>
       </div>
+      <div class="modal-body" *ngIf="selectedPayment">
+        <div class="confirm-summary">
+          <div class="sum-row"><label>Student:</label><p><strong>{{ selectedPayment.firstName }} {{ selectedPayment.lastName }}</strong></p></div>
+          <div class="sum-row"><label>Student No.:</label><p>{{ selectedPayment.studentNumber }}</p></div>
+          <div class="sum-row"><label>Program:</label><p>{{ selectedPayment.program }}</p></div>
+          <div class="sum-row"><label>Semester:</label><p>{{ selectedPayment.semester }}</p></div>
 
-      <!-- GCash details in modal -->
-      <div class="modal-details" *ngIf="isGCash(selectedPayment)">
-        <div class="modal-row">
-          <span>GCash Reference</span>
-          <span class="mono">{{ selectedPayment.gcashReference }}</span>
-        </div>
-        <div class="modal-row">
-          <span>Amount Submitted</span>
-          <span class="amount">₱{{ formatAmount(selectedPayment.gcashAmount) }}</span>
-        </div>
-        <div class="modal-row">
-          <span>Transaction ID</span>
-          <span class="mono small">{{ selectedPayment.transactionId }}</span>
-        </div>
-        <div class="modal-row">
-          <span>Payment Date</span>
-          <span>{{ formatDate(selectedPayment.gcashDate) }}</span>
-        </div>
-      </div>
+          <!-- GCash Details (read-only) -->
+          <div *ngIf="isGCash(selectedPayment)">
+            <div class="sum-row"><label>GCash Ref:</label><p class="mono">{{ selectedPayment.gcashReference }}</p></div>
+            <div class="sum-row"><label>Amount Paid:</label><p class="amount">₱{{ formatAmount(selectedPayment.gcashAmount) }}</p></div>
+            <div class="sum-row"><label>Payment Date:</label><p>{{ formatDate(selectedPayment.gcashDate) }}</p></div>
+          </div>
 
-      <!-- Cash details in modal -->
-      <div class="modal-details" *ngIf="isCash(selectedPayment)">
-        <div class="modal-row">
-          <span>Payment Type</span>
-          <span>Walk-in Cash Payment</span>
+          <div *ngIf="selectedPayment.isScholar" class="scholar-confirm-box">
+            <p>🎓 <strong>Scholar: {{ selectedPayment.scholarType }}</strong> — Discount ₱{{ formatAmount(selectedPayment.scholarshipAmount || 0) }}</p>
+            <p class="warning-text">⚠️ Make sure scholarship documents have been verified before approving discount.</p>
+          </div>
         </div>
-        <div class="modal-row">
-          <span>Amount Due</span>
-          <span class="amount">₱25,000.00</span>
+
+        <!-- Cash-specific fields: accounting enters amount and date -->
+        <div *ngIf="isCash(selectedPayment)" class="cash-entry-box">
+          <div class="cash-entry-title">💵 Enter Payment Details Received at Cashier</div>
+          <div class="form-grid two-col">
+            <div class="form-group">
+              <label>Amount Received (₱) <span style="color:red">*</span></label>
+              <input type="number" class="form-control" [(ngModel)]="cashAmount" min="1" placeholder="e.g. 25000">
+            </div>
+            <div class="form-group">
+              <label>Payment Date <span style="color:red">*</span></label>
+              <input type="date" class="form-control" [(ngModel)]="cashDate">
+            </div>
+          </div>
         </div>
-        <div class="modal-row">
-          <span>Program</span>
-          <span>{{ selectedPayment.program }}</span>
+
+        <div class="form-group">
+          <label>Notes (optional):</label>
+          <input type="text" class="form-control" [(ngModel)]="modalNotes" placeholder="Any notes for this approval...">
         </div>
       </div>
-
-      <!-- Info boxes -->
-      <div *ngIf="modalMode === 'approve' && isCash(selectedPayment)" class="modal-info" style="background:#d4edda; color:#155724; border-left:4px solid #28a745; border-radius:8px; padding:12px 14px; margin-bottom:16px;">
-        <p>💵 Only click <strong>Confirm</strong> if this student has <strong>physically paid cash</strong> at the cashier window.</p>
-      </div>
-      <div *ngIf="modalMode === 'approve' && isGCash(selectedPayment)" class="modal-info approve-info">
-        <p>✅ Approving will mark the student's payment as <strong>Paid</strong> and automatically <strong>approve their enrollment</strong>.</p>
-      </div>
-      <div *ngIf="modalMode === 'reject' && isCash(selectedPayment)" class="modal-info reject-info">
-        <p>⚠️ Rejecting means the student has <strong>not yet paid</strong>. They will need to return and pay at the cashier window.</p>
-      </div>
-      <div *ngIf="modalMode === 'reject' && isGCash(selectedPayment)" class="modal-info reject-info">
-        <p>⚠️ Rejecting will require the student to resubmit a valid GCash reference. Please provide a reason.</p>
-      </div>
-
-      <div class="form-group">
-        <label>Notes / Remarks {{ modalMode === 'reject' ? '(required)' : '(optional)' }}</label>
-        <textarea
-          [(ngModel)]="modalNotes"
-          rows="3"
-          class="modal-textarea"
-          [placeholder]="isCash(selectedPayment)
-            ? (modalMode === 'approve' ? 'e.g., Student paid ₱25,000 cash at window — OR 3' : 'e.g., Student has not come to the cashier yet')
-            : (modalMode === 'approve' ? 'e.g., Payment verified via GCash app' : 'e.g., Reference number not found in GCash records')">
-        </textarea>
+      <div class="modal-footer">
+        <button class="btn-cancel" (click)="closeModal()">Cancel</button>
+        <button class="btn-confirm-approve" (click)="confirmAction()"
+          [disabled]="isProcessing || (isCash(selectedPayment) && (!cashAmount || cashAmount <= 0))">
+          {{ isProcessing ? '⏳ Processing...' : (isCash(selectedPayment) ? '✓ Confirm Cash Received' : '✓ Approve Payment') }}
+        </button>
       </div>
     </div>
 
-    <div class="modal-footer">
-      <button class="btn-cancel" (click)="closeModal()" [disabled]="isProcessing">Cancel</button>
-      <button
-        [class]="modalMode === 'approve' ? 'btn-confirm-approve' : 'btn-confirm-reject'"
-        (click)="confirmAction()"
-        [disabled]="isProcessing || (modalMode === 'reject' && !modalNotes.trim())">
-        {{ isProcessing
-            ? 'Processing...'
-            : (modalMode === 'approve'
-                ? (isCash(selectedPayment) ? '✓ Confirm Cash Received' : '✓ Confirm Approval')
-                : '✗ Confirm Rejection') }}
-      </button>
+    <!-- Reject Modal -->
+    <div *ngIf="modalMode === 'reject'">
+      <div class="modal-header reject-header">
+        <h2>✗ Reject Payment</h2>
+        <button class="modal-close" (click)="closeModal()">✕</button>
+      </div>
+      <div class="modal-body" *ngIf="selectedPayment">
+        <div class="confirm-summary">
+          <div class="sum-row"><label>Student:</label><p><strong>{{ selectedPayment.firstName }} {{ selectedPayment.lastName }}</strong></p></div>
+          <div class="sum-row"><label>Method:</label><p>{{ selectedPayment.paymentMethod }}</p></div>
+          <div *ngIf="isGCash(selectedPayment)">
+            <div class="sum-row"><label>GCash Ref:</label><p class="mono">{{ selectedPayment.gcashReference }}</p></div>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Reason for Rejection <span style="color:red">*</span></label>
+          <input type="text" class="form-control" [(ngModel)]="modalNotes" placeholder="e.g. Invalid reference number">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-cancel" (click)="closeModal()">Cancel</button>
+        <button class="btn-confirm-reject" (click)="confirmAction()" [disabled]="isProcessing || !modalNotes.trim()">
+          {{ isProcessing ? '⏳ Processing...' : '✗ Confirm Rejection' }}
+        </button>
+      </div>
+    </div>
+
+    <!-- Edit Modal -->
+    <div *ngIf="modalMode === 'edit'">
+      <div class="modal-header edit-header">
+        <h2>✏️ Edit Payment Details</h2>
+        <button class="modal-close" (click)="closeModal()">✕</button>
+      </div>
+      <div class="modal-body" *ngIf="selectedPayment">
+        <p class="edit-note">You can correct payment details before approving. Changes are saved to the student's record.</p>
+        <div class="form-group" *ngIf="isGCash(selectedPayment)">
+          <label>GCash Reference Number</label>
+          <input type="text" class="form-control" [(ngModel)]="editForm.gcashReference">
+        </div>
+        <div class="form-group">
+          <label>Amount Paid (₱)</label>
+          <input type="number" class="form-control" [(ngModel)]="editForm.gcashAmount">
+        </div>
+        <div class="form-group" *ngIf="isGCash(selectedPayment)">
+          <label>Payment Date</label>
+          <input type="date" class="form-control" [(ngModel)]="editForm.gcashDate">
+        </div>
+        <div class="form-group">
+          <label>Semester</label>
+          <input type="text" class="form-control" [(ngModel)]="editForm.semester">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-cancel" (click)="closeModal()">Cancel</button>
+        <button class="btn-confirm-edit" (click)="confirmAction()" [disabled]="isProcessing">
+          {{ isProcessing ? '⏳ Saving...' : '💾 Save Changes' }}
+        </button>
+      </div>
     </div>
 
   </div>
 </div>
+
+<!-- ══ INSTALLMENT / RECORD PAYMENTS TAB ══ -->
+<div class="accounting-container" *ngIf="currentTab === 'installment'">
+  <div class="section-header-bar">
+    <h2>💳 Record Student Payment (Installment)</h2>
+    <p style="color:#6b7280;font-size:0.9rem;">Select a student from pending list to record a payment and issue OR/AR.</p>
+  </div>
+
+  <div *ngIf="pendingPayments.length === 0" class="empty-state">
+    <div class="empty-icon">✅</div>
+    <h3>No pending students</h3>
+    <p>All students have been processed.</p>
+  </div>
+
+  <!-- Student list for installment recording -->
+  <div class="installment-list" *ngIf="pendingPayments.length > 0">
+    <div class="installment-card" *ngFor="let p of filteredPending">
+      <div class="inst-student-info">
+        <div class="inst-avatar">{{ getInitials(p) }}</div>
+        <div>
+          <strong>{{ p.lastName }}, {{ p.firstName }}</strong>
+          <div style="color:#6b7280;font-size:0.85rem;">{{ p.studentNumber }} · {{ p.program }} {{ p.yearLevel }}</div>
+        </div>
+      </div>
+      <div class="inst-fee-info">
+        <div class="inst-row"><span>Total Assessment:</span><strong>₱{{ formatAmount(p.totalAssessment) }}</strong></div>
+        <div class="inst-row"><span>Total Paid:</span><strong class="text-green">₱{{ formatAmount(p.totalPaid) }}</strong></div>
+        <div class="inst-row"><span>Balance:</span><strong [style.color]="p.balance > 0 ? '#dc2626' : '#16a34a'">₱{{ formatAmount(p.balance) }}</strong></div>
+      </div>
+      <button class="btn-record-payment" (click)="openInstallmentModal(p)">
+        💳 Record Payment
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ LIQUIDATION / AUDIT TAB ══ -->
+<div class="accounting-container" *ngIf="currentTab === 'liquidation'">
+  <div class="section-header-bar">
+    <h2>📊 Liquidation Report / Audit</h2>
+  </div>
+
+  <!-- Date Filter -->
+  <div class="liquidation-filter">
+    <div class="filter-group">
+      <label>Date From</label>
+      <input type="date" class="form-control" [(ngModel)]="liquidationDateFrom">
+    </div>
+    <div class="filter-group">
+      <label>Date To</label>
+      <input type="date" class="form-control" [(ngModel)]="liquidationDateTo">
+    </div>
+    <button class="btn-search-liq" (click)="loadLiquidation()" [disabled]="isLoadingLiquidation">
+      {{ isLoadingLiquidation ? '⏳ Loading...' : '🔍 Generate Report' }}
+    </button>
+  </div>
+
+  <div *ngIf="liquidationReport">
+    <!-- Summary Cards -->
+    <div class="liq-summary-cards">
+      <div class="liq-card">
+        <span class="liq-card-label">💵 Cash Total</span>
+        <span class="liq-card-value">₱{{ formatAmount(liquidationReport.totalCash) }}</span>
+      </div>
+      <div class="liq-card liq-card-gcash">
+        <span class="liq-card-label">📱 GCash Total</span>
+        <span class="liq-card-value">₱{{ formatAmount(liquidationReport.totalGCash) }}</span>
+      </div>
+      <div class="liq-card liq-card-total">
+        <span class="liq-card-label">🏦 Grand Total</span>
+        <span class="liq-card-value">₱{{ formatAmount(liquidationReport.grandTotal) }}</span>
+      </div>
+      <div class="liq-card">
+        <span class="liq-card-label">📋 Entries</span>
+        <span class="liq-card-value">{{ liquidationReport.totalEntries }}</span>
+      </div>
+    </div>
+
+    <!-- Entries Table -->
+    <div class="liq-table-wrap" *ngIf="liquidationReport.entries.length > 0">
+      <table class="liq-table">
+        <thead>
+          <tr>
+            <th>OR/AR No.</th>
+            <th>Type</th>
+            <th>Date</th>
+            <th>Student</th>
+            <th>Program</th>
+            <th>Period</th>
+            <th>Method</th>
+            <th>Reference</th>
+            <th style="text-align:right;">Amount</th>
+            <th>Recorded By</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr *ngFor="let e of liquidationReport.entries">
+            <td><strong>{{ e.orArNumber }}</strong></td>
+            <td><span class="or-badge" [class.or-type-or]="e.orArType==='OR'" [class.or-type-ar]="e.orArType==='AR'">{{ e.orArType }}</span></td>
+            <td>{{ formatDate(e.paymentDate) }}</td>
+            <td>{{ e.studentName }}<br><small style="color:#9ca3af">{{ e.studentNumber }}</small></td>
+            <td>{{ e.program }}</td>
+            <td><span class="period-badge">{{ e.examPeriod }}</span></td>
+            <td><span class="method-badge" [class.method-cash]="e.paymentMethod==='Cash'" [class.method-gcash]="e.paymentMethod!='Cash'">{{ e.paymentMethod }}</span></td>
+            <td>{{ e.gcashReference || '—' }}</td>
+            <td style="text-align:right;font-weight:700;color:#1d4ed8;">₱{{ formatAmount(e.amount) }}</td>
+            <td>{{ e.recordedBy }}</td>
+          </tr>
+        </tbody>
+        <tfoot>
+          <tr>
+            <td colspan="8" style="text-align:right;font-weight:700;">GRAND TOTAL</td>
+            <td style="text-align:right;font-weight:800;color:#1d4ed8;">₱{{ formatAmount(liquidationReport.grandTotal) }}</td>
+            <td></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+
+    <div *ngIf="liquidationReport.entries.length === 0" class="empty-state">
+      <div class="empty-icon">📭</div>
+      <h3>No records found</h3>
+      <p>No payment entries for the selected date range.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ══ INSTALLMENT RECORDING MODAL ══ -->
+<div class="modal-overlay" *ngIf="showInstallmentModal" (click)="closeInstallmentModal()">
+  <div class="modal-content" (click)="$event.stopPropagation()" style="max-width:520px;">
+    <div class="modal-header">
+      <h2>💳 Record Payment</h2>
+      <button class="modal-close" (click)="closeInstallmentModal()">✕</button>
+    </div>
+
+    <!-- Success result -->
+    <div *ngIf="installmentResult" class="install-result">
+      <div class="result-icon">✅</div>
+      <h3>Payment Recorded!</h3>
+      <div class="result-or-ar">
+        <span class="or-ar-label">{{ installmentResult.orArType }} Number:</span>
+        <span class="or-ar-value">{{ installmentResult.orArNumber }}</span>
+      </div>
+      <div class="result-rows">
+        <div class="result-row"><span>Total Paid:</span><strong class="text-green">₱{{ formatAmount(installmentResult.totalPaid) }}</strong></div>
+        <div class="result-row"><span>Remaining Balance:</span><strong [style.color]="installmentResult.balance > 0 ? '#dc2626' : '#16a34a'">₱{{ formatAmount(installmentResult.balance) }}</strong></div>
+        <div class="result-row" *ngIf="installmentResult.isFullyPaid">
+          <span></span><strong style="color:#16a34a;">🎉 FULLY PAID!</strong>
+        </div>
+      </div>
+      <button class="btn-cancel" (click)="closeInstallmentModal()" style="margin-top:1rem;width:100%;">Close</button>
+    </div>
+
+    <!-- Form -->
+    <div class="modal-body" *ngIf="!installmentResult">
+      <div *ngIf="selectedInstallmentStudent" class="inst-student-summary">
+        <strong>{{ selectedInstallmentStudent.lastName }}, {{ selectedInstallmentStudent.firstName }}</strong>
+        <span>{{ selectedInstallmentStudent.studentNumber }}</span>
+        <div class="inst-balance-row">
+          <span>Balance: </span>
+          <strong style="color:#dc2626;">₱{{ formatAmount(selectedInstallmentStudent.balance) }}</strong>
+        </div>
+      </div>
+
+      <div class="form-grid two-col">
+        <div class="form-group">
+          <label>OR / AR Type <span class="req">*</span></label>
+          <select class="form-control" [(ngModel)]="installmentForm.or_ar_type">
+            <option value="AR">AR — Acknowledgement Receipt (partial/DP)</option>
+            <option value="OR">OR — Official Receipt (full/final)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Exam Period <span class="req">*</span></label>
+          <select class="form-control" [(ngModel)]="installmentForm.exam_period">
+            <option value="Downpayment">Downpayment (DP)</option>
+            <option value="Prelim">Prelim</option>
+            <option value="Midterm">Midterm</option>
+            <option value="Finals">Finals</option>
+            <option value="Full">Full Payment</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Amount Paid (₱) <span class="req">*</span></label>
+          <input type="number" class="form-control" [(ngModel)]="installmentForm.amount" min="1">
+        </div>
+        <div class="form-group">
+          <label>Payment Date <span class="req">*</span></label>
+          <input type="date" class="form-control" [(ngModel)]="installmentForm.payment_date">
+        </div>
+        <div class="form-group">
+          <label>Payment Method</label>
+          <select class="form-control" [(ngModel)]="installmentForm.payment_method">
+            <option value="Cash">Cash</option>
+            <option value="GCash">GCash</option>
+          </select>
+        </div>
+        <div class="form-group" *ngIf="installmentForm.payment_method === 'GCash'">
+          <label>GCash Reference</label>
+          <input type="text" class="form-control" [(ngModel)]="installmentForm.gcash_reference" placeholder="e.g. G1234567890">
+        </div>
+        <div class="form-group full-col">
+          <label>Notes (optional)</label>
+          <input type="text" class="form-control" [(ngModel)]="installmentForm.notes" placeholder="e.g. Partial payment for Prelim">
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-footer" *ngIf="!installmentResult">
+      <button class="btn-cancel" (click)="closeInstallmentModal()">Cancel</button>
+      <button class="btn-confirm" (click)="submitInstallment()" [disabled]="isProcessing || installmentForm.amount <= 0">
+        {{ isProcessing ? '⏳ Recording...' : '✅ Record & Issue ' + installmentForm.or_ar_type }}
+      </button>
+    </div>
+  </div>
+</div>
+<!-- Accounting Extra Styles -->

@@ -2981,9 +2981,551 @@
   font-weight: 700;
   flex-shrink: 0;
 }
+/* ═══════════════════════════════════════════════════
+   ENROLLMENT WIZARD ADDITIONS
+   Add these styles to enrollment.css
+═══════════════════════════════════════════════════ */
+
+/* ── Step Indicators ─────────────────────────────── */
+.step-indicators {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin-top: 12px;
+}
+.step {
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  background: #e2e8f0;
+  color: #718096;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 700;
+  flex-shrink: 0;
+}
+.step.active { background: #667eea; color: white; }
+.step.done   { background: #48bb78; color: white; }
+.step-line   { height: 2px; width: 32px; background: #e2e8f0; flex-shrink: 0; }
+.step-line.done { background: #48bb78; }
+
+/* ── Wizard body ─────────────────────────────────── */
+.wizard-body {
+  background: white;
+  border-radius: 16px;
+  padding: 28px 32px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.06);
+}
+
+/* ── Program Groups ──────────────────────────────── */
+.program-group { margin-bottom: 28px; }
+.group-label {
+  font-size: 13px; font-weight: 700; color: #667eea;
+  text-transform: uppercase; letter-spacing: 0.05em;
+  margin-bottom: 12px; padding-bottom: 6px;
+  border-bottom: 2px solid #e8f0fe;
+}
+.program-cards {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px;
+}
+.program-card {
+  border: 2px solid #e2e8f0; border-radius: 12px;
+  padding: 16px; cursor: pointer;
+  transition: all 0.2s; position: relative;
+}
+.program-card:hover  { border-color: #667eea; background: #f0f4ff; }
+.program-card.selected { border-color: #667eea; background: #ebf0ff; box-shadow: 0 0 0 3px rgba(102,126,234,0.2); }
+.prog-name { font-weight: 700; font-size: 14px; color: #1a202c; }
+.prog-desc { font-size: 12px; color: #718096; margin-top: 4px; }
+.prog-check {
+  position: absolute; top: 10px; right: 12px;
+  width: 22px; height: 22px; border-radius: 50%;
+  background: #667eea; color: white;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 700;
+}
+
+/* ── Student Type Buttons ────────────────────────── */
+.type-buttons { display: flex; gap: 10px; flex-wrap: wrap; }
+.type-btn {
+  padding: 10px 20px; border: 2px solid #e2e8f0; border-radius: 8px;
+  background: white; cursor: pointer; font-size: 14px; font-weight: 600;
+  color: #4a5568; transition: all 0.2s;
+}
+.type-btn.selected, .type-btn:hover { border-color: #667eea; background: #ebf0ff; color: #667eea; }
+
+/* ── Form Grid ───────────────────────────────────── */
+.form-grid { display: grid; gap: 16px; }
+.form-grid.two-col { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+.full-col { grid-column: 1 / -1; }
+.req { color: #e53e3e; }
+.form-section { margin-bottom: 28px; }
+.form-section h3 { font-size: 15px; font-weight: 700; color: #1a202c; margin-bottom: 14px; }
+
+/* ── Optional Tag ────────────────────────────────── */
+.optional-tag {
+  font-size: 11px; font-weight: 600; color: #718096;
+  background: #f0f4f8; border-radius: 4px; padding: 2px 6px; margin-left: 6px;
+}
+
+/* ── Upload Box ──────────────────────────────────── */
+.upload-box {
+  border: 2px dashed #cbd5e0; border-radius: 12px;
+  padding: 20px; text-align: center; cursor: pointer;
+  transition: all 0.2s; background: #f8faff;
+}
+.upload-box:hover, .upload-box.has-file { border-color: #667eea; background: #ebf0ff; }
+.upload-label { cursor: pointer; display: block; color: #667eea; font-weight: 600; font-size: 14px; }
+.file-name { color: #48bb78; font-weight: 600; }
+.doc-preview { margin-top: 10px; }
+.doc-preview-img { max-width: 200px; max-height: 150px; border-radius: 8px; border: 1px solid #e2e8f0; }
+
+/* ── Profile Pic Preview ─────────────────────────── */
+.upload-row { display: flex; align-items: center; gap: 16px; }
+.profile-pic-preview img { width: 80px; height: 80px; border-radius: 50%; object-fit: cover; border: 3px solid #667eea; }
+
+/* ── Scholar Section ─────────────────────────────── */
+.scholar-section { background: #f8faff; border-radius: 12px; padding: 20px; border: 1px solid #e8edf5; }
+.scholar-toggle { margin-bottom: 16px; }
+.toggle-label {
+  display: flex; align-items: center; gap: 10px;
+  cursor: pointer; font-size: 14px; font-weight: 600; color: #2d3748;
+}
+.toggle-check { width: 18px; height: 18px; accent-color: #667eea; cursor: pointer; }
+
+.scholar-form { animation: fadeIn 0.2s ease; }
+.info-note {
+  background: #ebf8ff; border: 1px solid #bee3f8; border-radius: 8px;
+  padding: 12px 14px; font-size: 13px; color: #2b6cb0; margin-bottom: 16px;
+}
+.scholar-summary {
+  background: white; border: 1px solid #e2e8f0; border-radius: 8px;
+  padding: 14px; margin-top: 12px;
+}
+.fee-row {
+  display: flex; justify-content: space-between;
+  font-size: 14px; padding: 6px 0;
+  border-bottom: 1px solid #f0f4f8;
+}
+.fee-row:last-child { border-bottom: none; }
+.fee-row.discount { color: #38a169; font-weight: 600; }
+.fee-row.total { font-weight: 700; font-size: 15px; color: #1a202c; padding-top: 10px; }
+.text-green { color: #38a169; }
+
+/* ── Payment Method Toggle ───────────────────────── */
+.payment-method-toggle { display: flex; gap: 12px; }
+.method-btn {
+  padding: 12px 24px; border: 2px solid #e2e8f0; border-radius: 10px;
+  background: white; cursor: pointer; font-size: 14px; font-weight: 600;
+  color: #4a5568; transition: all 0.2s;
+}
+.method-btn.selected { border-color: #667eea; background: #ebf0ff; color: #667eea; }
+
+/* ── Wizard Actions ──────────────────────────────── */
+.wizard-actions { display: flex; gap: 12px; justify-content: flex-end; margin-top: 24px; }
+.btn-next {
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  color: white; border: none; border-radius: 10px;
+  padding: 13px 28px; font-size: 15px; font-weight: 700; cursor: pointer;
+  transition: all 0.2s;
+}
+.btn-next:hover:not(:disabled) { opacity: 0.9; transform: translateY(-1px); }
+.btn-next:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-back {
+  background: #f0f4f8; color: #4a5568; border: none; border-radius: 10px;
+  padding: 13px 20px; font-size: 15px; font-weight: 600; cursor: pointer;
+  transition: all 0.2s;
+}
+.btn-back:hover { background: #e2e8f0; }
+
+/* ── Scholar info in approval screen ────────────── */
+.scholar-note {
+  background: #e6fffa; border: 1px solid #81e6d9; border-radius: 6px;
+  padding: 8px 12px; font-size: 13px; color: #234e52; margin-top: 8px;
+}
+
+/* ── Edit profile button ─────────────────────────── */
+.btn-edit-profile {
+  background: #f0f4f8; color: #4a5568; border: 1px solid #e2e8f0;
+  border-radius: 8px; padding: 6px 14px; font-size: 13px;
+  font-weight: 600; cursor: pointer; transition: all 0.2s;
+}
+.btn-edit-profile:hover { background: #e2e8f0; }
+.edit-note {
+  background: #fffbeb; border: 1px solid #f6e05e; border-radius: 8px;
+  padding: 10px 14px; font-size: 13px; color: #744210; margin-bottom: 16px;
+}
+
+/* ── Fade animation ──────────────────────────────── */
+@keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
 
 .cash-step strong { display: block; font-size: 14px; color: #1a202c; margin-bottom: 2px; }
 .cash-step p { margin: 0; font-size: 13px; color: #718096; }
 
 .badge-gcash { background: #e8f4fd !important; color: #0369a1 !important; }
 .badge-cash  { background: #f0fdf4 !important; color: #166534 !important; }
+
+/* ── ENROLLMENT SUMMARY HEADER CARD ── */
+.summary-header-card {
+  background: white;
+  border-radius: 16px;
+  padding: 28px 32px;
+  box-shadow: 0 2px 16px rgba(0,0,0,0.08);
+  margin: 24px 24px 0;
+}
+.summary-header-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 20px;
+}
+.summary-header-item {
+  display: flex; flex-direction: column; gap: 6px;
+}
+.sh-label {
+  font-size: 12px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px;
+}
+.sh-value {
+  font-size: 15px; font-weight: 700; color: #1f2937;
+}
+
+/* ── FEES SECTION ── */
+.fees-section {
+  margin: 28px 24px 0;
+  background: white;
+  border-radius: 16px;
+  padding: 28px 32px;
+  box-shadow: 0 2px 16px rgba(0,0,0,0.08);
+}
+.fees-grid {
+  margin-top: 20px;
+}
+.fee-card {
+  background: #f9fafb;
+  border-radius: 12px;
+  padding: 24px;
+  border: 1px solid #e5e7eb;
+}
+.fee-rows {
+  display: flex; flex-direction: column; gap: 12px;
+}
+.fee-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 10px 0; border-bottom: 1px dashed #e5e7eb;
+}
+.fee-row:last-child { border-bottom: none; }
+.fee-row.discount { background: #f0fdf4; padding: 10px 12px; border-radius: 8px; border-bottom: none; margin: 4px 0; }
+.fee-row.subtotal { padding-top: 14px; border-top: 2px solid #d1d5db; font-weight: 700; }
+.fee-row.paid .fee-amount { color: #16a34a; font-weight: 700; }
+.fee-row.balance { padding-top: 14px; border-top: 2px solid #fecaca; }
+.fee-label { font-size: 14px; color: #4b5563; }
+.fee-amount { font-size: 15px; font-weight: 700; color: #1f2937; }
+.text-green { color: #16a34a !important; }
+
+.fee-meta {
+  display: flex; gap: 24px; margin-top: 20px; padding-top: 16px;
+  border-top: 1px solid #e5e7eb; flex-wrap: wrap;
+}
+.meta-item { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.meta-label { color: #6b7280; font-weight: 500; }
+
+/* Payment status badges */
+.pay-status-badge {
+  padding: 6px 14px; border-radius: 20px; font-size: 13px; font-weight: 700;
+}
+.pay-paid    { background: #dcfce7; color: #166534; }
+.pay-partial { background: #fef9c3; color: #854d0e; }
+.pay-unpaid  { background: #fee2e2; color: #991b1b; }
+
+/* ── TERM PAYMENTS ── */
+.term-payments-section {
+  margin: 28px 24px 40px;
+  background: white;
+  border-radius: 16px;
+  padding: 28px 32px;
+  box-shadow: 0 2px 16px rgba(0,0,0,0.08);
+}
+.section-sub {
+  font-size: 13px; color: #6b7280; margin: 4px 0 0;
+}
+.term-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 20px;
+  margin-top: 20px;
+}
+.term-card {
+  border-radius: 14px;
+  border: 2px solid #e5e7eb;
+  overflow: hidden;
+  transition: box-shadow 0.2s;
+}
+.term-card:hover { box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
+.term-card.term-paid    { border-color: #86efac; }
+.term-card.term-partial { border-color: #fde68a; }
+.term-card.term-unpaid  { border-color: #fca5a5; }
+
+.term-header {
+  display: flex; align-items: center; gap: 10px; padding: 16px 20px;
+  background: #f9fafb;
+}
+.term-card.term-paid    .term-header { background: #f0fdf4; }
+.term-card.term-partial .term-header { background: #fffbeb; }
+.term-card.term-unpaid  .term-header { background: #fff1f2; }
+
+.term-icon { font-size: 22px; }
+.term-name { font-size: 17px; font-weight: 800; color: #1f2937; flex: 1; margin: 0; }
+
+.term-status-badge {
+  font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 20px; text-transform: uppercase;
+}
+.term-paid    .term-status-badge { background: #dcfce7; color: #166534; }
+.term-partial .term-status-badge { background: #fef9c3; color: #854d0e; }
+.term-unpaid  .term-status-badge { background: #fee2e2; color: #991b1b; }
+
+.term-body { padding: 16px 20px; display: flex; flex-direction: column; gap: 10px; }
+.term-row {
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 14px; color: #4b5563;
+}
+.term-row strong { color: #1f2937; }
+.term-row .text-green { color: #16a34a; }
+/* ══════════════════════════════════════════════════
+   ENROLLED SUBJECTS TABLE — Enrollment & Fees Tab
+══════════════════════════════════════════════════ */
+
+.subjects-card {
+  background: white;
+  border-radius: 20px;
+  box-shadow: 0 8px 32px rgba(102, 126, 234, 0.12);
+  border: 1px solid rgba(102, 126, 234, 0.1);
+  overflow: hidden;
+  margin-bottom: 32px;
+}
+
+.subjects-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 24px 28px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.subjects-card-title {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.subjects-icon-wrap {
+  width: 48px;
+  height: 48px;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  backdrop-filter: blur(4px);
+}
+
+.subjects-card-title h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: white;
+  letter-spacing: -0.3px;
+}
+
+.subjects-meta {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.75);
+  font-weight: 400;
+}
+
+.subjects-stats {
+  display: flex;
+  gap: 10px;
+}
+
+.stat-pill {
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 12px;
+  padding: 8px 16px;
+  text-align: center;
+  min-width: 64px;
+  backdrop-filter: blur(4px);
+}
+
+.stat-pill-accent {
+  background: rgba(255, 255, 255, 0.25);
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+.stat-num {
+  display: block;
+  font-size: 22px;
+  font-weight: 800;
+  color: white;
+  line-height: 1;
+}
+
+.stat-label {
+  display: block;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.8);
+  font-weight: 500;
+  margin-top: 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* ── Grid Table ── */
+.subjects-grid-table {
+  padding: 0 8px 8px;
+}
+
+.sgt-header,
+.sgt-row,
+.sgt-total {
+  display: grid;
+  grid-template-columns: 40px 110px 1fr 70px 1fr 100px 110px;
+  gap: 0;
+  align-items: center;
+}
+
+.sgt-header {
+  padding: 14px 20px;
+  background: #f8f9ff;
+  border-bottom: 2px solid #e8ecff;
+  margin: 0 0 2px;
+}
+
+.sgt-header .sgt-col {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: #667eea;
+}
+
+.sgt-row {
+  padding: 14px 20px;
+  border-bottom: 1px solid #f3f4f9;
+  transition: background 0.15s ease;
+}
+
+.sgt-row:hover {
+  background: #f5f7ff;
+}
+
+.sgt-row-alt {
+  background: #fafbff;
+}
+
+.sgt-row-alt:hover {
+  background: #f0f3ff;
+}
+
+.sgt-total {
+  padding: 14px 20px;
+  background: #f0f3ff;
+  border-top: 2px solid #e0e7ff;
+  margin-top: 4px;
+}
+
+.sgt-col {
+  font-size: 14px;
+  color: #374151;
+  padding-right: 12px;
+}
+
+.sgt-num {
+  color: #9ca3af;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.sgt-name {
+  font-weight: 500;
+  color: #1f2937;
+}
+
+.sgt-instructor {
+  color: #6b7280;
+  font-size: 13px;
+}
+
+.sgt-room {
+  color: #6b7280;
+  font-size: 13px;
+}
+
+.code-tag {
+  display: inline-block;
+  background: #eef2ff;
+  color: #4f46e5;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 8px;
+  letter-spacing: 0.3px;
+  border: 1px solid #e0e7ff;
+}
+
+.units-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: #f0fdf4;
+  color: #15803d;
+  border: 1px solid #bbf7d0;
+  border-radius: 50%;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.units-badge-total {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border-color: transparent;
+  width: 40px;
+  height: 40px;
+  font-size: 15px;
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.35);
+}
+
+.enrolled-dot {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: #f0fdf4;
+  color: #15803d;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 12px;
+  border-radius: 20px;
+  border: 1px solid #bbf7d0;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .sgt-header,
+  .sgt-row,
+  .sgt-total {
+    grid-template-columns: 32px 90px 1fr 56px;
+  }
+
+  .sgt-instructor,
+  .sgt-room,
+  .sgt-status {
+    display: none;
+  }
+
+  .subjects-card-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 16px;
+  }
+}

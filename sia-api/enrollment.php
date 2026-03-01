@@ -1,4 +1,8 @@
 <?php
+// Prevent HTML error output from breaking JSON - must be FIRST line
+error_reporting(0);
+ini_set('display_errors', 0);
+
 header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS");
 header("Access-Control-Allow-Headers: Content-Type, Authorization");
@@ -16,6 +20,16 @@ if ($conn->connect_error) {
 }
 $conn->set_charset("utf8mb4");
 
+// Buffer all output. At the end we flush ONLY the intended JSON.
+// This eliminates any stray characters from MySQL warnings, notices, etc.
+ob_start();
+
+// Prevent PHP errors from outputting HTML that breaks JSON responses
+error_reporting(0);
+ini_set('display_errors', 0);
+// Disable mysqli exception throwing so errors are handled manually
+mysqli_report(MYSQLI_REPORT_OFF);
+
 // Ensure payment_method column exists
 $conn->query("ALTER TABLE students ADD COLUMN IF NOT EXISTS payment_method VARCHAR(20) NOT NULL DEFAULT 'GCash' AFTER approval_status");
 
@@ -29,7 +43,8 @@ switch ($method) {
             case 'get_schedule':       getSchedule($conn);         break;
             case 'get_courses':        getAvailableCourses($conn); break;
             case 'get_enrollments':    getEnrollments($conn);      break;
-            case 'get_payment_status': getPaymentStatus($conn);    break;
+            case 'get_payment_status':    getPaymentStatus($conn);       break;
+            case 'get_enrollment_summary': getEnrollmentSummary($conn);  break;
             default: echo json_encode(['success' => false, 'message' => 'Unknown action: ' . $action]);
         }
         break;
@@ -45,6 +60,8 @@ switch ($method) {
             case 'enroll_course':      enrollCourse($conn, $data);      break;
             case 'update_payment':     updatePayment($conn, $data);     break;
             case 'approve_enrollment': approveEnrollment($conn, $data); break;
+            case 'auto_enroll_all':    autoEnrollAll($conn, $data);    break;
+            case 'update_profile':     updateProfile($conn, $data);    break;
             default: echo json_encode(['success' => false, 'message' => 'Unknown action: ' . $action]);
         }
         break;
@@ -57,6 +74,22 @@ switch ($method) {
         break;
     default:
         echo json_encode(['success' => false, 'message' => 'Method not allowed']);
+}
+// Get buffered output, extract only the JSON part (strip any stray chars)
+$buffered = ob_get_clean();
+// Find the last complete JSON object in the output
+$lastBrace = strrpos($buffered, '}');
+if ($lastBrace !== false) {
+    // Find matching opening brace
+    $depth = 0;
+    $start = 0;
+    for ($i = $lastBrace; $i >= 0; $i--) {
+        if ($buffered[$i] === '}') $depth++;
+        elseif ($buffered[$i] === '{') { $depth--; if ($depth === 0) { $start = $i; break; } }
+    }
+    echo substr($buffered, $start, $lastBrace - $start + 1);
+} else {
+    echo $buffered;
 }
 $conn->close();
 
@@ -86,38 +119,116 @@ function getProfile($conn) {
         echo json_encode(['success' => false, 'message' => 'Student not found']);
         return;
     }
+
     $stmt = $conn->prepare("SELECT s.*, u.email AS user_email FROM students s JOIN users u ON s.user_id = u.id WHERE s.id = ? LIMIT 1");
     $stmt->bind_param("i", $student_id);
     $stmt->execute();
     $result = $stmt->get_result();
-    if ($result && $result->num_rows > 0) {
-        $s = $result->fetch_assoc();
-        $pic = $s['profile_picture'] ?: 'https://ui-avatars.com/api/?name=' . urlencode($s['first_name'] . '+' . $s['last_name']) . '&size=150';
-        echo json_encode(['success' => true, 'student' => [
-            'id'               => $s['student_number'],
-            'dbId'             => (int)$s['id'],
-            'firstName'        => $s['first_name'],
-            'lastName'         => $s['last_name'],
-            'email'            => $s['email'],
-            'phone'            => $s['phone'] ?? '',
-            'program'          => $s['program'],
-            'yearLevel'        => $s['year_level'],
-            'gpa'              => (float)$s['gpa'],
-            'enrollmentStatus' => $s['enrollment_status'],
-            'studentType'      => $s['student_type'],
-            'paymentStatus'    => $s['payment_status'],
-            'paymentMethod'    => $s['payment_method'] ?? 'GCash',
-            'approvalStatus'   => $s['approval_status'],
-            'dateOfBirth'      => $s['date_of_birth'],
-            'address'          => $s['address'] ?? '',
-            'emergencyContact' => $s['emergency_contact'] ?? '',
-            'emergencyPhone'   => $s['emergency_phone'] ?? '',
-            'profilePicture'   => $pic,
-            'enrollmentDate'   => $s['enrollment_date'],
-        ]]);
-    } else {
+
+    if (!$result || $result->num_rows === 0) {
         echo json_encode(['success' => false, 'message' => 'Profile not found']);
+        return;
     }
+
+    $s   = $result->fetch_assoc();
+    $pic = $s['profile_picture'] ?: 'https://ui-avatars.com/api/?name=' . urlencode(($s['first_name'] ?? '') . '+' . ($s['last_name'] ?? '')) . '&size=150';
+
+    // Resolve program details from programs table if it exists
+    $programName = $s['program'] ?? '';
+    $programCode = ''; $levelType = $s['student_category'] ?? ''; $department = '';
+    $hasPTable = $conn->query("SHOW TABLES LIKE 'programs'")->num_rows > 0;
+    if ($hasPTable && $programName) {
+        $progStmt = $conn->prepare("SELECT code, level_type, department FROM programs WHERE name = ? OR code = ? LIMIT 1");
+        $progStmt->bind_param("ss", $programName, $programName);
+        $progStmt->execute();
+        $progRow = $progStmt->get_result()->fetch_assoc();
+        if ($progRow) {
+            $programCode = $progRow['code']       ?? '';
+            $levelType   = $progRow['level_type'] ?? $levelType;
+            $department  = $progRow['department'] ?? '';
+        }
+    }
+
+    // Use the student's own semester field (set at registration) as primary source
+    // Fall back to detecting from enrolled courses for older accounts
+    $semester = trim($s['semester'] ?? '');
+    if ($semester === '') {
+        $semStmt = $conn->prepare("
+            SELECT c.semester FROM enrollments e
+            JOIN courses c ON e.course_id = c.id
+            WHERE e.student_id = ? AND e.status IN ('Pending','Enrolled')
+            ORDER BY e.created_at DESC LIMIT 1
+        ");
+        $semStmt->bind_param("i", $student_id);
+        $semStmt->execute();
+        $semRow   = $semStmt->get_result()->fetch_assoc();
+        $semester = $semRow['semester'] ?? '';
+    }
+
+    // guardian_name / guardian_contact are the real DB columns
+    // emergency_contact / emergency_phone also exist (may duplicate guardian)
+    $guardianName    = $s['guardian_name']    ?? $s['emergency_contact'] ?? '';
+    $guardianAddress = $s['guardian_address'] ?? '';
+    $guardianContact = $s['guardian_contact'] ?? $s['emergency_phone']   ?? '';
+
+    echo json_encode(['success' => true, 'student' => [
+        // Identity
+        'id'                  => $s['student_number'],
+        'dbId'                => (int)$s['id'],
+        'firstName'           => $s['first_name']        ?? '',
+        'lastName'            => $s['last_name']         ?? '',
+        'middleName'          => $s['middle_name']       ?? '',
+        'suffix'              => $s['suffix']            ?? '',
+        'email'               => $s['email']             ?? $s['user_email'] ?? '',
+        'phone'               => $s['phone']             ?? '',
+        'profilePicture'      => $pic,
+        // Academic
+        'program'             => $programName,
+        'programCode'         => $programCode,
+        'studentCategory'     => $levelType,
+        'department'          => $department,
+        'yearLevel'           => $s['year_level']        ?? '1st Year',
+        'studentType'         => $s['student_type']      ?? '',
+        'strand'              => $s['strand']            ?? '',
+        'lastSchoolAttended'  => $s['last_school_attended'] ?? '',
+        'learningDelivery'    => $s['learning_delivery'] ?? '',
+        'semester'            => $semester,
+        'gpa'                 => (float)($s['gpa']       ?? 0),
+        'enrollmentStatus'    => $s['enrollment_status'] ?? '',
+        'enrollmentDate'      => $s['enrollment_date']   ?? '',
+        // Payment
+        'paymentStatus'       => $s['payment_status']    ?? '',
+        'paymentMethod'       => $s['payment_method']    ?? 'GCash',
+        'paymentPlan'         => $s['payment_plan']      ?? 'full',
+        'approvalStatus'      => $s['approval_status']   ?? '',
+        'isScholar'           => (bool)($s['is_scholar'] ?? false),
+        'scholarType'         => $s['scholar_type']      ?? '',
+        'scholarGrantor'      => $s['scholar_grantor']   ?? '',
+        'scholarshipAmount'   => (float)($s['scholarship_amount'] ?? 0),
+        // Personal
+        'lrnNo'               => $s['lrn_no']            ?? '',
+        'dateOfBirth'         => $s['date_of_birth']     ?? '',
+        'sex'                 => $s['sex']               ?? '',
+        'religion'            => $s['religion']          ?? '',
+        'age'                 => $s['age']               ?? '',
+        'placeOfBirth'        => $s['place_of_birth']    ?? '',
+        'citizenship'         => $s['citizenship']       ?? '',
+        'address'             => $s['address']           ?? '',
+        'motherTongue'        => $s['mother_tongue']     ?? '',
+        'isIndigenous'        => (bool)($s['is_indigenous']      ?? false),
+        'psaBirthCertNo'      => $s['psa_birth_cert_no'] ?? '',
+        // Special needs
+        'hasSpecialNeeds'     => (bool)($s['has_special_needs']   ?? false),
+        'specialNeedsDetails' => $s['special_needs_details']      ?? '',
+        'hasAssistiveTech'    => (bool)($s['has_assistive_tech']  ?? false),
+        'assistiveTechDetails'=> $s['assistive_tech_details']     ?? '',
+        // Guardian
+        'guardianName'        => $guardianName,
+        'guardianAddress'     => $guardianAddress,
+        'guardianContact'     => $guardianContact,
+        'emergencyContact'    => $s['emergency_contact'] ?? $guardianName,
+        'emergencyPhone'      => $s['emergency_phone']   ?? $guardianContact,
+    ]]);
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -307,6 +418,18 @@ function getEnrollments($conn) {
         return;
     }
 
+    // Get credited course IDs for this student (transferees) — exclude from enrolled list
+    $creditedIds = [];
+    $torQ = $conn->prepare("SELECT credited_course_ids FROM tor_evaluations WHERE student_id = ? AND status = 'Evaluated' LIMIT 1");
+    $torQ->bind_param("i", $student_id);
+    $torQ->execute();
+    $torRow = $torQ->get_result()->fetch_assoc();
+    if ($torRow && !empty($torRow['credited_course_ids'])) {
+        $dec = json_decode($torRow['credited_course_ids'], true);
+        if (is_array($dec)) $creditedIds = array_map('intval', $dec);
+    }
+    $excludeSql = !empty($creditedIds) ? 'AND c.id NOT IN (' . implode(',', $creditedIds) . ')' : '';
+
     $stmt = $conn->prepare("
         SELECT
             e.id,
@@ -328,6 +451,7 @@ function getEnrollments($conn) {
         JOIN courses c ON e.course_id = c.id
         WHERE e.student_id = ?
           AND e.status IN ('Pending', 'Enrolled')
+          $excludeSql
         ORDER BY e.created_at DESC
     ");
     $stmt->bind_param("i", $student_id);
@@ -369,29 +493,72 @@ function registerStudent($conn, $data) {
         }
     }
 
-    $user_id          = (int)$data['user_id'];
-    $firstName        = trim($data['firstName']);
-    $lastName         = trim($data['lastName']);
-    $email            = trim($data['email']);
-    $phone            = trim($data['phone']            ?? '');
-    $dateOfBirth      = trim($data['dateOfBirth']      ?? '');
-    $address          = trim($data['address']          ?? '');
-    $emergencyContact = trim($data['emergencyContact'] ?? '');
-    $emergencyPhone   = trim($data['emergencyPhone']   ?? '');
-    $program          = trim($data['program']);
-    $studentType      = trim($data['studentType']      ?? 'New');
-    $enrollmentDate   = date('Y-m-d');
+    $user_id             = (int)$data['user_id'];
+    $firstName           = trim($data['firstName']);
+    $lastName            = trim($data['lastName']);
+    $middleName          = trim($data['middleName']          ?? '');
+    $suffix              = trim($data['suffix']              ?? '');
+    $email               = trim($data['email']);
+    $phone               = trim($data['phone']               ?? '');
+    $dateOfBirth         = trim($data['dateOfBirth']         ?? '');
+    $address             = trim($data['address']             ?? '');
+    $program             = trim($data['program']);
+    $studentType         = trim($data['studentType']         ?? 'New');
+    $studentCategory     = trim($data['studentCategory']     ?? '');
+    $enrollmentDate      = date('Y-m-d');
 
     // Normalize payment method
     $rawMethod     = strtolower(trim($data['paymentMethod'] ?? 'gcash'));
     $paymentMethod = ($rawMethod === 'cash') ? 'Cash' : 'GCash';
+
+    // Payment plan: full or installment
+    $rawPlan     = strtolower(trim($data['paymentPlan'] ?? 'full'));
+    $paymentPlan = ($rawPlan === 'installment') ? 'installment' : 'full';
+
+    // Semester the student is enrolling in
+    $semester = trim($data['semester'] ?? '');
+
+    // Personal info
+    $lrnNo               = trim($data['lrnNo']               ?? '');
+    $sex                 = trim($data['sex']                 ?? '');
+    $religion            = trim($data['religion']            ?? '');
+    $age                 = trim($data['age']                 ?? '');
+    $placeOfBirth        = trim($data['placeOfBirth']        ?? '');
+    $citizenship         = trim($data['citizenship']         ?? '');
+    $motherTongue        = trim($data['motherTongue']        ?? '');
+    $isIndigenous        = ($data['isIndigenous'] === 'Yes'  || $data['isIndigenous']  == 1) ? 1 : 0;
+    $psaBirthCertNo      = trim($data['psaBirthCertNo']      ?? '');
+    $lastSchoolAttended  = trim($data['lastSchoolAttended']  ?? '');
+    $strand              = trim($data['strand']              ?? '');
+    $learningDelivery    = trim($data['learningDelivery']    ?? '');
+
+    // Special needs
+    $hasSpecialNeeds     = ($data['hasSpecialNeeds']     === 'Yes' || $data['hasSpecialNeeds']     == 1) ? 1 : 0;
+    $specialNeedsDetails = trim($data['specialNeedsDetails']  ?? '');
+    $hasAssistiveTech    = ($data['hasAssistiveTech']    === 'Yes' || $data['hasAssistiveTech']    == 1) ? 1 : 0;
+    $assistiveTechDetails= trim($data['assistiveTechDetails'] ?? '');
+
+    // Guardian  (DB columns: guardian_name, guardian_address, guardian_contact)
+    $guardianName    = trim($data['guardianName']    ?? $data['emergencyContact'] ?? '');
+    $guardianAddress = trim($data['guardianAddress'] ?? '');
+    $guardianContact = trim($data['guardianContact'] ?? $data['emergencyPhone']   ?? '');
+
+    // Emergency contact (can mirror guardian or be separate)
+    $emergencyContact = $guardianName;
+    $emergencyPhone   = $guardianContact;
+
+    // Scholar
+    $isScholar         = (int)($data['isScholar']         ?? 0);
+    $scholarType       = trim($data['scholarType']        ?? '');
+    $scholarGrantor    = trim($data['scholarGrantor']     ?? '');
+    $scholarshipAmount = (float)($data['scholarshipAmount'] ?? 0);
 
     // Verify user exists
     $chk = $conn->prepare("SELECT id FROM users WHERE id = ? LIMIT 1");
     $chk->bind_param("i", $user_id);
     $chk->execute();
     if ($chk->get_result()->num_rows === 0) {
-        echo json_encode(['success' => false, 'message' => 'User ID ' . $user_id . ' not found. Please login again.']);
+        echo json_encode(['success' => false, 'message' => 'User ID ' . $user_id . ' not found.']);
         return;
     }
 
@@ -413,40 +580,124 @@ function registerStudent($conn, $data) {
 
     // Generate student number
     $year    = date('Y');
-    $cntStmt = $conn->prepare("SELECT COUNT(*) AS cnt FROM students WHERE YEAR(created_at) = ?");
-    $cntStmt->bind_param("i", $year);
-    $cntStmt->execute();
-    $cnt           = (int)$cntStmt->get_result()->fetch_assoc()['cnt'] + 1;
-    $studentNumber = "STU-$year-" . str_pad($cnt, 4, '0', STR_PAD_LEFT);
+    $prefix  = "STU-$year-";
+    $maxStmt = $conn->prepare(
+        "SELECT MAX(CAST(SUBSTRING_INDEX(student_number, '-', -1) AS UNSIGNED)) AS maxNum
+          FROM students WHERE student_number LIKE ?"
+    );
+    $like = $prefix . '%';
+    $maxStmt->bind_param("s", $like);
+    $maxStmt->execute();
+    $maxNum        = (int)($maxStmt->get_result()->fetch_assoc()['maxNum'] ?? 0);
+    $studentNumber = $prefix . str_pad($maxNum + 1, 4, '0', STR_PAD_LEFT);
 
-    $dob = (!empty($dateOfBirth)) ? $dateOfBirth : null;
+    $dobBind = (!empty($dateOfBirth)) ? $dateOfBirth : '';
 
-    // INSERT with payment_method column
+    // Ensure all extended columns exist
+    $conn->query("ALTER TABLE students MODIFY COLUMN student_type ENUM('New','Old','Continuing','Returning','Transferee') DEFAULT 'New'");
+    $extraCols = [
+        "middle_name VARCHAR(100) DEFAULT ''",
+        "suffix VARCHAR(20) DEFAULT ''",
+        "lrn_no VARCHAR(50) DEFAULT ''",
+        "sex ENUM('Male','Female','') DEFAULT ''",
+        "religion VARCHAR(100) DEFAULT ''",
+        "age VARCHAR(10) DEFAULT ''",
+        "place_of_birth VARCHAR(255) DEFAULT ''",
+        "citizenship VARCHAR(100) DEFAULT ''",
+        "mother_tongue VARCHAR(100) DEFAULT ''",
+        "is_indigenous TINYINT(1) DEFAULT 0",
+        "psa_birth_cert_no VARCHAR(100) DEFAULT ''",
+        "has_special_needs TINYINT(1) DEFAULT 0",
+        "special_needs_details VARCHAR(255) DEFAULT ''",
+        "has_assistive_tech TINYINT(1) DEFAULT 0",
+        "assistive_tech_details VARCHAR(255) DEFAULT ''",
+        "strand VARCHAR(100) DEFAULT ''",
+        "learning_delivery VARCHAR(100) DEFAULT ''",
+        "last_school_attended VARCHAR(255) DEFAULT ''",
+        "guardian_name VARCHAR(255) DEFAULT ''",
+        "guardian_address VARCHAR(255) DEFAULT ''",
+        "guardian_contact VARCHAR(50) DEFAULT ''",
+        "student_category VARCHAR(50) DEFAULT ''",
+        "is_scholar TINYINT(1) DEFAULT 0",
+        "scholar_type VARCHAR(100) DEFAULT ''",
+        "scholar_grantor VARCHAR(255) DEFAULT ''",
+        "scholarship_amount DECIMAL(10,2) DEFAULT 0",
+        "payment_method VARCHAR(20) NOT NULL DEFAULT 'GCash'",
+        "payment_plan ENUM('full','installment') NOT NULL DEFAULT 'full'",
+        "semester VARCHAR(100) DEFAULT ''",
+    ];
+    foreach ($extraCols as $col) {
+        $colName = explode(' ', $col)[0];
+        $conn->query("ALTER TABLE students ADD COLUMN IF NOT EXISTS $col");
+    }
+
+    // INSERT using actual DB column names
     $ins = $conn->prepare("
         INSERT INTO students
-          (user_id, student_number, first_name, last_name, email, phone,
-           date_of_birth, address, emergency_contact, emergency_phone,
-           program, student_type, payment_method, enrollment_date,
+          (user_id, student_number,
+           first_name, last_name, middle_name, suffix,
+           email, phone, date_of_birth, address,
+           emergency_contact, emergency_phone,
+           guardian_name, guardian_address, guardian_contact,
+           program, student_type, student_category, payment_method, payment_plan, semester, enrollment_date,
+           lrn_no, sex, religion, age, place_of_birth, citizenship, mother_tongue,
+           is_indigenous, psa_birth_cert_no,
+           last_school_attended, strand, learning_delivery,
+           has_special_needs, special_needs_details,
+           has_assistive_tech, assistive_tech_details,
+           is_scholar, scholar_type, scholar_grantor, scholarship_amount,
            enrollment_status, payment_status, approval_status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pending', 'Pending', 'Pending')
+        VALUES
+          (?, ?,
+           ?, ?, ?, ?,
+           ?, ?, ?, ?,
+           ?, ?,
+           ?, ?, ?,
+           ?, ?, ?, ?, ?, ?, ?,
+           ?, ?, ?, ?, ?, ?, ?,
+           ?, ?,
+           ?, ?, ?,
+           ?, ?,
+           ?, ?,
+           ?, ?, ?, ?,
+           'Pending', 'Pending', 'Pending')
     ");
+
     if (!$ins) {
-        echo json_encode(['success' => false, 'message' => 'Prepare failed: ' . $conn->error]);
+        echo json_encode(['success' => false, 'message' => 'DB prepare error: ' . $conn->error]);
         return;
     }
-    $ins->bind_param("isssssssssssss",
-        $user_id, $studentNumber, $firstName, $lastName, $email, $phone,
-        $dob, $address, $emergencyContact, $emergencyPhone,
-        $program, $studentType, $paymentMethod, $enrollmentDate
+
+    // 42 bound params
+    $ins->bind_param("isssssssssssssssssssssssssssissssssisisssd",
+        $user_id, $studentNumber,
+        $firstName, $lastName, $middleName, $suffix,
+        $email, $phone, $dobBind, $address,
+        $emergencyContact, $emergencyPhone,
+        $guardianName, $guardianAddress, $guardianContact,
+        $program, $studentType, $studentCategory, $paymentMethod, $paymentPlan, $semester, $enrollmentDate,
+        $lrnNo, $sex, $religion, $age, $placeOfBirth, $citizenship, $motherTongue,
+        $isIndigenous, $psaBirthCertNo,
+        $lastSchoolAttended, $strand, $learningDelivery,
+        $hasSpecialNeeds, $specialNeedsDetails,
+        $hasAssistiveTech, $assistiveTechDetails,
+        $isScholar, $scholarType, $scholarGrantor, $scholarshipAmount
     );
-    $ins->execute();
+
+    try { $ins->execute(); }
+    catch (Exception $e) {
+        echo json_encode(['success' => false, 'message' => 'DB execute error: ' . $e->getMessage()]);
+        return;
+    }
+    if ($ins->errno) {
+        echo json_encode(['success' => false, 'message' => 'DB insert error: ' . $ins->error]);
+        return;
+    }
 
     if ($ins->affected_rows > 0) {
         $newStudentId = $ins->insert_id;
-
-        // For Cash students: create a pending payment_log so Accounting can see them
         if ($paymentMethod === 'Cash') {
-            $semester = '1st Semester, AY 2024-2025';
+            $semester = '1st Semester, AY ' . date('Y') . '-' . (date('Y') + 1);
             $logStmt  = $conn->prepare("
                 INSERT INTO payment_logs (student_id, payment_method, gcash_reference, gcash_amount, semester, status)
                 VALUES (?, 'Cash', '', 0, ?, 'Pending')
@@ -454,7 +705,6 @@ function registerStudent($conn, $data) {
             $logStmt->bind_param("is", $newStudentId, $semester);
             $logStmt->execute();
         }
-
         echo json_encode([
             'success'        => true,
             'message'        => 'Student registered successfully',
@@ -632,5 +882,230 @@ function approveEnrollment($conn, $data) {
     $stmt->bind_param("i", $student_id);
     $stmt->execute();
     echo json_encode(['success' => true, 'message' => 'Enrollment approved']);
+}
+// ─────────────────────────────────────────────────────────────
+// GET ENROLLMENT SUMMARY
+// Returns full enrollment details for the summary tab
+// ─────────────────────────────────────────────────────────────
+function getEnrollmentSummary($conn) {
+    $student_id = getStudentIdFromRequest($conn);
+    if (!$student_id) {
+        echo json_encode(['success' => false, 'message' => 'Student not found']);
+        return;
+    }
+
+    // Get student info
+    $stmt = $conn->prepare("SELECT s.*, u.email AS user_email FROM students s JOIN users u ON s.user_id = u.id WHERE s.id = ? LIMIT 1");
+    $stmt->bind_param("i", $student_id);
+    $stmt->execute();
+    $s = $stmt->get_result()->fetch_assoc();
+    if (!$s) { echo json_encode(['success' => false, 'message' => 'Student not found']); return; }
+
+    // Get enrolled courses
+    $cStmt = $conn->prepare("
+        SELECT c.code, c.name, c.credits, c.instructor, c.day, c.time, c.room, c.semester, e.status
+        FROM enrollments e JOIN courses c ON e.course_id = c.id
+        WHERE e.student_id = ? AND e.status IN ('Pending','Enrolled')
+        ORDER BY c.code
+    ");
+    $cStmt->bind_param("i", $student_id);
+    $cStmt->execute();
+    $cResult = $cStmt->get_result();
+    $courses = [];
+    $totalCredits = 0;
+    while ($r = $cResult->fetch_assoc()) {
+        $courses[] = $r;
+        $totalCredits += (int)$r['credits'];
+    }
+
+    // Get payment info
+    $pStmt = $conn->prepare("SELECT payment_status, payment_method, gcash_reference, gcash_amount, gcash_date, scholarship_amount, is_scholar FROM students WHERE id = ? LIMIT 1");
+    $pStmt->bind_param("i", $student_id);
+    $pStmt->execute();
+    $p = $pStmt->get_result()->fetch_assoc();
+
+    // Detect semester from enrolled courses
+    $semStmt = $conn->prepare("SELECT c.semester FROM enrollments e JOIN courses c ON e.course_id = c.id WHERE e.student_id = ? AND e.status IN ('Pending','Enrolled') ORDER BY e.created_at DESC LIMIT 1");
+    $semStmt->bind_param("i", $student_id);
+    $semStmt->execute();
+    $semRow = $semStmt->get_result()->fetch_assoc();
+    $detectedSemester = $semRow['semester'] ?? ('1st Semester, AY ' . date('Y') . '-' . (date('Y') + 1));
+
+    $tuition = 25000;
+    $discount = (float)($p['scholarship_amount'] ?? 0);
+    $amountDue = max(0, $tuition - $discount);
+    $amountPaid = ($p['payment_status'] === 'Paid') ? (float)($p['gcash_amount'] ?? 0) : 0;
+
+    echo json_encode([
+        'success'       => true,
+        'enrollmentDate'=> $s['enrollment_date'],
+        'semester'      => $detectedSemester,
+        'program'       => $s['program'],
+        'yearLevel'     => $s['year_level'] ?? '1st Year',
+        'totalCourses'  => count($courses),
+        'totalCredits'  => $totalCredits,
+        'courses'       => $courses,
+        'payment'       => [
+            'totalFee'       => $tuition,
+            'scholarDiscount'=> $discount,
+            'amountDue'      => $amountDue,
+            'amountPaid'     => $amountPaid,
+            'balance'        => max(0, $amountDue - $amountPaid),
+            'status'         => $p['payment_status'] ?? 'Pending',
+            'method'         => $p['payment_method'] ?? 'GCash',
+            'paymentDate'    => $p['gcash_date'] ?? null,
+        ],
+        'termPayments'  => [
+            ['term'=>'Prelim',  'amountDue'=>round($amountDue/3,2), 'amountPaid'=>0, 'paymentDate'=>null, 'status'=>'Unpaid'],
+            ['term'=>'Midterm', 'amountDue'=>round($amountDue/3,2), 'amountPaid'=>0, 'paymentDate'=>null, 'status'=>'Unpaid'],
+            ['term'=>'Finals',  'amountDue'=>round($amountDue/3,2), 'amountPaid'=>0, 'paymentDate'=>null, 'status'=>'Unpaid'],
+        ],
+    ]);
+}
+
+// ─────────────────────────────────────────────────────────────
+// AUTO ENROLL ALL — enroll student in courses matching their program
+// Primary:  courses.program = student.program  (direct column match)
+// Fallback: program_courses table if it exists
+// Safe to call multiple times (skips already-enrolled courses).
+// ─────────────────────────────────────────────────────────────
+function autoEnrollAll($conn, $data) {
+    $student_id = (int)($data['student_id'] ?? 0);
+    $semester   = trim($data['semester']    ?? '');
+
+    if (!$student_id) {
+        echo json_encode(['success' => false, 'message' => 'student_id required']);
+        return;
+    }
+
+    $st = $conn->prepare("SELECT program, student_category, semester FROM students WHERE id = ? LIMIT 1");
+    $st->bind_param("i", $student_id);
+    $st->execute();
+    $student = $st->get_result()->fetch_assoc();
+    if (!$student) { echo json_encode(['success' => false, 'message' => 'Student not found']); return; }
+
+    // Use passed semester, or fall back to the student's registered semester
+    if ($semester === '' && !empty($student['semester'])) {
+        $semester = trim($student['semester']);
+    }
+
+    // Extract just the term part (e.g. "1st Semester" from "1st Semester, AY 2026-2027")
+    // so we match courses regardless of which school year they were created under
+    $semesterTerm = $semester;
+    if (preg_match('/^(1st Semester|2nd Semester|Summer)/i', $semester, $m)) {
+        $semesterTerm = $m[1];
+    }
+
+    $programName = trim($student['program']);
+    $enrolled    = 0;
+    $enrollDate  = date('Y-m-d');
+    $courses     = [];
+
+    // Get credited course IDs to skip (transferees with evaluated TOR)
+    $creditedIds = [];
+    $torQ = $conn->prepare("SELECT credited_course_ids FROM tor_evaluations WHERE student_id = ? AND status = 'Evaluated' LIMIT 1");
+    $torQ->bind_param("i", $student_id);
+    $torQ->execute();
+    $torRow = $torQ->get_result()->fetch_assoc();
+    if ($torRow && !empty($torRow['credited_course_ids'])) {
+        $dec = json_decode($torRow['credited_course_ids'], true);
+        if (is_array($dec)) $creditedIds = array_map('intval', $dec);
+    }
+    $creditedExclude = !empty($creditedIds) ? 'AND c.id NOT IN (' . implode(',', $creditedIds) . ')' : '';
+
+    // Remove any previously auto-enrolled credited courses (cleanup)
+    if (!empty($creditedIds)) {
+        $conn->query("DELETE FROM enrollments WHERE student_id = $student_id AND course_id IN (" . implode(',', $creditedIds) . ")");
+    }
+
+    // ── Try program_courses + programs table first ────────────
+    $hasPCTable = $conn->query("SHOW TABLES LIKE 'program_courses'")->num_rows > 0;
+    $hasPTable  = $conn->query("SHOW TABLES LIKE 'programs'")->num_rows > 0;
+
+    if ($hasPCTable && $hasPTable) {
+        $sql = "SELECT c.id, c.name, c.semester FROM program_courses pc
+                JOIN programs p  ON pc.program_id = p.id
+                JOIN courses   c ON pc.course_id  = c.id
+                WHERE (p.name = ? OR p.code = ?)
+                  AND c.id NOT IN (SELECT course_id FROM enrollments WHERE student_id = ?)
+                  $creditedExclude";
+        if ($semesterTerm !== '') {
+            $semLike = '%' . $semesterTerm . '%';
+            $stmt = $conn->prepare($sql . " AND c.semester LIKE ? LIMIT 40");
+            $stmt->bind_param("ssis", $programName, $programName, $student_id, $semLike);
+        } else {
+            $stmt = $conn->prepare($sql . " LIMIT 40");
+            $stmt->bind_param("ssi", $programName, $programName, $student_id);
+        }
+        $stmt->execute();
+        $courses = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    }
+
+    // ── Primary: courses.program column ──────────────────────
+    if (empty($courses)) {
+        $sql = "SELECT id, name, semester FROM courses WHERE program = ?
+                AND id NOT IN (SELECT course_id FROM enrollments WHERE student_id = ?)
+                $creditedExclude";
+        if ($semesterTerm !== '') {
+            $semLike = '%' . $semesterTerm . '%';
+            $stmt = $conn->prepare($sql . " AND semester LIKE ? LIMIT 40");
+            $stmt->bind_param("sis", $programName, $student_id, $semLike);
+        } else {
+            $stmt = $conn->prepare($sql . " LIMIT 40");
+            $stmt->bind_param("si", $programName, $student_id);
+        }
+        $stmt->execute();
+        $courses = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    }
+
+    foreach ($courses as $course) {
+        $useSemester = ($semester !== '') ? $semester : ($course['semester'] ?? '');
+        $ins = $conn->prepare("INSERT INTO enrollments (student_id, course_id, enrollment_date, status, semester, notes) VALUES (?, ?, ?, 'Enrolled', ?, 'Auto-enrolled')");
+        $ins->bind_param("iiss", $student_id, $course['id'], $enrollDate, $useSemester);
+        if ($ins->execute() && $ins->affected_rows > 0) {
+            $enrolled++;
+            $conn->query("UPDATE courses SET enrolled_count = enrolled_count + 1 WHERE id = " . (int)$course['id']);
+        }
+    }
+
+    if ($enrolled > 0) {
+        $conn->query("UPDATE students SET enrollment_status = 'Enrolled' WHERE id = $student_id");
+    }
+
+    echo json_encode([
+        'success'  => true,
+        'enrolled' => $enrolled,
+        'program'  => $programName,
+        'message'  => $enrolled > 0
+            ? "$enrolled course(s) auto-enrolled for $programName."
+            : 'Already enrolled in all available courses for this program.',
+    ]);
+}
+
+// ─────────────────────────────────────────────────────────────
+// UPDATE PROFILE — student edits contact info
+// ─────────────────────────────────────────────────────────────
+function updateProfile($conn, $data) {
+    $student_id       = (int)($data['student_id']       ?? 0);
+    $phone            = trim($data['phone']              ?? '');
+    $address          = trim($data['address']            ?? '');
+    $emergencyContact = trim($data['emergencyContact']   ?? '');
+    $emergencyPhone   = trim($data['emergencyPhone']     ?? '');
+    $dateOfBirth      = trim($data['dateOfBirth']        ?? '');
+
+    if (!$student_id) {
+        echo json_encode(['success' => false, 'message' => 'student_id required']);
+        return;
+    }
+
+    $stmt = $conn->prepare("
+        UPDATE students
+        SET phone = ?, address = ?, emergency_contact = ?, emergency_phone = ?, date_of_birth = ?
+        WHERE id = ?
+    ");
+    $stmt->bind_param("sssssi", $phone, $address, $emergencyContact, $emergencyPhone, $dateOfBirth, $student_id);
+    $stmt->execute();
+
+    echo json_encode(['success' => true, 'message' => 'Profile updated successfully.']);
 }
 ?>

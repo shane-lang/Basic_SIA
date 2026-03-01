@@ -1,4 +1,6 @@
 <?php
+error_reporting(0);
+ini_set('display_errors', 0);
 // ================================================================
 //  dashboard.php  —  Student Dashboard API
 //  Place in: C:\xampp\htdocs\sia-api\dashboard.php
@@ -261,72 +263,42 @@ if ($action === 'get_dashboard') {
 
 // ================================================================
 //  ACTION: get_announcements
-//  Static school announcements — replace with a DB table later
+//  Reads from `announcements` table (auto-created with defaults if empty)
 // ================================================================
 if ($action === 'get_announcements') {
 
-    $announcements = [
-        [
-            'id'       => 1,
-            'title'    => 'Enrollment for 1st Semester AY 2024-2025 is NOW OPEN',
-            'message'  => 'All students must complete their enrollment before January 31, 2026. '
-                        . 'Coordinate with your Academic Adviser for pre-enrollment requirements.',
-            'date'     => '2026-01-31',
-            'type'     => 'enrollment',
-            'priority' => 'high',
-            'icon'     => '📋',
-        ],
-        [
-            'id'       => 2,
-            'title'    => 'Tuition Fee Payment Deadline — January 31, 2026',
-            'message'  => 'Tuition fees must be paid within 30 days from enrollment. '
-                        . 'Submit your GCash or Cash payment proof through the portal.',
-            'date'     => '2026-01-31',
-            'type'     => 'payment',
-            'priority' => 'high',
-            'icon'     => '💳',
-        ],
-        [
-            'id'       => 3,
-            'title'    => 'IT Department New Student Orientation',
-            'message'  => 'All new BSIT students are required to attend the department orientation '
-                        . 'scheduled on February 3, 2026, 9:00 AM at the IT Auditorium. Attendance is mandatory.',
-            'date'     => '2026-01-30',
-            'type'     => 'department',
-            'priority' => 'high',
-            'icon'     => '📚',
-        ],
-        [
-            'id'       => 4,
-            'title'    => 'Library Hours Extended',
-            'message'  => 'The university library is now open Monday–Saturday, 7:00 AM to 8:00 PM '
-                        . 'to accommodate students during the enrollment and early semester period.',
-            'date'     => '2026-01-28',
-            'type'     => 'school',
-            'priority' => 'normal',
-            'icon'     => '🏫',
-        ],
-        [
-            'id'       => 5,
-            'title'    => 'Grade Submission Portal Now Available',
-            'message'  => 'Faculty members may now submit grades through the SIA portal. '
-                        . 'Students can view their grades once submission is complete.',
-            'date'     => '2026-01-29',
-            'type'     => 'school',
-            'priority' => 'normal',
-            'icon'     => '🏫',
-        ],
-        [
-            'id'       => 6,
-            'title'    => 'System Maintenance — Every Sunday 12 AM–4 AM',
-            'message'  => 'The Student Information System undergoes weekly maintenance every Sunday. '
-                        . 'Please complete transactions before midnight Saturday.',
-            'date'     => '2026-01-29',
-            'type'     => 'system',
-            'priority' => 'normal',
-            'icon'     => '⚙️',
-        ],
-    ];
+    // Auto-create table if not exists
+    $conn->query("
+        CREATE TABLE IF NOT EXISTS announcements (
+            id       INT AUTO_INCREMENT PRIMARY KEY,
+            title    VARCHAR(255) NOT NULL,
+            message  TEXT NOT NULL,
+            date     DATE NOT NULL,
+            type     ENUM('enrollment','payment','school','department','system') DEFAULT 'school',
+            priority ENUM('high','normal','low') DEFAULT 'normal',
+            icon     VARCHAR(10) DEFAULT '📢',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ");
+
+    // Seed defaults only if table is empty
+    $cnt = $conn->query("SELECT COUNT(*) AS c FROM announcements")->fetch_assoc()['c'];
+    if ((int)$cnt === 0) {
+        $y = date('Y');
+        $conn->query("INSERT INTO announcements (title, message, date, type, priority, icon) VALUES
+            ('Enrollment for 1st Semester AY $y is NOW OPEN', 'All students must complete their enrollment. Coordinate with your Academic Adviser for pre-enrollment requirements.', '$y-01-31', 'enrollment', 'high', '📋'),
+            ('Tuition Fee Payment Deadline', 'Tuition fees must be paid within 30 days from enrollment. Submit your GCash or Cash payment proof through the portal.', '$y-01-31', 'payment', 'high', '💳'),
+            ('Library Hours Extended', 'The university library is now open Monday–Saturday, 7:00 AM to 8:00 PM to accommodate students during enrollment.', '$y-01-28', 'school', 'normal', '🏫'),
+            ('Grade Submission Portal Now Available', 'Faculty members may now submit grades through the SIA portal. Students can view their grades once submission is complete.', '$y-01-29', 'school', 'normal', '🏫'),
+            ('System Maintenance — Every Sunday 12 AM–4 AM', 'The Student Information System undergoes weekly maintenance every Sunday.', '$y-01-29', 'system', 'normal', '⚙️')
+        ");
+    }
+
+    $res = $conn->query("SELECT * FROM announcements ORDER BY date DESC, priority='high' DESC LIMIT 20");
+    $announcements = [];
+    while ($row = $res->fetch_assoc()) {
+        $announcements[] = $row;
+    }
 
     echo json_encode(['success' => true, 'announcements' => $announcements]);
     $conn->close();
@@ -335,44 +307,50 @@ if ($action === 'get_announcements') {
 
 // ================================================================
 //  ACTION: get_events
-//  School calendar events — add a `school_events` DB table later
+//  Reads from `school_events` table (auto-created with defaults if empty)
 // ================================================================
 if ($action === 'get_events') {
 
-    $y = date('Y');
+    // Auto-create table if not exists
+    $conn->query("
+        CREATE TABLE IF NOT EXISTS school_events (
+            id          INT AUTO_INCREMENT PRIMARY KEY,
+            title       VARCHAR(255) NOT NULL,
+            event_date  DATE NOT NULL,
+            type        ENUM('enrollment','payment','exam','activity','holiday') DEFAULT 'activity',
+            description TEXT,
+            created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ");
 
-    $events = [
-        // Enrollment
-        ['id' =>  1, 'title' => 'Enrollment Period Opens',      'event_date' => "$y-01-20", 'type' => 'enrollment', 'description' => '1st Semester AY 2024-2025 enrollment starts'],
-        ['id' =>  2, 'title' => 'Enrollment Deadline',          'event_date' => "$y-01-31", 'type' => 'enrollment', 'description' => 'Last day to enroll without late penalty'],
+    // Seed defaults only if table is empty
+    $cnt = $conn->query("SELECT COUNT(*) AS c FROM school_events")->fetch_assoc()['c'];
+    if ((int)$cnt === 0) {
+        $y = date('Y');
+        $conn->query("INSERT INTO school_events (title, event_date, type, description) VALUES
+            ('Enrollment Period Opens',    '$y-01-20', 'enrollment', '1st Semester enrollment starts'),
+            ('Enrollment Deadline',        '$y-01-31', 'enrollment', 'Last day to enroll without late penalty'),
+            ('Tuition Payment Deadline',   '$y-02-28', 'payment',    'Pay tuition to avoid holds on your account'),
+            ('University Sports Fest',     '$y-02-14', 'activity',   'Annual inter-department sports festival'),
+            ('Midterm Examinations',       '$y-03-10', 'exam',       'Midterm exam week begins — all departments'),
+            ('Midterm Exams End',          '$y-03-14', 'exam',       'Last day of midterm examinations'),
+            ('Foundation Day (No Classes)','$y-03-25', 'holiday',    'University Foundation Day — school holiday'),
+            ('Araw ng Kagitingan',         '$y-04-09', 'holiday',    'Day of Valor — national holiday'),
+            ('Holy Thursday',              '$y-04-17', 'holiday',    'Holy Week — school suspended'),
+            ('Good Friday',                '$y-04-18', 'holiday',    'Holy Week — school suspended'),
+            ('Final Examinations Begin',   '$y-05-05', 'exam',       'Final examination period starts'),
+            ('Final Examinations End',     '$y-05-09', 'exam',       'Last day of final examinations'),
+            ('Official Grades Released',   '$y-05-20', 'activity',   'Final grades viewable via student portal'),
+            ('Enrollment — 2nd Semester',  '$y-06-01', 'enrollment', 'Enrollment opens for 2nd Semester'),
+            ('Independence Day',           '$y-06-12', 'holiday',    'Philippine Independence Day — no classes')
+        ");
+    }
 
-        // Payment
-        ['id' =>  3, 'title' => 'Tuition Payment Deadline',     'event_date' => "$y-02-28", 'type' => 'payment',    'description' => 'Pay tuition to avoid holds on your account'],
-
-        // Activities
-        ['id' =>  4, 'title' => 'IT Dept Orientation',          'event_date' => "$y-02-03", 'type' => 'activity',   'description' => 'New student orientation for BSIT freshmen — 9 AM, IT Auditorium'],
-        ['id' =>  5, 'title' => 'University Sports Fest',       'event_date' => "$y-02-14", 'type' => 'activity',   'description' => 'Annual inter-department sports festival'],
-
-        // Exams
-        ['id' =>  6, 'title' => 'Midterm Examinations',         'event_date' => "$y-03-10", 'type' => 'exam',       'description' => 'Midterm exam week begins — all departments'],
-        ['id' =>  7, 'title' => 'Midterm Exams End',            'event_date' => "$y-03-14", 'type' => 'exam',       'description' => 'Last day of midterm examinations'],
-
-        // Holidays
-        ['id' =>  8, 'title' => 'Foundation Day (No Classes)',  'event_date' => "$y-03-25", 'type' => 'holiday',    'description' => 'University Foundation Day — school holiday'],
-        ['id' =>  9, 'title' => 'Araw ng Kagitingan',           'event_date' => "$y-04-09", 'type' => 'holiday',    'description' => 'Day of Valor — national holiday'],
-        ['id' => 10, 'title' => 'Holy Thursday',                'event_date' => "$y-04-17", 'type' => 'holiday',    'description' => 'Holy Week — school suspended'],
-        ['id' => 11, 'title' => 'Good Friday',                  'event_date' => "$y-04-18", 'type' => 'holiday',    'description' => 'Holy Week — school suspended'],
-        ['id' => 12, 'title' => 'Black Saturday',               'event_date' => "$y-04-19", 'type' => 'holiday',    'description' => 'Holy Week — school suspended'],
-
-        // Final Exams
-        ['id' => 13, 'title' => 'Final Examinations Begin',     'event_date' => "$y-05-05", 'type' => 'exam',       'description' => 'Final examination period starts'],
-        ['id' => 14, 'title' => 'Final Examinations End',       'event_date' => "$y-05-09", 'type' => 'exam',       'description' => 'Last day of final examinations'],
-
-        // Grade release & 2nd sem
-        ['id' => 15, 'title' => 'Official Grades Released',     'event_date' => "$y-05-20", 'type' => 'activity',   'description' => 'Final grades viewable via student portal'],
-        ['id' => 16, 'title' => 'Enrollment — 2nd Semester',    'event_date' => "$y-06-01", 'type' => 'enrollment', 'description' => 'Enrollment opens for 2nd Semester AY 2024-2025'],
-        ['id' => 17, 'title' => 'Independence Day',             'event_date' => "$y-06-12", 'type' => 'holiday',    'description' => 'Philippine Independence Day — no classes'],
-    ];
+    $res = $conn->query("SELECT * FROM school_events ORDER BY event_date ASC");
+    $events = [];
+    while ($row = $res->fetch_assoc()) {
+        $events[] = $row;
+    }
 
     echo json_encode(['success' => true, 'events' => $events]);
     $conn->close();

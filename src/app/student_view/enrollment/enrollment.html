@@ -6,53 +6,134 @@
   </div>
 </div>
 
-<!-- ══ GCASH PAYMENT FORM ══ -->
+<!-- ══ TOR PENDING — Waiting for Registrar Evaluation ══ -->
+<div class="enrollment-container" *ngIf="workflowStep === 'tor-pending'">
+  <div class="enrollment-header">
+    <div class="header-content">
+      <h1>📄 TOR Under Evaluation</h1>
+      <p class="subtitle">Your Transcript of Records is being reviewed by the Registrar</p>
+    </div>
+  </div>
+  <div class="payment-container">
+    <div class="payment-card tor-pending-card">
+
+      <div class="tor-pending-steps">
+        <div class="tp-step tp-step-done">
+          <span class="tp-step-icon">✅</span>
+          <div class="tp-step-body">
+            <strong>Soft copy submitted</strong>
+            <p>Your scanned TOR has been received by the system.</p>
+          </div>
+        </div>
+        <div class="tp-step tp-step-active">
+          <span class="tp-step-icon spin">⏳</span>
+          <div class="tp-step-body">
+            <strong>Registrar evaluation in progress</strong>
+            <p>The Registrar is reviewing your TOR and determining which subjects can be credited.</p>
+          </div>
+        </div>
+        <div class="tp-step tp-step-pending">
+          <span class="tp-step-icon">📄</span>
+          <div class="tp-step-body">
+            <strong>Submit hard copy of TOR</strong>
+            <p>Once evaluation is complete, bring the <strong>original or certified true copy</strong> of your TOR to the Registrar's Office for final verification.</p>
+          </div>
+        </div>
+        <div class="tp-step tp-step-pending">
+          <span class="tp-step-icon">💳</span>
+          <div class="tp-step-body">
+            <strong>Proceed to payment</strong>
+            <p>Your tuition will be computed based on the units credited from your TOR. Payment options will appear after evaluation.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="tor-pending-info">
+        <div class="tpi-row"><label>Student:</label><span>{{ student.firstName }} {{ student.lastName }}</span></div>
+        <div class="tpi-row"><label>Program:</label><span>{{ student.program }}</span></div>
+        <div class="tpi-row"><label>Previous School:</label><span>{{ student.lastSchoolAttended || '—' }}</span></div>
+      </div>
+
+      <div class="tor-loading-bar" *ngIf="isTorLoading"><span class="spin">⏳</span> Checking evaluation status...</div>
+      <p class="poll-notice">🔄 This page checks for updates automatically every 15 seconds. You may also reload.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ══ GCASH PAYMENT ══ -->
 <div class="enrollment-container" *ngIf="workflowStep === 'payment'">
   <div class="enrollment-header">
     <div class="header-content">
       <h1>📱 GCash Payment</h1>
-      <p class="subtitle">Submit your GCash payment for Accounting verification</p>
+      <p class="subtitle">Review your assessment and submit your GCash reference number to complete enrollment</p>
+    </div>
+  </div>
+
+  <!-- TOR HARD COPY NOTICE (shown once for transferees after evaluation) -->
+  <div class="tor-hardcopy-notice" *ngIf="showTorHardCopyNotice">
+    <div class="thcn-icon">📄</div>
+    <div class="thcn-body">
+      <div class="thcn-title">⚠️ Submit Hard Copy of TOR to the Registrar</div>
+      <div class="thcn-text">
+        Before proceeding with payment, please bring the <strong>original or certified true copy</strong> of your
+        Transcript of Records (TOR) to the Registrar's Office for verification.
+        Your TOR has been pre-evaluated based on the soft copy you submitted.
+        The hard copy is required to finalize your credits.
+      </div>
+      <div class="thcn-tor-summary" *ngIf="torEvaluation">
+        <span class="thcn-pill credited">✓ {{ torEvaluation.creditedUnits }} units credited</span>
+        <span class="thcn-pill remaining">{{ torEvaluation.approvedUnits }} units remaining</span>
+        <span *ngIf="torEvaluation.registrarNotes" class="thcn-notes">Registrar note: {{ torEvaluation.registrarNotes }}</span>
+      </div>
+      <button class="thcn-dismiss" (click)="dismissTorHardCopyNotice()">I understand, proceed to payment →</button>
     </div>
   </div>
   <div class="payment-container">
     <div class="payment-card">
       <h2>Enrollment Fee Payment</h2>
       <div class="student-summary">
-        <h3>Enrollment Summary</h3>
-        <div class="summary-row"><label>Student ID:</label><p>{{ student.id }}</p></div>
-        <div class="summary-row"><label>Name:</label><p>{{ student.firstName }} {{ student.lastName }}</p></div>
+        <div class="summary-row"><label>Student:</label><p>{{ student.firstName }} {{ student.lastName }}</p></div>
         <div class="summary-row"><label>Program:</label><p>{{ student.program }}</p></div>
-        <div class="summary-row"><label>Semester:</label><p>{{ currentSemester }}</p></div>
+        <div class="summary-row" *ngIf="student.isScholar"><label>Scholarship:</label><p class="text-green">🎓 {{ student.scholarType }}</p></div>
       </div>
-      <div class="payment-details">
-        <h3>Amount Due</h3>
-        <div class="payment-row"><span>Tuition Fee</span><span class="amount">₱{{ paymentInfo.amount | number:'1.0-0' }}</span></div>
-        <div class="payment-row total"><span>Total Amount Due</span><span class="amount">₱{{ paymentInfo.amount | number:'1.0-0' }}</span></div>
-        <p class="payment-due">Due by: {{ paymentInfo.dueDate | date: 'MMMM dd, yyyy' }}</p>
+
+      <!-- FEE ASSESSMENT BREAKDOWN (computed from program units) -->
+      <div class="fee-preview-loading" *ngIf="isFeePreviewLoading">
+        <span>⏳ Loading fee assessment...</span>
       </div>
-      <div class="gcash-instructions">
-        <h3>📱 How to Pay via GCash</h3>
-        <ol class="instruction-list">
-          <li>Open your GCash app and tap <strong>Send Money</strong></li>
-          <li>Send <strong>₱{{ paymentInfo.amount | number:'1.0-0' }}</strong> to the university GCash number</li>
-          <li>Note your <strong>GCash Reference Number</strong></li>
-          <li>Enter the reference number below and click <strong>Submit to Accounting</strong></li>
-        </ol>
+
+      <div class="fee-preview-card" *ngIf="feePreview && !isFeePreviewLoading">
+        <div class="fee-preview-title">📋 Assessment for the Current Semester</div>
+        <div class="fee-preview-rows">
+          <div class="fp-row"><span>No. of Units</span><span>{{ feePreview.units }}</span></div>
+          <div class="fp-row"><span>Tuition Fee ({{ feePreview.units }} × ₱650)</span><span>₱{{ feePreview.tuitionFee | number:'1.2-2' }}</span></div>
+          <div class="fp-row"><span>Miscellaneous Fee</span><span>₱{{ feePreview.miscellaneousFee | number:'1.2-2' }}</span></div>
+          <div class="fp-row"><span>Registration Fee</span><span>₱{{ feePreview.registrationFee | number:'1.2-2' }}</span></div>
+          <div class="fp-row"><span>Laboratory Fee ({{ feePreview.units }} × ₱1,900)</span><span>₱{{ feePreview.laboratoryFee | number:'1.2-2' }}</span></div>
+          <div class="fp-row"><span>Energy Fee ({{ feePreview.units }} × ₱21 × 3)</span><span>₱{{ feePreview.energyFee | number:'1.2-2' }}</span></div>
+          <div class="fp-row fp-subtotal"><span>Subtotal</span><span>₱{{ feePreview.subtotal | number:'1.2-2' }}</span></div>
+          <div class="fp-row fp-discount" *ngIf="feePreview.discount > 0">
+            <span>🎓 Scholarship Discount</span><span class="text-green">– ₱{{ feePreview.discount | number:'1.2-2' }}</span>
+          </div>
+          <div class="fp-row fp-total"><span><strong>TOTAL ASSESSMENT</strong></span><span><strong>₱{{ feePreview.totalAssessment | number:'1.2-2' }}</strong></span></div>
+        </div>
       </div>
+
       <div class="gcash-form-section">
         <h3>Enter GCash Payment Details</h3>
         <div class="form-group">
-          <label for="gcashRef">GCash Reference Number <span class="required">*</span></label>
-          <input type="text" id="gcashRef" class="form-control" placeholder="e.g., G1234567890123"
+          <label>GCash Reference Number <span class="req">*</span></label>
+          <input type="text" class="form-control" placeholder="e.g. G1234567890"
             [(ngModel)]="gcashReference" [disabled]="isProcessingPayment">
         </div>
         <div class="form-group">
-          <label for="gcashAmt">Amount Paid (₱) <span class="required">*</span></label>
-          <input type="number" id="gcashAmt" class="form-control" [(ngModel)]="gcashAmount" [disabled]="isProcessingPayment">
+          <label>Amount Paid (₱) <span class="req">*</span></label>
+          <input type="number" class="form-control" [(ngModel)]="gcashAmount" [disabled]="isProcessingPayment">
+          <small style="color:#6b7280;" *ngIf="feePreview">Total assessment: ₱{{ feePreview.totalAssessment | number:'1.2-2' }}</small>
         </div>
         <div class="form-group">
-          <label for="gcashDate">Date of Payment</label>
-          <input type="date" id="gcashDate" class="form-control" [(ngModel)]="gcashDate" [disabled]="isProcessingPayment">
+          <label>Date of Payment</label>
+          <input type="date" class="form-control" [(ngModel)]="gcashDate" [disabled]="isProcessingPayment">
         </div>
       </div>
       <div class="payment-actions">
@@ -61,397 +142,388 @@
         </button>
       </div>
       <div class="info-box">
-        <p>⏳ Your payment will be verified by the <strong>Accounting Office</strong> before enrollment is approved.</p>
+        <p>⏳ Payment will be verified by <strong>Accounting</strong>. Scholar discounts will be validated by the Registrar.</p>
       </div>
     </div>
   </div>
 </div>
 
-<!-- ══ CASH PENDING SCREEN ══ -->
+<!-- ══ CASH PENDING ══ -->
 <div class="enrollment-container" *ngIf="workflowStep === 'cash-pending'">
   <div class="enrollment-header">
-    <div class="header-content">
-      <h1>💵 Cash Payment</h1>
-      <p class="subtitle">Please proceed to the Accounting Office to complete your payment</p>
-    </div>
+    <div class="header-content"><h1>💵 Cash Payment Pending</h1><p class="subtitle">Please go to the Accounting Office to pay</p></div>
   </div>
   <div class="payment-container">
     <div class="payment-card">
       <h2>Cash Payment Instructions</h2>
-      <div class="student-summary">
-        <h3>Enrollment Summary</h3>
-        <div class="summary-row"><label>Student ID:</label><p>{{ student.id }}</p></div>
-        <div class="summary-row"><label>Name:</label><p>{{ student.firstName }} {{ student.lastName }}</p></div>
-        <div class="summary-row"><label>Program:</label><p>{{ student.program }}</p></div>
-        <div class="summary-row"><label>Semester:</label><p>{{ currentSemester }}</p></div>
-      </div>
-      <div class="payment-details">
-        <h3>Amount to Pay</h3>
-        <div class="payment-row"><span>Tuition Fee</span><span class="amount">₱{{ paymentInfo.amount | number:'1.0-0' }}</span></div>
-        <div class="payment-row total"><span>Total Amount Due</span><span class="amount">₱{{ paymentInfo.amount | number:'1.0-0' }}</span></div>
-        <p class="payment-due">Due by: {{ paymentInfo.dueDate | date: 'MMMM dd, yyyy' }}</p>
-      </div>
-      <div class="cash-pending-info">
-        <div class="cash-steps">
-          <div class="cash-step">
-            <span class="step-num">1</span>
-            <div>
-              <strong>Go to the Accounting Office</strong>
-              <p>Bring your Student ID. Tell the cashier you are a new enrollee paying via cash.</p>
-            </div>
+
+      <!-- TOR HARD COPY NOTICE for cash transferees -->
+      <div class="tor-hardcopy-notice" *ngIf="showTorHardCopyNotice">
+        <div class="thcn-icon">📄</div>
+        <div class="thcn-body">
+          <div class="thcn-title">⚠️ Submit Hard Copy of TOR to the Registrar</div>
+          <div class="thcn-text">
+            Before paying, please bring the <strong>original or certified true copy</strong> of your TOR to the Registrar's Office.
           </div>
-          <div class="cash-step">
-            <span class="step-num">2</span>
-            <div>
-              <strong>Pay ₱{{ paymentInfo.amount | number:'1.0-0' }} at the cashier window</strong>
-              <p>The Accounting staff will record your payment and confirm it in the system.</p>
-            </div>
+          <div class="thcn-tor-summary" *ngIf="torEvaluation">
+            <span class="thcn-pill credited">✓ {{ torEvaluation.creditedUnits }} units credited</span>
+            <span class="thcn-pill remaining">{{ torEvaluation.approvedUnits }} units remaining</span>
           </div>
-          <div class="cash-step">
-            <span class="step-num">3</span>
-            <div>
-              <strong>Return here and wait for automatic approval</strong>
-              <p>Once confirmed, this page will automatically redirect you to course enlistment.</p>
-            </div>
-          </div>
+          <button class="thcn-dismiss" (click)="dismissTorHardCopyNotice()">I understand →</button>
         </div>
-        <p class="poll-notice">🔄 Checking approval status automatically every 10 seconds...</p>
       </div>
-      <div class="info-box">
-        <p>⏳ Your enrollment will be <strong>automatically approved</strong> once the Accounting Office confirms your cash payment.</p>
+      <div class="student-summary">
+        <div class="summary-row"><label>Student:</label><p>{{ student.firstName }} {{ student.lastName }}</p></div>
+        <div class="summary-row"><label>Program:</label><p>{{ student.program }}</p></div>
       </div>
+      <!-- FEE ASSESSMENT BREAKDOWN for Cash -->
+      <div class="fee-preview-loading" *ngIf="isFeePreviewLoading">
+        <span>⏳ Loading fee assessment...</span>
+      </div>
+      <div class="fee-preview-card" *ngIf="feePreview && !isFeePreviewLoading">
+        <div class="fee-preview-title">📋 Assessment for the Current Semester</div>
+        <div class="fee-preview-rows">
+          <div class="fp-row"><span>No. of Units</span><span>{{ feePreview.units }}</span></div>
+          <div class="fp-row"><span>Tuition Fee ({{ feePreview.units }} × ₱650)</span><span>₱{{ feePreview.tuitionFee | number:'1.2-2' }}</span></div>
+          <div class="fp-row"><span>Miscellaneous Fee</span><span>₱{{ feePreview.miscellaneousFee | number:'1.2-2' }}</span></div>
+          <div class="fp-row"><span>Registration Fee</span><span>₱{{ feePreview.registrationFee | number:'1.2-2' }}</span></div>
+          <div class="fp-row"><span>Laboratory Fee ({{ feePreview.units }} × ₱1,900)</span><span>₱{{ feePreview.laboratoryFee | number:'1.2-2' }}</span></div>
+          <div class="fp-row"><span>Energy Fee ({{ feePreview.units }} × ₱21 × 3)</span><span>₱{{ feePreview.energyFee | number:'1.2-2' }}</span></div>
+          <div class="fp-row fp-subtotal"><span>Subtotal</span><span>₱{{ feePreview.subtotal | number:'1.2-2' }}</span></div>
+          <div class="fp-row fp-discount" *ngIf="feePreview.discount > 0">
+            <span>🎓 Scholarship Discount</span><span class="text-green">– ₱{{ feePreview.discount | number:'1.2-2' }}</span>
+          </div>
+          <div class="fp-row fp-total"><span><strong>TOTAL ASSESSMENT</strong></span><span><strong>₱{{ feePreview.totalAssessment | number:'1.2-2' }}</strong></span></div>
+        </div>
+      </div>
+      <div class="cash-steps">
+        <div class="cash-step"><span class="step-num">1</span><div><strong>Go to the Accounting Office</strong><p>Bring your Student ID or enrollment slip.</p></div></div>
+        <div class="cash-step"><span class="step-num">2</span><div><strong>Pay at the cashier window</strong><p>Accounting staff will record your payment.</p></div></div>
+        <div class="cash-step"><span class="step-num">3</span><div><strong>This page will auto-update</strong><p>You will be redirected once confirmed.</p></div></div>
+      </div>
+      <p class="poll-notice">🔄 Checking status automatically every 10 seconds...</p>
     </div>
   </div>
 </div>
 
-<!-- ══ APPROVAL / WAITING SCREEN ══ -->
+<!-- ══ APPROVAL SCREEN ══ -->
 <div class="enrollment-container" *ngIf="workflowStep === 'approval'">
   <div class="enrollment-header">
     <div class="header-content">
-      <h1>{{ isApprovalPending ? '⏳ Awaiting Approval' : '✅ Payment Approved!' }}</h1>
-      <p class="subtitle">{{ isApprovalPending ? 'Your payment is being reviewed' : 'Your enrollment has been approved' }}</p>
+      <h1>{{ isApprovalPending ? '⏳ Awaiting Verification' : '✅ Payment Approved!' }}</h1>
+      <p class="subtitle">{{ isApprovalPending ? 'Your payment is being reviewed by Accounting' : 'Ready to proceed to your dashboard' }}</p>
     </div>
   </div>
   <div class="approval-container">
     <div class="approval-card">
-
       <div class="approval-status pending" *ngIf="isApprovalPending">
-        <div class="status-icon">⏳</div>
-        <h2>Waiting for Accounting Verification...</h2>
-        <p *ngIf="paymentMethod !== 'Cash'">Your GCash reference has been submitted. The Accounting Office is verifying your payment.</p>
-        <p *ngIf="paymentMethod === 'Cash'">Please go to the Accounting Office to pay. This page will update automatically once confirmed.</p>
+        <div class="status-icon spinning">⏳</div>
+        <h2>Waiting for Accounting...</h2>
+        <p *ngIf="paymentMethod !== 'Cash'">Your GCash reference has been submitted and is pending verification.</p>
+        <p *ngIf="paymentMethod === 'Cash'">Please proceed to the Accounting Office to pay in person.</p>
+        <p *ngIf="student.isScholar" class="scholar-note">🎓 Your scholarship will also be validated by the Registrar.</p>
+        <p class="poll-notice">🔄 Checking every 10 seconds...</p>
       </div>
-
       <div class="approval-status approved" *ngIf="!isApprovalPending">
         <div class="status-icon">✅</div>
-        <h2>Payment Verified & Approved!</h2>
+        <h2>Payment Verified!</h2>
         <p>{{ approvalMessage }}</p>
-      </div>
-
-      <!-- GCash details while pending -->
-      <div *ngIf="isApprovalPending && paymentMethod !== 'Cash' && gcashSubmitted" class="approval-info">
-        <h3>Submitted Payment Details</h3>
-        <div class="info-row"><label>GCash Reference:</label><p>{{ gcashReference }}</p></div>
-        <div class="info-row"><label>Amount:</label><p>₱{{ gcashAmount | number:'1.0-0' }}</p></div>
-        <div class="info-row"><label>Date:</label><p>{{ gcashDate }}</p></div>
-        <p class="poll-notice">🔄 Checking every 10 seconds...</p>
-      </div>
-
-      <!-- Cash steps while pending -->
-      <div *ngIf="isApprovalPending && paymentMethod === 'Cash'" class="cash-pending-info">
-        <div class="cash-steps">
-          <div class="cash-step">
-            <span class="step-num">1</span>
-            <div><strong>Go to the Accounting Office</strong><p>Bring your Student ID: <strong>{{ student.id }}</strong></p></div>
-          </div>
-          <div class="cash-step">
-            <span class="step-num">2</span>
-            <div><strong>Pay ₱{{ paymentInfo.amount | number:'1.0-0' }}</strong><p>The cashier will confirm your payment.</p></div>
-          </div>
-          <div class="cash-step">
-            <span class="step-num">3</span>
-            <div><strong>This page will auto-update</strong><p>Redirects automatically after confirmation.</p></div>
-          </div>
-        </div>
-        <p class="poll-notice">🔄 Checking every 10 seconds...</p>
-      </div>
-
-      <!-- Student info -->
-      <div class="approval-info">
-        <h3>Enrollment Information</h3>
-        <div class="info-row"><label>Student ID:</label><p>{{ student.id }}</p></div>
-        <div class="info-row"><label>Name:</label><p>{{ student.firstName }} {{ student.lastName }}</p></div>
-        <div class="info-row"><label>Program:</label><p>{{ student.program }}</p></div>
-        <div class="info-row">
-          <label>Payment Method:</label>
-          <p><span class="badge" [class.badge-gcash]="paymentMethod !== 'Cash'" [class.badge-cash]="paymentMethod === 'Cash'">
-            {{ paymentMethod === 'Cash' ? '💵 Cash' : '📱 GCash' }}
-          </span></p>
-        </div>
-        <div class="info-row">
-          <label>Approval Status:</label>
-          <p><span class="badge" [class]="'badge-' + (student.approvalStatus?.toLowerCase() || 'pending')">{{ student.approvalStatus }}</span></p>
+        <div class="auto-enroll-info">
+          <h3>📚 What happens next?</h3>
+          <p>All subjects for your program (<strong>{{ student.program }}</strong>) will be <strong>automatically enrolled</strong> — no manual enlistment needed!</p>
         </div>
       </div>
-
       <div *ngIf="!isApprovalPending" class="approval-actions">
-        <button class="btn-proceed" (click)="proceedToDashboard()">🎓 Proceed to Course Enlistment →</button>
+        <button class="btn-proceed" (click)="proceedToDashboard()" [disabled]="isAutoEnrolling">
+          {{ isAutoEnrolling ? '⏳ Enrolling your subjects...' : '🎓 Go to My Dashboard →' }}
+        </button>
       </div>
     </div>
   </div>
 </div>
 
-<!-- ══ DASHBOARD — Subject Enlistment ══ -->
+<!-- ══ DASHBOARD ══ -->
 <div class="enrollment-container" *ngIf="workflowStep === 'dashboard'">
   <div class="enrollment-header">
     <div class="header-content">
-      <h1>🎓 Student Enrollment System</h1>
-      <p class="subtitle">Academic Year 2024-2025 | 1st Semester</p>
+      <h1>🎓 Student Dashboard</h1>
+      <p class="subtitle">{{ currentSemester }}</p>
     </div>
   </div>
 
-  <!-- Deadline Warning -->
-  <div class="deadline-warning" *ngIf="isDeadlineApproaching">
-    <div class="warning-content">
-      <span class="warning-icon">⏰</span>
-      <div class="warning-text">
-        <p><strong>Enrollment Deadline Approaching!</strong></p>
-        <p>{{ daysUntilDeadline }} days left (Deadline: {{ enrollmentDeadline | date: 'MMMM dd, yyyy' }})</p>
-      </div>
-    </div>
-  </div>
-
-  <!-- Navigation Tabs -->
   <div class="nav-tabs">
-    <button class="nav-tab" [class.active]="currentView === 'dashboard'" (click)="currentView = 'dashboard'">
-      📊 Dashboard
+    <button class="nav-tab" [class.active]="currentView === 'dashboard'" (click)="currentView = 'dashboard'">📊 My Info & Subjects</button>
+    <button class="nav-tab" [class.active]="currentView === 'enrollment-summary'" (click)="currentView = 'enrollment-summary'; loadEnrollmentSummary()">
+      🧾 Enrollment & Fees
     </button>
-    <button class="nav-tab" [class.active]="currentView === 'enroll'" (click)="currentView = 'enroll'">
-      ➕ Enlist Subjects
-    </button>
-    <button class="nav-tab" [class.active]="currentView === 'manage'" (click)="currentView = 'manage'">
-      ⚙️ Manage Subjects
-    </button>
-
   </div>
 
   <!-- ── DASHBOARD VIEW ── -->
   <div class="view-container" *ngIf="currentView === 'dashboard'">
     <div class="student-data-sheet">
       <div class="sheet-header">
-        <h2>📋 Student Information Sheet</h2>
-        <span class="student-type-badge" [class]="'badge-' + student.studentType?.toLowerCase()">
-          {{ student.studentType }} Student
-        </span>
+        <h2>📋 Student Information</h2>
+        <button class="btn-edit-profile" (click)="openEditModal()">✏️ Edit Info</button>
       </div>
       <div class="student-data-grid">
         <div class="data-column">
-          <h3>Personal Information</h3>
+          <h3>Personal</h3>
           <div class="data-item"><label>Student ID:</label><p>{{ student.id }}</p></div>
-          <div class="data-item"><label>Full Name:</label><p>{{ student.firstName }} {{ student.lastName }}</p></div>
-          <div class="data-item"><label>Date of Birth:</label><p>{{ student.dateOfBirth | date: 'MMMM dd, yyyy' }}</p></div>
+          <div class="data-item"><label>Name:</label><p>{{ student.firstName }} {{ student.lastName }}</p></div>
+          <div class="data-item"><label>Birthday:</label><p>{{ student.dateOfBirth | date:'MMMM dd, yyyy' }}</p></div>
           <div class="data-item"><label>Address:</label><p>{{ student.address }}</p></div>
         </div>
         <div class="data-column">
-          <h3>Academic Information</h3>
+          <h3>Academic</h3>
           <div class="data-item"><label>Program:</label><p>{{ student.program }}</p></div>
           <div class="data-item"><label>Year Level:</label><p>{{ student.yearLevel }}</p></div>
-          <div class="data-item"><label>Current GPA:</label><p class="gpa-value">{{ student.gpa | number: '1.2-2' }}</p></div>
+          <div class="data-item"><label>GPA:</label><p class="gpa-value">{{ student.gpa | number:'1.2-2' }}</p></div>
           <div class="data-item"><label>Status:</label><p><span class="badge" [class]="'badge-' + student.enrollmentStatus?.toLowerCase()">{{ student.enrollmentStatus }}</span></p></div>
         </div>
         <div class="data-column">
-          <h3>Contact Information</h3>
-          <div class="data-item"><label>Email:</label><p><a [href]="'mailto:' + student.email">{{ student.email }}</a></p></div>
+          <h3>Contact</h3>
+          <div class="data-item"><label>Email:</label><p>{{ student.email }}</p></div>
           <div class="data-item"><label>Phone:</label><p>{{ student.phone }}</p></div>
-          <div class="data-item"><label>Emergency Contact:</label><p>{{ student.emergencyContact }}</p></div>
-          <div class="data-item"><label>Enrollment Date:</label><p>{{ student.enrollmentDate | date: 'MMMM dd, yyyy' }}</p></div>
+          <div class="data-item"><label>Emergency:</label><p>{{ student.emergencyContact }} · {{ student.emergencyPhone }}</p></div>
         </div>
         <div class="data-column">
-          <h3>Payment Information</h3>
-          <div class="data-item">
-            <label>Payment Method:</label>
-            <p><span class="badge" [class.badge-gcash]="student.paymentMethod !== 'Cash'" [class.badge-cash]="student.paymentMethod === 'Cash'">
-              {{ student.paymentMethod === 'Cash' ? '💵 Cash' : '📱 GCash' }}
-            </span></p>
+          <h3>Payment</h3>
+          <div class="data-item"><label>Method:</label>
+            <p><span class="badge" [class.badge-gcash]="student.paymentMethod !== 'Cash'" [class.badge-cash]="student.paymentMethod === 'Cash'">{{ student.paymentMethod === 'Cash' ? '💵 Cash' : '📱 GCash' }}</span></p>
           </div>
-          <div class="data-item"><label>Payment Status:</label>
+          <div class="data-item"><label>Status:</label>
             <p><span class="payment-badge" [class]="'payment-' + student.paymentStatus?.toLowerCase()">{{ student.paymentStatus }}</span></p>
           </div>
-          <div class="data-item"><label>Amount Paid:</label><p>₱{{ paymentInfo.amount | number:'1.0-0' }}</p></div>
+          <div class="data-item" *ngIf="student.isScholar"><label>Scholarship:</label><p class="text-green">🎓 {{ student.scholarType }}</p></div>
         </div>
       </div>
     </div>
 
-    <!-- Status Cards -->
-    <div class="enrollment-status">
-      <div class="status-card enrolled">
-        <h3>✅ Enlisted Subjects</h3>
-        <p class="count">{{ approvedCourses.length }}</p>
-        <p class="subtitle">Approved subjects</p>
-      </div>
-      <div class="status-card credits">
-        <h3>📖 Total Credits</h3>
-        <p class="count">{{ totalEnrolledCredits }}</p>
-        <p class="subtitle">Out of {{ maxCredits }} units</p>
-      </div>
-      <div class="status-card payment">
-        <h3>💳 Payment</h3>
-        <p class="count" style="font-size:18px">{{ student.paymentStatus }}</p>
-        <p class="subtitle">Verified by Accounting</p>
-      </div>
-    </div>
-
-    <div class="credit-warning" *ngIf="creditWarning"><p>⚠️ {{ creditWarning }}</p></div>
-
-    <!-- Enlisted Courses on Dashboard -->
-    <div class="enrolled-section" *ngIf="approvedCourses.length > 0">
-      <h2>✅ My Enlisted Subjects</h2>
-      <div class="courses-grid">
-        <div *ngFor="let course of approvedCourses" class="course-card enrolled-card">
-          <div class="status-indicator enrolled">✅ Enrolled</div>
-          <div class="course-header">
-            <span class="course-code">{{ course.code }}</span>
-            <h3>{{ course.name }}</h3>
-          </div>
-          <div class="course-body">
-            <p class="course-detail"><strong>Credits:</strong> {{ course.credits }} units</p>
-            <p class="course-detail"><strong>Instructor:</strong> {{ course.instructor }}</p>
-            <p class="course-detail"><strong>Schedule:</strong> {{ course.schedule || course.time }}</p>
-            <p class="course-detail"><strong>Days:</strong> {{ course.day }}</p>
-            <p class="course-detail"><strong>Room:</strong> {{ course.room }}</p>
-          </div>
-          <div class="course-footer">
-            <button class="btn-drop-small" (click)="openDropModal(course)" [disabled]="!canDropCourse()">Drop</button>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div *ngIf="enrolledCourses.length === 0" class="no-data">
-      <p>📚 No subjects enlisted yet. Click <strong>"Enlist Subjects"</strong> to get started!</p>
-    </div>
   </div>
 
-  <!-- ── ENLIST VIEW ── -->
-  <div class="view-container" *ngIf="currentView === 'enroll'">
-    <div class="enroll-header">
-      <h2>Enlist Subjects</h2>
-      <p>Semester: {{ currentSemester }} &nbsp;|&nbsp; Credits: {{ totalEnrolledCredits }}/{{ maxCredits }}</p>
-      <p *ngIf="!canAddCourse()" class="deadline-expired">❌ Enrollment deadline has passed.</p>
-    </div>
+    <!-- ── ENROLLMENT SUMMARY & FEES VIEW ── -->
+  <div class="view-container" *ngIf="currentView === 'enrollment-summary'">
+    <div *ngIf="!enrollmentSummary" class="no-data"><p>⏳ Loading enrollment summary...</p></div>
 
-    <div class="search-filters" *ngIf="canAddCourse()">
-      <input type="text" class="search-input" placeholder="Search by course code or name..." [(ngModel)]="searchQuery">
-      <select class="filter-select" [(ngModel)]="filterDepartment">
-        <option [value]="null">All Departments</option>
-        <option *ngFor="let dept of departments" [value]="dept">{{ dept }}</option>
-      </select>
-    </div>
+    <div *ngIf="enrollmentSummary">
+      <!-- Enrollment Info Header -->
+      <div class="summary-header-card">
+        <div class="summary-header-grid">
+          <div class="summary-header-item">
+            <span class="sh-label">📅 Enrollment Date</span>
+            <span class="sh-value">{{ enrollmentSummary.enrollmentDate | date:'MMMM dd, yyyy' }}</span>
+          </div>
+          <div class="summary-header-item">
+            <span class="sh-label">📚 Semester / School Year</span>
+            <span class="sh-value">{{ enrollmentSummary.semester }}</span>
+          </div>
+          <div class="summary-header-item">
+            <span class="sh-label">🎓 Program</span>
+            <span class="sh-value">{{ enrollmentSummary.program }}</span>
+          </div>
+          <div class="summary-header-item">
+            <span class="sh-label">📖 Year Level</span>
+            <span class="sh-value">{{ enrollmentSummary.yearLevel }}</span>
+          </div>
+          <div class="summary-header-item">
+            <span class="sh-label">📋 Total Subjects</span>
+            <span class="sh-value">{{ enrollmentSummary.totalCourses }} subjects</span>
+          </div>
+          <div class="summary-header-item">
+            <span class="sh-label">🔢 Total Units</span>
+            <span class="sh-value">{{ enrollmentSummary.totalCredits }} units</span>
+          </div>
+        </div>
+      </div>
 
-    <div *ngIf="availableCoursesFiltered.length === 0" class="no-data">
-      <p>No courses available to enlist.</p>
-    </div>
 
-    <div class="courses-grid">
-      <div *ngFor="let course of availableCoursesFiltered" class="course-card available-card">
-        <div class="course-header">
+      <!-- Enrolled Subjects -->
+      <div class="subjects-card">
+        <div class="subjects-card-header">
+          <div class="subjects-card-title">
+            <div class="subjects-icon-wrap">📚</div>
+            <div>
+              <h2>Enrolled Subjects</h2>
+              <span class="subjects-meta">{{ enrollmentSummary.semester }}</span>
+            </div>
+          </div>
+          <div class="subjects-stats">
+            <div class="stat-pill">
+              <span class="stat-num">{{ enrollmentSummary.totalCourses }}</span>
+              <span class="stat-label">Subjects</span>
+            </div>
+            <div class="stat-pill stat-pill-accent">
+              <span class="stat-num">{{ enrollmentSummary.totalCredits }}</span>
+              <span class="stat-label">Units</span>
+            </div>
+          </div>
+        </div>
+
+        <div *ngIf="enrollmentSummary.totalCourses === 0" class="no-data"><p>No enrolled subjects found.</p></div>
+
+        <div *ngIf="enrollmentSummary.totalCourses > 0" class="subjects-grid-table">
+          <!-- Header -->
+          <div class="sgt-header">
+            <span class="sgt-col sgt-num">#</span>
+            <span class="sgt-col sgt-code">Code</span>
+            <span class="sgt-col sgt-name">Subject</span>
+            <span class="sgt-col sgt-units">Units</span>
+            <span class="sgt-col sgt-instructor">Instructor</span>
+            <span class="sgt-col sgt-room">Room</span>
+            <span class="sgt-col sgt-status">Status</span>
+          </div>
+          <!-- Rows -->
+          <div class="sgt-row" *ngFor="let c of enrollmentSummary.courses; let i = index; let odd = odd" [class.sgt-row-alt]="odd">
+            <span class="sgt-col sgt-num">{{ i + 1 }}</span>
+            <span class="sgt-col sgt-code"><span class="code-tag">{{ c.code }}</span></span>
+            <span class="sgt-col sgt-name">{{ c.name }}</span>
+            <span class="sgt-col sgt-units"><span class="units-badge">{{ c.credits }}</span></span>
+            <span class="sgt-col sgt-instructor">{{ c.instructor }}</span>
+            <span class="sgt-col sgt-room">{{ c.room }}</span>
+            <span class="sgt-col sgt-status"><span class="enrolled-dot">✓ Enrolled</span></span>
+          </div>
+          <!-- Total Row -->
+          <div class="sgt-total">
+            <span class="sgt-col sgt-num"></span>
+            <span class="sgt-col sgt-code"></span>
+            <span class="sgt-col sgt-name" style="text-align:right; font-weight:700; color:#6b7280;">Total Units:</span>
+            <span class="sgt-col sgt-units"><span class="units-badge units-badge-total">{{ enrollmentSummary.totalCredits }}</span></span>
+            <span class="sgt-col sgt-instructor"></span>
+            <span class="sgt-col sgt-room"></span>
+            <span class="sgt-col sgt-status"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Fee Assessment Breakdown -->
+      <div class="fees-section" *ngIf="feeBreakdown">
+        <div class="section-header">
+          <h2>🧾 Statement of Account</h2>
+          <span class="pay-status-badge" [class]="getPayStatusClass(feeBreakdown.paymentStatus === 'Fully Paid' ? 'Paid' : feeBreakdown.paymentStatus)">
+            {{ feeBreakdown.paymentStatus === 'Fully Paid' ? '✅ Fully Paid' : feeBreakdown.paymentStatus === 'Partial' ? '🔶 Partially Paid' : '❌ Unpaid' }}
+          </span>
+        </div>
+        <div class="fees-grid">
+          <div class="fee-card">
+            <div class="fee-breakdown-title">Assessment for the Current Semester</div>
+            <div class="fee-rows">
+              <div class="fee-row"><span class="fee-label">No. of Units</span><span class="fee-amount">{{ feeBreakdown.units }}</span></div>
+              <div class="fee-row"><span class="fee-label">Tuition Fee ({{ feeBreakdown.units }} units × ₱650)</span><span class="fee-amount">₱{{ feeBreakdown.tuitionFee | number:'1.2-2' }}</span></div>
+              <div class="fee-row"><span class="fee-label">Miscellaneous Fee</span><span class="fee-amount">₱{{ feeBreakdown.miscellaneousFee | number:'1.2-2' }}</span></div>
+              <div class="fee-row"><span class="fee-label">Registration Fee</span><span class="fee-amount">₱{{ feeBreakdown.registrationFee | number:'1.2-2' }}</span></div>
+              <div class="fee-row"><span class="fee-label">Laboratory Fee ({{ feeBreakdown.units }} × ₱1,900)</span><span class="fee-amount">₱{{ feeBreakdown.laboratoryFee | number:'1.2-2' }}</span></div>
+              <div class="fee-row"><span class="fee-label">Energy Fee ({{ feeBreakdown.units }} × ₱21 × 3)</span><span class="fee-amount">₱{{ feeBreakdown.energyFee | number:'1.2-2' }}</span></div>
+              <div class="fee-row subtotal"><span class="fee-label">Subtotal</span><span class="fee-amount">₱{{ feeBreakdown.subtotal | number:'1.2-2' }}</span></div>
+              <div class="fee-row discount" *ngIf="feeBreakdown.discount > 0">
+                <span class="fee-label">🎓 Scholarship Discount</span>
+                <span class="fee-amount text-green">– ₱{{ feeBreakdown.discount | number:'1.2-2' }}</span>
+              </div>
+              <div class="fee-row" *ngIf="feeBreakdown.installmentFee > 0">
+                <span class="fee-label">Installment Fee</span>
+                <span class="fee-amount">₱{{ feeBreakdown.installmentFee | number:'1.2-2' }}</span>
+              </div>
+              <div class="fee-row total"><span class="fee-label" style="font-weight:800;">TOTAL ASSESSMENT</span><span class="fee-amount" style="font-weight:800;">₱{{ feeBreakdown.totalAssessment | number:'1.2-2' }}</span></div>
+
+              <!-- FULL PAYMENT: single Amount Paid row -->
+              <ng-container *ngIf="paymentPlan === 'full'">
+                <div class="fee-row paid"><span class="fee-label">Amount Paid</span><span class="fee-amount text-green">₱{{ feeBreakdown.totalPaid | number:'1.2-2' }}</span></div>
+              </ng-container>
+
+              <!-- INSTALLMENT: per-term payment schedule -->
+              <ng-container *ngIf="paymentPlan === 'installment'">
+                <div class="fee-row installment-header">
+                  <span class="fee-label" style="font-weight:700;color:#1d4ed8;">💳 Installment Payment Schedule</span>
+                  <span class="fee-amount" style="color:#6b7280;font-size:0.8rem;">4 equal terms</span>
+                </div>
+                <ng-container *ngFor="let t of installmentSchedule">
+                  <!-- PAID term -->
+                  <div class="fee-row paid" *ngIf="t.paid" style="background:#f0fdf4;border-left:3px solid #16a34a;padding-left:8px;">
+                    <span class="fee-label">
+                      ✅ <strong>{{ t.label }}</strong>
+                      <small style="color:#6b7280;margin-left:6px;">{{ t.orNo }}</small>
+                      <small *ngIf="t.paymentDate" style="color:#9ca3af;margin-left:6px;">{{ t.paymentDate }}</small>
+                    </span>
+                    <span class="fee-amount text-green" style="font-weight:700;">₱{{ t.amountPaid | number:'1.2-2' }}</span>
+                  </div>
+                  <!-- UNPAID term -->
+                  <div class="fee-row" *ngIf="!t.paid" style="background:#fafafa;border-left:3px solid #e5e7eb;padding-left:8px;">
+                    <span class="fee-label" style="color:#6b7280;">
+                      ⏳ <strong>{{ t.label }}</strong>
+                    </span>
+                    <span class="fee-amount" style="color:#9ca3af;">₱{{ t.amount | number:'1.2-2' }} — pending</span>
+                  </div>
+                </ng-container>
+                <div class="fee-row subtotal" style="border-top:2px solid #e5e7eb;margin-top:6px;padding-top:6px;">
+                  <span class="fee-label" style="font-weight:700;">Total Paid So Far</span>
+                  <span class="fee-amount text-green" style="font-weight:700;">₱{{ feeBreakdown.totalPaid | number:'1.2-2' }}</span>
+                </div>
+              </ng-container>
+
+              <div class="fee-row balance" *ngIf="feeBreakdown.balance > 0">
+                <span class="fee-label" style="color:#dc2626;font-weight:700;">Remaining Balance</span>
+                <span class="fee-amount" style="color:#dc2626;font-weight:800;">₱{{ feeBreakdown.balance | number:'1.2-2' }}</span>
+              </div>
+              <div class="fee-row" *ngIf="feeBreakdown.balance === 0">
+                <span class="fee-label" style="color:#16a34a;font-weight:700;">Balance</span>
+                <span class="fee-amount" style="color:#16a34a;font-weight:800;">₱0.00 — Fully Paid</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- OR/AR Payment Receipt History -->
+      <div class="term-payments-section" *ngIf="paymentReceipts.length > 0">
+        <div class="section-header">
+          <h2>🧾 Payment Receipts (OR / AR)</h2>
+          <p class="section-sub">Official and Acknowledgement Receipts issued by Accounting</p>
+        </div>
+
+        <!-- Fully Paid Banner -->
+        <div class="receipt-fullpaid-card" *ngIf="feeBreakdown && feeBreakdown.paymentStatus === 'Fully Paid'">
+          <div class="fp-icon">✅</div>
           <div>
-            <span class="course-code">{{ course.code }}</span>
-            <h3>{{ course.name }}</h3>
-          </div>
-          <span class="credits-badge">{{ course.credits }} Units</span>
-        </div>
-        <div class="course-body">
-          <p class="course-description">{{ course.description }}</p>
-          <div class="course-detail"><strong>Department:</strong> {{ course.department }}</div>
-          <div class="course-detail"><strong>Instructor:</strong> {{ course.instructor }}</div>
-          <div class="course-detail"><strong>Schedule:</strong> {{ course.schedule }}</div>
-          <div class="course-detail"><strong>Days:</strong> {{ course.day }}</div>
-          <div class="course-detail"><strong>Room:</strong> {{ course.room }}</div>
-          <div class="course-detail seats">
-            <strong>Available Seats:</strong>
-            <span [class.almost-full]="isCourseAlmostFull(course)">
-              {{ getAvailableSeats(course) }}/{{ course.capacity }}
-              <span *ngIf="isCourseAlmostFull(course)" class="almost-full-badge">Almost Full</span>
-            </span>
+            <div class="fp-title">FULLY PAID</div>
+            <div class="fp-sub">
+              <strong>{{ student.firstName }} {{ student.lastName }}</strong> — {{ student.program }}, {{ student.yearLevel }}<br>
+              <span>Final Receipt: <strong>{{ paymentReceipts[paymentReceipts.length - 1]?.orArNumber }}</strong></span>
+            </div>
           </div>
         </div>
-        <div class="course-footer">
-          <button class="btn-enroll" (click)="openEnrollModal(course)" [disabled]="!canEnroll(course) || !canAddCourse()">
-            {{ !canEnroll(course) ? '🚫 No Seats Available' : 'Enlist Now' }}
-          </button>
+
+        <!-- Receipts table -->
+        <div class="receipt-table-wrap">
+          <table class="receipt-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>OR/AR No.</th>
+                <th>Type</th>
+                <th>Date</th>
+                <th>Period</th>
+                <th>Method</th>
+                <th style="text-align:right;">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr *ngFor="let r of paymentReceipts; let i = index">
+                <td>{{ i + 1 }}</td>
+                <td><strong>{{ r.orArNumber }}</strong></td>
+                <td><span class="or-badge" [class.or-type-or]="r.orArType==='OR'" [class.or-type-ar]="r.orArType==='AR'">{{ r.orArType }}</span></td>
+                <td>{{ r.paymentDate | date:'MMM d, yyyy' }}</td>
+                <td><span class="period-badge">{{ r.examPeriod }}</span></td>
+                <td>{{ r.paymentMethod }}</td>
+                <td style="text-align:right;font-weight:700;color:#1d4ed8;">₱{{ r.amount | number:'1.2-2' }}</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
-    </div>
-  </div>
 
-  <!-- ── MANAGE VIEW ── -->
-  <div class="view-container" *ngIf="currentView === 'manage'">
-    <div class="manage-header">
-      <h2>Manage Your Subjects</h2>
-      <p *ngIf="canDropCourse()" class="deadline-info">✅ Add/Drop deadline: {{ addDropDeadline | date: 'MMMM dd, yyyy' }}</p>
-      <p *ngIf="!canDropCourse()" class="deadline-expired">❌ Add/Drop deadline has passed</p>
-    </div>
-
-    <div *ngIf="enrolledCourses.length === 0" class="no-data">
-      <p>No subjects enlisted. Go to "Enlist Subjects" to add subjects.</p>
-    </div>
-
-    <div *ngIf="approvedCourses.length > 0" class="manage-section">
-      <h3>✅ Enlisted Subjects</h3>
-      <div class="manage-table">
-        <div class="table-header">
-          <div class="col-code">Code</div>
-          <div class="col-name">Course Name</div>
-          <div class="col-credits">Credits</div>
-          <div class="col-status">Status</div>
-          <div class="col-action">Action</div>
-        </div>
-        <div *ngFor="let course of approvedCourses" class="table-row">
-          <div class="col-code">{{ course.code }}</div>
-          <div class="col-name">{{ course.name }}</div>
-          <div class="col-credits">{{ course.credits }}</div>
-          <div class="col-status"><span class="badge enrolled">Enrolled</span></div>
-          <div class="col-action">
-            <button class="btn-drop-table" (click)="openDropModal(course)" [disabled]="!canDropCourse()">Drop</button>
-          </div>
-        </div>
+      <div class="term-payments-section" *ngIf="paymentReceipts.length === 0 && !isFeeLoading">
+        <div class="no-data"><p>Payment receipts will appear once Accounting records your payment.</p></div>
       </div>
-    </div>
-  </div>
 
-
-</div>
-
-<!-- ── Enlist Confirm Modal ── -->
-<div class="modal-overlay" *ngIf="showEnrollModal" (click)="closeEnrollModal()">
-  <div class="modal-content" (click)="$event.stopPropagation()">
-    <div class="modal-header">
-      <h2>Confirm Enlistment</h2>
-      <button class="modal-close" (click)="closeEnrollModal()">✕</button>
-    </div>
-    <div class="modal-body" *ngIf="selectedCourseForEnroll">
-      <div class="course-summary">
-        <div class="summary-row"><label>Course Code:</label><p>{{ selectedCourseForEnroll.code }}</p></div>
-        <div class="summary-row"><label>Course Name:</label><p>{{ selectedCourseForEnroll.name }}</p></div>
-        <div class="summary-row"><label>Credits:</label><p>{{ selectedCourseForEnroll.credits }} units</p></div>
-        <div class="summary-row"><label>Instructor:</label><p>{{ selectedCourseForEnroll.instructor }}</p></div>
-        <div class="summary-row"><label>Schedule:</label><p>{{ selectedCourseForEnroll.schedule }}</p></div>
-        <div class="summary-row"><label>Days:</label><p>{{ selectedCourseForEnroll.day }}</p></div>
-        <div class="summary-row"><label>Time:</label><p>{{ selectedCourseForEnroll.time }}</p></div>
-        <div class="summary-row"><label>Room:</label><p>{{ selectedCourseForEnroll.room }}</p></div>
-      </div>
-      <div class="form-group">
-        <label for="notes">Notes (optional):</label>
-        <textarea id="notes" class="form-control" rows="2" placeholder="Any special notes..." [(ngModel)]="enrollmentForm.notes"></textarea>
-      </div>
-      <div class="info-box">
-        <p>✅ This subject will be immediately added to your enrolled subjects and schedule.</p>
-      </div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn-cancel" (click)="closeEnrollModal()">Cancel</button>
-      <button class="btn-confirm" (click)="confirmEnrollment()">✅ Enlist Subject</button>
     </div>
   </div>
 </div>
@@ -459,19 +531,13 @@
 <!-- ── Drop Modal ── -->
 <div class="modal-overlay" *ngIf="showDropModal" (click)="closeDropModal()">
   <div class="modal-content modal-small" (click)="$event.stopPropagation()">
-    <div class="modal-header">
-      <h2>Drop Subject</h2>
-      <button class="modal-close" (click)="closeDropModal()">✕</button>
-    </div>
+    <div class="modal-header"><h2>Drop Subject</h2><button class="modal-close" (click)="closeDropModal()">✕</button></div>
     <div class="modal-body" *ngIf="selectedCourseForDrop">
-      <div class="warning-box">
-        <p class="warning-text">⚠️ Are you sure you want to drop <strong>{{ selectedCourseForDrop.code }}</strong>?</p>
-      </div>
+      <div class="warning-box"><p class="warning-text">⚠️ Are you sure you want to drop <strong>{{ selectedCourseForDrop.code }}</strong>?</p></div>
       <div class="course-summary">
         <div class="summary-row"><label>Subject:</label><p>{{ selectedCourseForDrop.code }} — {{ selectedCourseForDrop.name }}</p></div>
-        <div class="summary-row"><label>Credits:</label><p>{{ selectedCourseForDrop.credits }} units</p></div>
+        <div class="summary-row"><label>Units:</label><p>{{ selectedCourseForDrop.credits }}</p></div>
       </div>
-      <p class="note-text">This will remove the subject from your enrollment and schedule.</p>
     </div>
     <div class="modal-footer">
       <button class="btn-cancel" (click)="closeDropModal()">Cancel</button>
@@ -480,21 +546,76 @@
   </div>
 </div>
 
-<!-- ── Success Modal ── -->
-<div class="modal-overlay" *ngIf="showConfirmationModal" (click)="closeConfirmationModal()">
-  <div class="modal-content modal-success" (click)="$event.stopPropagation()">
-    <div class="modal-header success">
-      <h2>✅ Enlistment Successful!</h2>
-    </div>
+<!-- ── Edit Profile Modal ── -->
+<div class="modal-overlay" *ngIf="showEditModal" (click)="closeEditModal()">
+  <div class="modal-content" (click)="$event.stopPropagation()">
+    <div class="modal-header"><h2>✏️ Edit Student Information</h2><button class="modal-close" (click)="closeEditModal()">✕</button></div>
     <div class="modal-body">
-      <div class="success-box">
-        <p><strong>{{ lastEnlistedCourse?.code }} — {{ lastEnlistedCourse?.name }}</strong></p>
-        <p>Successfully enlisted! This subject is now <strong>ENROLLED</strong> and showing in your schedule.</p>
-        <p>Go to <strong>📅 Schedule</strong> in the side menu to view your complete class schedule.</p>
+      <p class="edit-note">You can update contact info and address. For program/name changes, contact the Registrar.</p>
+      <div class="form-grid two-col">
+        <div class="form-group"><label>Phone</label><input type="tel" class="form-control" [(ngModel)]="editForm.phone"></div>
+        <div class="form-group"><label>Date of Birth</label><input type="date" class="form-control" [(ngModel)]="editForm.dateOfBirth"></div>
+        <div class="form-group full-col"><label>Address</label><input type="text" class="form-control" [(ngModel)]="editForm.address"></div>
+        <div class="form-group"><label>Emergency Contact</label><input type="text" class="form-control" [(ngModel)]="editForm.emergencyContact"></div>
+        <div class="form-group"><label>Emergency Phone</label><input type="tel" class="form-control" [(ngModel)]="editForm.emergencyPhone"></div>
       </div>
     </div>
     <div class="modal-footer">
-      <button class="btn-confirm" (click)="closeConfirmationModal()">OK, Got it!</button>
+      <button class="btn-cancel" (click)="closeEditModal()">Cancel</button>
+      <button class="btn-confirm" (click)="saveEditChanges()">💾 Save Changes</button>
     </div>
   </div>
 </div>
+<!-- Fee Preview Styles (inline to avoid separate CSS file) -->
+<style>
+/* ── TOR PENDING STEP ── */
+.tor-pending-card { max-width: 680px; margin: 0 auto; }
+.tor-pending-steps { display: flex; flex-direction: column; gap: 1rem; margin-bottom: 1.5rem; }
+.tp-step { display: flex; gap: 1rem; align-items: flex-start; padding: 0.85rem 1rem; border-radius: 10px; background: #f8fafc; border: 1.5px solid #e2e8f0; }
+.tp-step-done  { border-color: #86efac; background: #f0fdf4; }
+.tp-step-active { border-color: #93c5fd; background: #eff6ff; }
+.tp-step-pending { opacity: 0.65; }
+.tp-step-icon { font-size: 1.4rem; min-width: 2rem; text-align: center; margin-top: 2px; }
+.tp-step-body strong { display: block; font-size: 0.95rem; color: #1e3a5f; margin-bottom: 2px; }
+.tp-step-body p { margin: 0; font-size: 0.85rem; color: #4b5563; }
+.tor-pending-info { background: #f1f5f9; border-radius: 8px; padding: 0.85rem 1rem; margin-bottom: 1rem; display: flex; flex-direction: column; gap: 0.4rem; }
+.tpi-row { display: flex; gap: 0.5rem; font-size: 0.875rem; }
+.tpi-row label { font-weight: 600; color: #374151; min-width: 130px; }
+.tor-loading-bar { font-size: 0.85rem; color: #6b7280; margin-bottom: 0.5rem; }
+
+/* ── TOR HARD COPY NOTICE ── */
+.tor-hardcopy-notice { display: flex; gap: 1rem; align-items: flex-start; background: #fffbeb; border: 2px solid #f59e0b; border-radius: 12px; padding: 1.2rem 1.4rem; margin-bottom: 1.5rem; }
+.thcn-icon { font-size: 2rem; min-width: 2.5rem; }
+.thcn-body { flex: 1; }
+.thcn-title { font-weight: 800; color: #92400e; font-size: 1rem; margin-bottom: 0.5rem; }
+.thcn-text { font-size: 0.875rem; color: #374151; line-height: 1.6; margin-bottom: 0.75rem; }
+.thcn-tor-summary { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem; align-items: center; }
+.thcn-pill { padding: 3px 12px; border-radius: 20px; font-size: 0.8rem; font-weight: 700; }
+.thcn-pill.credited  { background: #dcfce7; color: #166534; }
+.thcn-pill.remaining { background: #dbeafe; color: #1e40af; }
+.thcn-notes { font-size: 0.8rem; color: #6b7280; font-style: italic; }
+.thcn-dismiss { background: #f59e0b; color: #fff; border: none; border-radius: 8px; padding: 8px 20px; font-size: 0.875rem; font-weight: 700; cursor: pointer; transition: background .2s; }
+.thcn-dismiss:hover { background: #d97706; }
+.fee-preview-card { background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px; padding:1rem 1.2rem; margin:1rem 0; }
+.fee-preview-title { font-weight:700; color:#1e3a5f; font-size:0.95rem; margin-bottom:0.75rem; text-align:center; letter-spacing:.3px; }
+.fee-preview-rows { display:flex; flex-direction:column; gap:0.3rem; }
+.fp-row { display:flex; justify-content:space-between; font-size:0.88rem; color:#374151; padding:3px 0; border-bottom:1px solid #f1f5f9; }
+.fp-row:last-child { border-bottom:none; }
+.fp-subtotal { border-top:2px solid #cbd5e1 !important; margin-top:4px; padding-top:6px; font-weight:600; }
+.fp-total { border-top:2px solid #1e3a5f !important; margin-top:4px; padding-top:6px; font-size:1rem; color:#1e3a5f; }
+.fp-discount { color:#16a34a; }
+.fee-preview-loading { text-align:center; padding:0.75rem; color:#6b7280; font-size:0.9rem; }
+.or-badge { padding:2px 7px; border-radius:4px; font-size:0.78rem; font-weight:700; }
+.or-type-or { background:#dcfce7; color:#166534; }
+.or-type-ar { background:#fef9c3; color:#854d0e; }
+.period-badge { background:#eff6ff; color:#1d4ed8; padding:2px 8px; border-radius:4px; font-size:0.78rem; }
+.receipt-table-wrap { overflow-x:auto; margin-top:1rem; }
+.receipt-table { width:100%; border-collapse:collapse; font-size:0.875rem; }
+.receipt-table th { background:#f1f5f9; padding:8px 12px; text-align:left; font-weight:600; color:#374151; }
+.receipt-table td { padding:8px 12px; border-bottom:1px solid #f1f5f9; }
+.receipt-fullpaid-card { display:flex; align-items:center; gap:1rem; background:#f0fdf4; border:1.5px solid #86efac; border-radius:10px; padding:1rem 1.2rem; margin-bottom:1rem; }
+.fp-icon { font-size:2rem; }
+.fp-title { font-weight:800; font-size:1.1rem; color:#15803d; }
+.fp-sub { font-size:0.875rem; color:#374151; margin-top:2px; }
+.fee-breakdown-title { font-weight:700; color:#1e3a5f; margin-bottom:0.75rem; font-size:0.95rem; text-align:center; }
+</style>

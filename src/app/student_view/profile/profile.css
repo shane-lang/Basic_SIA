@@ -1,186 +1,55 @@
-.profile-container {
-  width: 100%;
-  background-color: #f5f7fa;
-  min-height: 100vh;
-}
+.profile-container { width: 100%; background-color: #f5f7fa; min-height: 100vh; }
 
-/* Header Section */
-.profile-header {
-  position: relative;
-  background: white;
-  margin-bottom: 30px;
-}
+.state-center { text-align: center; padding: 80px 20px; color: #718096; }
+.error-state { color: #e53e3e; }
+.spinner { width: 40px; height: 40px; border: 4px solid #e2e8f0; border-top-color: #667eea; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 16px; }
+@keyframes spin { to { transform: rotate(360deg); } }
 
-.header-background {
-  height: 200px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-}
+/* Header */
+.profile-header { position: relative; background: white; margin-bottom: 30px; }
+.header-background { height: 180px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+.profile-content { max-width: 1200px; margin: 0 auto; padding: 0 20px; display: flex; align-items: flex-start; gap: 24px; transform: translateY(-70px); position: relative; z-index: 10; }
+.profile-picture-wrapper { flex-shrink: 0; }
+.profile-picture { width: 130px; height: 130px; border-radius: 50%; border: 4px solid white; box-shadow: 0 4px 15px rgba(0,0,0,0.15); object-fit: cover; }
+.basic-info { padding-top: 16px; }
+.basic-info h1 { margin: 0 0 4px; font-size: 26px; font-weight: 700; color: #1a202c; }
+.student-id { margin: 0 0 2px; color: #718096; font-size: 13px; }
+.student-program { margin: 0 0 12px; color: #4a5568; font-size: 14px; font-weight: 600; }
+.badge-row { display: flex; gap: 8px; flex-wrap: wrap; }
 
-.profile-content {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 0 20px;
-  display: flex;
-  align-items: flex-start;
-  gap: 30px;
-  transform: translateY(-80px);
-  position: relative;
-  z-index: 10;
-}
+/* Badges */
+.status-badge { display: inline-block; padding: 5px 12px; border-radius: 20px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; background: #e2e8f0; color: #4a5568; }
+.status-enrolled, .status-active { background: #c6f6d5; color: #22543d; }
+.status-pending  { background: #fefcbf; color: #744210; }
+.status-approved { background: #bee3f8; color: #2a4365; }
+.status-rejected, .status-dropped { background: #fed7d7; color: #742a2a; }
+.pay-paid   { background: #c6f6d5; color: #22543d; }
+.pay-pending{ background: #fefcbf; color: #744210; }
+.pay-overdue{ background: #fed7d7; color: #742a2a; }
+.scholar-badge { display: inline-block; padding: 5px 12px; border-radius: 20px; font-size: 12px; font-weight: 700; background: #e9d8fd; color: #553c9a; }
 
-.profile-picture-wrapper {
-  flex-shrink: 0;
-}
+/* Body */
+.profile-body { max-width: 1200px; margin: 0 auto; padding: 0 20px 40px; display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+.profile-col { display: flex; flex-direction: column; gap: 24px; }
 
-.profile-picture {
-  width: 150px;
-  height: 150px;
-  border-radius: 50%;
-  border: 5px solid white;
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
-  object-fit: cover;
-}
+/* Cards */
+.card { background: white; border-radius: 10px; padding: 24px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+.card:hover { box-shadow: 0 4px 14px rgba(0,0,0,0.1); transition: box-shadow 0.2s; }
+.card h2 { margin: 0 0 18px; font-size: 16px; font-weight: 700; color: #2d3748; border-bottom: 2px solid #f0f0f0; padding-bottom: 12px; }
+.info-group { margin-bottom: 14px; }
+.info-group:last-child { margin-bottom: 0; }
+.info-group label { display: block; font-size: 11px; font-weight: 700; color: #a0aec0; text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 4px; }
+.info-group p { margin: 0; font-size: 14px; color: #2d3748; line-height: 1.5; }
+.info-group a { color: #667eea; text-decoration: none; }
+.info-group a:hover { color: #764ba2; text-decoration: underline; }
 
-.basic-info {
-  padding-top: 20px;
-}
+.gpa-value { font-size: 18px; font-weight: 700; color: #667eea; }
+.gpa-status { font-size: 11px; font-weight: 600; color: #718096; margin-left: 8px; background: #edf2f7; padding: 3px 8px; border-radius: 4px; }
 
-.basic-info h1 {
-  margin: 0 0 5px 0;
-  font-size: 28px;
-  font-weight: 600;
-  color: #1a202c;
-}
+.scholar-divider { font-size: 12px; font-weight: 700; color: #764ba2; text-transform: uppercase; letter-spacing: 0.6px; padding: 8px 0 4px; border-top: 1px dashed #e9d8fd; margin: 8px 0; }
 
-.student-id {
-  margin: 0 0 15px 0;
-  color: #718096;
-  font-size: 14px;
-}
-
-.status-badge {
-  display: inline-block;
-  padding: 8px 16px;
-  border-radius: 20px;
-  font-size: 13px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.status-active {
-  background-color: #c6f6d5;
-  color: #22543d;
-}
-
-.status-inactive {
-  background-color: #fed7d7;
-  color: #742a2a;
-}
-
-/* Main Content */
-.profile-body {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 0 20px 40px 20px;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 30px;
-}
-
-.card {
-  background: white;
-  border-radius: 8px;
-  padding: 25px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
-  transition: box-shadow 0.3s ease;
-}
-
-.card:hover {
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-}
-
-.card h2 {
-  margin: 0 0 20px 0;
-  font-size: 18px;
-  font-weight: 600;
-  color: #1a202c;
-  border-bottom: 2px solid #f0f0f0;
-  padding-bottom: 15px;
-}
-
-.info-group {
-  margin-bottom: 18px;
-}
-
-.info-group label {
-  display: block;
-  font-size: 12px;
-  font-weight: 700;
-  color: #718096;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  margin-bottom: 6px;
-}
-
-.info-group p {
-  margin: 0;
-  font-size: 15px;
-  color: #2d3748;
-  line-height: 1.5;
-}
-
-.info-group a {
-  color: #667eea;
-  text-decoration: none;
-  transition: color 0.3s ease;
-}
-
-.info-group a:hover {
-  color: #764ba2;
-  text-decoration: underline;
-}
-
-.gpa-value {
-  font-size: 18px;
-  font-weight: 600;
-  color: #667eea;
-}
-
-.gpa-status {
-  font-size: 12px;
-  font-weight: 600;
-  color: #718096;
-  margin-left: 8px;
-  background-color: #edf2f7;
-  padding: 3px 8px;
-  border-radius: 4px;
-}
-
-/* Layout for different screen sizes */
 @media (max-width: 768px) {
-  .profile-content {
-    flex-direction: column;
-    align-items: center;
-    text-align: center;
-    transform: translateY(-60px);
-  }
-
-  .profile-picture {
-    width: 120px;
-    height: 120px;
-  }
-
-  .basic-info h1 {
-    font-size: 24px;
-  }
-
-  .profile-body {
-    grid-template-columns: 1fr;
-    gap: 20px;
-  }
-
-  .card {
-    padding: 20px;
-  }
+  .profile-content { flex-direction: column; align-items: center; text-align: center; transform: translateY(-50px); }
+  .badge-row { justify-content: center; }
+  .profile-body { grid-template-columns: 1fr; }
 }

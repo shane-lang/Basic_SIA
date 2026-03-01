@@ -22,6 +22,8 @@ import { Grading } from './admin/grading/grading';
 import { Analytics } from './admin/analytics/analytics';
 import { AuditLogs } from './admin/audit-logs/audit-logs';
 import { Settings } from './admin/settings/settings';
+import { Rooms } from './admin/rooms/rooms';
+import { Levels } from './admin/levels/levels';
 
 //  accounting sub-components
 import { ASR } from './accounting/asr/asr';
@@ -39,80 +41,87 @@ import { ClassSections } from './admin/class-sections/class-sections';
 import { GradeSubmission } from './admin/grade-submission/grade-submission';
 import { Reports } from './admin/reports/reports';
 import { Accounting } from './accounting/accounting/accounting';
+import { TorEvaluation } from './registrar/tor-evaluation/tor-evaluation';
 
 export const routes: Routes = [
   { path: 'login', component: LoginComponent },
-  
+
   // Student Routes
-  { 
-    path: 'student', 
-    component: StudentLayout, 
-    canActivate: [AuthGuard], 
+  {
+    path: 'student',
+    component: StudentLayout,
+    canActivate: [AuthGuard],
     data: { role: 'student' },
     children: [
-      { path: 'dashboard', component: StudentDashboard },
+      { path: 'dashboard',  component: StudentDashboard },
       { path: 'enrollment', component: Enrollment },
-      { path: 'profile', component: Profile },
-      { path: 'schedule', component: Schedule },
-      { path: 'grades', component: GradeSubmission },
-      { path: 'about', component: About },
+      { path: 'profile',    component: Profile },
+      { path: 'schedule',   component: Schedule },
+      { path: 'grades',     component: GradeSubmission },
+      { path: 'about',      component: About },
       { path: '', redirectTo: 'dashboard', pathMatch: 'full' }
     ]
   },
-  
+
   // Admin Routes
-  { 
-    path: 'admin', 
-    component: Admin, 
-    canActivate: [AuthGuard], 
+  {
+    path: 'admin',
+    component: Admin,
+    canActivate: [AuthGuard],
     data: { role: 'admin' },
     children: [
-      { path: 'dashboard', component: AdminDashboard },
-      { path: 'students', component: Students },
-      { path: 'courses', component: Courses },
-      { path: 'faculty', component: Faculty },
-      { path: 'grading', component: Grading },
-      { path: 'grade-submission', component: GradeSubmission },
-      { path: 'analytics', component: Analytics },
-      { path: 'reports', component: Reports },
-      { path: 'audit-logs', component: AuditLogs },
-      { path: 'settings', component: Settings },
-      { path: 'class-sections', component: ClassSections },
+      { path: 'dashboard',       component: AdminDashboard },
+      { path: 'students',        component: Students },
+      { path: 'courses',         component: Courses },
+      { path: 'faculty',         component: Faculty },
+      { path: 'grading',         component: Grading },
+      { path: 'grade-submission',component: GradeSubmission },
+      { path: 'analytics',       component: Analytics },
+      { path: 'reports',         component: Reports },
+      { path: 'audit-logs',      component: AuditLogs },
+      { path: 'settings',        component: Settings },
+      { path: 'class-sections',  component: ClassSections },
+      { path: 'levels',          component: Levels },
+      { path: 'rooms',  component: Rooms },
       { path: '', redirectTo: 'dashboard', pathMatch: 'full' }
     ]
   },
-  
+
   // Accounting Routes
- { 
-    path: 'accounting', 
-    component: AccountingLayout, 
-    canActivate: [AuthGuard], 
+  {
+    path: 'accounting',
+    component: AccountingLayout,
+    canActivate: [AuthGuard],
     data: { role: 'accounting' },
     children: [
-      { path: 'asr', component: ASR },
-      { path: 'gcash', component: Gcash },
+      { path: 'asr',        component: ASR },
+      { path: 'gcash',      component: Gcash },
       { path: 'accounting', component: Accounting },
-      { path: 'permits', component: PermitGeneration },
-      { path: 'report', component: Report },
+      { path: 'permits',    component: PermitGeneration },
+      { path: 'report',     component: Report },
       { path: '', redirectTo: 'asr', pathMatch: 'full' }
     ]
   },
+
   // Registrar Routes
-  { 
-    path: 'registrar', 
-    component: RegistrarLayoutComponent, 
-    canActivate: [AuthGuard], 
+  {
+    path: 'registrar',
+    component: RegistrarLayoutComponent,
+    canActivate: [AuthGuard],
     data: { role: 'registrar' },
     children: [
-      { path: 'dashboard', component: RegistrarDashboardComponent },
-      { path: 'manage-subjects', component: ManageSubjectsComponent },
-      { path: 'add-subject', component: AddSubjectComponent },
-      { path: 'drop-subject', component: DropSubjectComponent },
-      { path: 'student-enrollment-review', component: StudentEnrollmentReviewComponent },
+      { path: 'dashboard',                  component: RegistrarDashboardComponent },
+      { path: 'manage-subjects',            component: ManageSubjectsComponent },
+      { path: 'add-subject',                component: AddSubjectComponent },
+      { path: 'drop-subject',               component: DropSubjectComponent },
+      { path: 'student-enrollment-review',  component: StudentEnrollmentReviewComponent },
+      { path: 'tor-evaluation',             component: TorEvaluation },
+
+      
       { path: '', redirectTo: 'dashboard', pathMatch: 'full' }
     ]
   },
-  
-  { path: '', redirectTo: '/login', pathMatch: 'full' },
+
+  { path: '',   redirectTo: '/login', pathMatch: 'full' },
   { path: '**', redirectTo: '/login' }
 ];

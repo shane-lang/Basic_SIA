@@ -38,12 +38,15 @@ export class StudentService {
     this.readFromStorage();
     const uid = this._userId.getValue();
     if (!uid) return;
+    // BUG FIX: was missing .subscribe() — HTTP call was never actually fired!
+    // .pipe(tap(...)) alone does NOT execute the HTTP request in Angular.
     this.http.get<any>(`${this.apiUrl}?action=get_profile&user_id=${uid}`).pipe(
       tap(res => {
         if (res.success) {
           this._studentDbId.next(res.student.dbId);
+          localStorage.setItem('studentDbId', String(res.student.dbId));
         }
       })
-    );
+    ).subscribe();
   }
 }

@@ -1,4 +1,5 @@
-<div class="login-container">
+<!-- ══ LOGIN VIEW ══ -->
+<div class="login-container" *ngIf="view === 'login'">
   <mat-card class="login-card">
     <mat-card-header>
       <div class="header-content">
@@ -6,258 +7,1231 @@
         <p>Login to your account</p>
       </div>
     </mat-card-header>
-
     <mat-card-content>
-      <div *ngIf="errorMessage" class="error-message">
-        <strong>Error:</strong> {{ errorMessage }}
-      </div>
-      <div *ngIf="successMessage" class="success-message">
-        <strong>Success:</strong> {{ successMessage }}
-      </div>
-
+      <div *ngIf="errorMessage"   class="error-message"><strong>Error:</strong> {{ errorMessage }}</div>
+      <div *ngIf="successMessage" class="success-message"><strong>Success:</strong> {{ successMessage }}</div>
       <form (ngSubmit)="login()" class="login-form">
         <mat-form-field class="full-width">
           <mat-label>Email Address</mat-label>
-          <input matInput type="email" [(ngModel)]="email" name="email"
-            placeholder="Enter your email" [disabled]="loading" required>
+          <input matInput type="email" [(ngModel)]="email" name="email" [disabled]="loading" required>
         </mat-form-field>
-
         <mat-form-field class="full-width">
           <mat-label>Password</mat-label>
-          <input matInput type="password" [(ngModel)]="password" name="password"
-            placeholder="Enter your password" [disabled]="loading" required>
+          <input matInput type="password" [(ngModel)]="password" name="password" [disabled]="loading" required>
         </mat-form-field>
-
-        <button mat-raised-button color="primary" type="submit"
-          class="login-button" [disabled]="loading">
+        <button mat-raised-button color="primary" type="submit" class="login-button" [disabled]="loading">
           {{ loading ? 'Logging in...' : 'Login' }}
         </button>
       </form>
-
-      <!-- New Student Enrollment Button -->
       <div class="enroll-section">
         <p class="enroll-divider">New to our university?</p>
-        <button mat-stroked-button class="enroll-button" (click)="openModal()" [disabled]="loading">
+        <button mat-stroked-button class="enroll-button" (click)="openEnrollment()" [disabled]="loading">
           🎓 New Student Enrollment
         </button>
       </div>
-
-      <!-- Demo Credentials -->
       <div class="demo-credentials">
         <p><strong>Demo Accounts:</strong></p>
-        <p>👤 Student: student@example.com / password123</p>
-        <p>🔐 Admin: admin@example.com / admin123</p>
-        <p>💼 Accounting: accounting@example.com / acc123</p>
-        <p>🎓 Registrar: registrar@example.com / registrar123</p>
+        <p>👤 Student: student&#64;example.com / password123</p>
+        <p>🔐 Admin: admin&#64;example.com / admin123</p>
+        <p>💼 Accounting: accounting&#64;example.com / acc123</p>
+        <p>🎓 Registrar: registrar&#64;example.com / registrar123</p>
       </div>
     </mat-card-content>
   </mat-card>
 </div>
 
-<!-- ══════════════════════════════════════════════════════════
-     ENROLLMENT MODAL
-══════════════════════════════════════════════════════════ -->
-<div class="modal-overlay" *ngIf="showModal" (click)="closeModal()">
-  <div class="modal-box" (click)="$event.stopPropagation()">
+<!-- ══ ENROLLMENT WIZARD ══ -->
+<div class="enrollment-page" *ngIf="view === 'enroll'">
 
-    <!-- Modal Header -->
-    <div class="modal-header">
-      <div class="modal-title">
-        <span class="modal-icon">🎓</span>
-        <div>
-          <h2>New Student Enrollment</h2>
-          <p>{{ modalStep === 'program-select' ? 'Step 1 of 4 — Choose Program'
-              : modalStep === 'payment-method'  ? 'Step 2 of 4 — Payment Method'
-              : modalStep === 'registration'   ? 'Step 3 of 4 — Personal Info'
-              : modalStep === 'account'        ? 'Step 4 of 4 — Create Account'
-              : 'Enrollment Complete!' }}</p>
-        </div>
-      </div>
-      <button class="modal-close" (click)="closeModal()" [disabled]="isSubmitting">✕</button>
+  <!-- Top Bar -->
+  <div class="enroll-topbar">
+    <div class="topbar-left">
+      <button class="btn-back-login" (click)="backToLogin()" [disabled]="isSubmitting">← Back to Login</button>
     </div>
-
-    <!-- Progress Bar -->
-    <div class="progress-bar" *ngIf="modalStep !== 'done'">
-      <div class="progress-fill"
-        [style.width]="modalStep === 'program-select' ? '25%'
-                     : modalStep === 'payment-method' ? '50%'
-                     : modalStep === 'registration'   ? '75%'
-                     : '100%'">
-      </div>
+    <div class="topbar-title">
+      <span class="topbar-logo">🎓</span>
+      <span>BASIC St. Benilde — New Student Enrollment</span>
     </div>
+    <div class="topbar-right"></div>
+  </div>
 
-    <!-- Modal Error -->
-    <div class="modal-error" *ngIf="modalError">⚠️ {{ modalError }}</div>
-
-    <!-- ── STEP 1: Program Select ── -->
-    <div class="modal-body" *ngIf="modalStep === 'program-select'">
-      <h3 class="step-title">Choose your program</h3>
-      <div class="programs-grid">
-        <div *ngFor="let p of programs" class="program-card"
-          (click)="selectProgram(p.id)"
-          [class.selected]="selectedProgram === p.id">
-          <div class="program-badge">{{ p.code }}</div>
-          <h4>{{ p.name }}</h4>
-          <p>{{ p.description }}</p>
-        </div>
-      </div>
-
+  <!-- Step Bar -->
+  <div class="step-bar">
+    <div class="step-item" [class.active]="enrollStep==='program'" [class.done]="stepNumber>1">
+      <div class="step-circle">{{ stepNumber>1 ? '✓' : '1' }}</div>
+      <div class="step-label">Program</div>
     </div>
-
-    <!-- ── STEP 2: Payment Method ── -->
-    <div class="modal-body" *ngIf="modalStep === 'payment-method'">
-      <h3 class="step-title">Choose your payment method</h3>
-      <p class="step-subtitle">Select how you would like to pay your enrollment fee for <em>{{ getProgramName() }}</em>.</p>
-
-      <div class="type-options">
-        <div class="type-card" (click)="selectPaymentMethod('gcash')">
-          <div class="type-icon">📱</div>
-          <h4>GCash</h4>
-          <p>Pay online via GCash. Submit your reference number after enrollment.</p>
-        </div>
-        <div class="type-card" (click)="selectPaymentMethod('cash')">
-          <div class="type-icon">💵</div>
-          <h4>Cash</h4>
-          <p>Pay in person at the Accounting Office. Bring your enrollment slip.</p>
-        </div>
-      </div>
-
-      <div class="modal-footer">
-        <button class="btn-back" (click)="backTo('program-select')">← Back</button>
-      </div>
+    <div class="step-line" [class.done]="stepNumber>1"></div>
+    <div class="step-item" [class.active]="enrollStep==='info'" [class.done]="stepNumber>2">
+      <div class="step-circle">{{ stepNumber>2 ? '✓' : '2' }}</div>
+      <div class="step-label">Personal Info</div>
     </div>
+    <div class="step-line" [class.done]="stepNumber>2"></div>
+    <div class="step-item" [class.active]="enrollStep==='documents'" [class.done]="stepNumber>3">
+      <div class="step-circle">{{ stepNumber>3 ? '✓' : '3' }}</div>
+      <div class="step-label">Documents</div>
+    </div>
+    <div class="step-line" [class.done]="stepNumber>3"></div>
+    <div class="step-item" [class.active]="enrollStep==='account'">
+      <div class="step-circle">4</div>
+      <div class="step-label">Account</div>
+    </div>
+  </div>
 
-    <!-- ── STEP 3: Registration Form ── -->
-    <div class="modal-body" *ngIf="modalStep === 'registration'">
-      <h3 class="step-title">Personal Information — <em>{{ getProgramName() }}</em></h3>
+  <!-- Error Banner -->
+  <div class="enroll-error" *ngIf="enrollError">⚠️ {{ enrollError }}</div>
 
+  <div class="wizard-wrapper">
+
+    <!-- ══ STEP 1: PROGRAM ══ -->
+    <div class="wizard-card" *ngIf="enrollStep==='program'">
+      <h2 class="wiz-title">Step 1 of 4 — Select your level and program</h2>
+
+      <!-- Level Cards -->
       <div class="form-section">
-        <h4>Basic Information</h4>
-        <div class="form-row">
-          <div class="form-group">
-            <label>First Name <span class="req">*</span></label>
-            <input type="text" class="form-control" placeholder="Juan"
-              [(ngModel)]="regForm.firstName" [disabled]="isSubmitting">
+        <h3 class="section-heading">What level are you enrolling in?</h3>
+        <div class="level-cards">
+          <div class="level-card" [class.selected]="studentTypeCategory==='College'" (click)="selectStudentTypeCategory('College')">
+            <div class="level-icon">🎓</div>
+            <div class="level-title">College</div>
+            <div class="level-desc">Bachelor's Degree & Diploma Programs</div>
+            <div class="prog-check" *ngIf="studentTypeCategory==='College'">✓</div>
           </div>
-          <div class="form-group">
-            <label>Last Name <span class="req">*</span></label>
-            <input type="text" class="form-control" placeholder="Dela Cruz"
-              [(ngModel)]="regForm.lastName" [disabled]="isSubmitting">
+          <div class="level-card" [class.selected]="studentTypeCategory==='SHS'" (click)="selectStudentTypeCategory('SHS')">
+            <div class="level-icon">📚</div>
+            <div class="level-title">Senior High School</div>
+            <div class="level-desc">Grade 11 & 12 — Academic & TVL Tracks</div>
+            <div class="prog-check" *ngIf="studentTypeCategory==='SHS'">✓</div>
           </div>
-        </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label>Email Address <span class="req">*</span></label>
-            <input type="email" class="form-control" placeholder="juan@email.com"
-              [(ngModel)]="regForm.email" [disabled]="isSubmitting">
-          </div>
-          <div class="form-group">
-            <label>Phone Number</label>
-            <input type="tel" class="form-control" placeholder="09123456789"
-              [(ngModel)]="regForm.phone" [disabled]="isSubmitting">
-          </div>
-        </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label>Date of Birth</label>
-            <input type="date" class="form-control"
-              [(ngModel)]="regForm.dateOfBirth" [disabled]="isSubmitting">
-          </div>
-          <div class="form-group">
-            <label>Address</label>
-            <input type="text" class="form-control" placeholder="City, Province"
-              [(ngModel)]="regForm.address" [disabled]="isSubmitting">
+          <div class="level-card" [class.selected]="studentTypeCategory==='TVET'" (click)="selectStudentTypeCategory('TVET')">
+            <div class="level-icon">🔧</div>
+            <div class="level-title">TVET Programs</div>
+            <div class="level-desc">Technical-Vocational Education & Training</div>
+            <div class="prog-check" *ngIf="studentTypeCategory==='TVET'">✓</div>
           </div>
         </div>
       </div>
 
-      <div class="form-section">
-        <h4>Emergency Contact</h4>
-        <div class="form-row">
-          <div class="form-group">
-            <label>Contact Name</label>
-            <input type="text" class="form-control" placeholder="Maria Dela Cruz"
-              [(ngModel)]="regForm.emergencyContact" [disabled]="isSubmitting">
-          </div>
-          <div class="form-group">
-            <label>Contact Phone</label>
-            <input type="tel" class="form-control" placeholder="09987654321"
-              [(ngModel)]="regForm.emergencyPhone" [disabled]="isSubmitting">
+      <!-- Programs grouped by department -->
+      <div class="form-section" *ngIf="studentTypeCategory">
+        <h3 class="section-heading">Select Your Program — {{ studentTypeCategoryLabel() }}</h3>
+
+        <!-- Loading state -->
+        <div *ngIf="programsLoading" style="text-align:center;padding:2rem;color:#6b7280;">
+          <div style="font-size:1.5rem;margin-bottom:0.5rem;">⏳</div>
+          Loading programs…
+        </div>
+
+        <!-- No programs found -->
+        <div *ngIf="!programsLoading && groupedPrograms.length === 0" style="text-align:center;padding:2rem;color:#6b7280;">
+          <div style="font-size:1.5rem;margin-bottom:0.5rem;">📭</div>
+          No programs available for this level yet. Please contact the admin.
+        </div>
+
+        <div *ngFor="let group of groupedPrograms" class="dept-group">
+          <div class="dept-label">{{ group.dept }}</div>
+          <div class="program-cards">
+            <div *ngFor="let prog of group.programs"
+                 class="program-card" [class.selected]="selectedProgram===prog.id"
+                 (click)="selectProgram(prog)">
+              <div class="prog-name">{{ prog.name }}</div>
+              <div class="prog-check" *ngIf="selectedProgram===prog.id">✓</div>
+            </div>
           </div>
         </div>
       </div>
 
-      <div class="modal-footer">
-        <button class="btn-back" (click)="backTo('payment-method')" [disabled]="isSubmitting">← Back</button>
-        <button class="btn-next" (click)="nextToAccount()" [disabled]="isSubmitting">
-          Next: Create Account →
+      <div class="wiz-actions">
+        <span></span>
+        <button class="btn-next" (click)="proceedFromProgram()" [disabled]="!selectedProgram">
+          Next: Personal Information →
         </button>
       </div>
     </div>
 
-    <!-- ── STEP 4: Create Account ── -->
-    <div class="modal-body" *ngIf="modalStep === 'account'">
-      <h3 class="step-title">Create Your Student Account</h3>
-      <p class="step-subtitle">This will be your login credentials for the Student Portal.</p>
+    <!-- ══ STEP 2: PERSONAL INFO ══ -->
+    <div class="wizard-card wide-card" *ngIf="enrollStep==='info'">
+      <h2 class="wiz-title">Step 2 of 4 — Personal Information</h2>
+      <p class="wiz-subtitle">{{ studentTypeCategoryLabel() }} · {{ selectedProgramName }}</p>
+
+      <!-- Name -->
+      <div class="form-section">
+        <h3 class="section-heading">👤 Name</h3>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Last Name <span class="req">*</span></label>
+            <input type="text" class="form-control" [(ngModel)]="regForm.lastName" placeholder="Dela Cruz">
+          </div>
+          <div class="form-group">
+            <label>First Name <span class="req">*</span></label>
+            <input type="text" class="form-control" [(ngModel)]="regForm.firstName" placeholder="Juan">
+          </div>
+          <div class="form-group">
+            <label>Middle Name <span class="req">*</span></label>
+            <input type="text" class="form-control" [(ngModel)]="regForm.middleName" placeholder="Santos">
+          </div>
+          <div class="form-group">
+            <label>Suffix / Name Extension</label>
+            <input type="text" class="form-control" [(ngModel)]="regForm.suffix" placeholder="Jr., II, III">
+          </div>
+        </div>
+      </div>
+
+      <!-- Student Type & LRN -->
+      <div class="form-section">
+        <h3 class="section-heading">📋 Enrollment Details</h3>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Type of Student <span class="req">*</span></label>
+            <div class="radio-group">
+              <label class="radio-opt"><input type="radio" name="studentType" [(ngModel)]="regForm.studentType" value="New"> New</label>
+              <label class="radio-opt"><input type="radio" name="studentType" [(ngModel)]="regForm.studentType" value="Old"> Old</label>
+              <label class="radio-opt"><input type="radio" name="studentType" [(ngModel)]="regForm.studentType" value="Transferee"> Transferee</label>
+            </div>
+          </div>
+
+          <!-- ⚠️ Transferee Notice — shown when Transferee is selected -->
+          <div class="transferee-notice" *ngIf="regForm.studentType === 'Transferee'">
+            <div class="tnotice-icon">📄</div>
+            <div class="tnotice-body">
+              <div class="tnotice-title">Transferee students must submit a TOR for evaluation</div>
+              <div class="tnotice-steps">
+                <div class="tnotice-step">
+                  <span class="tnotice-num">1</span>
+                  <span>Complete enrollment — upload your TOR / Form 137 in Step 3 (Documents)</span>
+                </div>
+                <div class="tnotice-step">
+                  <span class="tnotice-num">2</span>
+                  <span>After creating your account, the <strong>Registrar</strong> will evaluate your TOR and determine which subjects can be credited from your previous school</span>
+                </div>
+                <div class="tnotice-step">
+                  <span class="tnotice-num">3</span>
+                  <span>Once evaluated, your enrolled subjects and <strong>tuition fee will be adjusted</strong> based on the credited units — you only pay for the subjects you still need to take</span>
+                </div>
+                <div class="tnotice-step">
+                  <span class="tnotice-num">4</span>
+                  <span>You will then be notified to proceed with payment</span>
+                </div>
+              </div>
+              <div class="tnotice-highlight">
+                ⏳ Payment will only be required <strong>after</strong> the Registrar has evaluated your TOR.
+              </div>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>LRN No. <span class="req">*</span></label>
+            <input type="text" class="form-control" [(ngModel)]="regForm.lrnNo" placeholder="Learner Reference Number">
+          </div>
+          <div class="form-group">
+            <label>Semester Enrolling <span class="req">*</span></label>
+            <select class="form-control" [(ngModel)]="regForm.semester">
+              <option *ngFor="let s of semesterOptions" [value]="s">{{ s }}</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>School Year <span class="req">*</span></label>
+            <select class="form-control" [(ngModel)]="regForm.schoolYear">
+              <option value="">-- Select School Year --</option>
+              <option *ngFor="let sy of schoolYearOptions" [value]="sy">AY {{ sy }}</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Date of Birth <span class="req">*</span></label>
+            <input type="date" class="form-control" [(ngModel)]="regForm.dateOfBirth">
+          </div>
+          <div class="form-group">
+            <label>Age <span class="req">*</span></label>
+            <input type="number" class="form-control" [(ngModel)]="regForm.age" placeholder="18" min="10" max="99">
+          </div>
+          <div class="form-group full-col">
+            <label>Last School Attended and School Year <span class="req">*</span></label>
+            <input type="text" class="form-control" [(ngModel)]="regForm.lastSchoolAttended" placeholder="e.g. Gordon College, SY 2023-2024">
+          </div>
+          <div class="form-group">
+            <label>PSA Birth Certificate No. <span class="optional-tag">Optional</span></label>
+            <input type="text" class="form-control" [(ngModel)]="regForm.psaBirthCertNo" placeholder="PSA Ref No.">
+          </div>
+        </div>
+      </div>
+
+      <!-- Personal Details -->
+      <div class="form-section">
+        <h3 class="section-heading">🪪 Personal Details</h3>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Sex <span class="req">*</span></label>
+            <div class="radio-group">
+              <label class="radio-opt"><input type="radio" name="sex" [(ngModel)]="regForm.sex" value="Male"> Male</label>
+              <label class="radio-opt"><input type="radio" name="sex" [(ngModel)]="regForm.sex" value="Female"> Female</label>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Religion <span class="req">*</span></label>
+            <input type="text" class="form-control" [(ngModel)]="regForm.religion" placeholder="e.g. Roman Catholic">
+          </div>
+          <div class="form-group">
+            <label>Place of Birth <span class="req">*</span></label>
+            <input type="text" class="form-control" [(ngModel)]="regForm.placeOfBirth" placeholder="City, Province">
+          </div>
+          <div class="form-group">
+            <label>Citizenship <span class="req">*</span></label>
+            <input type="text" class="form-control" [(ngModel)]="regForm.citizenship" placeholder="Filipino">
+          </div>
+          <div class="form-group full-col">
+            <label>Home Address <span class="req">*</span></label>
+            <input type="text" class="form-control" [(ngModel)]="regForm.homeAddress" placeholder="Street, Barangay, City">
+          </div>
+          <div class="form-group">
+            <label>Contact Number <span class="req">*</span></label>
+            <input type="tel" class="form-control" [(ngModel)]="regForm.contactNumber" placeholder="09XXXXXXXXX">
+          </div>
+          <div class="form-group">
+            <label>Mother Tongue <span class="req">*</span></label>
+            <input type="text" class="form-control" [(ngModel)]="regForm.motherTongue" placeholder="e.g. Tagalog, Ilocano, Bisaya">
+          </div>
+        </div>
+      </div>
+
+      <!-- IP / Indigenous -->
+      <div class="form-section">
+        <h3 class="section-heading">🌿 Indigenous Peoples Information</h3>
+        <div class="form-group">
+          <label>IP/ICC Member of Indigenous People? <span class="req">*</span></label>
+          <div class="radio-group">
+            <label class="radio-opt"><input type="radio" name="isIndigenous" [(ngModel)]="regForm.isIndigenous" value="Yes"> Yes</label>
+            <label class="radio-opt"><input type="radio" name="isIndigenous" [(ngModel)]="regForm.isIndigenous" value="No"> No</label>
+          </div>
+        </div>
+      </div>
+
+      <!-- Special Needs -->
+      <div class="form-section">
+        <h3 class="section-heading">♿ Special Education Needs</h3>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Special Education Needs <span class="req">*</span></label>
+            <div class="radio-group">
+              <label class="radio-opt"><input type="radio" name="hasSpecialNeeds" [(ngModel)]="regForm.hasSpecialNeeds" value="Yes"> Yes</label>
+              <label class="radio-opt"><input type="radio" name="hasSpecialNeeds" [(ngModel)]="regForm.hasSpecialNeeds" value="No" (change)="regForm.specialNeedsDetails=''"> No</label>
+            </div>
+          </div>
+          <div class="form-group" *ngIf="regForm.hasSpecialNeeds==='Yes'">
+            <label>Please specify <span class="req">*</span></label>
+            <input type="text" class="form-control" [(ngModel)]="regForm.specialNeedsDetails" placeholder="Describe your needs">
+          </div>
+          <div class="form-group">
+            <label>Assistive Technology Availability <span class="req">*</span></label>
+            <div class="radio-group">
+              <label class="radio-opt"><input type="radio" name="hasAssistiveTech" [(ngModel)]="regForm.hasAssistiveTech" value="Yes"> Yes</label>
+              <label class="radio-opt"><input type="radio" name="hasAssistiveTech" [(ngModel)]="regForm.hasAssistiveTech" value="No" (change)="regForm.assistiveTechDetails=''"> No</label>
+            </div>
+          </div>
+          <div class="form-group" *ngIf="regForm.hasAssistiveTech==='Yes'">
+            <label>Please specify <span class="req">*</span></label>
+            <input type="text" class="form-control" [(ngModel)]="regForm.assistiveTechDetails" placeholder="e.g. Hearing aid, wheelchair">
+          </div>
+        </div>
+      </div>
+
+      <!-- SHS-only: Strand & Delivery -->
+      <div class="form-section" *ngIf="isSHS">
+        <h3 class="section-heading">📚 Senior High School Details</h3>
+        <div class="form-grid">
+          <div class="form-group full-col">
+            <label>Choose what Strand would you like to enroll <span class="req">*</span></label>
+            <select class="form-control" [(ngModel)]="regForm.strand">
+              <option value="">-- Select Strand --</option>
+              <option *ngFor="let s of strandOptions" [value]="s">{{ s }}</option>
+            </select>
+          </div>
+          <div class="form-group full-col">
+            <label>Preferred Learning Delivery Mode <span class="req">*</span></label>
+            <div class="radio-group vertical">
+              <label class="radio-opt" *ngFor="let d of deliveryOptions">
+                <input type="radio" [(ngModel)]="regForm.learningDelivery" [value]="d"> {{ d }}
+              </label>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Guardian -->
+      <div class="form-section">
+        <h3 class="section-heading">👨‍👩‍👧 Parent / Guardian Information</h3>
+        <div class="form-grid">
+          <div class="form-group full-col">
+            <label>Name of Parent/Guardian <span class="req">*</span></label>
+            <input type="text" class="form-control" [(ngModel)]="regForm.guardianName" placeholder="Full Name">
+          </div>
+          <div class="form-group full-col">
+            <label>Home Address of Parent/Guardian <span class="req">*</span></label>
+            <input type="text" class="form-control" [(ngModel)]="regForm.guardianAddress" placeholder="Street, Barangay, City">
+          </div>
+          <div class="form-group">
+            <label>Contact Number of Parent/Guardian <span class="req">*</span></label>
+            <input type="tel" class="form-control" [(ngModel)]="regForm.guardianContact" placeholder="09XXXXXXXXX">
+          </div>
+        </div>
+      </div>
+
+      <div class="wiz-actions">
+        <button class="btn-back" (click)="enrollStep='program'; enrollError=''">← Back</button>
+        <button class="btn-next" (click)="proceedFromInfo()">Next: Documents →</button>
+      </div>
+    </div>
+
+    <!-- ══ STEP 3: DOCUMENTS ══ -->
+    <div class="wizard-card" *ngIf="enrollStep==='documents'">
+      <h2 class="wiz-title">Step 3 of 4 — Documents & Payment</h2>
+      <p class="wiz-subtitle">Upload your requirements for {{ selectedProgramName }}</p>
+
+      <!-- ── SHS Requirements ── -->
+      <div *ngIf="isSHS">
+        <div class="req-banner shs-banner">
+          <strong>📋 Senior High School Requirements</strong>
+          <ul>
+            <li>Report Card (Form 138) <span class="req">*</span></li>
+            <li>Certificate of Good Moral <span class="req">*</span></li>
+            <li>Original Copy of Birth Certificate (PSA) <span class="req">*</span></li>
+            <li>2×2 Picture with White Background (2 copies) <span class="req">*</span></li>
+          </ul>
+        </div>
+        <div class="form-section">
+          <div class="upload-item">
+            <div class="upload-label-row">
+              <span class="upload-title">📄 Report Card (Form 138) <span class="req">*</span></span>
+            </div>
+            <div class="upload-box" [class.has-file]="form138File">
+              <label class="upload-label" for="form138Upload">
+                <span *ngIf="!form138File">📁 Click to upload Form 138 (PDF or image)</span>
+                <span *ngIf="form138File" class="file-name">✓ {{ form138FileName }}</span>
+              </label>
+              <input type="file" id="form138Upload" accept=".pdf,image/*" (change)="onFileChange($event,'form138')" hidden>
+            </div>
+          </div>
+          <div class="upload-item">
+            <div class="upload-label-row">
+              <span class="upload-title">📄 Certificate of Good Moral <span class="req">*</span></span>
+            </div>
+            <div class="upload-box" [class.has-file]="goodMoralFile">
+              <label class="upload-label" for="goodMoralUpload">
+                <span *ngIf="!goodMoralFile">📁 Click to upload Certificate of Good Moral</span>
+                <span *ngIf="goodMoralFile" class="file-name">✓ {{ goodMoralFileName }}</span>
+              </label>
+              <input type="file" id="goodMoralUpload" accept=".pdf,image/*" (change)="onFileChange($event,'goodMoral')" hidden>
+            </div>
+          </div>
+          <div class="upload-item">
+            <div class="upload-label-row">
+              <span class="upload-title">📄 PSA Birth Certificate (Original) <span class="req">*</span></span>
+            </div>
+            <div class="upload-box" [class.has-file]="psaFile">
+              <label class="upload-label" for="psaUpload">
+                <span *ngIf="!psaFile">📁 Click to upload PSA Birth Certificate</span>
+                <span *ngIf="psaFile" class="file-name">✓ {{ psaFileName }}</span>
+              </label>
+              <input type="file" id="psaUpload" accept=".pdf,image/*" (change)="onFileChange($event,'psa')" hidden>
+            </div>
+          </div>
+          <div class="upload-item">
+            <div class="upload-label-row">
+              <span class="upload-title">📷 2×2 Picture with White Background <span class="req">*</span></span>
+            </div>
+            <div class="upload-box" [class.has-file]="picFile">
+              <label class="upload-label" for="picUpload">
+                <span *ngIf="!picFile">📷 Click to upload 2×2 Picture</span>
+                <span *ngIf="picFile" class="file-name">✓ {{ picFileName }}</span>
+              </label>
+              <input type="file" id="picUpload" accept="image/*" (change)="onFileChange($event,'pic')" hidden>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── TVET / College Requirements ── -->
+      <div *ngIf="isTVET || isCollege">
+        <div class="req-banner" [class.tvet-banner]="isTVET" [class.college-banner]="isCollege">
+          <strong>{{ isTVET ? '🔧 TVET Program Requirements' : '🎓 College Requirements' }}</strong>
+          <ul>
+            <li>TOR / Form 137 (Photocopy) <span class="req">*</span></li>
+            <li>Certificate of Good Moral <span class="optional-tag">If Available</span></li>
+            <li>Birth Certificate / PSA (Original &amp; Photocopy) <span class="req">*</span></li>
+          </ul>
+        </div>
+        <div class="form-section">
+
+          <!-- TOR Upload — extra prominent for transferees -->
+          <div class="upload-item" [class.upload-item-transferee]="isTransfereeEnrolling">
+            <div class="upload-label-row">
+              <span class="upload-title">
+                📄 TOR / Form 137 (Scanned Soft Copy)
+                <span class="req">*</span>
+                <span class="transferee-tag" *ngIf="isTransfereeEnrolling">For Registrar Evaluation</span>
+              </span>
+            </div>
+            <div class="upload-box" [class.has-file]="torFile">
+              <label class="upload-label" for="torUpload">
+                <span *ngIf="!torFile">📁 Click to upload TOR / Form 137 (PDF or image)</span>
+                <span *ngIf="torFile" class="file-name">✓ {{ torFileName }}</span>
+              </label>
+              <input type="file" id="torUpload" accept=".pdf,image/*" (change)="onFileChange($event,'tor')" hidden>
+            </div>
+            <!-- Transferee CTA after file selected -->
+            <div class="tor-upload-cta" *ngIf="isTransfereeEnrolling && torFile">
+              <div class="tuc-row">
+                <span class="tuc-icon">✅</span>
+                <div class="tuc-body">
+                  <strong>TOR ready to send</strong>
+                  <p>When you complete enrollment (Step 4), this file will be automatically sent to the Registrar for evaluation. You'll be notified once they've reviewed it.</p>
+                </div>
+              </div>
+            </div>
+            <div class="tor-upload-notice" *ngIf="isTransfereeEnrolling && !torFile">
+              📤 Upload your scanned TOR above — it will be sent to the Registrar when you complete enrollment
+            </div>
+          </div>
+
+          <div class="upload-item">
+            <div class="upload-label-row">
+              <span class="upload-title">📄 Certificate of Good Moral <span class="optional-tag">If Available</span></span>
+            </div>
+            <div class="upload-box" [class.has-file]="goodMoralFile">
+              <label class="upload-label" for="goodMoralUpload2">
+                <span *ngIf="!goodMoralFile">📁 Click to upload (optional)</span>
+                <span *ngIf="goodMoralFile" class="file-name">✓ {{ goodMoralFileName }}</span>
+              </label>
+              <input type="file" id="goodMoralUpload2" accept=".pdf,image/*" (change)="onFileChange($event,'goodMoral')" hidden>
+            </div>
+          </div>
+          <div class="upload-item">
+            <div class="upload-label-row">
+              <span class="upload-title">📄 Birth Certificate / PSA (Original &amp; Photocopy) <span class="req">*</span></span>
+            </div>
+            <div class="upload-box" [class.has-file]="psaFile">
+              <label class="upload-label" for="psaUpload2">
+                <span *ngIf="!psaFile">📁 Click to upload PSA Birth Certificate</span>
+                <span *ngIf="psaFile" class="file-name">✓ {{ psaFileName }}</span>
+              </label>
+              <input type="file" id="psaUpload2" accept=".pdf,image/*" (change)="onFileChange($event,'psa')" hidden>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Scholarship -->
+      <div class="form-section scholar-section">
+        <h3 class="section-heading">🎓 Scholarship / Discount</h3>
+        <label class="toggle-label">
+          <input type="checkbox" [(ngModel)]="isScholar" class="toggle-check" (change)="onScholarshipChange()" (ngModelChange)="onScholarshipChange()">
+          I am a scholar or have a tuition discount
+        </label>
+        <div *ngIf="isScholar" class="scholar-form">
+          <div class="info-note">ℹ️ Scholarship will be validated by the <strong>Registrar and Cashier</strong> before discount is applied.</div>
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Scholarship Type <span class="req">*</span></label>
+              <select [(ngModel)]="scholarType" class="form-control">
+                <option value="">-- Select Type --</option>
+                <option *ngFor="let t of scholarTypes" [value]="t">{{ t }}</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Grantor / Organization</label>
+              <input type="text" [(ngModel)]="scholarGrantor" placeholder="e.g. City of Olongapo" class="form-control">
+            </div>
+            <div class="form-group">
+              <label>Scholarship Amount (₱)</label>
+              <input type="number" [(ngModel)]="scholarshipAmount" min="0" class="form-control" (change)="onScholarshipChange()">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══ TRANSFEREE: TOR Pending Notice + Subject Preview ══ -->
+      <ng-container *ngIf="isTransfereeEnrolling">
+
+        <!-- Hard copy notice -->
+        <div class="form-section tor-pending-enrollment-notice">
+          <div class="tpen-header">
+            <span class="tpen-icon">📄</span>
+            <div>
+              <div class="tpen-title">Submit Hard Copy of TOR to the Registrar</div>
+              <div class="tpen-sub">Required before your TOR can be evaluated and your tuition finalized</div>
+            </div>
+          </div>
+          <div class="tpen-steps">
+            <div class="tpen-step">
+              <span class="tpen-num">1</span>
+              <span>Upload your <strong>scanned TOR</strong> in the documents section above (soft copy — for pre-evaluation)</span>
+            </div>
+            <div class="tpen-step">
+              <span class="tpen-num">2</span>
+              <span>Bring the <strong>original or certified true copy</strong> of your TOR to the <strong>Registrar's Office</strong> for physical verification</span>
+            </div>
+            <div class="tpen-step">
+              <span class="tpen-num">3</span>
+              <span>The Registrar will evaluate your TOR — subjects you've already passed will be <strong>credited</strong> and removed from your enrollment</span>
+            </div>
+            <div class="tpen-step">
+              <span class="tpen-num">4</span>
+              <span>Once evaluated, your <strong>tuition will be recomputed</strong> based on remaining subjects — then payment options will appear</span>
+            </div>
+          </div>
+          <div class="tpen-highlight">
+            ⏳ <strong>Fee assessment and payment</strong> will only be shown <strong>after</strong> the Registrar evaluates your TOR. You do not need to pay yet.
+          </div>
+        </div>
+
+        <!-- Program subject list preview -->
+        <div class="form-section">
+          <h3 class="section-heading">📚 Subjects in Your Program — {{ selectedProgramName }}</h3>
+          <p class="prog-course-note">
+            These are all the subjects in your program. After the Registrar evaluates your TOR, the subjects you already passed will be <strong>credited</strong> and your tuition will be based only on the remaining ones.
+          </p>
+
+          <div class="prog-courses-loading" *ngIf="isProgramCoursesLoading">
+            <span>⏳ Loading program subjects...</span>
+          </div>
+
+          <div class="prog-courses-empty" *ngIf="!isProgramCoursesLoading && !programCourses.length">
+            <span>No subjects found for this program yet. The Registrar will evaluate based on your TOR.</span>
+          </div>
+
+          <div class="prog-courses-wrap" *ngIf="!isProgramCoursesLoading && programCourses.length">
+            <div class="prog-courses-summary">
+              <span>{{ programCourses.length }} subjects</span>
+              <span>·</span>
+              <span>{{ totalProgramUnits }} total units</span>
+            </div>
+
+            <!-- Group by yearLevel -->
+            <ng-container *ngFor="let yr of getYearLevels()">
+              <div class="pcy-header">{{ yr }}</div>
+              <ng-container *ngFor="let sem of getSemesters(yr)">
+                <div class="pcs-header">{{ sem }}</div>
+                <div class="pc-table">
+                  <div class="pc-table-head">
+                    <span class="pct-code">Code</span>
+                    <span class="pct-name">Subject</span>
+                    <span class="pct-units">Units</span>
+                  </div>
+                  <div class="pc-row" *ngFor="let c of getCoursesFor(yr, sem)">
+                    <span class="pct-code"><span class="pc-code-tag">{{ c.code }}</span></span>
+                    <span class="pct-name">{{ c.name }}</span>
+                    <span class="pct-units"><span class="pc-units-badge">{{ c.credits }}u</span></span>
+                  </div>
+                </div>
+              </ng-container>
+            </ng-container>
+          </div>
+        </div>
+
+      </ng-container>
+
+      <!-- ══ NON-TRANSFEREE: Fee Assessment + Payment Plan + Method ══ -->
+      <ng-container *ngIf="!isTransfereeEnrolling">
+
+      <!-- ══ FEE ASSESSMENT BREAKDOWN ══ -->
+      <div class="form-section fee-assessment-section">
+        <h3 class="section-heading">📋 Fee Assessment</h3>
+
+        <div class="fee-loading" *ngIf="isFeePreviewLoading">
+          <div class="fee-spinner">⏳</div>
+          <span>Computing your tuition fees...</span>
+        </div>
+
+        <div class="fee-error" *ngIf="feePreviewError && !isFeePreviewLoading">
+          ⚠️ {{ feePreviewError }}
+        </div>
+
+        <div class="fee-breakdown-card" *ngIf="feePreview && !isFeePreviewLoading">
+          <div class="fee-breakdown-header">Assessment for the Current Semester — {{ selectedProgramName }}</div>
+          <div class="fee-breakdown-table">
+            <div class="fb-row"><span>No. of Units</span><span>{{ feePreview.units }}</span></div>
+            <div class="fb-row"><span>Tuition Fee ({{ feePreview.units }} units × ₱650)</span><span>₱{{ feePreview.tuitionFee | number:'1.2-2' }}</span></div>
+            <div class="fb-row"><span>Miscellaneous Fee</span><span>₱{{ feePreview.miscellaneousFee | number:'1.2-2' }}</span></div>
+            <div class="fb-row"><span>Registration Fee</span><span>₱{{ feePreview.registrationFee | number:'1.2-2' }}</span></div>
+            <div class="fb-row"><span>Laboratory Fee ({{ feePreview.units }} × ₱1,900)</span><span>₱{{ feePreview.laboratoryFee | number:'1.2-2' }}</span></div>
+            <div class="fb-row"><span>Energy Fee ({{ feePreview.units }} × ₱21 × 3)</span><span>₱{{ feePreview.energyFee | number:'1.2-2' }}</span></div>
+            <div class="fb-row fb-subtotal"><span>Subtotal</span><span>₱{{ feePreview.subtotal | number:'1.2-2' }}</span></div>
+            <div class="fb-row fb-discount" *ngIf="feePreview.discount > 0">
+              <span>🎓 Scholarship Discount</span><span class="text-green">– ₱{{ feePreview.discount | number:'1.2-2' }}</span>
+            </div>
+            <div class="fb-row fb-installment" *ngIf="paymentPlan === 'installment'">
+              <span>Installment Fee</span><span>₱750.00</span>
+            </div>
+            <div class="fb-row fb-total">
+              <span><strong>TOTAL ASSESSMENT</strong></span>
+              <span><strong>₱{{ feePreview.totalAssessment | number:'1.2-2' }}</strong></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══ PAYMENT PLAN ══ -->
+      <div class="form-section">
+        <h3 class="section-heading">📅 Payment Plan</h3>
+        <div class="plan-toggle">
+          <button class="plan-btn" [class.selected]="paymentPlan==='full'" (click)="paymentPlan='full'; onPaymentPlanChange()">
+            <span class="plan-icon">💰</span>
+            <span class="plan-label">Full Payment</span>
+            <span class="plan-sub">Pay everything at once</span>
+          </button>
+          <button class="plan-btn" [class.selected]="paymentPlan==='installment'" (click)="paymentPlan='installment'; onPaymentPlanChange()">
+            <span class="plan-icon">📆</span>
+            <span class="plan-label">Installment</span>
+            <span class="plan-sub">4 payments — DP + 3 terms<br><small>+₱750 installment fee</small></span>
+          </button>
+        </div>
+
+        <!-- Installment Schedule -->
+        <div class="installment-schedule" *ngIf="paymentPlan==='installment' && feePreview">
+          <div class="inst-sched-title">📆 Installment Schedule</div>
+          <div class="inst-sched-table">
+            <div class="is-header">
+              <span>Period</span><span>Amount</span><span>Coverage</span>
+            </div>
+            <div class="is-row dp">
+              <span>⬇️ <strong>Downpayment (DP)</strong></span>
+              <span class="is-amount">₱{{ dpAmount | number:'1.2-2' }}</span>
+              <span class="is-badge">Upon Enrollment</span>
+            </div>
+            <div class="is-row prelim">
+              <span>📝 <strong>Prelim</strong></span>
+              <span class="is-amount">₱{{ prelimAmount | number:'1.2-2' }}</span>
+              <span class="is-badge">Before Prelim Exam</span>
+            </div>
+            <div class="is-row midterm">
+              <span>📝 <strong>Midterm</strong></span>
+              <span class="is-amount">₱{{ midtermAmount | number:'1.2-2' }}</span>
+              <span class="is-badge">Before Midterm Exam</span>
+            </div>
+            <div class="is-row finals">
+              <span>📝 <strong>Finals</strong></span>
+              <span class="is-amount">₱{{ finalsAmount | number:'1.2-2' }}</span>
+              <span class="is-badge">Before Finals Exam</span>
+            </div>
+            <div class="is-total">
+              <span>Total</span>
+              <span>₱{{ feePreview.totalAssessment | number:'1.2-2' }}</span>
+              <span></span>
+            </div>
+          </div>
+          <div class="inst-note">ℹ️ Each installment will be recorded by Accounting with an OR/AR number as proof of payment.</div>
+        </div>
+
+        <!-- Full payment summary -->
+        <div class="full-pay-summary" *ngIf="paymentPlan==='full' && feePreview">
+          <div class="fps-row">
+            <span>💰 Full Payment Amount</span>
+            <strong>₱{{ feePreview.totalAssessment | number:'1.2-2' }}</strong>
+          </div>
+          <div class="fps-note">Official Receipt (OR) will be issued by Accounting upon full payment.</div>
+        </div>
+      </div>
+
+      <!-- ══ PAYMENT METHOD ══ -->
+      <div class="form-section">
+        <h3 class="section-heading">💳 Payment Method</h3>
+        <div class="payment-method-toggle">
+          <button class="method-btn" [class.selected]="paymentMethod==='GCash'" (click)="paymentMethod='GCash'">📱 GCash</button>
+          <button class="method-btn" [class.selected]="paymentMethod==='Cash'"  (click)="paymentMethod='Cash'">💵 Cash (walk-in)</button>
+        </div>
+        <div class="method-note" *ngIf="paymentMethod==='GCash'">
+          📱 After creating your account you'll be directed to submit your GCash reference number.
+        </div>
+        <div class="method-note cash" *ngIf="paymentMethod==='Cash'">
+          💵 After creating your account, proceed to the <strong>Accounting Office</strong> to pay in person.
+        </div>
+      </div>
+
+      </ng-container><!-- end non-transferee -->
+
+      <div class="wiz-actions">
+        <button class="btn-back" (click)="enrollStep='info'; enrollError=''">← Back</button>
+        <button class="btn-next" (click)="proceedFromDocuments()">
+          {{ isTransfereeEnrolling ? 'Send TOR to Registrar →' : 'Next: Create Account →' }}
+        </button>
+      </div>
+    </div>
+
+    <!-- ══ STEP 3b: TOR REVIEW — Transferees only ══ -->
+    <div class="wizard-card tor-review-card" *ngIf="enrollStep === 'tor-review'">
+
+      <!-- ── PHASE: idle — show account form + send button ── -->
+      <ng-container *ngIf="torReviewPhase === 'idle'">
+        <h2 class="wiz-title">Step 3 — Send TOR to Registrar</h2>
+        <p class="wiz-subtitle">Create your account and send your TOR now — we'll show you your credits and fee while you wait.</p>
+
+        <div class="form-section">
+          <h3 class="section-heading">👤 Create Your Account</h3>
+          <div class="form-grid">
+            <div class="form-group full-col">
+              <label>Email / Username <span class="req">*</span></label>
+              <input type="email" class="form-control" placeholder="your@email.com" [(ngModel)]="accountForm.email">
+            </div>
+            <div class="form-group">
+              <label>Password <span class="req">*</span></label>
+              <input type="password" class="form-control" placeholder="Min. 6 characters" [(ngModel)]="accountForm.password">
+            </div>
+            <div class="form-group">
+              <label>Confirm Password <span class="req">*</span></label>
+              <input type="password" class="form-control" placeholder="Repeat password" [(ngModel)]="accountForm.confirmPassword">
+            </div>
+          </div>
+          <div class="tor-review-error" *ngIf="torReviewError">⚠️ {{ torReviewError }}</div>
+        </div>
+
+        <div class="tor-send-box">
+          <div class="tsb-file" *ngIf="torFileName">
+            <span class="tsb-file-icon">📎</span>
+            <span>{{ torFileName }}</span>
+          </div>
+          <div class="tsb-file tsb-nofile" *ngIf="!torFileName">
+            <span>⚠️ No TOR file — a blank record will be created</span>
+          </div>
+          <button class="btn-send-tor" (click)="sendTorNow()">
+            📤 Create Account & Send TOR to Registrar
+          </button>
+          <p class="tsb-hint">Your account will be created instantly, your TOR sent to the Registrar queue, and this page will update automatically when evaluation is complete.</p>
+        </div>
+
+        <div class="wiz-actions">
+          <button class="btn-back" (click)="enrollStep='documents'; enrollError=''">← Back</button>
+          <span></span>
+        </div>
+      </ng-container>
+
+      <!-- ── PHASE: sending ── -->
+      <ng-container *ngIf="torReviewPhase === 'sending'">
+        <div class="tor-loading-panel">
+          <div class="tlp-spinner">⏳</div>
+          <div class="tlp-title">Creating account and sending TOR...</div>
+          <div class="tlp-sub">Please wait, do not close this window.</div>
+        </div>
+      </ng-container>
+
+      <!-- ── PHASE: waiting — polling for evaluation ── -->
+      <ng-container *ngIf="torReviewPhase === 'waiting'">
+        <h2 class="wiz-title">⏳ Waiting for Registrar Evaluation</h2>
+        <p class="wiz-subtitle">Your TOR has been sent. This page refreshes every 10 seconds automatically.</p>
+
+        <div class="tor-wait-steps">
+          <div class="tw-step tw-done"><span class="tw-dot">✅</span><span>Account created</span></div>
+          <div class="tw-step tw-done"><span class="tw-dot">✅</span><span>TOR submitted to Registrar queue</span></div>
+          <div class="tw-step tw-active"><span class="tw-dot spin-slow">⏳</span><strong>Registrar is reviewing your TOR...</strong></div>
+          <div class="tw-step tw-pending"><span class="tw-dot">💳</span><span>Fee computed & payment unlocked</span></div>
+        </div>
+
+        <div class="tor-wait-info">
+          <div class="twi-row"><label>Student:</label><span>{{ regForm.firstName }} {{ regForm.lastName }}</span></div>
+          <div class="twi-row"><label>Program:</label><span>{{ selectedProgramName }}</span></div>
+          <div class="twi-row"><label>Prev. School:</label><span>{{ regForm.lastSchoolAttended }}</span></div>
+        </div>
+        <p class="tw-poll-note">🔄 Auto-checking every 10 seconds. Keep this page open.</p>
+
+        <!-- Subject list preview while waiting -->
+        <div class="form-section" *ngIf="programCourses.length">
+          <h3 class="section-heading">📚 Program Subjects — {{ selectedProgramName }}</h3>
+          <p class="prog-course-note">Subjects that get credited by the Registrar will be <strong style="color:#15803d">highlighted green</strong> when evaluation is complete.</p>
+          <div class="prog-courses-summary">
+            <span>{{ programCourses.length }} subjects</span><span>·</span><span>{{ totalProgramUnits }} total units</span>
+          </div>
+          <ng-container *ngFor="let yr of getYearLevels()">
+            <div class="pcy-header">{{ yr }}</div>
+            <ng-container *ngFor="let sem of getSemesters(yr)">
+              <div class="pcs-header">{{ sem }}</div>
+              <div class="pc-table">
+                <div class="pc-table-head">
+                  <span class="pct-code">Code</span><span class="pct-name">Subject</span><span class="pct-units">Units</span>
+                </div>
+                <div class="pc-row" *ngFor="let c of getCoursesFor(yr, sem)">
+                  <span class="pct-code"><span class="pc-code-tag">{{ c.code }}</span></span>
+                  <span class="pct-name">{{ c.name }}</span>
+                  <span class="pct-units"><span class="pc-units-badge">{{ c.credits }}u</span></span>
+                </div>
+              </div>
+            </ng-container>
+          </ng-container>
+        </div>
+      </ng-container>
+
+      <!-- ── PHASE: done — show highlighted subjects + fee + payment ── -->
+      <ng-container *ngIf="(torReviewPhase === 'done' || torReviewPhase === 'rejected') && torEvalResult">
+
+        <!-- Result banner -->
+        <div class="tor-result-banner" [class.banner-success]="torReviewPhase==='done'" [class.banner-reject]="torReviewPhase==='rejected'">
+          <div class="trb-icon">{{ torReviewPhase==='done' ? '🎉' : '⚠️' }}</div>
+          <div class="trb-body">
+            <div class="trb-title">{{ torReviewPhase==='done' ? 'TOR Evaluated!' : 'TOR Could Not Be Credited' }}</div>
+            <div class="trb-pills" *ngIf="torReviewPhase==='done'">
+              <span class="trb-pill green">✅ {{ torEvalResult.creditedUnits }} units credited</span>
+              <span class="trb-pill blue">📚 {{ torEvalResult.approvedUnits }} units to enroll</span>
+            </div>
+            <div class="trb-sub" *ngIf="torReviewPhase==='rejected'">You will be enrolled in the full program.</div>
+            <div class="trb-notes" *ngIf="torEvalResult.registrarNotes">
+              💬 Registrar note: <em>{{ torEvalResult.registrarNotes }}</em>
+            </div>
+          </div>
+        </div>
+
+        <!-- Full subject list with credits highlighted -->
+        <div class="form-section">
+          <h3 class="section-heading">📚 Program Subjects — {{ selectedProgramName }}</h3>
+
+          <div class="tor-legend" *ngIf="torReviewPhase==='done'">
+            <span class="leg-green">■ Credited</span>
+            <span class="leg-white">■ To enroll</span>
+          </div>
+
+          <div class="prog-courses-summary">
+            <span>{{ programCourses.length }} total subjects</span><span>·</span>
+            <span class="sum-credited" *ngIf="torReviewPhase==='done'">{{ torEvalResult.creditedSubjects.length }} credited</span>
+            <span *ngIf="torReviewPhase==='done'">·</span>
+            <span *ngIf="torReviewPhase==='done'">{{ programCourses.length - torEvalResult.creditedSubjects.length }} remaining</span>
+          </div>
+
+          <ng-container *ngFor="let yr of getYearLevels()">
+            <div class="pcy-header">{{ yr }}</div>
+            <ng-container *ngFor="let sem of getSemesters(yr)">
+              <div class="pcs-header">{{ sem }}</div>
+              <div class="pc-table">
+                <div class="pc-table-head pc-table-head-4">
+                  <span class="pct-code">Code</span>
+                  <span class="pct-name">Subject</span>
+                  <span class="pct-units">Units</span>
+                  <span class="pct-status-h">Status</span>
+                </div>
+                <div *ngFor="let c of getCoursesFor(yr, sem)"
+                     class="pc-row pc-row-4"
+                     [class.pc-row-credited]="torCreditedCodes.has(c.code)">
+                  <span class="pct-code">
+                    <span class="pc-code-tag" [class.pc-code-tag-credited]="torCreditedCodes.has(c.code)">{{ c.code }}</span>
+                  </span>
+                  <span class="pct-name">
+                    {{ c.name }}
+                  </span>
+                  <span class="pct-units">
+                    <span class="pc-units-badge" [class.pc-units-badge-credited]="torCreditedCodes.has(c.code)">{{ c.credits }}u</span>
+                  </span>
+                  <span class="pct-status">
+                    <span class="status-tag status-credited" *ngIf="torCreditedCodes.has(c.code)">✓ Credited</span>
+                    <span class="status-tag status-enroll"   *ngIf="!torCreditedCodes.has(c.code)">📝 To enroll</span>
+                  </span>
+                </div>
+              </div>
+            </ng-container>
+          </ng-container>
+        </div>
+
+        <!-- Fee breakdown (only when evaluated, not rejected) -->
+        <div class="form-section fee-assessment-section" *ngIf="torEvalResult.fee && torReviewPhase==='done'">
+          <h3 class="section-heading">💰 Fee Assessment After TOR Credit</h3>
+          <div class="fee-breakdown-card">
+            <div class="fee-breakdown-header">{{ selectedProgramName }} — {{ torEvalResult.approvedUnits }} units after credit</div>
+            <div class="fee-breakdown-table">
+              <div class="fb-row"><span>Units (after credit)</span><span>{{ torEvalResult.fee.units }}</span></div>
+              <div class="fb-row"><span>Tuition Fee ({{ torEvalResult.fee.units }} × ₱650)</span><span>₱{{ torEvalResult.fee.tuitionFee | number:'1.2-2' }}</span></div>
+              <div class="fb-row"><span>Miscellaneous Fee</span><span>₱{{ torEvalResult.fee.miscellaneousFee | number:'1.2-2' }}</span></div>
+              <div class="fb-row"><span>Registration Fee</span><span>₱{{ torEvalResult.fee.registrationFee | number:'1.2-2' }}</span></div>
+              <div class="fb-row"><span>Laboratory Fee</span><span>₱{{ torEvalResult.fee.laboratoryFee | number:'1.2-2' }}</span></div>
+              <div class="fb-row"><span>Energy Fee</span><span>₱{{ torEvalResult.fee.energyFee | number:'1.2-2' }}</span></div>
+              <div class="fb-row fb-subtotal"><span>Subtotal</span><span>₱{{ torEvalResult.fee.subtotal | number:'1.2-2' }}</span></div>
+              <div class="fb-row fb-discount" *ngIf="torEvalResult.fee.discount > 0">
+                <span>🎓 Scholarship Discount</span><span class="text-green">– ₱{{ torEvalResult.fee.discount | number:'1.2-2' }}</span>
+              </div>
+              <div class="fb-row fb-total">
+                <span><strong>TOTAL ASSESSMENT</strong></span>
+                <span><strong>₱{{ torEvalResult.fee.totalAssessment | number:'1.2-2' }}</strong></span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Payment plan -->
+          <div style="margin-top:16px">
+            <h3 class="section-heading">📅 Payment Plan</h3>
+            <div class="plan-toggle">
+              <button class="plan-btn" [class.selected]="paymentPlan==='full'" (click)="paymentPlan='full'">
+                <span class="plan-icon">💰</span><span class="plan-label">Full Payment</span><span class="plan-sub">Pay everything at once</span>
+              </button>
+              <button class="plan-btn" [class.selected]="paymentPlan==='installment'" (click)="paymentPlan='installment'">
+                <span class="plan-icon">📆</span><span class="plan-label">Installment</span><span class="plan-sub">4 payments — DP + 3 terms</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Payment method -->
+          <div style="margin-top:8px">
+            <h3 class="section-heading">💳 Payment Method</h3>
+            <div class="payment-method-toggle">
+              <button class="method-btn" [class.selected]="paymentMethod==='GCash'" (click)="paymentMethod='GCash'">📱 GCash</button>
+              <button class="method-btn" [class.selected]="paymentMethod==='Cash'"  (click)="paymentMethod='Cash'">💵 Cash (walk-in)</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Proceed button -->
+        <div class="wiz-actions">
+          <button class="btn-back" (click)="enrollStep='documents'; torReviewPhase='idle'" [disabled]="isSubmitting">← Back</button>
+          <button class="btn-submit" (click)="finishTorReview()" [disabled]="isSubmitting">
+            {{ isSubmitting ? '⏳ Logging in...' : '✓ Go to Student Portal →' }}
+          </button>
+        </div>
+
+      </ng-container>
+    </div>
+
+    <!-- ══ STEP 4: ACCOUNT ══ -->
+    <div class="wizard-card" *ngIf="enrollStep==='account'">
+      <h2 class="wiz-title">Step 4 of 4 — Create Your Account</h2>
+      <p class="wiz-subtitle">These will be your login credentials for the Student Portal.</p>
 
       <div class="form-section">
-        <div class="form-group full">
-          <label>Email / Username <span class="req">*</span></label>
-          <input type="email" class="form-control" placeholder="your@email.com"
-            [(ngModel)]="accountForm.username" [disabled]="isSubmitting">
-        </div>
-        <div class="form-row">
+        <div class="form-grid">
+          <div class="form-group full-col">
+            <label>Email / Username <span class="req">*</span></label>
+            <input type="email" class="form-control" placeholder="your@email.com" [(ngModel)]="accountForm.email" [disabled]="isSubmitting">
+          </div>
           <div class="form-group">
             <label>Password <span class="req">*</span></label>
-            <input type="password" class="form-control" placeholder="Min. 6 characters"
-              [(ngModel)]="accountForm.password" [disabled]="isSubmitting">
+            <input type="password" class="form-control" placeholder="Min. 6 characters" [(ngModel)]="accountForm.password" [disabled]="isSubmitting">
           </div>
           <div class="form-group">
             <label>Confirm Password <span class="req">*</span></label>
-            <input type="password" class="form-control" placeholder="Repeat password"
-              [(ngModel)]="accountForm.confirmPassword" [disabled]="isSubmitting">
+            <input type="password" class="form-control" placeholder="Repeat password" [(ngModel)]="accountForm.confirmPassword" [disabled]="isSubmitting">
           </div>
         </div>
       </div>
 
-      <div class="account-info-box">
-        <p *ngIf="selectedPaymentMethod === 'gcash'">📱 After creating your account, you'll be logged in automatically and directed to complete your <strong>GCash payment</strong> for enrollment approval by the Accounting Office.</p>
-        <p *ngIf="selectedPaymentMethod === 'cash'">💵 After creating your account, you'll be logged in automatically. Proceed to the <strong>Accounting Office</strong> in person to complete your <strong>cash payment</strong> and finalize your enrollment.</p>
+      <!-- Summary -->
+      <div class="enrollment-summary">
+        <h4>📋 Enrollment Summary</h4>
+        <div class="summary-row"><label>Name:</label><p>{{ regForm.firstName }} {{ regForm.middleName }} {{ regForm.lastName }} {{ regForm.suffix }}</p></div>
+        <div class="summary-row"><label>Level:</label><p>{{ studentTypeCategoryLabel() }}</p></div>
+        <div class="summary-row"><label>Program:</label><p>{{ selectedProgramName }}</p></div>
+        <div class="summary-row"><label>Type:</label><p>{{ regForm.studentType }}</p></div>
+        <ng-container *ngIf="!isTransfereeEnrolling">
+          <div class="summary-row"><label>Payment:</label><p>{{ paymentMethod==='GCash' ? '📱 GCash' : '💵 Cash (walk-in)' }}</p></div>
+          <div class="summary-row"><label>Plan:</label><p>{{ paymentPlan === 'full' ? '💰 Full Payment' : '📆 Installment (DP + Prelim + Midterm + Finals)' }}</p></div>
+          <div class="summary-row" *ngIf="feePreview"><label>Total Assessment:</label><p><strong>₱{{ feePreview.totalAssessment | number:'1.2-2' }}</strong></p></div>
+          <div class="summary-row" *ngIf="paymentPlan==='installment' && feePreview"><label>1st Payment (DP):</label><p>₱{{ dpAmount | number:'1.2-2' }}</p></div>
+        </ng-container>
+        <ng-container *ngIf="isTransfereeEnrolling">
+          <div class="summary-row"><label>TOR Status:</label><p>⏳ Pending Registrar evaluation</p></div>
+          <div class="summary-row"><label>Fee:</label><p style="color:#92400e;">Will be computed after TOR evaluation</p></div>
+        </ng-container>
+        <div class="summary-row" *ngIf="isScholar"><label>Scholarship:</label><p class="text-green">🎓 {{ scholarType }}</p></div>
       </div>
 
-      <div class="modal-footer">
-        <button class="btn-back" (click)="backTo('registration')" [disabled]="isSubmitting">← Back</button>
+      <div class="account-info-box" *ngIf="!isTransfereeEnrolling && paymentMethod==='GCash'">
+        📱 After creating your account you'll be automatically logged in and directed to submit your <strong>GCash payment</strong>.
+      </div>
+      <div class="account-info-box cash-box" *ngIf="!isTransfereeEnrolling && paymentMethod==='Cash'">
+        💵 After creating your account, proceed to the <strong>Accounting Office</strong> to complete your cash payment.
+      </div>
+      <div class="account-info-box transferee-box" *ngIf="isTransfereeEnrolling">
+        📄 After creating your account, you'll be directed to a waiting screen while the <strong>Registrar evaluates your TOR</strong>. Payment and subject enrollment will follow after evaluation.
+      </div>
+
+      <div class="wiz-actions">
+        <button class="btn-back" (click)="enrollStep='documents'; enrollError=''" [disabled]="isSubmitting">← Back</button>
         <button class="btn-submit" (click)="submitEnrollment()" [disabled]="isSubmitting">
-          {{ isSubmitting ? 'Creating Account...' : '✓ Create Account & Enroll' }}
+          {{ isSubmitting ? '⏳ Creating Account...' : '✓ Create Account & Continue →' }}
         </button>
       </div>
     </div>
 
-    <!-- ── DONE ── -->
-    <div class="modal-body done-body" *ngIf="modalStep === 'done'">
-      <div class="done-icon">🎉</div>
-      <h3>Enrollment Submitted!</h3>
-      <p>Your student account has been created successfully.</p>
+  </div><!-- /wizard-wrapper -->
+</div><!-- /enrollment-page -->
+<!-- Fee Assessment & Payment Plan Styles -->
+<style>
+.fee-assessment-section { background:#f8fafc; border-radius:12px; padding:1rem 1.2rem; margin-bottom:0; }
+.fee-loading { display:flex; align-items:center; gap:0.5rem; color:#6b7280; font-size:0.9rem; padding:0.75rem 0; }
+.fee-spinner { font-size:1.2rem; animation:spin 1s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }
+.fee-error { color:#dc2626; font-size:0.875rem; padding:0.5rem; background:#fef2f2; border-radius:6px; }
+.fee-breakdown-card { border:1px solid #e2e8f0; border-radius:10px; overflow:hidden; background:#fff; }
+.fee-breakdown-header { background:#1e3a5f; color:#fff; padding:0.6rem 1rem; font-weight:700; font-size:0.88rem; text-align:center; }
+.fee-breakdown-table { padding:0.5rem 0; }
+.fb-row { display:flex; justify-content:space-between; padding:5px 1rem; font-size:0.86rem; color:#374151; }
+.fb-row:nth-child(odd) { background:#f9fafb; }
+.fb-subtotal { border-top:2px solid #cbd5e1; font-weight:600; margin-top:4px; }
+.fb-discount { color:#16a34a; font-weight:600; }
+.fb-installment { color:#9333ea; }
+.fb-total { border-top:2px solid #1e3a5f; margin-top:4px; font-size:0.95rem; color:#1e3a5f; padding-top:8px; padding-bottom:8px; }
 
-      <div class="credentials-box">
-        <h4>Your Login Credentials</h4>
-        <div class="cred-row">
-          <span>Email:</span>
-          <strong>{{ createdEmail }}</strong>
-        </div>
-        <div class="cred-row">
-          <span>Password:</span>
-          <strong>{{ createdPassword }}</strong>
-        </div>
-      </div>
+/* Payment Plan toggle */
+.plan-toggle { display:flex; gap:0.75rem; margin-bottom:1rem; flex-wrap:wrap; }
+.plan-btn { flex:1; min-width:140px; display:flex; flex-direction:column; align-items:center; gap:3px; padding:0.9rem 1rem; border:2px solid #e2e8f0; border-radius:12px; background:#fff; cursor:pointer; transition:all .2s; text-align:center; }
+.plan-btn:hover { border-color:#3b82f6; background:#eff6ff; }
+.plan-btn.selected { border-color:#1e3a5f; background:#eff6ff; }
+.plan-icon { font-size:1.5rem; }
+.plan-label { font-weight:700; font-size:0.9rem; color:#1e3a5f; }
+.plan-sub { font-size:0.75rem; color:#6b7280; }
 
-      <p class="done-note" *ngIf="selectedPaymentMethod === 'gcash'">📋 Please save your credentials. You will now be redirected to complete your <strong>GCash payment</strong> for Accounting verification.</p>
-      <p class="done-note" *ngIf="selectedPaymentMethod === 'cash'">📋 Please save your credentials. Proceed to the <strong>Accounting Office</strong> in person with your Student ID to complete your <strong>cash payment</strong>.</p>
+/* Installment schedule */
+.installment-schedule { margin-top:0.75rem; background:#fff; border:1px solid #e2e8f0; border-radius:10px; overflow:hidden; }
+.inst-sched-title { background:#7c3aed; color:#fff; padding:0.5rem 1rem; font-weight:700; font-size:0.875rem; }
+.inst-sched-table { padding:0; }
+.is-header { display:grid; grid-template-columns:2fr 1.2fr 1.5fr; padding:6px 12px; background:#f8f4ff; font-size:0.78rem; font-weight:700; color:#6b7280; }
+.is-row { display:grid; grid-template-columns:2fr 1.2fr 1.5fr; padding:8px 12px; border-bottom:1px solid #f3f4f6; font-size:0.855rem; align-items:center; }
+.is-row.dp      { background:#fdf4ff; }
+.is-row.prelim  { background:#f0f9ff; }
+.is-row.midterm { background:#f0fdf4; }
+.is-row.finals  { background:#fff7ed; }
+.is-amount { font-weight:700; color:#1d4ed8; }
+.is-badge { font-size:0.72rem; background:#eff6ff; color:#1d4ed8; padding:2px 7px; border-radius:99px; white-space:nowrap; }
+.is-total { display:grid; grid-template-columns:2fr 1.2fr 1.5fr; padding:8px 12px; background:#f8f4ff; font-weight:800; font-size:0.9rem; color:#7c3aed; border-top:2px solid #ddd6fe; }
+.inst-note { font-size:0.78rem; color:#6b7280; padding:6px 12px 8px; }
 
-      <button class="btn-submit full-btn" (click)="loginWithNewAccount()">
-        {{ selectedPaymentMethod === 'cash' ? 'Login to Portal →' : 'Login & Complete Payment →' }}
-      </button>
-    </div>
+/* Full payment summary */
+.full-pay-summary { margin-top:0.75rem; background:#f0fdf4; border:1.5px solid #86efac; border-radius:10px; padding:0.75rem 1rem; }
+.fps-row { display:flex; justify-content:space-between; font-size:0.95rem; color:#1e3a5f; font-weight:700; margin-bottom:4px; }
+.fps-note { font-size:0.78rem; color:#6b7280; }
 
-  </div>
-</div>
+.text-green { color:#16a34a !important; }
+
+/* ── Transferee TOR pending notice in enrollment wizard ── */
+.tor-pending-enrollment-notice {
+  background: #fffbeb; border: 2px solid #f59e0b; border-radius: 14px; padding: 1.2rem 1.4rem;
+}
+.tpen-header { display:flex; gap:0.85rem; align-items:flex-start; margin-bottom:0.9rem; }
+.tpen-icon { font-size:2rem; flex-shrink:0; }
+.tpen-title { font-weight:800; font-size:1rem; color:#92400e; margin-bottom:2px; }
+.tpen-sub { font-size:0.82rem; color:#78350f; }
+.tpen-steps { display:flex; flex-direction:column; gap:0.55rem; margin-bottom:0.9rem; }
+.tpen-step { display:flex; gap:0.6rem; align-items:flex-start; font-size:0.84rem; color:#78350f; }
+.tpen-num {
+  min-width:20px; height:20px; border-radius:50%; background:#f59e0b; color:#fff;
+  font-weight:800; font-size:0.72rem; display:flex; align-items:center; justify-content:center;
+  flex-shrink:0; margin-top:1px;
+}
+.tpen-highlight {
+  background:#fef3c7; border-radius:8px; padding:8px 12px;
+  font-size:0.83rem; color:#92400e; font-weight:600;
+}
+
+/* ── Program course preview (for transferees) ── */
+.prog-course-note { font-size:0.85rem; color:#4b5563; margin-bottom:0.75rem; line-height:1.6; }
+.prog-courses-loading, .prog-courses-empty { text-align:center; padding:1rem; color:#6b7280; font-size:0.875rem; }
+.prog-courses-summary { display:flex; gap:0.5rem; align-items:center; font-size:0.8rem; color:#6b7280; font-weight:600; margin-bottom:0.75rem; }
+.pcy-header { background:#1e3a5f; color:#fff; padding:6px 12px; font-weight:700; font-size:0.85rem; border-radius:6px; margin-top:0.75rem; margin-bottom:2px; }
+.pcs-header { background:#e2e8f0; color:#374151; padding:4px 10px; font-size:0.78rem; font-weight:700; margin-bottom:2px; }
+.pc-table { border:1px solid #e2e8f0; border-radius:6px; overflow:hidden; margin-bottom:0.35rem; }
+.pc-table-head { display:grid; grid-template-columns:110px 1fr 70px; padding:5px 10px; background:#f8fafc; font-size:0.75rem; font-weight:700; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; }
+.pc-row { display:grid; grid-template-columns:110px 1fr 70px; padding:6px 10px; border-top:1px solid #f1f5f9; font-size:0.845rem; align-items:center; }
+.pc-row:hover { background:#f8fafc; }
+.pct-code { }
+.pct-name { color:#374151; }
+.pct-units { }
+.pc-code-tag { background:#dbeafe; color:#1e40af; padding:2px 7px; border-radius:4px; font-size:0.78rem; font-weight:700; }
+.pc-units-badge { background:#d1fae5; color:#065f46; padding:2px 8px; border-radius:12px; font-size:0.78rem; font-weight:700; }
+
+/* Transferee account info box */
+.transferee-box { background:#fffbeb !important; border-color:#f59e0b !important; color:#92400e !important; }
+
+/* TOR upload for transferees */
+.upload-item-transferee .upload-box { border-color:#f59e0b; background:#fffbeb; }
+.upload-item-transferee .upload-box.has-file { border-color:#16a34a; background:#f0fdf4; }
+.transferee-tag { background:#f59e0b; color:#fff; border-radius:4px; padding:1px 7px; font-size:0.72rem; font-weight:700; margin-left:6px; }
+.tor-upload-cta { margin-top:0.6rem; background:#f0fdf4; border:1.5px solid #86efac; border-radius:10px; padding:0.8rem 1rem; }
+.tuc-row { display:flex; gap:0.75rem; align-items:flex-start; }
+.tuc-icon { font-size:1.3rem; margin-top:2px; }
+.tuc-body strong { display:block; color:#15803d; font-size:0.9rem; margin-bottom:3px; }
+.tuc-body p { margin:0; font-size:0.82rem; color:#374151; line-height:1.5; }
+.tor-upload-notice { margin-top:0.5rem; font-size:0.82rem; color:#92400e; background:#fef3c7; border-radius:6px; padding:6px 10px; }
+</style>
+<style>
+/* Transferee Notice */
+.transferee-notice {
+  display: flex; gap: 0.9rem; align-items: flex-start;
+  background: #fffbeb; border: 1.5px solid #fde68a; border-radius: 12px;
+  padding: 1rem 1.1rem; margin-top: 0.6rem; grid-column: 1/-1;
+  animation: fadeInDown .25s ease;
+}
+@keyframes fadeInDown { from{opacity:0;transform:translateY(-8px)} to{opacity:1;transform:translateY(0)} }
+.tnotice-icon { font-size: 1.8rem; flex-shrink: 0; margin-top: 2px; }
+.tnotice-body { flex: 1; }
+.tnotice-title { font-weight: 800; font-size: 0.92rem; color: #92400e; margin-bottom: 0.6rem; }
+.tnotice-steps { display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 0.75rem; }
+.tnotice-step { display: flex; gap: 0.6rem; align-items: flex-start; font-size: 0.83rem; color: #78350f; }
+.tnotice-num {
+  min-width: 20px; height: 20px; border-radius: 50%; background: #f59e0b;
+  color: #fff; font-weight: 800; font-size: 0.72rem;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 1px;
+}
+.tnotice-highlight {
+  background: #fef3c7; border-radius: 7px; padding: 7px 10px;
+  font-size: 0.82rem; color: #92400e; font-style: italic;
+}
+
+/* ══ TOR REVIEW STEP ═══════════════════════════════════════════════════════ */
+.tor-review-card { max-width: 860px; }
+
+/* Error */
+.tor-review-error { margin-top: 10px; padding: 8px 12px; background: #fef2f2; border: 1px solid #fca5a5; border-radius: 7px; color: #dc2626; font-size: 0.85rem; }
+
+/* Send box */
+.tor-send-box { background: #f0fdf4; border: 2px solid #86efac; border-radius: 14px; padding: 1.2rem 1.4rem; margin-bottom: 1.2rem; display: flex; flex-direction: column; gap: 0.75rem; }
+.tsb-file { display: flex; align-items: center; gap: 0.5rem; font-size: 0.875rem; color: #374151; font-weight: 600; }
+.tsb-file-icon { font-size: 1.1rem; }
+.tsb-nofile { color: #b45309; background: #fffbeb; padding: 4px 10px; border-radius: 6px; }
+.btn-send-tor { background: linear-gradient(135deg, #1e3a5f, #2563eb); color: #fff; border: none; border-radius: 10px; padding: 14px 28px; font-size: 1rem; font-weight: 700; cursor: pointer; transition: opacity .2s; align-self: flex-start; }
+.btn-send-tor:hover { opacity: 0.9; }
+.tsb-hint { font-size: 0.8rem; color: #4b5563; margin: 0; line-height: 1.5; }
+
+/* Loading panel */
+.tor-loading-panel { text-align: center; padding: 3rem 1rem; }
+.tlp-spinner { font-size: 2.5rem; animation: spin 1s linear infinite; margin-bottom: 1rem; }
+.tlp-title { font-size: 1.05rem; font-weight: 700; color: #1e3a5f; margin-bottom: 0.4rem; }
+.tlp-sub { font-size: 0.875rem; color: #6b7280; }
+
+/* Wait steps */
+.tor-wait-steps { display: flex; flex-direction: column; gap: 0.65rem; margin: 1.2rem 0; }
+.tw-step { display: flex; align-items: flex-start; gap: 0.75rem; font-size: 0.875rem; color: #4b5563; }
+.tw-step.tw-done   { color: #15803d; }
+.tw-step.tw-active { color: #1d4ed8; font-weight: 700; }
+.tw-step.tw-pending{ color: #9ca3af; }
+.tw-dot { font-size: 1.1rem; flex-shrink: 0; width: 24px; text-align: center; }
+.spin-slow { display: inline-block; animation: spin 1.5s linear infinite; }
+.tor-wait-info { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 0.8rem 1rem; margin: 1rem 0; display: flex; flex-direction: column; gap: 0.35rem; }
+.twi-row { display: flex; gap: 0.5rem; font-size: 0.855rem; }
+.twi-row label { color: #6b7280; font-weight: 700; min-width: 100px; }
+.tw-poll-note { font-size: 0.8rem; color: #6b7280; margin: 0 0 1.2rem; }
+
+/* Result banner */
+.tor-result-banner { display: flex; gap: 1rem; align-items: flex-start; border-radius: 14px; padding: 1.1rem 1.3rem; margin-bottom: 1.2rem; }
+.banner-success { background: #f0fdf4; border: 2px solid #86efac; }
+.banner-reject  { background: #fffbeb; border: 2px solid #fde68a; }
+.trb-icon { font-size: 2.2rem; flex-shrink: 0; }
+.trb-title { font-weight: 800; font-size: 1rem; color: #15803d; margin-bottom: 0.4rem; }
+.banner-reject .trb-title { color: #92400e; }
+.trb-pills { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.4rem; }
+.trb-pill { padding: 3px 10px; border-radius: 20px; font-size: 0.8rem; font-weight: 700; }
+.trb-pill.green { background: #dcfce7; color: #15803d; }
+.trb-pill.blue  { background: #dbeafe; color: #1d4ed8; }
+.trb-sub { font-size: 0.85rem; color: #78350f; }
+.trb-notes { font-size: 0.83rem; color: #374151; margin-top: 4px; }
+
+/* Legend */
+.tor-legend { display: flex; gap: 1rem; margin-bottom: 0.6rem; font-size: 0.82rem; font-weight: 700; }
+.leg-green { color: #15803d; }
+.leg-white { color: #6b7280; }
+.sum-credited { color: #15803d; font-weight: 700; }
+
+/* Credited row highlight */
+.pc-table-head-4 { grid-template-columns: 110px 1fr 70px 100px !important; }
+.pc-row-4        { grid-template-columns: 110px 1fr 70px 100px !important; }
+.pc-row-credited { background: #f0fdf4 !important; }
+.pc-row-credited:hover { background: #dcfce7 !important; }
+.pc-code-tag-credited  { background: #dcfce7 !important; color: #15803d !important; }
+.pc-units-badge-credited { background: #bbf7d0 !important; color: #065f46 !important; }
+
+/* Status column */
+.pct-status-h { color: #6b7280; }
+.pct-status { }
+.status-tag { font-size: 0.75rem; font-weight: 700; padding: 2px 8px; border-radius: 20px; white-space: nowrap; }
+.status-credited { background: #dcfce7; color: #15803d; }
+.status-enroll   { background: #eff6ff; color: #1d4ed8; }
+
+</style>

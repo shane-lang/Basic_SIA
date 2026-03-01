@@ -1,4 +1,6 @@
 <?php
+error_reporting(0);
+ini_set('display_errors', 0);
 // filepath: C:\xampp\htdocs\sia-api\auth.php
 
 header('Access-Control-Allow-Origin: *');
@@ -23,7 +25,7 @@ if ($action === 'register') {
 
     $email      = trim($data['email']      ?? '');
     $password   = trim($data['password']   ?? '');
-    $role       = 'student'; // always student from enrollment modal
+    $role       = 'student';
     $firstName  = trim($data['first_name'] ?? '');
     $lastName   = trim($data['last_name']  ?? '');
 
@@ -31,17 +33,29 @@ if ($action === 'register') {
         echo json_encode(['success' => false, 'message' => 'Email and password are required']); exit();
     }
 
-    // Check if email already exists
-    $check = $conn->prepare("SELECT id FROM users WHERE email = ?");
+    // BUG FIX #1: If email already exists, return existing user_id instead of dying.
+    // Without this fix, re-registering or refreshing the enrollment wizard would
+    // fail at auth -> no user_id -> register_student would never be called.
+    $check = $conn->prepare("SELECT id, role FROM users WHERE email = ?");
     $check->bind_param("s", $email);
     $check->execute();
-    $check->store_result();
-    if ($check->num_rows > 0) {
-        echo json_encode(['success' => false, 'message' => 'Email already registered. Please login instead.']); exit();
+    $checkResult = $check->get_result();
+    if ($checkResult->num_rows > 0) {
+        $existingUser = $checkResult->fetch_assoc();
+        echo json_encode([
+            'success'        => true,
+            'message'        => 'Account already exists. Continuing enrollment.',
+            'user_id'        => (int)$existingUser['id'],
+            'email'          => $email,
+            'role'           => $existingUser['role'],
+            'already_existed'=> true
+        ]);
+        $check->close();
+        $conn->close();
+        exit();
     }
     $check->close();
 
-    // Insert new user (plain password — same pattern as existing auth.php)
     $stmt = $conn->prepare("INSERT INTO users (email, password, role, first_name, last_name) VALUES (?, ?, ?, ?, ?)");
     $stmt->bind_param("sssss", $email, $password, $role, $firstName, $lastName);
     $stmt->execute();
@@ -49,11 +63,12 @@ if ($action === 'register') {
     if ($stmt->affected_rows > 0) {
         $userId = $stmt->insert_id;
         echo json_encode([
-            'success'  => true,
-            'message'  => 'Account created successfully',
-            'user_id'  => $userId,
-            'email'    => $email,
-            'role'     => $role
+            'success'        => true,
+            'message'        => 'Account created successfully',
+            'user_id'        => $userId,
+            'email'          => $email,
+            'role'           => $role,
+            'already_existed'=> false
         ]);
     } else {
         echo json_encode(['success' => false, 'message' => 'Failed to create account. Please try again.']);
@@ -82,7 +97,9 @@ if ($result && $result->num_rows > 0) {
         'token'   => bin2hex(random_bytes(16)),
         'role'    => $user['role'],
         'user'    => [
-            'id'         => $user['id'],
+            // BUG FIX #2: Cast id to int. Without this, user.id arrives as a string
+            // in JavaScript, causing user_id comparisons and API calls to silently fail.
+            'id'         => (int)$user['id'],
             'email'      => $user['email'],
             'role'       => $user['role'],
             'first_name' => $user['first_name'],
