@@ -272,8 +272,8 @@
           <div class="info-row" *ngIf="h.orArNumber"><span class="info-label">Receipt No.</span><span class="info-value"><strong>{{ h.orArNumber }}</strong></span></div>
         </div>
         <div class="card-footer" style="padding:8px 12px;border-top:1px solid #f1f5f9;display:flex;gap:8px;" *ngIf="h.status==='Verified' && h.orArNumber">
-          <button *ngIf="h.orArType==='OR'" class="btn-print-receipt" (click)="printOR(h)">🖨️ Print OR</button>
-          <button *ngIf="h.orArType==='AR'" class="btn-print-receipt btn-print-ar" (click)="printAR(h)">🖨️ Print AR</button>
+          <button *ngIf="h.orArType==='OR'" class="btn-print-receipt" (click)="viewOR(h)">👁️ View OR</button>
+          <button *ngIf="h.orArType==='AR'" class="btn-print-receipt btn-print-ar" (click)="viewAR(h)">👁️ View AR</button>
         </div>
       </div>
     </div>
@@ -305,8 +305,8 @@
             <td><span class="badge" [class.verified]="h.status === 'Verified'" [class.rejected]="h.status === 'Rejected'">{{ h.status === 'Verified' ? '✓ Verified' : '✗ Rejected' }}</span></td>
             <td>{{ h.verifiedByName }}</td>
             <td style="white-space:nowrap;">
-              <button *ngIf="h.status==='Verified' && h.orArType==='OR'" class="btn-print-receipt" (click)="printOR(h)">🖨️ OR</button>
-              <button *ngIf="h.status==='Verified' && h.orArType==='AR'" class="btn-print-receipt btn-print-ar" (click)="printAR(h)">🖨️ AR</button>
+              <button *ngIf="h.status==='Verified' && h.orArType==='OR'" class="btn-print-receipt" (click)="viewOR(h)">👁️ View</button>
+              <button *ngIf="h.status==='Verified' && h.orArType==='AR'" class="btn-print-receipt btn-print-ar" (click)="viewAR(h)">👁️ View</button>
               <span *ngIf="!h.orArNumber" class="muted">—</span>
             </td>
           </tr>
@@ -701,4 +701,4 @@
 .inst-method-badge { font-size:0.72rem; padding:2px 7px; border-radius:4px; display:inline-block; margin-top:3px; }
 .inst-badge-cash { background:#fef3c7; color:#92400e; }
 .inst-badge-gcash { background:#eff6ff; color:#1d4ed8; }
-</style>
+</style>s

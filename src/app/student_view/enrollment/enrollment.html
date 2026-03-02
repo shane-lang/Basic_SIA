@@ -583,8 +583,8 @@
                 <td>{{ r.method }}</td>
                 <td style="text-align:right;font-weight:700;color:#1d4ed8;">₱{{ r.amount | number:'1.2-2' }}</td>
                 <td style="text-align:center;">
-                  <button *ngIf="r.orArType==='OR'" class="btn-print-receipt" (click)="printOR(r)">🖨️ OR</button>
-                  <button *ngIf="r.orArType==='AR'" class="btn-print-receipt btn-print-ar" (click)="printAR(r)">🖨️ AR</button>
+                  <button *ngIf="r.orArType==='OR'" class="btn-print-receipt" (click)="viewOR(r)">👁️ View OR</button>
+                  <button *ngIf="r.orArType==='AR'" class="btn-print-receipt btn-print-ar" (click)="viewAR(r)">👁️ View AR</button>
                 </td>
               </tr>
             </tbody>
@@ -693,8 +693,8 @@
 .inst-initial-note { margin-bottom:4px; }
 .fp-installment { color:#1d4ed8; }
 .receipt-fullpaid-card { display:flex; align-items:center; gap:1rem; background:#f0fdf4; border:1.5px solid #86efac; border-radius:10px; padding:1rem 1.2rem; margin-bottom:1rem; }
-.btn-print-receipt { background:#1d4ed8; color:white; border:none; border-radius:5px; padding:4px 10px; font-size:11px; cursor:pointer; font-weight:600; }
-.btn-print-receipt:hover { background:#1e40af; }
+.btn-print-receipt { background:#0d9488; color:white; border:none; border-radius:5px; padding:5px 12px; font-size:12px; cursor:pointer; font-weight:600; border-radius:6px; }
+.btn-print-receipt:hover { background:#0f766e; }
 .btn-print-ar { background:#7c3aed; }
 .btn-print-ar:hover { background:#6d28d9; }
 .fp-icon { font-size:2rem; }

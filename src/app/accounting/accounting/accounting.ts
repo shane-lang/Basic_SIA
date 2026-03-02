@@ -419,7 +419,7 @@ export class Accounting implements OnInit {
   }
 
   // ── Print OR (Official Receipt) ──────────────────────────────────────────
-  printOR(h: PaymentHistory): void {
+  viewOR(h: PaymentHistory): void {
     const name = `${h.lastName || ''}, ${h.firstName || ''}`;
     const amount = h.gcashAmount || 0;
     const amtWords = this.amountToWords(amount);
@@ -452,7 +452,7 @@ export class Accounting implements OnInit {
   .sig-block{text-align:center;min-width:160px;}
   .sig-line{border-top:1.5px solid #000;padding-top:3px;font-size:9px;}
   .footer-text{font-size:8px;color:#555;margin-top:8px;border-top:1px solid #ccc;padding-top:4px;}
-  @media print{body{padding:10px 14px;}@page{margin:8mm;}}
+  @media print{body{padding:10px 14px;}@page{margin:8mm;} .no-print{display:none!important;}}
 </style></head><body>
 <div class="header">
   <div class="logo">ST.<br>BENILDE</div>
@@ -497,7 +497,10 @@ export class Accounting implements OnInit {
   <div style="font-size:9px;text-align:right;color:#555;">Date: ${h.gcashDate || ''}<br><em>THIS DOCUMENT IS NOT VALID FOR CLAIM OF INPUT TAXES</em></div>
 </div>
 <div class="footer-text">Printer's Accreditation No.: 018MP2019000000000001 &nbsp;|&nbsp; Date Issued: 01-09-2019<br>BIR Authority to Print No.: OCN: 018AU20220000004994</div>
-<script>window.onload=()=>{window.print();}<\/script>
+<div class="no-print" style="text-align:center;margin-top:16px;padding:12px;background:#f8fafc;border-top:1px solid #e2e8f0;">
+      <button onclick="window.print()" style="background:#1d4ed8;color:white;border:none;padding:10px 32px;font-size:14px;font-weight:700;border-radius:7px;cursor:pointer;margin-right:10px;">🖨️ Print</button>
+      <button onclick="window.close()" style="background:#64748b;color:white;border:none;padding:10px 24px;font-size:14px;font-weight:700;border-radius:7px;cursor:pointer;">✕ Close</button>
+    </div>
 </body></html>`;
     const win = window.open('', '_blank', 'width=820,height=900');
     if (!win) return;
@@ -505,7 +508,7 @@ export class Accounting implements OnInit {
   }
 
   // ── Print AR (Acknowledgement Receipt) ───────────────────────────────────
-  printAR(h: PaymentHistory): void {
+  viewAR(h: PaymentHistory): void {
     const name = `${h.lastName || ''}, ${h.firstName || ''}`;
     const amount = h.gcashAmount || 0;
     const fmt = (n: number) => n.toLocaleString('en-PH', { minimumFractionDigits: 2 });
@@ -537,7 +540,7 @@ export class Accounting implements OnInit {
   .sig-area{display:flex;justify-content:flex-end;margin-top:24px;}
   .sig-block{text-align:center;min-width:140px;}
   .sig-line{border-top:1.5px solid #000;padding-top:3px;font-size:9px;font-weight:700;}
-  @media print{body{padding:10px 14px;}@page{margin:8mm;}}
+  @media print{body{padding:10px 14px;}@page{margin:8mm;} .no-print{display:none!important;}}
 </style></head><body>
 <div class="header">
   <div class="school-name">St. Benilde Center for Global Competence, Inc.</div>
@@ -574,7 +577,10 @@ export class Accounting implements OnInit {
     <div class="sig-line">CASHIER</div>
   </div>
 </div>
-<script>window.onload=()=>{window.print();}<\/script>
+<div class="no-print" style="text-align:center;margin-top:16px;padding:12px;background:#f8fafc;border-top:1px solid #e2e8f0;">
+      <button onclick="window.print()" style="background:#7c3aed;color:white;border:none;padding:10px 32px;font-size:14px;font-weight:700;border-radius:7px;cursor:pointer;margin-right:10px;">🖨️ Print</button>
+      <button onclick="window.close()" style="background:#64748b;color:white;border:none;padding:10px 24px;font-size:14px;font-weight:700;border-radius:7px;cursor:pointer;">✕ Close</button>
+    </div>
 </body></html>`;
     const win = window.open('', '_blank', 'width=760,height=860');
     if (!win) return;
