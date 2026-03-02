@@ -56,7 +56,59 @@ $conn->query("
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
 ");
+$conn->query("
+  CREATE TABLE IF NOT EXISTS payment_schedules (
+    id             INT AUTO_INCREMENT PRIMARY KEY,
+    student_id     INT NOT NULL UNIQUE,
+    payment_type   ENUM('full','installment') NOT NULL DEFAULT 'installment',
+    total_assessment DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+    prelim_due     DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+    midterm_due    DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+    finals_due     DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+    prelim_paid    DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+    midterm_paid   DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+    finals_paid    DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+    prelim_status  ENUM('locked','unpaid','partial','paid') NOT NULL DEFAULT 'locked',
+    midterm_status ENUM('locked','unpaid','partial','paid') NOT NULL DEFAULT 'locked',
+    finals_status  ENUM('locked','unpaid','partial','paid') NOT NULL DEFAULT 'locked',
+    prelim_unlocked_at  TIMESTAMP NULL,
+    midterm_unlocked_at TIMESTAMP NULL,
+    finals_unlocked_at  TIMESTAMP NULL,
+    created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+");
 
+$conn->query("
+  CREATE TABLE IF NOT EXISTS payment_notices (
+    id           INT AUTO_INCREMENT PRIMARY KEY,
+    student_id   INT NOT NULL,
+    exam_period  ENUM('Prelim','Midterm','Finals') NOT NULL,
+    amount_due   DECIMAL(10,2) NOT NULL,
+    due_date     DATE NULL,
+    message      TEXT NULL,
+    sent_by      INT NOT NULL,
+    sent_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    is_read      TINYINT(1) NOT NULL DEFAULT 0,
+    UNIQUE KEY one_notice (student_id, exam_period)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+");
+
+$conn->query("
+  CREATE TABLE IF NOT EXISTS exam_permits (
+    id           INT AUTO_INCREMENT PRIMARY KEY,
+    student_id   INT NOT NULL,
+    exam_period  ENUM('Prelim','Midterm','Finals') NOT NULL,
+    school_year  VARCHAR(20) NOT NULL DEFAULT '2025-2026',
+    semester     VARCHAR(30) NOT NULL DEFAULT '2nd Semester',
+    status       ENUM('pending','approved','rejected') NOT NULL DEFAULT 'pending',
+    requested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    approved_at  TIMESTAMP NULL,
+    approved_by  INT NULL,
+    remarks      TEXT NULL,
+    UNIQUE KEY unique_permit (student_id, exam_period, school_year, semester)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+");
 // Fix legacy Cash logs
 $conn->query("UPDATE payment_logs SET payment_method = 'Cash' WHERE gcash_reference = 'CASH-PAYMENT' AND payment_method = 'GCash'");
 
@@ -72,6 +124,11 @@ switch ($method) {
             case 'get_liquidation':       getLiquidation($conn);      break;
             case 'get_student_receipts':  getStudentReceipts($conn);  break;
             case 'get_fee_preview':       getFeePreview($conn);       break;
+            case 'get_payment_schedule':      getPaymentSchedule($conn);      break;
+            case 'get_exam_permits':          getExamPermits($conn);          break;
+            case 'get_student_permit_status': getStudentPermitStatus($conn);  break;
+            case 'get_payment_notices':       getPaymentNotices($conn);       break;
+            case 'get_all_enrolled_students': getAllEnrolledStudents($conn); break;
             default: echo json_encode(['success' => false, 'message' => 'Unknown action']);
         }
         break;
@@ -84,6 +141,10 @@ switch ($method) {
             case 'reject_payment':      rejectPayment($conn, $data);      break;
             case 'compute_fees':        computeFees($conn, $data);        break;
             case 'record_installment':  recordInstallment($conn, $data);  break;
+            case 'send_payment_notice':  sendPaymentNotice($conn, $data);  break;
+            case 'request_exam_permit':  requestExamPermit($conn, $data);  break;
+            case 'process_exam_permit':  processExamPermit($conn, $data);  break;
+            case 'unlock_payment_period': unlockPaymentPeriod($conn, $data); break;
             default: echo json_encode(['success' => false, 'message' => 'Unknown action']);
         }
         break;
@@ -105,8 +166,11 @@ $conn->close();
 //  4. default 18
 // ─────────────────────────────────────────────────────────────
 function getFeePreview($conn) {
-    $program_name = trim($_GET['program'] ?? '');
+    $program_name = trim($_GET['program']    ?? '');
     $student_id   = (int)($_GET['student_id'] ?? 0);
+    // year_level and semester passed from login page (pre-registration, no student_id yet)
+    $param_year_level = trim($_GET['year_level'] ?? '');
+    $param_semester   = trim($_GET['semester']   ?? '');
     // Accept override discount and installment flag from login page (before student exists in DB)
     $override_discount    = isset($_GET['discount'])        ? (float)$_GET['discount']         : null;
     $override_installment = isset($_GET['has_installment']) ? (bool)(int)$_GET['has_installment'] : null;
@@ -136,14 +200,55 @@ function getFeePreview($conn) {
         }
     }
 
-    // 2. Sum from program_courses → programs → courses
+    // 2. Resolve year_level and semester — from query params (login page, no student yet)
+    //    or from the student's DB record (enrolled student with student_id).
+    //    year_level is REQUIRED to avoid counting courses from all years.
+    //    semester is stripped to term-only so it matches courses of any school year.
+    $year_level = '';
+    $semester_term = '';
+
+    // Priority 1: explicit query params (login page pre-registration)
+    if ($param_year_level !== '') {
+        $year_level = $conn->real_escape_string($param_year_level);
+    }
+    if ($param_semester !== '') {
+        if (preg_match('/^(1st Semester|2nd Semester|Summer|Midyear)/i', $param_semester, $m)) {
+            $semester_term = $conn->real_escape_string($m[1]);
+        } else {
+            $semester_term = $conn->real_escape_string($param_semester);
+        }
+    }
+
+    // Priority 2: student DB record (if student_id provided)
+    if ($student_id > 0) {
+        $stRes = $conn->query("SELECT semester, year_level FROM students WHERE id = $student_id LIMIT 1");
+        $stRow = $stRes ? $stRes->fetch_assoc() : null;
+        if ($stRow) {
+            if ($year_level === '') $year_level = $conn->real_escape_string(trim($stRow['year_level'] ?? ''));
+            if ($semester_term === '') {
+                $rawSem = trim($stRow['semester'] ?? '');
+                if (preg_match('/^(1st Semester|2nd Semester|Summer|Midyear)/i', $rawSem, $m)) {
+                    $semester_term = $conn->real_escape_string($m[1]);
+                }
+            }
+        }
+    }
+
+    // Build filter clauses — both semester AND year_level are required for correct counts
+    $semFilter  = ($semester_term !== '') ? "AND c.semester LIKE '$semester_term%'" : '';
+    $ylFilter   = ($year_level !== '')    ? "AND c.year_level = '$year_level'"       : '';
+    $sfNoJoin   = ($semester_term !== '') ? "AND semester LIKE '$semester_term%'"    : '';
+    $ylNoJoin   = ($year_level !== '')    ? "AND year_level = '$year_level'"         : '';
+
+    // 2. Sum from program_courses → programs → courses, filtered by year_level + semester
     if ($units <= 0) {
         $units_res = $conn->query("
             SELECT COALESCE(SUM(c.credits), 0) AS total_units
             FROM program_courses pc
             JOIN programs p ON pc.program_id = p.id
             JOIN courses  c ON pc.course_id  = c.id
-            WHERE p.name = '$pn' OR p.code = '$pn'
+            WHERE (p.name = '$pn' OR p.code = '$pn')
+            $ylFilter $semFilter
         ");
         $units_row = $units_res ? $units_res->fetch_assoc() : null;
         $units     = (int)($units_row['total_units'] ?? 0);
@@ -151,9 +256,8 @@ function getFeePreview($conn) {
 
     // 3. Fallback: courses.program column
     if ($units <= 0) {
-        $fb     = $conn->query("SELECT COALESCE(SUM(credits),0) AS total_units FROM courses WHERE program = '$pn'");
-        $fb_row = $fb ? $fb->fetch_assoc() : null;
-        $units  = (int)($fb_row['total_units'] ?? 0);
+        $fb    = $conn->query("SELECT COALESCE(SUM(credits),0) AS total_units FROM courses WHERE program='$pn' $ylNoJoin $sfNoJoin");
+        $units = (int)(($fb ? $fb->fetch_assoc()['total_units'] : 0) ?: 0);
     }
 
     // 4. Hard fallback
@@ -182,26 +286,26 @@ function getFeePreview($conn) {
         $has_installment = ($pi_row['payment_plan'] ?? 'full') === 'installment';
     }
 
-    // Count lab subjects for this program (room name contains 'Lab')
+    // Count lab subjects — filtered by year_level + semester (same scope as unit count).
+    // Without these filters, ALL lab courses across ALL years inflate the lab fee.
     $lab_count = 0;
     if ($program_name) {
-        $pn_esc = $conn->real_escape_string($program_name);
         $lab_res = $conn->query("
-            SELECT COUNT(*) AS lab_cnt
-            FROM program_courses pc
-            JOIN programs p ON pc.program_id = p.id
-            JOIN courses  c ON pc.course_id  = c.id
-            WHERE (p.name = '$pn_esc' OR p.code = '$pn_esc')
-              AND c.room LIKE '%Lab%'
+            SELECT COUNT(DISTINCT c.id) AS lab_cnt
+            FROM courses c
+            WHERE c.room LIKE '%Lab%'
+              $ylFilter
+              $semFilter
+              AND (
+                c.program = '$pn'
+                OR c.id IN (
+                    SELECT pc.course_id FROM program_courses pc
+                    JOIN programs p ON pc.program_id = p.id
+                    WHERE p.name = '$pn' OR p.code = '$pn'
+                )
+              )
         ");
-        $lab_row  = $lab_res ? $lab_res->fetch_assoc() : null;
-        $lab_count = (int)($lab_row['lab_cnt'] ?? 0);
-        // Fallback: check courses.program column
-        if ($lab_count === 0) {
-            $fb_lab = $conn->query("SELECT COUNT(*) AS lab_cnt FROM courses WHERE program = '$pn_esc' AND room LIKE '%Lab%'");
-            $fb_row = $fb_lab ? $fb_lab->fetch_assoc() : null;
-            $lab_count = (int)($fb_row['lab_cnt'] ?? 0);
-        }
+        $lab_count = (int)(($lab_res ? $lab_res->fetch_assoc()['lab_cnt'] : 0) ?? 0);
     }
 
     // Fee computation
@@ -214,6 +318,27 @@ function getFeePreview($conn) {
     $installment_fee = $has_installment ? 750.00 : 0.00;
     $total          = max(0, $subtotal - $discount + $installment_fee);
 
+    // If student already has enrolled courses, use ACTUAL enrolled credits as units
+    // This ensures SOA always matches the enrolled subjects list
+    if ($student_id > 0) {
+        $enrolledUnitsRes = $conn->query("
+            SELECT COALESCE(SUM(c.credits), 0) AS enrolled_units
+            FROM enrollments e
+            JOIN courses c ON e.course_id = c.id
+            WHERE e.student_id = $student_id
+              AND e.status IN ('Enrolled','Pending')
+        ");
+        $enrolledUnits = (int)(($enrolledUnitsRes ? $enrolledUnitsRes->fetch_assoc()['enrolled_units'] : 0) ?? 0);
+        if ($enrolledUnits > 0) {
+            // Recompute fees based on actual enrolled units
+            $units          = $enrolledUnits;
+            $tuition_fee    = $units * 650;
+            $energy_fee     = $units * 21 * 3;
+            $subtotal       = $tuition_fee + $miscellaneous + $registration + $laboratory_fee + $energy_fee;
+            $total          = max(0, $subtotal - $discount + $installment_fee);
+        }
+    }
+
     // Save / update tuition_fees if student_id provided
     if ($student_id > 0) {
         $stmt = $conn->prepare("
@@ -222,13 +347,13 @@ function getFeePreview($conn) {
                  laboratory_fee, energy_fee, subtotal, discount, installment_fee, total_assessment)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON DUPLICATE KEY UPDATE
-                tuition_fee=VALUES(tuition_fee), miscellaneous_fee=VALUES(miscellaneous_fee),
+                units=VALUES(units), tuition_fee=VALUES(tuition_fee),
+                miscellaneous_fee=VALUES(miscellaneous_fee),
                 registration_fee=VALUES(registration_fee), laboratory_fee=VALUES(laboratory_fee),
                 energy_fee=VALUES(energy_fee), subtotal=VALUES(subtotal),
                 discount=VALUES(discount), installment_fee=VALUES(installment_fee),
                 total_assessment=VALUES(total_assessment)
         ");
-        // Note: units NOT overwritten in ON DUPLICATE KEY — preserves registrar-set units for transferees
         $stmt->bind_param("iiddddddddd",
             $student_id, $units, $tuition_fee, $miscellaneous, $registration,
             $laboratory_fee, $energy_fee, $subtotal, $discount, $installment_fee, $total);
@@ -290,19 +415,19 @@ function computeFees($conn, $data) {
     $lab_count = 0;
     if ($prog_name) {
         $lab_res = $conn->query("
-            SELECT COUNT(*) AS lab_cnt
-            FROM program_courses pc
-            JOIN programs p ON pc.program_id = p.id
-            JOIN courses  c ON pc.course_id  = c.id
-            WHERE (p.name = '$prog_name' OR p.code = '$prog_name')
-              AND c.room LIKE '%Lab%'
+            SELECT COUNT(DISTINCT c.id) AS lab_cnt
+            FROM courses c
+            WHERE c.room LIKE '%Lab%'
+              AND (
+                c.program = '$prog_name'
+                OR c.id IN (
+                    SELECT pc.course_id FROM program_courses pc
+                    JOIN programs p ON pc.program_id = p.id
+                    WHERE p.name = '$prog_name' OR p.code = '$prog_name'
+                )
+              )
         ");
-        $lab_row   = $lab_res ? $lab_res->fetch_assoc() : null;
-        $lab_count = (int)($lab_row['lab_cnt'] ?? 0);
-        if ($lab_count === 0) {
-            $fb_lab = $conn->query("SELECT COUNT(*) AS lab_cnt FROM courses WHERE program = '$prog_name' AND room LIKE '%Lab%'");
-            $lab_count = (int)(($fb_lab ? $fb_lab->fetch_assoc()['lab_cnt'] : 0) ?? 0);
-        }
+        $lab_count = (int)(($lab_res ? $lab_res->fetch_assoc()['lab_cnt'] : 0) ?? 0);
     }
 
     $tuition_fee    = $units * 650;
@@ -452,6 +577,45 @@ function getStudentReceipts($conn) {
     $student = $st_res ? $st_res->fetch_assoc() : null;
     $paymentPlan = $student['payment_plan'] ?? 'full';
 
+    // Self-heal payment_plan: if AR records exist in installment_payments, student is installment
+    if ($paymentPlan === 'full') {
+        $arCheck = $conn->query("SELECT id FROM installment_payments WHERE student_id = $student_id AND or_ar_type = 'AR' LIMIT 1");
+        if ($arCheck && $arCheck->num_rows > 0) {
+            $paymentPlan = 'installment';
+            $conn->query("UPDATE students SET payment_plan = 'installment' WHERE id = $student_id");
+        }
+    }
+
+    // Self-heal fee_row: recompute lab_count and fix fee_row if lab_fee looks wrong (units × 1900)
+    if ($fee_row && $student) {
+        $pn_esc  = $conn->real_escape_string(trim($student['program'] ?? ''));
+        $lab_res = $conn->query("
+            SELECT COUNT(DISTINCT c.id) AS cnt FROM courses c
+            WHERE c.room LIKE '%Lab%'
+              AND (c.program = '$pn_esc'
+                OR c.id IN (SELECT pc.course_id FROM program_courses pc JOIN programs p ON pc.program_id=p.id WHERE p.name='$pn_esc' OR p.code='$pn_esc'))
+        ");
+        $lab_cnt = (int)(($lab_res ? $lab_res->fetch_assoc()['cnt'] : 0) ?? 0);
+        $correct_lab_fee  = $lab_cnt * 1900;
+        $correct_inst_fee = ($paymentPlan === 'installment') ? 750.00 : 0.00;
+        $stored_units     = (int)$fee_row['units'];
+        $wrong_lab_fee    = $stored_units * 1900; // old formula
+
+        // Fix if lab_fee equals old wrong formula AND differs from correct value
+        $needs_fix = (abs((float)$fee_row['laboratory_fee'] - $correct_lab_fee) > 0.01)
+                  || (abs((float)$fee_row['installment_fee'] - $correct_inst_fee) > 0.01);
+
+        if ($needs_fix) {
+            $new_subtotal    = (float)$fee_row['tuition_fee'] + (float)$fee_row['miscellaneous_fee']
+                             + (float)$fee_row['registration_fee'] + $correct_lab_fee + (float)$fee_row['energy_fee'];
+            $new_total       = max(0, $new_subtotal - (float)$fee_row['discount'] + $correct_inst_fee);
+            $conn->query("UPDATE tuition_fees SET laboratory_fee=$correct_lab_fee, installment_fee=$correct_inst_fee, subtotal=$new_subtotal, total_assessment=$new_total, updated_at=NOW() WHERE student_id=$student_id");
+            // Reload
+            $fee_res2 = $conn->query("SELECT * FROM tuition_fees WHERE student_id = $student_id LIMIT 1");
+            $fee_row  = $fee_res2 ? $fee_res2->fetch_assoc() : null;
+        }
+    }
+
     // If tuition_fees row is missing, auto-compute and save it now
     // NOTE: Do NOT override if row already exists — registrar may have set correct values
     if (!$fee_row && $student) {
@@ -482,11 +646,21 @@ function getStudentReceipts($conn) {
         }
         if ($units <= 0) $units = 18;
 
+        // Count lab subjects (room LIKE '%Lab%') for this program — merge both sources
+        $pn_esc  = $conn->real_escape_string($programName);
+        $lab_res = $conn->query("
+            SELECT COUNT(DISTINCT c.id) AS cnt FROM courses c
+            WHERE c.room LIKE '%Lab%'
+              AND (c.program = '$pn_esc'
+                OR c.id IN (SELECT pc.course_id FROM program_courses pc JOIN programs p ON pc.program_id=p.id WHERE p.name='$pn_esc' OR p.code='$pn_esc'))
+        ");
+        $lab_cnt = (int)(($lab_res ? $lab_res->fetch_assoc()['cnt'] : 0) ?? 0);
+
         // Compute fees
         $tuition       = $units * 650;
         $miscellaneous = 6688;
         $registration  = 700;
-        $laboratory    = $units * 1900;
+        $laboratory    = $lab_cnt * 1900;   // number of lab subjects × 1,900
         $energy        = $units * 21 * 3;
         $subtotal      = $tuition + $miscellaneous + $registration + $laboratory + $energy;
 
@@ -880,7 +1054,7 @@ function getPaymentHistory($conn) {
                pl.gcash_amount, pl.gcash_date, pl.transaction_id, pl.semester, pl.status,
                pl.notes, pl.verified_at, pl.created_at AS submitted_at,
                s.student_number, s.first_name, s.last_name, s.program, s.year_level,
-               u.first_name AS verified_by_name, tf.total_assessment
+               u.first_name AS verified_by_fname, u.last_name AS verified_by_lname, tf.total_assessment
         FROM payment_logs pl
         JOIN students s ON pl.student_id = s.id
         LEFT JOIN users u ON pl.verified_by = u.id
@@ -908,13 +1082,13 @@ function getPaymentHistory($conn) {
                 'paymentMethod'  => $isCash ? 'Cash' : 'GCash',
                 'gcashReference' => $isCash ? '' : ($r['gcash_reference'] ?? ''),
                 'gcashAmount'    => (float)($r['gcash_amount'] ?? 0),
-                'gcashDate'      => $isCash ? '' : ($r['gcash_date'] ?? ''),
+                'gcashDate'      => $isCash ? ($r['verified_at'] ? date('Y-m-d', strtotime($r['verified_at'])) : '') : ($r['gcash_date'] ?? ''),
                 'transactionId'  => $isCash ? '' : ($r['transaction_id'] ?? ''),
                 'semester'       => $r['semester'],
                 'status'         => $r['status'],
                 'notes'          => $r['notes'],
                 'verifiedAt'     => $r['verified_at'],
-                'verifiedByName' => $r['verified_by_name'],
+                'verifiedByName' => trim(($r['verified_by_fname'] ?? '') . ' ' . ($r['verified_by_lname'] ?? '')) ?: 'Accounting',
                 'submittedAt'    => $r['submitted_at'],
                 'totalAssessment'=> (float)($r['total_assessment'] ?? 0),
                 'totalPaid'      => $total_paid,
@@ -1026,5 +1200,362 @@ function rejectPayment($conn, $data) {
     $upd->execute();
 
     echo json_encode(['success' => true, 'message' => 'Payment rejected.']);
+}
+function getPaymentSchedule($conn) {
+    $student_id = (int)($_GET['student_id'] ?? 0);
+    if (!$student_id) { echo json_encode(['success'=>false,'message'=>'student_id required']); return; }
+
+    $stRes = $conn->query("SELECT payment_method, semester FROM students WHERE id=$student_id LIMIT 1");
+    $stRow = $stRes ? $stRes->fetch_assoc() : null;
+    $ptype = (strtolower($stRow['payment_method'] ?? '') === 'full') ? 'full' : 'installment';
+
+    $tfRes = $conn->query("SELECT total_assessment FROM tuition_fees WHERE student_id=$student_id LIMIT 1");
+    $tfRow = $tfRes ? $tfRes->fetch_assoc() : null;
+    $total = $tfRow ? (float)$tfRow['total_assessment'] : 0;
+
+    if ($total > 0) {
+        $pd = round($total * 0.40, 2);
+        $md = round($total * 0.30, 2);
+        $fd = round($total - $pd - $md, 2);
+        $conn->query("INSERT INTO payment_schedules
+            (student_id,payment_type,total_assessment,prelim_due,midterm_due,finals_due)
+            VALUES ($student_id,'$ptype',$total,$pd,$md,$fd)
+            ON DUPLICATE KEY UPDATE
+              total_assessment=IF(total_assessment=0,$total,total_assessment),
+              payment_type='$ptype'");
+    }
+
+    $res = $conn->query("SELECT * FROM payment_schedules WHERE student_id=$student_id LIMIT 1");
+    $schedule = $res ? $res->fetch_assoc() : null;
+    if (!$schedule) { echo json_encode(['success'=>true,'schedule'=>null]); return; }
+
+    foreach (['Prelim','Midterm','Finals'] as $period) {
+        $p = strtolower($period);
+        if ($schedule[$p.'_status'] === 'locked') continue;
+        $paidRes = $conn->query("SELECT COALESCE(SUM(amount),0) AS paid
+            FROM installment_payments WHERE student_id=$student_id AND exam_period='$period'");
+        $paid = $paidRes ? (float)$paidRes->fetch_assoc()['paid'] : 0;
+        $due  = (float)$schedule[$p.'_due'];
+        $status = $paid <= 0 ? 'unpaid' : ($paid >= $due ? 'paid' : 'partial');
+        $conn->query("UPDATE payment_schedules SET {$p}_paid=$paid,{$p}_status='$status' WHERE student_id=$student_id");
+        $schedule[$p.'_paid']   = $paid;
+        $schedule[$p.'_status'] = $status;
+    }
+
+    if ($schedule['payment_type'] === 'full') {
+        $tpRes = $conn->query("SELECT COALESCE(SUM(amount),0) AS tp FROM installment_payments WHERE student_id=$student_id");
+        $tp = $tpRes ? (float)$tpRes->fetch_assoc()['tp'] : 0;
+        if ($tp >= (float)$schedule['total_assessment']) {
+            $schedule['prelim_status'] = $schedule['midterm_status'] = $schedule['finals_status'] = 'paid';
+        }
+    }
+
+    $noticeRes = $conn->query("SELECT exam_period, amount_due, due_date, message, sent_at, is_read
+        FROM payment_notices WHERE student_id=$student_id");
+    $notices = [];
+    while ($row = $noticeRes->fetch_assoc()) $notices[$row['exam_period']] = $row;
+
+    echo json_encode(['success'=>true,'schedule'=>$schedule,'notices'=>$notices]);
+}
+
+function getPaymentNotices($conn) {
+    $student_id = (int)($_GET['student_id'] ?? 0);
+    if (!$student_id) { echo json_encode(['success'=>false]); return; }
+    $res = $conn->query("SELECT * FROM payment_notices WHERE student_id=$student_id ORDER BY sent_at DESC");
+    $notices = [];
+    while ($row = $res->fetch_assoc()) $notices[] = $row;
+    $conn->query("UPDATE payment_notices SET is_read=1 WHERE student_id=$student_id");
+    echo json_encode(['success'=>true,'notices'=>$notices]);
+}
+
+function sendPaymentNotice($conn, $data) {
+    $student_id  = (int)($data['student_id']  ?? 0);
+    $exam_period = $conn->real_escape_string($data['exam_period'] ?? '');
+    $amount_due  = (float)($data['amount_due'] ?? 0);
+    $due_date    = $conn->real_escape_string($data['due_date']   ?? '');
+    $message     = $conn->real_escape_string($data['message']    ?? '');
+    $sent_by     = (int)($data['accounting_user_id'] ?? 0);
+
+    if (!$student_id || !in_array($exam_period, ['Prelim','Midterm','Finals'])) {
+        echo json_encode(['success'=>false,'message'=>'Invalid data']); return;
+    }
+
+    $p = strtolower($exam_period);
+    $due_date_val = $due_date ? "'$due_date'" : 'NULL';
+
+    $conn->query("INSERT INTO payment_notices (student_id,exam_period,amount_due,due_date,message,sent_by)
+        VALUES ($student_id,'$exam_period',$amount_due,$due_date_val,'$message',$sent_by)
+        ON DUPLICATE KEY UPDATE amount_due=$amount_due,due_date=$due_date_val,
+        message='$message',sent_by=$sent_by,sent_at=NOW(),is_read=0");
+
+    $unlocked_col = $p.'_unlocked_at';
+    $conn->query("UPDATE payment_schedules
+        SET {$p}_status=IF({$p}_status='locked','unpaid',{$p}_status),
+            $unlocked_col=IF($unlocked_col IS NULL,NOW(),$unlocked_col)
+        WHERE student_id=$student_id");
+
+    $check = $conn->query("SELECT id FROM payment_schedules WHERE student_id=$student_id");
+    if (!$check || $check->num_rows === 0) {
+        $tfRes = $conn->query("SELECT total_assessment FROM tuition_fees WHERE student_id=$student_id LIMIT 1");
+        $tfRow = $tfRes ? $tfRes->fetch_assoc() : null;
+        $total = $tfRow ? (float)$tfRow['total_assessment'] : $amount_due;
+        $pd = round($total*0.40,2); $md = round($total*0.30,2); $fd = round($total-$pd-$md,2);
+        $conn->query("INSERT INTO payment_schedules
+            (student_id,payment_type,total_assessment,prelim_due,midterm_due,finals_due,{$p}_status,{$unlocked_col})
+            VALUES ($student_id,'installment',$total,$pd,$md,$fd,'unpaid',NOW())");
+    }
+
+    echo json_encode(['success'=>true,'message'=>"$exam_period notice sent and payment unlocked."]);
+}
+
+function getExamPermits($conn) {
+    $status = $conn->real_escape_string($_GET['status'] ?? 'pending');
+    $res = $conn->query("
+        SELECT ep.*, s.student_number, s.first_name, s.last_name,
+               s.program, s.year_level, s.semester,
+               u.first_name AS approved_by_first, u.last_name AS approved_by_last
+        FROM exam_permits ep
+        JOIN students s ON ep.student_id=s.id
+        LEFT JOIN users u ON ep.approved_by=u.id
+        WHERE ep.status='$status'
+        ORDER BY ep.requested_at DESC");
+    $permits = [];
+    while ($row = $res->fetch_assoc()) $permits[] = $row;
+    echo json_encode(['success'=>true,'permits'=>$permits]);
+}
+
+function getStudentPermitStatus($conn) {
+    $student_id = (int)($_GET['student_id'] ?? 0);
+    if (!$student_id) { echo json_encode(['success'=>false]); return; }
+    $res = $conn->query("SELECT * FROM exam_permits WHERE student_id=$student_id ORDER BY requested_at DESC");
+    $permits = [];
+    while ($row = $res->fetch_assoc()) $permits[] = $row;
+    echo json_encode(['success'=>true,'permits'=>$permits]);
+}
+
+function requestExamPermit($conn, $data) {
+    $student_id  = (int)($data['student_id']  ?? 0);
+    $exam_period = $conn->real_escape_string($data['exam_period'] ?? '');
+    $school_year = $conn->real_escape_string($data['school_year'] ?? '2025-2026');
+    $semester    = $conn->real_escape_string($data['semester']    ?? '2nd Semester');
+
+    if (!$student_id || !in_array($exam_period, ['Prelim','Midterm','Finals'])) {
+        echo json_encode(['success'=>false,'message'=>'Invalid data']); return;
+    }
+
+    $p   = strtolower($exam_period);
+    $res = $conn->query("SELECT * FROM payment_schedules WHERE student_id=$student_id LIMIT 1");
+    $sch = $res ? $res->fetch_assoc() : null;
+
+    if (!$sch) {
+        echo json_encode(['success'=>false,'message'=>'No payment record. Contact Accounting.']); return;
+    }
+    if ($sch[$p.'_status'] === 'locked') {
+        echo json_encode(['success'=>false,'message'=>"$exam_period payment has not been unlocked yet. Wait for Accounting to send your payment notice."]); return;
+    }
+
+    if ($sch['payment_type'] === 'full') {
+        $tpRes = $conn->query("SELECT COALESCE(SUM(amount),0) AS tp FROM installment_payments WHERE student_id=$student_id");
+        $tp    = $tpRes ? (float)$tpRes->fetch_assoc()['tp'] : 0;
+        if ($tp < (float)$sch['total_assessment']) {
+            $bal = number_format((float)$sch['total_assessment'] - $tp, 2);
+            echo json_encode(['success'=>false,'message'=>"Full payment required. Balance: ₱$bal"]); return;
+        }
+    } else {
+        $paidRes = $conn->query("SELECT COALESCE(SUM(amount),0) AS paid
+            FROM installment_payments WHERE student_id=$student_id AND exam_period='$exam_period'");
+        $paid = $paidRes ? (float)$paidRes->fetch_assoc()['paid'] : 0;
+        $due  = (float)$sch[$p.'_due'];
+        if ($paid < $due) {
+            $bal = number_format($due - $paid, 2);
+            echo json_encode(['success'=>false,'message'=>"$exam_period balance ₱$bal must be paid before requesting a permit."]); return;
+        }
+    }
+
+    $stmt = $conn->prepare("INSERT INTO exam_permits
+        (student_id,exam_period,school_year,semester,status)
+        VALUES (?,?,?,?,'pending')
+        ON DUPLICATE KEY UPDATE status='pending',requested_at=NOW(),remarks=NULL,approved_at=NULL");
+    $stmt->bind_param("isss",$student_id,$exam_period,$school_year,$semester);
+    $stmt->execute(); $stmt->close();
+    echo json_encode(['success'=>true,'message'=>"$exam_period permit request submitted! Accounting will process it shortly."]);
+}
+
+function processExamPermit($conn, $data) {
+    $permit_id   = (int)($data['permit_id']          ?? 0);
+    $action      = ($data['action'] === 'approve') ? 'approved' : 'rejected';
+    $remarks     = $conn->real_escape_string($data['remarks'] ?? '');
+    $approved_by = (int)($data['accounting_user_id'] ?? 0);
+    if (!$permit_id) { echo json_encode(['success'=>false,'message'=>'permit_id required']); return; }
+    $conn->query("UPDATE exam_permits SET status='$action',approved_at=NOW(),
+        approved_by=$approved_by,remarks='$remarks' WHERE id=$permit_id");
+    echo json_encode(['success'=>true,'message'=>"Permit $action."]);
+}
+function getAllEnrolledStudents($conn) {
+    $res = $conn->query("
+        SELECT
+            s.id             AS student_id,
+            s.student_number,
+            s.first_name,
+            s.last_name,
+            s.program,
+            s.year_level,
+            s.semester,
+            s.payment_method,
+            s.payment_plan,
+            COALESCE(tf.total_assessment, 0) AS total_assessment,
+            COALESCE(ps.prelim_due,   ROUND(COALESCE(tf.total_assessment,0) * 0.40, 2)) AS prelim_due,
+            COALESCE(ps.midterm_due,  ROUND(COALESCE(tf.total_assessment,0) * 0.30, 2)) AS midterm_due,
+            COALESCE(ps.finals_due,   ROUND(COALESCE(tf.total_assessment,0) * 0.30, 2)) AS finals_due,
+            COALESCE(ps.prelim_paid,  0) AS prelim_paid,
+            COALESCE(ps.midterm_paid, 0) AS midterm_paid,
+            COALESCE(ps.finals_paid,  0) AS finals_paid,
+            COALESCE(ps.prelim_status,  'locked') AS prelim_status,
+            COALESCE(ps.midterm_status, 'locked') AS midterm_status,
+            COALESCE(ps.finals_status,  'locked') AS finals_status
+        FROM students s
+        LEFT JOIN tuition_fees      tf ON tf.student_id = s.id
+        LEFT JOIN payment_schedules ps ON ps.student_id = s.id
+        WHERE s.approval_status   = 'Approved'
+          AND s.enrollment_status = 'Enrolled'
+          AND LOWER(s.payment_plan) = 'installment'
+        ORDER BY s.last_name ASC, s.first_name ASC
+    ");
+
+    $students = [];
+    while ($row = $res->fetch_assoc()) {
+        $students[] = [
+            'studentId'      => (int)$row['student_id'],
+            'studentNumber'  => $row['student_number'],
+            'firstName'      => $row['first_name'],
+            'lastName'       => $row['last_name'],
+            'program'        => $row['program'],
+            'yearLevel'      => $row['year_level'],
+            'semester'       => $row['semester'],
+            'paymentMethod'  => $row['payment_method'],
+            'paymentPlan'    => $row['payment_plan'],
+            'totalAssessment'=> (float)$row['total_assessment'],
+            'prelimDue'      => (float)$row['prelim_due'],
+            'midtermDue'     => (float)$row['midterm_due'],
+            'finalsDue'      => (float)$row['finals_due'],
+            'prelimPaid'     => (float)$row['prelim_paid'],
+            'midtermPaid'    => (float)$row['midterm_paid'],
+            'finalsPaid'     => (float)$row['finals_paid'],
+            'prelimStatus'   => $row['prelim_status'],
+            'midtermStatus'  => $row['midterm_status'],
+            'finalsStatus'   => $row['finals_status'],
+        ];
+    }
+
+    echo json_encode(['success' => true, 'students' => $students]);
+}
+
+// ─────────────────────────────────────────────────────────────
+// ACCOUNTING: Unlock Payment Period (Direct unlock without sending notice)
+// POST ?action=unlock_payment_period
+// Body: { student_id, exam_period, accounting_user_id }
+// ─────────────────────────────────────────────────────────────
+function unlockPaymentPeriod($conn, $data) {
+    $student_id  = (int)($data['student_id']  ?? 0);
+    $exam_period = $conn->real_escape_string($data['exam_period'] ?? '');
+    $acc_user_id = (int)($data['accounting_user_id'] ?? 0);
+
+    if (!$student_id || !in_array($exam_period, ['Prelim','Midterm','Finals'])) {
+        echo json_encode(['success' => false, 'message' => 'Invalid student_id or exam_period']); return;
+    }
+
+    $p = strtolower($exam_period);
+    $status_col = $p . '_status';
+    $unlocked_col = $p . '_unlocked_at';
+
+    // Check if payment_schedules record exists
+    $check = $conn->query("SELECT id FROM payment_schedules WHERE student_id = $student_id LIMIT 1");
+    
+    if (!$check) {
+        // Query failed - output error for debugging
+        echo json_encode(['success' => false, 'message' => 'Database error: ' . $conn->error]); return;
+    }
+    
+    if ($check->num_rows === 0) {
+        // Create payment_schedules record if it doesn't exist
+        $tfRes = $conn->query("SELECT total_assessment FROM tuition_fees WHERE student_id = $student_id LIMIT 1");
+        
+        if (!$tfRes) {
+            echo json_encode(['success' => false, 'message' => 'Database error fetching tuition fees: ' . $conn->error]); return;
+        }
+        
+        $tfRow = $tfRes->fetch_assoc();
+        $total = $tfRow ? (float)$tfRow['total_assessment'] : 0;
+        
+        if ($total <= 0) {
+            echo json_encode(['success' => false, 'message' => 'No tuition fees found for this student']); return;
+        }
+        
+        $pd = round($total * 0.40, 2);
+        $md = round($total * 0.30, 2);
+        $fd = round($total - $pd - $md, 2);
+        
+        // Build the INSERT query with all required fields
+        $insertSql = "INSERT INTO payment_schedules 
+            (student_id, payment_type, total_assessment, 
+             prelim_due, midterm_due, finals_due, 
+             prelim_status, midterm_status, finals_status, 
+             prelim_unlocked_at, midterm_unlocked_at, finals_unlocked_at)
+            VALUES ($student_id, 'installment', $total, 
+                    $pd, $md, $fd, 
+                    'locked', 'locked', 'locked', 
+                    NULL, NULL, NULL)";
+        
+        // Set the specific period to unlocked
+        if ($exam_period === 'Prelim') {
+            $insertSql = "INSERT INTO payment_schedules 
+                (student_id, payment_type, total_assessment, 
+                 prelim_due, midterm_due, finals_due, 
+                 prelim_status, midterm_status, finals_status, 
+                 prelim_unlocked_at)
+                VALUES ($student_id, 'installment', $total, 
+                        $pd, $md, $fd, 
+                        'unpaid', 'locked', 'locked', 
+                        NOW())";
+        } elseif ($exam_period === 'Midterm') {
+            $insertSql = "INSERT INTO payment_schedules 
+                (student_id, payment_type, total_assessment, 
+                 prelim_due, midterm_due, finals_due, 
+                 prelim_status, midterm_status, finals_status, 
+                 midterm_unlocked_at)
+                VALUES ($student_id, 'installment', $total, 
+                        $pd, $md, $fd, 
+                        'locked', 'unpaid', 'locked', 
+                        NOW())";
+        } else { // Finals
+            $insertSql = "INSERT INTO payment_schedules 
+                (student_id, payment_type, total_assessment, 
+                 prelim_due, midterm_due, finals_due, 
+                 prelim_status, midterm_status, finals_status, 
+                 finals_unlocked_at)
+                VALUES ($student_id, 'installment', $total, 
+                        $pd, $md, $fd, 
+                        'locked', 'locked', 'unpaid', 
+                        NOW())";
+        }
+        
+        $conn->query($insertSql);
+        
+        if ($conn->error) {
+            echo json_encode(['success' => false, 'message' => 'Database error inserting: ' . $conn->error]); return;
+        }
+    } else {
+        // Update existing record - unlock the period
+        $conn->query("UPDATE payment_schedules 
+            SET $status_col = IF($status_col = 'locked', 'unpaid', $status_col),
+                $unlocked_col = IF($unlocked_col IS NULL, NOW(), $unlocked_col)
+            WHERE student_id = $student_id");
+        
+        if ($conn->error) {
+            echo json_encode(['success' => false, 'message' => 'Database error updating: ' . $conn->error]); return;
+        }
+    }
+
+    echo json_encode(['success' => true, 'message' => "$exam_period payment period has been unlocked."]);
 }
 ?>

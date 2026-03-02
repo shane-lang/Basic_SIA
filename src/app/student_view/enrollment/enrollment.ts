@@ -10,21 +10,25 @@ interface StudentCourse {
   enrollmentDate: string; semester: string;
   status: 'Pending' | 'Enrolled' | 'Completed' | 'Dropped'; grade?: string;
 }
-
 interface TermPayment {
   term: 'Prelim' | 'Midterm' | 'Finals';
   amountDue: number; amountPaid: number;
   paymentDate: string | null; status: 'Unpaid' | 'Partial' | 'Paid';
 }
-
 interface PaymentSummary {
   totalFee: number; scholarDiscount: number; amountDue: number;
   amountPaid: number; balance: number;
   status: 'Paid' | 'Partial' | 'Unpaid'; method: string; paymentDate: string | null;
 }
-
 interface EnrollmentNotification {
   id: string; type: 'success' | 'warning' | 'error' | 'info'; message: string; timestamp: Date;
+}
+interface FeeData {
+  units: number;
+  tuitionFee: number; miscellaneousFee: number; registrationFee: number;
+  laboratoryFee: number; energyFee: number;
+  subtotal: number; discount: number; installmentFee: number;
+  totalAssessment: number; totalPaid: number; balance: number; paymentStatus: string;
 }
 
 @Component({
@@ -42,155 +46,184 @@ export class Enrollment implements OnInit {
   constructor(private http: HttpClient, private router: Router, private cdr: ChangeDetectorRef) {}
 
   workflowStep: 'payment' | 'cash-pending' | 'approval' | 'dashboard' | 'tor-pending' = 'payment';
-
-  userId:      number = 0;
-  studentDbId: number = 0;
-  student: any = {};
-
-  // TOR hard copy notice (shown before payment for transferees)
+  userId = 0; studentDbId = 0; student: any = {};
   showTorHardCopyNotice = false;
 
-  // TOR Evaluation state (for transferees)
   torEvaluation: {
     status: 'Pending' | 'Evaluated' | 'Rejected';
-    creditedUnits: number;
-    approvedUnits: number;
+    creditedUnits: number; approvedUnits: number;
     creditedSubjects: { code: string; name: string; credits: number }[];
-    registrarNotes: string;
-    evaluatedAt: string;
+    registrarNotes: string; evaluatedAt: string;
   } | null = null;
   isTorLoading = false;
 
-  // Computed fee breakdown (loaded from accounting API)
-  feeBreakdown: {
-    units: number; tuitionFee: number; miscellaneousFee: number;
-    registrationFee: number; laboratoryFee: number; energyFee: number;
-    subtotal: number; discount: number; installmentFee: number;
-    totalAssessment: number; totalPaid: number; balance: number; paymentStatus: string;
-  } | null = null;
+  // ── SINGLE source of truth for fees ──────────────────────────
+  fees: FeeData | null = null;
   isFeeLoading = false;
+  get isFeePreviewLoading(): boolean { return this.isFeeLoading; }
+  // Aliases so existing HTML still compiles unchanged
+  get feePreview(): FeeData | null   { return this.fees; }
+  get feeBreakdown(): FeeData | null { return this.fees; }
+
   paymentPlan: 'full' | 'installment' = 'full';
   termBreakdown: { period: string; amountPaid: number; orArNumber: string; orArType: string; paymentDate: string; paymentMethod: string }[] = [];
-
-  // Payment receipts
   paymentReceipts: any[] = [];
-  isReceiptsLoading = false;
 
   paymentInfo = { amount: 0, discountedAmount: 0, status: 'Pending' as 'Pending' | 'Paid', dueDate: '2025-02-28', reference: '' };
   isProcessingPayment = false;
   paymentMethod: 'GCash' | 'Cash' = 'GCash';
   gcashReference = ''; gcashAmount = 0; gcashDate = new Date().toISOString().split('T')[0]; gcashSubmitted = false;
 
-  // Fee preview (shown BEFORE payment — computed from program units)
-  feePreview: {
-    units: number; tuitionFee: number; miscellaneousFee: number;
-    registrationFee: number; laboratoryFee: number; energyFee: number;
-    subtotal: number; discount: number; installmentFee: number; totalAssessment: number;
-  } | null = null;
-  isFeePreviewLoading = false;
-
   isApprovalPending = false; approvalMessage = '';
   private pollInterval: any = null;
+  private torPollInterval: any = null;
 
-  currentSemester = ''; // loaded from DB via student profile
+  currentSemester = '';
   enrolledCourses: StudentCourse[] = [];
+  isAutoEnrolling = false;
 
   enrollmentSummary: {
     enrollmentDate: string; semester: string; program: string; yearLevel: string;
-    totalCourses: number; totalCredits: number;
-    courses: StudentCourse[];
+    totalCourses: number; totalCredits: number; courses: StudentCourse[];
     payment: PaymentSummary; termPayments: TermPayment[];
   } | null = null;
 
   currentView: 'dashboard' | 'enrollment-summary' = 'dashboard';
-  showDropModal         = false;
-  selectedCourseForDrop: StudentCourse | null = null;
-  showEditModal         = false; editForm: any = {};
-  isAutoEnrolling       = false;
+  showDropModal = false; selectedCourseForDrop: StudentCourse | null = null;
+  showEditModal = false; editForm: any = {};
   notifications: EnrollmentNotification[] = [];
   addDropDeadline = '2025-04-15';
 
+  // ═══════════════════════════════════════════════════════════════
+  // INIT — one call, one source of truth
+  // ═══════════════════════════════════════════════════════════════
   ngOnInit(): void {
-    const storedUser = localStorage.getItem('currentUser');
+    const storedUser = sessionStorage.getItem('currentUser');
     if (!storedUser) { this.router.navigate(['/login']); return; }
-    const user = JSON.parse(storedUser);
-    this.userId = user.id;
+    this.userId = JSON.parse(storedUser).id;
+    this.loadContext();
+  }
 
-    const storedPm = localStorage.getItem('pendingPaymentMethod');
-    if (storedPm === 'Cash' || storedPm === 'GCash') this.paymentMethod = storedPm as 'Cash' | 'GCash';
-
-    const storedPlan = localStorage.getItem('pendingPaymentPlan');
-    if (storedPlan === 'installment') this.paymentPlan = 'installment';
-
-    this.http.get<any>(`${this.apiUrl}?action=get_profile&user_id=${this.userId}`).subscribe({
+  loadContext(): void {
+    this.isFeeLoading = true;
+    this.http.get<any>(`${this.apiUrl}?action=get_student_context&user_id=${this.userId}`).subscribe({
       next: (res) => {
-        if (res.success) {
-          this.student     = res.student;
-          this.studentDbId = res.student.dbId;
-          localStorage.setItem('studentDbId', String(res.student.dbId));
-          if (!storedPm) this.paymentMethod = res.student.paymentMethod === 'Cash' ? 'Cash' : 'GCash';
-          if (res.student.paymentPlan) this.paymentPlan = res.student.paymentPlan;
+        this.isFeeLoading = false;
+        if (!res.success) { this.router.navigate(['/login']); return; }
 
-          if (res.student.approvalStatus === 'Approved' || res.student.enrollmentStatus === 'Enrolled') {
-            localStorage.removeItem('pendingPaymentMethod');
-            this.currentSemester = res.student.semester ?? '';
-            this.setStep('dashboard');
-            this.ensureEnrolledThenLoad();
-          } else if (res.student.torEvalStatus === 'Pending') {
-            // Transferee waiting for registrar to evaluate TOR
-            this.setStep('tor-pending');
-            this.startTorPolling();
-          } else if (res.student.torEvalStatus === 'Evaluated') {
-            // Registrar done — load new fee and show hard copy reminder first
-            this.loadFeePreview(res.student.program);
-            this.loadTorEvaluation();
-            const hardCopyDismissed = localStorage.getItem('torHardCopyDismissed_' + this.studentDbId);
-            if (!hardCopyDismissed) {
-              this.showTorHardCopyNotice = true;
-            }
-            if (this.paymentMethod === 'Cash') {
-              this.setStep('cash-pending'); this.isApprovalPending = true; this.startApprovalPolling();
-            } else {
-              this.setStep('payment');
-            }
-          } else if (res.student.torEvalStatus === 'Rejected') {
-            // TOR rejected — show payment step but with rejection notice
-            this.loadFeePreview(res.student.program);
-            this.loadTorEvaluation();
-            this.setStep('payment');
-          } else if (res.student.paymentStatus === 'Paid') {
-            this.setStep('approval'); this.isApprovalPending = true; this.startApprovalPolling();
-          } else if (this.paymentMethod === 'Cash') {
-            this.loadFeePreview(res.student.program);
-            this.setStep('cash-pending'); this.isApprovalPending = true; this.startApprovalPolling();
-          } else {
-            this.loadFeePreview(res.student.program);
-            this.setStep('payment');
+        this.student         = res.student;
+        this.studentDbId     = res.student.dbId;
+        this.currentSemester = res.student.semester ?? '';
+        this.paymentMethod   = res.student.paymentMethod === 'Cash' ? 'Cash' : 'GCash';
+        this.paymentPlan     = res.student.paymentPlan  === 'installment' ? 'installment' : 'full';
+        this.fees            = res.fees ?? null;
+        this.termBreakdown   = res.termBreakdown ?? [];
+        this.paymentReceipts = res.payments ?? [];
+
+        if (res.torEvaluation) {
+          this.torEvaluation = {
+            status:           res.torEvaluation.status,
+            creditedUnits:    res.torEvaluation.creditedUnits,
+            approvedUnits:    res.torEvaluation.approvedUnits,
+            creditedSubjects: res.torEvaluation.creditedSubjects || [],
+            registrarNotes:   res.torEvaluation.registrarNotes  || '',
+            evaluatedAt:      res.torEvaluation.evaluatedAt      || '',
+          };
+        }
+
+        if (this.fees) {
+          this.gcashAmount        = this.paymentPlan === 'installment' ? this.dpAmount : this.fees.totalAssessment;
+          this.paymentInfo.amount = this.gcashAmount;
+        }
+
+        sessionStorage.setItem('studentDbId', String(this.studentDbId));
+
+        // ── ROUTING ─────────────────────────────────────────────
+        const s        = res.student;
+        const approved    = s.approvalStatus === 'Approved';
+        const torPending  = s.torEvalStatus  === 'Pending';
+        const torDone     = s.torEvalStatus  === 'Evaluated';
+        const torRejected = s.torEvalStatus  === 'Rejected';
+        const paid        = s.paymentStatus  === 'Paid';
+        const isCash      = this.paymentMethod === 'Cash';
+
+        if (approved) {
+          sessionStorage.removeItem('pendingPaymentMethod');
+          sessionStorage.removeItem('pendingPaymentPlan');
+          this.route('dashboard');
+          this.ensureEnrolledThenLoad();
+
+        } else if (torPending) {
+          this.route('tor-pending');
+          this.startTorPolling();
+
+        } else if (torDone) {
+          if (!sessionStorage.getItem('torHardCopyDismissed_' + this.studentDbId)) {
+            this.showTorHardCopyNotice = true;
           }
-        } else { this.router.navigate(['/login']); }
+          this.route(isCash ? 'cash-pending' : 'payment');
+          if (isCash) { this.isApprovalPending = true; this.startApprovalPolling(); }
+
+        } else if (torRejected) {
+          this.route('payment');
+
+        } else if (paid && !isCash) {
+          this.route('approval');
+          this.isApprovalPending = true;
+          this.startApprovalPolling();
+
+        } else if (isCash) {
+          this.route('cash-pending');
+          this.isApprovalPending = true;
+          this.startApprovalPolling();
+
+        } else {
+          this.route('payment');
+        }
+
         this.cdr.detectChanges();
       },
-      error: () => { this.addNotification('error', 'Cannot load profile. Check XAMPP is running.'); this.cdr.detectChanges(); }
+      error: () => {
+        this.isFeeLoading = false;
+        this.addNotification('error', 'Cannot load profile. Check XAMPP is running.');
+        this.cdr.detectChanges();
+      }
     });
   }
 
-  setStep(step: typeof this.workflowStep): void {
+  route(step: typeof this.workflowStep): void {
     this.workflowStep = step;
-    localStorage.setItem('enrollmentStep', step);
+    sessionStorage.setItem('enrollmentStep', step);
   }
+  setStep(step: typeof this.workflowStep): void { this.route(step); }
 
-  // FIX: On dashboard load, auto_enroll silently (returns early if already enrolled)
   ensureEnrolledThenLoad(): void {
     this.http.post<any>(`${this.apiUrl}?action=auto_enroll_all`, {
       student_id: this.studentDbId, semester: this.currentSemester,
     }).subscribe({
-      next: () => { this.loadEnrolledCourses(); this.loadEnrollmentSummary(); this.loadFeeBreakdown(); this.cdr.detectChanges(); },
-      error: () => { this.loadEnrolledCourses(); this.loadEnrollmentSummary(); this.loadFeeBreakdown(); this.cdr.detectChanges(); }
+      next:  () => this.loadDashboard(),
+      error: () => this.loadDashboard(),
+    });
+  }
+
+  loadDashboard(): void {
+    this.loadEnrolledCourses();
+    this.loadEnrollmentSummary();
+    this.http.get<any>(`${this.apiUrl}?action=get_student_context&user_id=${this.userId}`).subscribe({
+      next: (res) => {
+        if (res.success) {
+          this.fees            = res.fees ?? null;
+          this.termBreakdown   = res.termBreakdown ?? [];
+          this.paymentReceipts = res.payments ?? [];
+          this.paymentPlan     = res.student.paymentPlan === 'installment' ? 'installment' : 'full';
+        }
+        this.cdr.detectChanges();
+      }
     });
   }
 
   processPayment(): void {
-    if (!this.studentDbId) { this.addNotification('error', 'Student ID missing. Please restart.'); return; }
+    if (!this.studentDbId) { this.addNotification('error', 'Student ID missing.'); return; }
     if (!this.gcashReference.trim()) { this.addNotification('error', 'Enter your GCash Reference Number.'); return; }
     this.isProcessingPayment = true;
     const txnId = 'TXN-' + Date.now() + '-' + Math.random().toString(36).substring(2,7).toUpperCase();
@@ -203,7 +236,7 @@ export class Enrollment implements OnInit {
         this.isProcessingPayment = false;
         if (res.success) {
           this.gcashSubmitted = true; this.paymentInfo.reference = txnId;
-          this.setStep('approval'); this.isApprovalPending = true;
+          this.route('approval'); this.isApprovalPending = true;
           this.addNotification('success', '✅ Payment submitted! Awaiting Accounting verification.');
           this.startApprovalPolling();
         } else { this.addNotification('error', res.message || 'Submission failed.'); }
@@ -221,8 +254,41 @@ export class Enrollment implements OnInit {
     }, 10000);
   }
 
-  // ── TOR Polling — checks every 15s if registrar has evaluated ──
-  private torPollInterval: any = null;
+  checkApprovalStatus(): void {
+    if (!this.userId) return;
+    this.http.get<any>(`${this.apiUrl}?action=get_payment_status&user_id=${this.userId}`).subscribe({
+      next: (res) => {
+        if (res.success && res.approvalStatus === 'Approved') {
+          clearInterval(this.pollInterval);
+          sessionStorage.removeItem('pendingPaymentMethod');
+          sessionStorage.removeItem('pendingPaymentPlan');
+          this.isApprovalPending = false;
+          this.approvalMessage = this.paymentMethod === 'Cash'
+            ? '💵 Cash payment confirmed by Accounting!'
+            : '📱 GCash payment verified by Accounting!';
+          this.addNotification('success', 'Payment approved!');
+          this.loadContext();
+        }
+      }
+    });
+  }
+
+  proceedToDashboard(): void {
+    this.isAutoEnrolling = true; this.cdr.detectChanges();
+    this.http.post<any>(`${this.apiUrl}?action=auto_enroll_all`, {
+      student_id: this.studentDbId, semester: this.currentSemester,
+    }).subscribe({
+      next: (res) => {
+        this.isAutoEnrolling = false;
+        if (res.success && res.enrolled > 0)
+          this.addNotification('success', `✅ ${res.enrolled} subject(s) auto-enrolled!`);
+        this.route('dashboard');
+        this.loadDashboard();
+        this.cdr.detectChanges();
+      },
+      error: () => { this.isAutoEnrolling = false; this.route('dashboard'); this.loadDashboard(); this.cdr.detectChanges(); }
+    });
+  }
 
   startTorPolling(): void {
     this.loadTorEvaluation();
@@ -243,124 +309,16 @@ export class Enrollment implements OnInit {
             approvedUnits:    res.evaluation.approvedUnits,
             creditedSubjects: res.evaluation.creditedSubjects || [],
             registrarNotes:   res.evaluation.registrarNotes  || '',
-            evaluatedAt:      res.evaluation.evaluatedAt     || '',
+            evaluatedAt:      res.evaluation.evaluatedAt      || '',
           };
-          // If evaluated → stop polling, reload fee, go to payment
-          if (res.evaluation.status === 'Evaluated') {
+          if (res.evaluation.status === 'Evaluated' || res.evaluation.status === 'Rejected') {
             if (this.torPollInterval) clearInterval(this.torPollInterval);
-            this.loadFeePreview(this.student.program);
-            if (this.paymentMethod === 'Cash') {
-              this.setStep('cash-pending'); this.isApprovalPending = true; this.startApprovalPolling();
-            } else {
-              this.setStep('payment');
-            }
-          } else if (res.evaluation.status === 'Rejected') {
-            if (this.torPollInterval) clearInterval(this.torPollInterval);
-            this.loadFeePreview(this.student.program);
-            this.setStep('payment');
+            this.loadContext();
           }
         }
         this.cdr.detectChanges();
       },
       error: () => { this.isTorLoading = false; this.cdr.detectChanges(); }
-    });
-  }
-
-  checkApprovalStatus(): void {
-    if (!this.userId) return;
-    this.http.get<any>(`${this.apiUrl}?action=get_payment_status&user_id=${this.userId}`).subscribe({
-      next: (res) => {
-        if (res.success && res.approvalStatus === 'Approved') {
-          clearInterval(this.pollInterval);
-          localStorage.removeItem('pendingPaymentMethod');
-          this.isApprovalPending = false;
-          this.approvalMessage = this.paymentMethod === 'Cash' ? '💵 Cash payment confirmed by Accounting!' : '📱 GCash payment verified by Accounting!';
-          this.addNotification('success', 'Payment approved!');
-          // FIX: Reload full profile so currentSemester is set before proceeding to dashboard
-          this.http.get<any>(`${this.apiUrl}?action=get_profile&user_id=${this.userId}`).subscribe({
-            next: (pRes) => {
-              if (pRes.success) {
-                this.student       = pRes.student;
-                this.studentDbId   = pRes.student.dbId;
-                this.currentSemester = pRes.student.semester ?? this.currentSemester;
-              }
-              this.cdr.detectChanges();
-            }
-          });
-        }
-      }
-    });
-  }
-
-  proceedToDashboard(): void {
-    this.isAutoEnrolling = true; this.cdr.detectChanges();
-
-    // FIX: If currentSemester is still empty (can happen if payment was approved
-    // before profile fully refreshed), reload profile first to get it
-    const doEnroll = () => {
-      this.http.post<any>(`${this.apiUrl}?action=auto_enroll_all`, {
-        student_id: this.studentDbId, semester: this.currentSemester,
-      }).subscribe({
-        next: (res) => {
-          this.isAutoEnrolling = false;
-          if (res.success && res.enrolled > 0) this.addNotification('success', `✅ ${res.enrolled} subject(s) auto-enrolled for your program!`);
-          this.setStep('dashboard'); this.loadEnrolledCourses(); this.loadEnrollmentSummary(); this.loadFeeBreakdown(); this.cdr.detectChanges();
-        },
-        error: () => { this.isAutoEnrolling = false; this.setStep('dashboard'); this.loadEnrolledCourses(); this.loadEnrollmentSummary(); this.cdr.detectChanges(); }
-      });
-    };
-
-    if (!this.currentSemester) {
-      this.http.get<any>(`${this.apiUrl}?action=get_profile&user_id=${this.userId}`).subscribe({
-        next: (pRes) => {
-          if (pRes.success) {
-            this.student         = pRes.student;
-            this.studentDbId     = pRes.student.dbId;
-            this.currentSemester = pRes.student.semester ?? '';
-          }
-          doEnroll();
-        },
-        error: () => doEnroll()
-      });
-    } else {
-      doEnroll();
-    }
-  }
-
-  loadFeePreview(programName: string): void {
-    if (!programName) return;
-    this.isFeePreviewLoading = true;
-    this.cdr.detectChanges();
-    // Fetch fee preview using program name — backend will sum course credits for that program
-    this.http.get<any>(`${this.accountingApi}?action=get_fee_preview&program=${encodeURIComponent(programName)}&student_id=${this.studentDbId}`).subscribe({
-      next: (res) => {
-        this.isFeePreviewLoading = false;
-        if (res.success && res.fees) {
-          this.feePreview = res.fees;
-          this.gcashAmount = res.fees.totalAssessment;
-          this.paymentInfo.amount = res.fees.totalAssessment;
-        }
-        this.cdr.detectChanges();
-      },
-      error: () => { this.isFeePreviewLoading = false; this.cdr.detectChanges(); }
-    });
-  }
-
-  loadFeeBreakdown(): void {
-    if (!this.studentDbId) return;
-    this.isFeeLoading = true;
-    this.http.get<any>(`${this.accountingApi}?action=get_student_receipts&student_id=${this.studentDbId}`).subscribe({
-      next: (res) => {
-        this.isFeeLoading = false;
-        if (res.success) {
-          this.feeBreakdown   = res.fees ? { ...res.fees, totalPaid: res.totalPaid, balance: res.balance, paymentStatus: res.paymentStatus } : null;
-          this.paymentReceipts = res.payments || [];
-          this.termBreakdown   = res.termBreakdown || [];
-          if (res.paymentPlan) this.paymentPlan = res.paymentPlan;
-        }
-        this.cdr.detectChanges();
-      },
-      error: () => { this.isFeeLoading = false; this.cdr.detectChanges(); }
     });
   }
 
@@ -378,14 +336,17 @@ export class Enrollment implements OnInit {
             enrollmentDate: res.enrollmentDate, semester: res.semester,
             program: res.program, yearLevel: res.yearLevel,
             totalCourses: res.totalCourses, totalCredits: res.totalCredits,
-            courses: res.courses,
-            payment: res.payment, termPayments: res.termPayments,
+            courses: res.courses, payment: res.payment, termPayments: res.termPayments,
           };
           this.cdr.detectChanges();
         }
       }
     });
   }
+
+  // No-ops — kept so templates compile
+  loadFeePreview(_?: string): void {}
+  loadFeeBreakdown(): void {}
 
   openDropModal(c: StudentCourse): void { this.selectedCourseForDrop = c; this.showDropModal = true; this.cdr.detectChanges(); }
   closeDropModal(): void { this.showDropModal = false; this.selectedCourseForDrop = null; this.cdr.detectChanges(); }
@@ -406,7 +367,8 @@ export class Enrollment implements OnInit {
     if (!this.studentDbId) return;
     this.http.post<any>(`${this.apiUrl}?action=update_profile`, {
       student_id: this.studentDbId, phone: this.editForm.phone, address: this.editForm.address,
-      emergencyContact: this.editForm.emergencyContact, emergencyPhone: this.editForm.emergencyPhone, dateOfBirth: this.editForm.dateOfBirth,
+      emergencyContact: this.editForm.emergencyContact, emergencyPhone: this.editForm.emergencyPhone,
+      dateOfBirth: this.editForm.dateOfBirth,
     }).subscribe({
       next: (res) => {
         if (res.success) { Object.assign(this.student, this.editForm); this.addNotification('success', 'Profile updated!'); this.closeEditModal(); }
@@ -418,7 +380,7 @@ export class Enrollment implements OnInit {
   }
 
   dismissTorHardCopyNotice(): void {
-    localStorage.setItem('torHardCopyDismissed_' + this.studentDbId, '1');
+    sessionStorage.setItem('torHardCopyDismissed_' + this.studentDbId, '1');
     this.showTorHardCopyNotice = false;
     this.cdr.detectChanges();
   }
@@ -427,52 +389,51 @@ export class Enrollment implements OnInit {
   get totalCredits(): number { return this.approvedCourses.reduce((s, c) => s + c.credits, 0); }
   canDropCourse(): boolean { return new Date() <= new Date(this.addDropDeadline); }
 
-  /** Returns true if the given term (Downpayment/Prelim/Midterm/Finals) has not been paid yet */
   isTermUnpaid(term: string): boolean {
     return !this.termBreakdown.some(t => t.period === term);
   }
 
-  /** Amount due per installment term (total / 4, Finals gets remainder) */
   get installmentTermAmount(): number {
-    if (!this.feeBreakdown) return 0;
-    return Math.ceil(this.feeBreakdown.totalAssessment / 4);
+    const total = this.fees?.totalAssessment ?? 0;
+    return total > 0 ? Math.ceil(total / 4) : 0;
+  }
+  get dpAmount(): number      { return this.installmentTermAmount; }
+  get prelimAmount(): number  { return this.installmentTermAmount; }
+  get midtermAmount(): number { return this.installmentTermAmount; }
+  get finalsAmount(): number  {
+    const total = this.fees?.totalAssessment ?? 0;
+    return total > 0 ? total - (this.installmentTermAmount * 3) : 0;
   }
 
-  get installmentFinalsAmount(): number {
-    if (!this.feeBreakdown) return 0;
-    return this.feeBreakdown.totalAssessment - (this.installmentTermAmount * 3);
-  }
-
-  /** All 4 installment terms with status and expected amount */
   get installmentSchedule(): { term: string; label: string; amount: number; paid: boolean; amountPaid: number; orNo: string; paymentDate: string }[] {
     const terms = [
-      { term: 'Downpayment', label: '1st — Downpayment', amount: this.installmentTermAmount },
-      { term: 'Prelim',      label: '2nd — Prelim',      amount: this.installmentTermAmount },
-      { term: 'Midterm',     label: '3rd — Midterm',     amount: this.installmentTermAmount },
-      { term: 'Finals',      label: '4th — Finals',      amount: this.installmentFinalsAmount },
+      { term: 'Downpayment', label: '1st — Downpayment (DP)', amount: this.dpAmount },
+      { term: 'Prelim',      label: '2nd — Prelim',           amount: this.prelimAmount },
+      { term: 'Midterm',     label: '3rd — Midterm',          amount: this.midtermAmount },
+      { term: 'Finals',      label: '4th — Finals',           amount: this.finalsAmount },
     ];
     return terms.map(t => {
       const paid = this.termBreakdown.find(tb => tb.period === t.term);
       return {
-        term:        t.term,
-        label:       t.label,
-        amount:      t.amount,
-        paid:        !!paid,
-        amountPaid:  paid ? paid.amountPaid : 0,
-        orNo:        paid ? `${paid.orArType}: ${paid.orArNumber}` : '',
+        term: t.term, label: t.label, amount: t.amount,
+        paid: !!paid, amountPaid: paid ? paid.amountPaid : 0,
+        orNo: paid ? `${paid.orArType}: ${paid.orArNumber}` : '',
         paymentDate: paid ? paid.paymentDate : '',
       };
     });
   }
 
-  getTermIcon(status: string): string { return status === 'Paid' ? '✅' : status === 'Partial' ? '🔶' : '❌'; }
-  getTermClass(status: string): string { return status === 'Paid' ? 'term-paid' : status === 'Partial' ? 'term-partial' : 'term-unpaid'; }
-  getPayStatusClass(status: string): string { return status === 'Paid' ? 'pay-paid' : status === 'Partial' ? 'pay-partial' : 'pay-unpaid'; }
+  getTermIcon(s: string): string { return s === 'Paid' ? '✅' : s === 'Partial' ? '🔶' : '❌'; }
+  getTermClass(s: string): string { return s === 'Paid' ? 'term-paid' : s === 'Partial' ? 'term-partial' : 'term-unpaid'; }
+  getPayStatusClass(s: string): string { return s === 'Paid' ? 'pay-paid' : s === 'Partial' ? 'pay-partial' : 'pay-unpaid'; }
 
   addNotification(type: EnrollmentNotification['type'], message: string): void {
     const n: EnrollmentNotification = { id: 'n-' + Date.now(), type, message, timestamp: new Date() };
     this.notifications.push(n);
-    setTimeout(() => { const i = this.notifications.findIndex(x => x.id === n.id); if (i !== -1) { this.notifications.splice(i, 1); this.cdr.detectChanges(); } }, 5000);
+    setTimeout(() => {
+      const i = this.notifications.findIndex(x => x.id === n.id);
+      if (i !== -1) { this.notifications.splice(i, 1); this.cdr.detectChanges(); }
+    }, 5000);
   }
   dismissNotification(id: string): void {
     const i = this.notifications.findIndex(n => n.id === id);

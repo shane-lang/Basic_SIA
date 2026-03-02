@@ -50,7 +50,7 @@ export class Gcash implements OnInit {
   }
 
   loadStudentInfo(): void {
-    const stored = localStorage.getItem('currentUser');
+    const stored = sessionStorage.getItem('currentUser');
     if (!stored) return;
     const user = JSON.parse(stored);
 

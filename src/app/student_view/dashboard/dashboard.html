@@ -19,10 +19,7 @@
       <span class="info-label">Year Level</span>
       <span class="info-value">{{ yearLevel || '—' }}</span>
     </div>
-    <div class="info-item">
-      <span class="info-label">GPA</span>
-      <span class="info-value">{{ gpa }}</span>
-    </div>
+    
     <div class="info-item">
       <span class="info-label">Status</span>
       <span class="info-value info-status-pill">{{ academicStatus || enrollmentStatus || '—' }}</span>
@@ -150,34 +147,41 @@
         <div class="fees-grid">
 
           <div class="fee-block">
-            <div class="fee-block-title">📖 Tuition & Miscellaneous</div>
-            <div class="fee-row"><span>Tuition Fee</span><span>{{ fmt(fees.tuitionBase) }}</span></div>
+            <div class="fee-block-title">📖 Fee Assessment</div>
+            <div class="fee-row"><span>No. of Units</span><span>{{ fees.units ?? 0 }}</span></div>
+            <div class="fee-row"><span>Tuition Fee</span><span>{{ fmt(fees.tuitionFee ?? fees.tuitionBase) }}</span></div>
             <div class="fee-row"><span>Miscellaneous Fee</span><span>{{ fmt(fees.miscFee) }}</span></div>
-            <div class="fee-row fee-subtotal"><span>Subtotal</span><span>{{ fmt(fees.totalFees) }}</span></div>
+            <div class="fee-row"><span>Registration Fee</span><span>{{ fmt(fees.registrationFee ?? 0) }}</span></div>
+            <div class="fee-row" *ngIf="(fees.laboratoryFee ?? 0) > 0"><span>Laboratory Fee</span><span>{{ fmt(fees.laboratoryFee) }}</span></div>
+            <div class="fee-row"><span>Energy Fee</span><span>{{ fmt(fees.energyFee ?? 0) }}</span></div>
+            <div class="fee-row fee-subtotal"><span>Total Assessment</span><span>{{ fmt(fees.totalAssessment ?? fees.totalFees) }}</span></div>
           </div>
 
           <div class="fee-block">
             <div class="fee-block-title">🎁 Scholarships & Discounts</div>
-            <div class="fee-row discount" *ngIf="fees.scholarship > 0">
-              <span>Scholarship Discount</span><span>- {{ fmt(fees.scholarship) }}</span>
+            <div class="fee-row discount" *ngIf="(fees.scholarship ?? 0) > 0">
+              <span>Scholarship / Discount</span><span>- {{ fmt(fees.scholarship) }}</span>
             </div>
-            <div class="fee-row fee-muted" *ngIf="!fees.scholarship || fees.scholarship===0">
+            <div class="fee-row fee-muted" *ngIf="!(fees.scholarship) || fees.scholarship === 0">
               <span>No scholarships applied</span><span>₱0.00</span>
+            </div>
+            <div class="fee-row" *ngIf="(fees.installmentFee ?? 0) > 0">
+              <span>Installment Fee</span><span>{{ fmt(fees.installmentFee) }}</span>
             </div>
           </div>
 
           <div class="fee-block fee-summary">
             <div class="fee-block-title">📋 Payment Summary</div>
-            <div class="fee-row"><span>Total Amount Due</span><span>{{ fmt(fees.totalFees - (fees.scholarship||0)) }}</span></div>
+            <div class="fee-row"><span>Total Amount Due</span><span>{{ fmt((fees.totalAssessment ?? fees.totalFees) - (fees.scholarship ?? 0)) }}</span></div>
             <div class="fee-row fee-paid"><span>Amount Paid</span><span>{{ fmt(fees.amountPaid) }}</span></div>
-            <div class="fee-row fee-balance" [class.zero]="fees.remainingBal<=0">
+            <div class="fee-row fee-balance" [class.zero]="fees.remainingBal <= 0">
               <span>Remaining Balance</span><strong>{{ fmt(fees.remainingBal) }}</strong>
             </div>
             <div class="fee-row fee-due" *ngIf="fees.remainingBal > 0">
               <span>Due Date</span><span class="due-txt">{{ fmtDate(fees.dueDate) }}</span>
             </div>
-            <div class="fee-status-chip" [class.paid]="fees.paymentStatus==='Paid'">
-              {{ fees.paymentStatus === 'Paid' ? '✅ Fully Paid' : '⚠️ Has Remaining Balance' }}
+            <div class="fee-status-chip" [class.paid]="fees.paymentStatus === 'Fully Paid'">
+              {{ fees.paymentStatus === 'Fully Paid' ? '✅ Fully Paid' : fees.amountPaid > 0 ? '⚠️ Partial Payment' : '⚠️ Unpaid' }}
             </div>
           </div>
 

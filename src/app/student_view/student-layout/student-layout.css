@@ -534,7 +534,7 @@
 .header-logout-btn {
   margin-left: auto; padding: 7px 14px; border-radius: 8px;
   border: 1.5px solid rgba(255,255,255,0.4); background: rgba(255,255,255,0.12);
-  color: #fff; font-size: 13px; font-weight: 600; cursor: pointer;
+  color: black; font-size: 13px; font-weight: 600; cursor: pointer;
   white-space: nowrap; transition: background 0.2s;
   display: flex; align-items: center; gap: 6px;
 }

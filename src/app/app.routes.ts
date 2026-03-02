@@ -4,7 +4,7 @@ import { AuthGuard } from './guards/auth-guard';
 import { StudentLayout } from './student_view/student-layout/student-layout';
 import { Admin } from './admin/admin';
 import { AccountingLayout } from './accounting/accounting-layout/accounting-layout';
-import { RegistrarLayoutComponent } from './registrar/registrar-layout/registrar-layout';
+import { RegistrarLayout } from './registrar/registrar-layout/registrar-layout';
 
 //  student sub-components
 import { StudentDashboard } from './student_view/dashboard/dashboard';
@@ -12,6 +12,7 @@ import { Enrollment } from './student_view/enrollment/enrollment';
 import { Profile } from './student_view/profile/profile';
 import { Schedule } from './student_view/schedule/schedule';
 import { About } from './student_view/about/about';
+import { PaymentSchedule } from './student_view/payment-schedule/payment-schedule';
 
 //  admin sub-components
 import { AdminDashboard } from './admin/admin-dashboard/admin-dashboard';
@@ -56,6 +57,7 @@ export const routes: Routes = [
       { path: 'dashboard',  component: StudentDashboard },
       { path: 'enrollment', component: Enrollment },
       { path: 'profile',    component: Profile },
+      { path: 'payment-schedule', component: PaymentSchedule },
       { path: 'schedule',   component: Schedule },
       { path: 'grades',     component: GradeSubmission },
       { path: 'about',      component: About },
@@ -83,7 +85,7 @@ export const routes: Routes = [
       { path: 'class-sections',  component: ClassSections },
       { path: 'levels',          component: Levels },
       { path: 'rooms',  component: Rooms },
-      { path: '', redirectTo: 'dashboard', pathMatch: 'full' }
+      { path: '', redirectTo: 'courses', pathMatch: 'full' }
     ]
   },
 
@@ -106,7 +108,7 @@ export const routes: Routes = [
   // Registrar Routes
   {
     path: 'registrar',
-    component: RegistrarLayoutComponent,
+    component: RegistrarLayout,
     canActivate: [AuthGuard],
     data: { role: 'registrar' },
     children: [
@@ -114,10 +116,9 @@ export const routes: Routes = [
       { path: 'manage-subjects',            component: ManageSubjectsComponent },
       { path: 'add-subject',                component: AddSubjectComponent },
       { path: 'drop-subject',               component: DropSubjectComponent },
+      { path: 'students',                   component: StudentEnrollmentReviewComponent },
       { path: 'student-enrollment-review',  component: StudentEnrollmentReviewComponent },
       { path: 'tor-evaluation',             component: TorEvaluation },
-
-      
       { path: '', redirectTo: 'dashboard', pathMatch: 'full' }
     ]
   },

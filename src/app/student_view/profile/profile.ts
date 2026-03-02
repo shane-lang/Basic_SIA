@@ -76,7 +76,7 @@ export class Profile implements OnInit, OnDestroy {
 
   loadProfile(): void {
     this.isLoading = true; this.errorMessage = ''; this.cdr.detectChanges();
-    const storedUser = localStorage.getItem('currentUser');
+    const storedUser = sessionStorage.getItem('currentUser');
     if (!storedUser) { this.errorMessage = 'Not logged in.'; this.isLoading = false; this.cdr.detectChanges(); return; }
     const user = JSON.parse(storedUser);
     this.http.get<any>(`${this.apiUrl}?action=get_profile&user_id=${user.id}`).subscribe({

@@ -64,20 +64,10 @@ export class LoginComponent {
     strand: '',
     learningDelivery: '' as 'Face to Face' | 'Online' | 'Modular' | 'Combination of Face to face and Online' | 'Blended Methods of Learning' | '',
     guardianName: '', guardianAddress: '', guardianContact: '',
-    semester: '1st Semester' as string,
-    schoolYear: '' as string,
+    yearLevel: '1st Year',
+    semesterEnroll: '' as string,
+    ayYear: '',
   };
-
-  semesterOptions = ['1st Semester', '2nd Semester', 'Summer'];
-  get schoolYearOptions(): string[] {
-    const y = new Date().getFullYear();
-    return [`${y-1}-${y}`, `${y}-${y+1}`, `${y+1}-${y+2}`];
-  }
-  get fullSemester(): string {
-    const sem = this.regForm.semester || '1st Semester';
-    const sy  = this.regForm.schoolYear || this.schoolYearOptions[1];
-    return `${sem}, AY ${sy}`;
-  }
 
   strandOptions = [
     'Accountancy Business and Management (ABM)',
@@ -87,6 +77,27 @@ export class LoginComponent {
     'General Academic Strand (GAS)',
   ];
   deliveryOptions = ['Face to Face','Online','Modular','Combination of Face to face and Online','Blended Methods of Learning'];
+
+  // ── Previous Schools (Step 2) ────────────────────────────────
+  previousSchools: { level: string; schoolName: string; schoolYear: string }[] = [
+    { level: '', schoolName: '', schoolYear: '' }
+  ];
+
+  addPreviousSchool(): void {
+    this.previousSchools.push({ level: '', schoolName: '', schoolYear: '' });
+  }
+
+  removePreviousSchool(index: number): void {
+    if (this.previousSchools.length > 1) {
+      this.previousSchools.splice(index, 1);
+    }
+  }
+
+  get yearLevelOptions(): string[] {
+    if (this.studentTypeCategory === 'SHS') return ['Grade 11', 'Grade 12'];
+    if (this.studentTypeCategory === 'TVET') return ['1st Year', '2nd Year'];
+    return ['1st Year', '2nd Year', '3rd Year', '4th Year', '5th Year'];
+  }
 
   get isSHS(): boolean { return this.studentTypeCategory === 'SHS'; }
   get isTVET(): boolean { return this.studentTypeCategory === 'TVET'; }
@@ -146,18 +157,24 @@ export class LoginComponent {
   // 'installment' = DP + Prelim + Midterm + Finals (each = total / 4)
   paymentPlan: 'full' | 'installment' = 'full';
 
+  /** Active total assessment — uses TOR fee for transferees, feePreview for regular students */
+  get activeTotalAssessment(): number {
+    if (this.torEvalResult?.fee?.totalAssessment) return this.torEvalResult.fee.totalAssessment;
+    if (this.feePreview?.totalAssessment) return this.feePreview.totalAssessment;
+    return 0;
+  }
+
   get installmentAmount(): number {
-    if (!this.feePreview) return 0;
-    return Math.ceil(this.feePreview.totalAssessment / 4);
+    if (!this.activeTotalAssessment) return 0;
+    return Math.ceil(this.activeTotalAssessment / 4);
   }
 
   get dpAmount(): number      { return this.installmentAmount; }
   get prelimAmount(): number  { return this.installmentAmount; }
   get midtermAmount(): number { return this.installmentAmount; }
   get finalsAmount(): number  {
-    if (!this.feePreview) return 0;
-    // Finals covers any rounding remainder
-    return this.feePreview.totalAssessment - (this.installmentAmount * 3);
+    if (!this.activeTotalAssessment) return 0;
+    return this.activeTotalAssessment - (this.installmentAmount * 3);
   }
 
   // Step 4
@@ -196,12 +213,12 @@ export class LoginComponent {
     this.http.post<any>(this.authUrl, { email: this.email, password: this.password }).subscribe({
       next: (res) => {
         if (res.success) {
-          this.successMessage = 'Login successful! Redirecting...';
           if (isPlatformBrowser(this.platformId)) {
-            localStorage.setItem('currentUser', JSON.stringify(res.user));
-            localStorage.setItem('token', res.token);
+            sessionStorage.setItem('currentUser', JSON.stringify(res.user));
+            sessionStorage.setItem('token', res.token);
           }
-          setTimeout(() => this.redirectByRole(res.user.role), 1000);
+          this.loading = false;
+          this.redirectByRole(res.user.role);
         } else { this.errorMessage = res.message || 'Login failed'; this.loading = false; this.cdr.detectChanges(); }
       },
       error: () => { this.errorMessage = 'Connection error. Make sure XAMPP is running.'; this.loading = false; this.cdr.detectChanges(); }
@@ -217,15 +234,17 @@ export class LoginComponent {
   openEnrollment(): void {
     this.view = 'enroll'; this.enrollStep = 'program'; this.enrollError = '';
     this.studentTypeCategory = ''; this.selectedProgram = ''; this.selectedProgramName = ''; this.selectedDepartment = '';
-    this.regForm = { lastName:'',firstName:'',middleName:'',suffix:'',studentType:'New',lrnNo:'',dateOfBirth:'',lastSchoolAttended:'',psaBirthCertNo:'',sex:'',religion:'',age:'',placeOfBirth:'',citizenship:'',homeAddress:'',contactNumber:'',isIndigenous:'No',motherTongue:'',hasSpecialNeeds:'No',specialNeedsDetails:'',hasAssistiveTech:'No',assistiveTechDetails:'',strand:'',learningDelivery:'',guardianName:'',guardianAddress:'',guardianContact:'', semester:'1st Semester', schoolYear:'' };
+    this.regForm = { lastName:'',firstName:'',middleName:'',suffix:'',studentType:'New',lrnNo:'',dateOfBirth:'',lastSchoolAttended:'',psaBirthCertNo:'',sex:'',religion:'',age:'',placeOfBirth:'',citizenship:'',homeAddress:'',contactNumber:'',isIndigenous:'No',motherTongue:'',hasSpecialNeeds:'No',specialNeedsDetails:'',hasAssistiveTech:'No',assistiveTechDetails:'',strand:'',learningDelivery:'',guardianName:'',guardianAddress:'',guardianContact:'',yearLevel:'1st Year',semesterEnroll:'',ayYear:'' };
     this.torFile=null; this.goodMoralFile=null; this.psaFile=null; this.form138File=null; this.picFile=null;
     this.torFileName=''; this.goodMoralFileName=''; this.psaFileName=''; this.form138FileName=''; this.picFileName='';
     this.isScholar=false; this.scholarType=''; this.scholarGrantor=''; this.scholarshipAmount=0;
     this.paymentMethod='GCash'; this.paymentPlan='full';
+    this.regForm.yearLevel = '1st Year'; this.regForm.semesterEnroll = '';
     this.feePreview=null; this.feePreviewError='';
     this.accountForm={email:'',password:'',confirmPassword:''};
     this.torReviewPhase='idle'; this.torReviewError=''; this.torReviewStudentId=0;
     this.torCreditedCodes=new Set(); this.torEvalResult=null;
+    this.previousSchools = [{ level: '', schoolName: '', schoolYear: '' }];
     if(this.torPollTimer){clearInterval(this.torPollTimer);this.torPollTimer=null;}
     this.loadPrograms();
     this.cdr.detectChanges();
@@ -287,7 +306,15 @@ export class LoginComponent {
     if (!f.firstName?.trim())          { this.enrollError = 'First Name is required.';               this.cdr.detectChanges(); return; }
     if (!f.studentType)                { this.enrollError = 'Type of Student is required.';          this.cdr.detectChanges(); return; }
     if (!f.dateOfBirth)                { this.enrollError = 'Date of Birth is required.';            this.cdr.detectChanges(); return; }
-    if (!f.lastSchoolAttended?.trim()) { this.enrollError = 'Last School Attended is required.';     this.cdr.detectChanges(); return; }
+    if (!f.lastSchoolAttended?.trim()) {
+      // Auto-populate lastSchoolAttended from previousSchools for backend submission
+      const filledSchools = this.previousSchools.filter(s => s.schoolName?.trim());
+      if (filledSchools.length === 0) {
+        this.enrollError = 'Please enter at least one Previous School Attended.';
+        this.cdr.detectChanges(); return;
+      }
+      f.lastSchoolAttended = filledSchools.map(s => `${s.level} - ${s.schoolName} (${s.schoolYear})`).join('; ');
+    }
     if (!f.sex)                        { this.enrollError = 'Sex is required.';                      this.cdr.detectChanges(); return; }
     if (!f.religion?.trim())           { this.enrollError = 'Religion is required.';                 this.cdr.detectChanges(); return; }
     if (!f.age?.toString().trim())     { this.enrollError = 'Age is required.';                      this.cdr.detectChanges(); return; }
@@ -304,6 +331,9 @@ export class LoginComponent {
     if (!f.guardianName?.trim())       { this.enrollError = 'Parent / Guardian Name is required.';   this.cdr.detectChanges(); return; }
     if (!f.guardianAddress?.trim())    { this.enrollError = 'Parent / Guardian Address is required.'; this.cdr.detectChanges(); return; }
     if (!f.guardianContact?.trim())    { this.enrollError = 'Parent / Guardian Contact is required.'; this.cdr.detectChanges(); return; }
+
+    if (!f.yearLevel)            { this.enrollError = 'Year Level is required.';            this.cdr.detectChanges(); return; }
+    if (!f.semesterEnroll)         { this.enrollError = 'Semester is required.';               this.cdr.detectChanges(); return; }
 
     // LRN — only strictly required for SHS/TVET; for College it is optional
     if ((this.isSHS || this.isTVET) && !f.lrnNo?.trim()) {
@@ -338,6 +368,8 @@ export class LoginComponent {
     this.http.get<any>(
       `${this.accountingUrl}?action=get_fee_preview` +
       `&program=${encodeURIComponent(this.selectedProgramName)}` +
+      `&year_level=${encodeURIComponent(this.regForm.yearLevel)}` +
+      `&semester=${encodeURIComponent(this.fullSemester)}` +
       `&discount=${discount}` +
       `&has_installment=${hasInstallment ? 1 : 0}`
     ).subscribe({
@@ -382,6 +414,29 @@ export class LoginComponent {
   // Re-compute when payment plan or scholarship changes
   onPaymentPlanChange(): void {
     this.loadFeePreview();
+  }
+
+  // Called when transferee changes payment plan AFTER TOR evaluation
+  // Re-fetches fee with correct has_installment flag so totalAssessment is accurate
+  onTorPaymentPlanChange(): void {
+    if (!this.torReviewStudentId || !this.torEvalResult) return;
+    this.isFeePreviewLoading = true;
+    this.cdr.detectChanges();
+    const disc = this.isScholar && this.scholarshipAmount > 0 ? this.scholarshipAmount : 0;
+    const inst = this.paymentPlan === 'installment' ? 1 : 0;
+    this.http.get<any>(
+      `${this.accountingUrl}?action=get_fee_preview&program=${encodeURIComponent(this.selectedProgramName)}&student_id=${this.torReviewStudentId}&discount=${disc}&has_installment=${inst}`
+    ).subscribe({
+      next: (fr) => {
+        this.isFeePreviewLoading = false;
+        if (fr.success && fr.fees && this.torEvalResult) {
+          this.torEvalResult = { ...this.torEvalResult, fee: fr.fees };
+          this.feePreview = fr.fees;
+        }
+        this.cdr.detectChanges();
+      },
+      error: () => { this.isFeePreviewLoading = false; this.cdr.detectChanges(); }
+    });
   }
 
   onScholarshipChange(): void {
@@ -431,6 +486,11 @@ export class LoginComponent {
     }
     if (this.isScholar && !this.scholarType) { this.enrollError='Please select a scholarship type.'; this.cdr.detectChanges(); return; }
     this.enrollError = '';
+    // Warn if fee is still loading
+    if (!this.isTransfereeEnrolling && this.isFeePreviewLoading) {
+      this.enrollError = 'Fee assessment is still loading. Please wait a moment.';
+      this.cdr.detectChanges(); return;
+    }
     if (this.isTransfereeEnrolling) {
       // Transferees: go to TOR review sub-step — create account + send TOR + wait for evaluation
       this.enrollStep = 'tor-review';
@@ -462,7 +522,7 @@ export class LoginComponent {
           this.cdr.detectChanges(); return;
         }
         // STEP 2 — register student profile
-        this.http.post<any>(`${this.apiUrl}?action=register_student`, {
+        this.http.post<any>(`${this.apiUrl}?action=register_transferee`, {
           user_id: r1.user_id,
           firstName: this.regForm.firstName,   lastName: this.regForm.lastName,
           middleName: this.regForm.middleName, suffix: this.regForm.suffix,
@@ -470,8 +530,7 @@ export class LoginComponent {
           dateOfBirth: this.regForm.dateOfBirth, address: this.regForm.homeAddress,
           emergencyContact: this.regForm.guardianName, emergencyPhone: this.regForm.guardianContact,
           program: this.selectedProgramName, studentType: this.regForm.studentType,
-          studentCategory: this.studentTypeCategory, paymentMethod: 'GCash', paymentPlan: this.paymentPlan,
-          semester: this.fullSemester,
+          studentCategory: this.studentTypeCategory, paymentMethod: this.paymentMethod, paymentPlan: this.paymentPlan,
           isScholar: this.isScholar ? 1 : 0, scholarType: this.scholarType,
           scholarGrantor: this.scholarGrantor, scholarshipAmount: this.scholarshipAmount,
           lrnNo: this.regForm.lrnNo, sex: this.regForm.sex, religion: this.regForm.religion,
@@ -482,6 +541,8 @@ export class LoginComponent {
           hasSpecialNeeds: this.regForm.hasSpecialNeeds, specialNeedsDetails: this.regForm.specialNeedsDetails,
           hasAssistiveTech: this.regForm.hasAssistiveTech, assistiveTechDetails: this.regForm.assistiveTechDetails,
           learningDelivery: this.regForm.learningDelivery,
+          semester: this.fullSemester,
+          yearLevel: this.regForm.yearLevel,
         }).subscribe({
           next: (r2) => {
             if (!r2.success && !r2.student_id && !r2.student_number) {
@@ -556,19 +617,51 @@ export class LoginComponent {
     this.cdr.detectChanges();
   }
 
+
+  /** Combines semester term + AY year into e.g. "1st Semester, AY 2026-2027" */
+  get fullSemester(): string {
+    const term = this.regForm.semesterEnroll;
+    const ay   = this.regForm.ayYear?.trim();
+    if (term && ay) return `${term}, AY ${ay}`;
+    if (term)       return term;
+    return this.getCurrentSemester();
+  }
+
+  /** Returns the current academic year semester string, e.g. "1st Semester, AY 2025-2026" */
+  getCurrentSemester(): string {
+    const now = new Date();
+    const year = now.getFullYear();
+    // Assume 1st Semester Aug–Dec, 2nd Semester Jan–May
+    const month = now.getMonth() + 1;
+    const semLabel = month >= 6 ? '1st Semester' : '2nd Semester';
+    const ayStart  = month >= 6 ? year : year - 1;
+    return `${semLabel}, AY ${ayStart}-${ayStart + 1}`;
+  }
+
   finishTorReview(): void {
     // Auto-login then navigate
     const a = this.accountForm;
     this.isSubmitting = true; this.cdr.detectChanges();
     if (isPlatformBrowser(this.platformId)) {
-      localStorage.setItem('pendingPaymentMethod', this.paymentMethod);
-      localStorage.setItem('pendingPaymentPlan',   this.paymentPlan);
+      sessionStorage.setItem('pendingPaymentMethod', this.paymentMethod);
+      sessionStorage.setItem('pendingPaymentPlan',   this.paymentPlan);
     }
+
+    // Save payment_plan + payment_method to DB so it persists after localStorage is cleared
+    const studentId = this.torReviewStudentId;
+    if (studentId > 0) {
+      this.http.post<any>(`${this.apiUrl}?action=update_payment_plan`, {
+        student_id:     studentId,
+        payment_plan:   this.paymentPlan,
+        payment_method: this.paymentMethod,
+      }).subscribe(); // fire-and-forget
+    }
+
     this.http.post<any>(this.authUrl, { email: a.email, password: a.password }).subscribe({
       next: (lr) => {
         if (lr.success && isPlatformBrowser(this.platformId)) {
-          localStorage.setItem('currentUser', JSON.stringify(lr.user));
-          localStorage.setItem('token', lr.token);
+          sessionStorage.setItem('currentUser', JSON.stringify(lr.user));
+          sessionStorage.setItem('token', lr.token);
         }
         this.router.navigate(['/student/enrollment']);
       },
@@ -625,7 +718,6 @@ export class LoginComponent {
           studentCategory: this.studentTypeCategory,
           paymentMethod: this.paymentMethod,
           paymentPlan: this.paymentPlan,
-          semester: this.fullSemester,
           isScholar: this.isScholar ? 1 : 0,
           scholarType: this.scholarType, scholarGrantor: this.scholarGrantor,
           scholarshipAmount: this.scholarshipAmount,
@@ -647,6 +739,8 @@ export class LoginComponent {
           hasAssistiveTech: this.regForm.hasAssistiveTech,
           assistiveTechDetails: this.regForm.assistiveTechDetails,
           learningDelivery: this.regForm.learningDelivery,
+          semester: this.fullSemester,
+          yearLevel: this.regForm.yearLevel,
         }).subscribe({
           next: (sRes) => {
             console.log('[ENROLL] STEP 2 response:', sRes);
@@ -662,8 +756,8 @@ export class LoginComponent {
 
             console.log('[ENROLL] STEP 3 — Auto-login after registration');
             if (isPlatformBrowser(this.platformId)) {
-              localStorage.setItem('pendingPaymentMethod', this.paymentMethod);
-              localStorage.setItem('pendingPaymentPlan', this.paymentPlan);
+              sessionStorage.setItem('pendingPaymentMethod', this.paymentMethod);
+              sessionStorage.setItem('pendingPaymentPlan', this.paymentPlan);
             }
 
             // ── STEP 2b: If Transferee, auto-submit TOR for registrar evaluation ──
@@ -676,8 +770,8 @@ export class LoginComponent {
                 next: (lr) => {
                   console.log('[ENROLL] STEP 3 login response:', lr);
                   if (lr.success && isPlatformBrowser(this.platformId)) {
-                    localStorage.setItem('currentUser', JSON.stringify(lr.user));
-                    localStorage.setItem('token', lr.token);
+                    sessionStorage.setItem('currentUser', JSON.stringify(lr.user));
+                    sessionStorage.setItem('token', lr.token);
                   }
                   this.router.navigate(['/student/enrollment']);
                 },

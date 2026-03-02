@@ -1,0 +1,104 @@
+<div class="ps-wrap">
+
+  <div class="pg-header">
+    <div class="pg-icon">💳</div>
+    <div>
+      <h2>Payment Schedule</h2>
+      <p>View your payment breakdown and request exam permits once paid</p>
+    </div>
+  </div>
+
+  <div *ngIf="msg" class="alert" [class.alert-ok]="msgType==='ok'" [class.alert-err]="msgType==='err'">{{ msg }}</div>
+
+  <div *ngIf="isLoading" class="loading"><div class="spin"></div><p>Loading...</p></div>
+
+  <div *ngIf="!isLoading && !schedule" class="empty">
+    <div>📋</div>
+    <h3>No payment schedule yet</h3>
+    <p>Accounting will send you a notice when your payment is ready.</p>
+  </div>
+
+  <div *ngIf="!isLoading && schedule">
+
+    <!-- Summary -->
+    <div class="summary">
+      <div class="sum-item">
+        <span class="sum-label">Total Assessment</span>
+        <span class="sum-value">₱{{ fmt(schedule.total_assessment) }}</span>
+      </div>
+      <div class="sum-divider"></div>
+      <div class="sum-item">
+        <span class="sum-label">Payment Type</span>
+        <span class="type-badge" [class.full]="schedule.payment_type==='full'">
+          {{ schedule.payment_type==='full' ? 'Full Payment' : 'Installment' }}
+        </span>
+      </div>
+    </div>
+
+    <!-- Period cards -->
+    <div class="cards">
+      <div *ngFor="let period of periods" class="period-card"
+        [class.card-paid]="getStatus(period)==='paid'"
+        [class.card-partial]="getStatus(period)==='partial'"
+        [class.card-locked]="getStatus(period)==='locked'">
+
+        <div class="card-header">
+          <span class="period-label">{{ period }}</span>
+          <span class="status-badge"
+            [class.s-locked]="getStatus(period)==='locked'"
+            [class.s-unpaid]="getStatus(period)==='unpaid'"
+            [class.s-partial]="getStatus(period)==='partial'"
+            [class.s-paid]="getStatus(period)==='paid'">
+            {{ statusLabel(getStatus(period)) }}
+          </span>
+        </div>
+
+        <!-- Locked state -->
+        <div *ngIf="getStatus(period)==='locked'" class="locked-msg">
+          <div class="lock-icon">🔒</div>
+          <p>Waiting for Accounting to send your payment notice.</p>
+        </div>
+
+        <!-- Notice received -->
+        <div *ngIf="getStatus(period)!=='locked' && getNotice(period)" class="notice-box">
+          <div class="notice-title">📢 Payment Notice</div>
+          <div class="notice-text">{{ getNotice(period)!.message }}</div>
+          <div *ngIf="getNotice(period)!.due_date" class="notice-due">
+            Deadline: <strong>{{ fmtDate(getNotice(period)!.due_date) }}</strong>
+          </div>
+        </div>
+
+        <!-- Amounts (only when unlocked) -->
+        <div *ngIf="getStatus(period)!=='locked'" class="amounts">
+          <div class="amt-row"><span>Amount Due</span><strong>₱{{ fmt(getDue(period)) }}</strong></div>
+          <div class="amt-row"><span>Amount Paid</span><strong class="paid">₱{{ fmt(getPaid(period)) }}</strong></div>
+          <div class="amt-row balance-row">
+            <span>Balance</span>
+            <strong class="balance">₱{{ fmt(getDue(period) - getPaid(period)) }}</strong>
+          </div>
+        </div>
+
+        <!-- Permit section (only when unlocked) -->
+        <div *ngIf="getStatus(period)!=='locked'" class="permit-area">
+          <ng-container *ngIf="getPermit(period) as permit">
+            <div class="permit-status"
+              [class.ps-pending]="permit.status==='pending'"
+              [class.ps-approved]="permit.status==='approved'"
+              [class.ps-rejected]="permit.status==='rejected'">
+              <span>{{ permit.status==='approved' ? '✅' : permit.status==='pending' ? '⏳' : '❌' }}</span>
+              Permit {{ permit.status | titlecase }}
+              <span *ngIf="permit.remarks && permit.status==='rejected'" class="remarks-text"> — {{ permit.remarks }}</span>
+            </div>
+          </ng-container>
+          <button class="btn-permit"
+            *ngIf="!getPermit(period) || getPermit(period)?.status==='rejected'"
+            [disabled]="!canRequest(period) || isRequesting"
+            (click)="requestPermit(period)">
+            {{ getStatus(period)==='paid' ? ('Request ' + period + ' Permit') : 'Pay to Unlock Permit' }}
+          </button>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>

@@ -30,12 +30,12 @@
     <button class="tab-btn" [class.active]="currentTab === 'history'" (click)="switchTab('history')">
       📋 Payment History
     </button>
-    <button class="tab-btn" [class.active]="currentTab === 'installment'" (click)="switchTab('installment')">
+   <!-- <button class="tab-btn" [class.active]="currentTab === 'installment'" (click)="switchTab('installment')">
       💳 Record Payments
     </button>
     <button class="tab-btn" [class.active]="currentTab === 'liquidation'" (click)="switchTab('liquidation')">
       📊 Liquidation / Audit
-    </button>
+    </button>-->
   </div>
 
   <!-- ══ PENDING TAB ══ -->
@@ -283,7 +283,7 @@
             <td><span class="badge" [class.badge-gcash]="isGCash(h)" [class.badge-cash]="isCash(h)">{{ isCash(h) ? '💵 Cash' : '📱 GCash' }}</span></td>
             <td><span class="mono" *ngIf="isGCash(h)">{{ h.gcashReference }}</span><span class="muted" *ngIf="isCash(h)">Walk-in Cash</span></td>
             <td><strong class="amount">₱{{ formatAmount(h.gcashAmount) }}</strong></td>
-            <td>{{ formatDate(h.gcashDate) }}</td>
+            <td>{{ formatDate(h.gcashDate || h.verifiedAt) }}</td>
             <td><span class="badge" [class.verified]="h.status === 'Verified'" [class.rejected]="h.status === 'Rejected'">{{ h.status === 'Verified' ? '✓ Verified' : '✗ Rejected' }}</span></td>
             <td>{{ h.verifiedByName }}</td>
             <td class="muted">{{ formatDateTime(h.verifiedAt) }}</td>
@@ -420,35 +420,77 @@
 <!-- ══ INSTALLMENT / RECORD PAYMENTS TAB ══ -->
 <div class="accounting-container" *ngIf="currentTab === 'installment'">
   <div class="section-header-bar">
-    <h2>💳 Record Student Payment (Installment)</h2>
-    <p style="color:#6b7280;font-size:0.9rem;">Select a student from pending list to record a payment and issue OR/AR.</p>
+    <h2>💳 Record Student Payment</h2>
+    <p style="color:#6b7280;font-size:0.9rem;">Record cash or GCash payments and issue OR/AR receipts.</p>
   </div>
 
-  <div *ngIf="pendingPayments.length === 0" class="empty-state">
-    <div class="empty-icon">✅</div>
-    <h3>No pending students</h3>
-    <p>All students have been processed.</p>
-  </div>
-
-  <!-- Student list for installment recording -->
-  <div class="installment-list" *ngIf="pendingPayments.length > 0">
-    <div class="installment-card" *ngFor="let p of filteredPending">
-      <div class="inst-student-info">
-        <div class="inst-avatar">{{ getInitials(p) }}</div>
-        <div>
-          <strong>{{ p.lastName }}, {{ p.firstName }}</strong>
-          <div style="color:#6b7280;font-size:0.85rem;">{{ p.studentNumber }} · {{ p.program }} {{ p.yearLevel }}</div>
+  <!-- ── SECTION 1: Pending students (first payment not yet recorded) ── -->
+  <div *ngIf="filteredPending.length > 0">
+    <div class="inst-section-title">⏳ Awaiting First Payment</div>
+    <div class="installment-list">
+      <div class="installment-card" *ngFor="let p of filteredPending">
+        <div class="inst-student-info">
+          <div class="inst-avatar">{{ getInitials(p) }}</div>
+          <div>
+            <strong>{{ p.lastName }}, {{ p.firstName }}</strong>
+            <div style="color:#6b7280;font-size:0.85rem;">{{ p.studentNumber }} · {{ p.program }} {{ p.yearLevel }}</div>
+            <span class="inst-method-badge" [class.inst-badge-cash]="isCash(p)" [class.inst-badge-gcash]="isGCash(p)">
+              {{ isCash(p) ? '💵 Cash' : '📱 GCash' }}
+            </span>
+          </div>
         </div>
+        <div class="inst-fee-info">
+          <div class="inst-row"><span>Total Assessment:</span><strong>₱{{ formatAmount(p.totalAssessment) }}</strong></div>
+          <div class="inst-row"><span>Total Paid:</span><strong class="text-green">₱{{ formatAmount(p.totalPaid) }}</strong></div>
+          <div class="inst-row"><span>Balance:</span><strong [style.color]="p.balance > 0 ? '#dc2626' : '#16a34a'">₱{{ formatAmount(p.balance) }}</strong></div>
+        </div>
+        <button class="btn-record-payment" (click)="openInstallmentModal(p)">
+          💳 Record Payment
+        </button>
       </div>
-      <div class="inst-fee-info">
-        <div class="inst-row"><span>Total Assessment:</span><strong>₱{{ formatAmount(p.totalAssessment) }}</strong></div>
-        <div class="inst-row"><span>Total Paid:</span><strong class="text-green">₱{{ formatAmount(p.totalPaid) }}</strong></div>
-        <div class="inst-row"><span>Balance:</span><strong [style.color]="p.balance > 0 ? '#dc2626' : '#16a34a'">₱{{ formatAmount(p.balance) }}</strong></div>
-      </div>
-      <button class="btn-record-payment" (click)="openInstallmentModal(p)">
-        💳 Record Payment
-      </button>
     </div>
+  </div>
+
+  <!-- ── SECTION 2: Enrolled installment students with remaining balance ── -->
+  <div style="margin-top:24px;">
+    <div class="inst-section-title">📆 Collect Next Installment Term</div>
+    <p style="color:#6b7280;font-size:0.85rem;margin:0 0 12px;">Students who are enrolled and have an outstanding balance on their installment schedule.</p>
+
+    <div *ngIf="isLoadingInstallmentStudents" class="loading-state"><div class="spinner"></div><p>Loading...</p></div>
+
+    <div *ngIf="!isLoadingInstallmentStudents && installmentStudents.length === 0" class="empty-state">
+      <div class="empty-icon">✅</div>
+      <h3>All installment students are fully paid</h3>
+    </div>
+
+    <div class="installment-list" *ngIf="installmentStudents.length > 0">
+      <div class="installment-card" *ngFor="let p of installmentStudents">
+        <div class="inst-student-info">
+          <div class="inst-avatar" style="background:#1d4ed8;">{{ getInitials(p) }}</div>
+          <div>
+            <strong>{{ p.lastName }}, {{ p.firstName }}</strong>
+            <div style="color:#6b7280;font-size:0.85rem;">{{ p.studentNumber }} · {{ p.program }} {{ p.yearLevel }}</div>
+            <span class="inst-method-badge" [class.inst-badge-cash]="isCash(p)" [class.inst-badge-gcash]="isGCash(p)">
+              {{ isCash(p) ? '💵 Cash' : '📱 GCash' }}
+            </span>
+            <span style="background:#dcfce7;color:#166534;font-size:0.75rem;padding:2px 6px;border-radius:4px;margin-left:4px;">✓ Enrolled</span>
+          </div>
+        </div>
+        <div class="inst-fee-info">
+          <div class="inst-row"><span>Total Assessment:</span><strong>₱{{ formatAmount(p.totalAssessment) }}</strong></div>
+          <div class="inst-row"><span>Total Paid:</span><strong class="text-green">₱{{ formatAmount(p.totalPaid) }}</strong></div>
+          <div class="inst-row"><span>Balance:</span><strong style="color:#dc2626;">₱{{ formatAmount(p.balance) }}</strong></div>
+        </div>
+        <button class="btn-record-payment" (click)="openInstallmentModal(p)">
+          💳 Collect Payment
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div *ngIf="filteredPending.length === 0 && installmentStudents.length === 0 && !isLoadingInstallmentStudents" class="empty-state" style="margin-top:16px;">
+    <div class="empty-icon">✅</div>
+    <h3>No pending payments to record</h3>
   </div>
 </div>
 
@@ -633,3 +675,9 @@
   </div>
 </div>
 <!-- Accounting Extra Styles -->
+<style>
+.inst-section-title { font-weight:700; font-size:0.95rem; color:#374151; margin:0 0 10px; padding:6px 12px; background:#f3f4f6; border-radius:6px; border-left:3px solid #6366f1; }
+.inst-method-badge { font-size:0.72rem; padding:2px 7px; border-radius:4px; display:inline-block; margin-top:3px; }
+.inst-badge-cash { background:#fef3c7; color:#92400e; }
+.inst-badge-gcash { background:#eff6ff; color:#1d4ed8; }
+</style>

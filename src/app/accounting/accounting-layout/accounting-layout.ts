@@ -1,6 +1,7 @@
-import { Component, OnDestroy, OnInit, signal } from '@angular/core';
-import { CommonModule } from '@angular/common';
-import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+import { Component, OnDestroy, OnInit, signal, inject } from '@angular/core';
+import { CommonModule, isPlatformBrowser } from '@angular/common';
+import { RouterLink, RouterLinkActive, RouterOutlet, Router } from '@angular/router';
+import { PLATFORM_ID } from '@angular/core';
 import { MatSidenavModule } from '@angular/material/sidenav';
 import { MatToolbarModule } from '@angular/material/toolbar';
 import { MatButtonModule } from '@angular/material/button';
@@ -31,10 +32,17 @@ export class AccountingLayout implements OnInit, OnDestroy {
   private resizeListener?: () => void;
   isMobile = signal(false);
   userRole = signal('Accountant');
+  userName = signal('Accounting');
   notificationCount = signal(3);
 
+  private platformId = inject(PLATFORM_ID);
+  constructor(private router: Router) {}
+
   ngOnInit() {
-    if (typeof window !== 'undefined') {
+    if (isPlatformBrowser(this.platformId)) {
+      const user = JSON.parse(sessionStorage.getItem('currentUser') || '{}');
+      if (user?.role !== 'accounting') { this.router.navigate(['/login']); return; }
+      this.userName.set(user.first_name || 'Accounting');
       const isMobileView = window.innerWidth <= 768;
       this.isMobile.set(isMobileView);
       this.sidebarOpen.set(!isMobileView);
@@ -71,8 +79,16 @@ export class AccountingLayout implements OnInit, OnDestroy {
   }
 
   closeSidebarOnMobile() {
-    if (typeof window !== 'undefined' && window.innerWidth <= 768) {
+    if (isPlatformBrowser(this.platformId) && window.innerWidth <= 768) {
       this.sidebarOpen.set(false);
     }
+  }
+
+  logout() {
+    if (isPlatformBrowser(this.platformId)) {
+      sessionStorage.removeItem('currentUser');
+      sessionStorage.removeItem('token');
+    }
+    this.router.navigate(['/login']);
   }
 }

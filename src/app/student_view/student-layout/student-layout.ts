@@ -28,7 +28,7 @@ export class StudentLayout implements OnInit, OnDestroy {
 
   ngOnInit() {
     // Load user info for display in sidebar
-    const stored = localStorage.getItem('currentUser');
+    const stored = sessionStorage.getItem('currentUser');
     if (stored) {
       const u = JSON.parse(stored);
       this.currentUserName  = `${u.first_name || ''} ${u.last_name || ''}`.trim() || u.email;
@@ -63,10 +63,10 @@ export class StudentLayout implements OnInit, OnDestroy {
   }
 
   logout(): void {
-    localStorage.removeItem('currentUser');
-    localStorage.removeItem('token');
-    localStorage.removeItem('studentDbId');
-    localStorage.removeItem('pendingPaymentMethod');
+    sessionStorage.removeItem('currentUser');
+    sessionStorage.removeItem('token');
+    sessionStorage.removeItem('studentDbId');
+    sessionStorage.removeItem('pendingPaymentMethod');
     this.router.navigate(['/login']);
   }
 }

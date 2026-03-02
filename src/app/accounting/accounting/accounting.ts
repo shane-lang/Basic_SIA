@@ -118,6 +118,8 @@ export class Accounting implements OnInit {
     notes:           '',
   };
   installmentResult: { orArNumber: string; orArType: string; totalPaid: number; balance: number; isFullyPaid: boolean } | null = null;
+  installmentStudents: PendingPayment[] = [];  // enrolled installment students with remaining balance
+  isLoadingInstallmentStudents = false;
   selectedInstallmentStudent: PendingPayment | null = null;
 
   // ── Liquidation ───────────────────────────────────────────
@@ -131,7 +133,7 @@ export class Accounting implements OnInit {
   constructor(private http: HttpClient, private cdr: ChangeDetectorRef) {}
 
   ngOnInit(): void {
-    const stored = localStorage.getItem('currentUser');
+    const stored = sessionStorage.getItem('currentUser');
     if (stored) {
       const u = JSON.parse(stored);
       this.accountingUserId = u.id;
@@ -140,7 +142,7 @@ export class Accounting implements OnInit {
   }
 
   isCash(p: PendingPayment | null): boolean  { return p?.paymentMethod?.toLowerCase() === 'cash'; }
-  isGCash(p: PendingPayment | null): boolean { return !p || p?.paymentMethod?.toLowerCase() !== 'cash'; }
+  isGCash(p: PendingPayment | null): boolean { return p?.paymentMethod?.toLowerCase() === 'gcash'; }
 
   get filteredPending(): PendingPayment[] {
     return this.pendingPayments.filter(p => {
@@ -177,11 +179,25 @@ export class Accounting implements OnInit {
     });
   }
 
+  loadInstallmentStudents(): void {
+    this.isLoadingInstallmentStudents = true;
+    this.cdr.detectChanges();
+    this.http.get<any>(`${this.apiUrl}?action=get_installment_students`).subscribe({
+      next: (res) => {
+        this.isLoadingInstallmentStudents = false;
+        this.installmentStudents = res.success ? res.students : [];
+        this.cdr.detectChanges();
+      },
+      error: () => { this.isLoadingInstallmentStudents = false; this.cdr.detectChanges(); }
+    });
+  }
+
   switchTab(tab: 'pending' | 'history' | 'installment' | 'liquidation'): void {
     this.currentTab = tab;
     this.searchQuery = '';
-    if (tab === 'history') this.loadPaymentHistory();
-    if (tab === 'liquidation') this.loadLiquidation();
+    if (tab === 'history')      this.loadPaymentHistory();
+    if (tab === 'installment')  this.loadInstallmentStudents();
+    if (tab === 'liquidation')  this.loadLiquidation();
     this.cdr.detectChanges();
   }
 
@@ -330,11 +346,15 @@ export class Accounting implements OnInit {
             balance:     res.balance,
             isFullyPaid: res.isFullyPaid,
           };
-          // Update balance in list
-          const p = this.pendingPayments.find(x => x.studentId === this.installmentForm.student_id);
-          if (p) {
-            (p as any).totalPaid = res.totalPaid;
-            (p as any).balance   = res.balance;
+          // Update balance in both lists
+          const p1 = this.pendingPayments.find(x => x.studentId === this.installmentForm.student_id);
+          if (p1) { (p1 as any).totalPaid = res.totalPaid; (p1 as any).balance = res.balance; }
+          const p2 = this.installmentStudents.find(x => x.studentId === this.installmentForm.student_id);
+          if (p2) {
+            (p2 as any).totalPaid = res.totalPaid;
+            (p2 as any).balance   = res.balance;
+            // Remove from list if fully paid
+            if (res.isFullyPaid) this.installmentStudents = this.installmentStudents.filter(x => x.studentId !== this.installmentForm.student_id);
           }
         }
         this.cdr.detectChanges();

@@ -16,7 +16,7 @@ export class AuthGuard implements CanActivate {
       return false;
     }
 
-    const userStr = localStorage.getItem('currentUser');
+    const userStr = sessionStorage.getItem('currentUser');
     const user = userStr ? JSON.parse(userStr) : null;
     
     if (!user) {
@@ -26,7 +26,14 @@ export class AuthGuard implements CanActivate {
 
     const requiredRole = route.data['role'];
     if (requiredRole && user.role !== requiredRole) {
-      this.router.navigate(['/login']);
+      const roleMap: Record<string, string> = {
+        student:    '/student',
+        admin:      '/admin',
+        accounting: '/accounting',
+        registrar:  '/registrar',
+        faculty:    '/admin',
+      };
+      this.router.navigate([roleMap[user.role] || '/login']);
       return false;
     }
 

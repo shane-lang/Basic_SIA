@@ -24,18 +24,18 @@
         </button>
       </form>
       <div class="enroll-section">
-        <p class="enroll-divider">New to our university?</p>
+        <p class="enroll-divider">New to our school?</p>
         <button mat-stroked-button class="enroll-button" (click)="openEnrollment()" [disabled]="loading">
           🎓 New Student Enrollment
         </button>
       </div>
-      <div class="demo-credentials">
+      <!--<div class="demo-credentials">
         <p><strong>Demo Accounts:</strong></p>
         <p>👤 Student: student&#64;example.com / password123</p>
         <p>🔐 Admin: admin&#64;example.com / admin123</p>
         <p>💼 Accounting: accounting&#64;example.com / acc123</p>
         <p>🎓 Registrar: registrar&#64;example.com / registrar123</p>
-      </div>
+      </div>-->
     </mat-card-content>
   </mat-card>
 </div>
@@ -223,19 +223,6 @@
             <input type="text" class="form-control" [(ngModel)]="regForm.lrnNo" placeholder="Learner Reference Number">
           </div>
           <div class="form-group">
-            <label>Semester Enrolling <span class="req">*</span></label>
-            <select class="form-control" [(ngModel)]="regForm.semester">
-              <option *ngFor="let s of semesterOptions" [value]="s">{{ s }}</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label>School Year <span class="req">*</span></label>
-            <select class="form-control" [(ngModel)]="regForm.schoolYear">
-              <option value="">-- Select School Year --</option>
-              <option *ngFor="let sy of schoolYearOptions" [value]="sy">AY {{ sy }}</option>
-            </select>
-          </div>
-          <div class="form-group">
             <label>Date of Birth <span class="req">*</span></label>
             <input type="date" class="form-control" [(ngModel)]="regForm.dateOfBirth">
           </div>
@@ -244,8 +231,23 @@
             <input type="number" class="form-control" [(ngModel)]="regForm.age" placeholder="18" min="10" max="99">
           </div>
           <div class="form-group full-col">
-            <label>Last School Attended and School Year <span class="req">*</span></label>
-            <input type="text" class="form-control" [(ngModel)]="regForm.lastSchoolAttended" placeholder="e.g. Gordon College, SY 2023-2024">
+            <label>Previous Schools Attended <span class="req">*</span></label>
+            <div class="prev-schools-list">
+              <div class="prev-school-row" *ngFor="let sch of previousSchools; let i = index">
+                <select class="form-control ps-level" [(ngModel)]="sch.level" [name]="'schLevel'+i">
+                  <option value="">-- Level --</option>
+                  <option value="Elementary">Elementary</option>
+                  <option value="Junior High School">Junior High School</option>
+                  <option value="Senior High School">Senior High School</option>
+                  <option value="College">College</option>
+                  <option value="Vocational">Vocational</option>
+                </select>
+                <input type="text" class="form-control ps-name" [(ngModel)]="sch.schoolName" [name]="'schName'+i" placeholder="School Name">
+                <input type="text" class="form-control ps-year" [(ngModel)]="sch.schoolYear" [name]="'schYear'+i" placeholder="SY e.g. 2022-2023">
+                <button class="btn-remove-school" type="button" (click)="removePreviousSchool(i)" *ngIf="previousSchools.length > 1" title="Remove">✕</button>
+              </div>
+              <button class="btn-add-school" type="button" (click)="addPreviousSchool()">+ Add Another School</button>
+            </div>
           </div>
           <div class="form-group">
             <label>PSA Birth Certificate No. <span class="optional-tag">Optional</span></label>
@@ -351,6 +353,36 @@
                 <input type="radio" [(ngModel)]="regForm.learningDelivery" [value]="d"> {{ d }}
               </label>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Enrollment Year & Semester -->
+      <div class="form-section">
+        <h3 class="section-heading">📅 Year Level & Semester</h3>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Year Level <span class="req">*</span></label>
+            <select class="form-control" [(ngModel)]="regForm.yearLevel">
+              <option value="" disabled>Select Year Level</option>
+              <option *ngFor="let y of yearLevelOptions" [value]="y">{{ y }}</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Semester <span class="req">*</span></label>
+            <select class="form-control" [(ngModel)]="regForm.semesterEnroll">
+              <option value="">-- Select Semester --</option>
+              <option value="1st Semester">1st Semester</option>
+              <option value="2nd Semester">2nd Semester</option>
+              <option value="Summer">Summer</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Academic Year <span class="req">*</span></label>
+            <input type="text" class="form-control" [(ngModel)]="regForm.ayYear" placeholder="e.g. 2026-2027" maxlength="9">
+            <small class="field-hint" *ngIf="regForm.semesterEnroll && regForm.ayYear">
+              → {{ regForm.semesterEnroll }}, AY {{ regForm.ayYear }}
+            </small>
           </div>
         </div>
       </div>
@@ -651,7 +683,7 @@
             <div class="fb-row"><span>Tuition Fee ({{ feePreview.units }} units × ₱650)</span><span>₱{{ feePreview.tuitionFee | number:'1.2-2' }}</span></div>
             <div class="fb-row"><span>Miscellaneous Fee</span><span>₱{{ feePreview.miscellaneousFee | number:'1.2-2' }}</span></div>
             <div class="fb-row"><span>Registration Fee</span><span>₱{{ feePreview.registrationFee | number:'1.2-2' }}</span></div>
-            <div class="fb-row"><span>Laboratory Fee ({{ feePreview.units }} × ₱1,900)</span><span>₱{{ feePreview.laboratoryFee | number:'1.2-2' }}</span></div>
+            <div class="fb-row"><span>Laboratory Fee (lab subjects × ₱1,900)</span><span>₱{{ feePreview.laboratoryFee | number:'1.2-2' }}</span></div>
             <div class="fb-row"><span>Energy Fee ({{ feePreview.units }} × ₱21 × 3)</span><span>₱{{ feePreview.energyFee | number:'1.2-2' }}</span></div>
             <div class="fb-row fb-subtotal"><span>Subtotal</span><span>₱{{ feePreview.subtotal | number:'1.2-2' }}</span></div>
             <div class="fb-row fb-discount" *ngIf="feePreview.discount > 0">
@@ -684,8 +716,8 @@
           </button>
         </div>
 
-        <!-- Installment Schedule -->
-        <div class="installment-schedule" *ngIf="paymentPlan==='installment' && feePreview">
+        <!-- Installment Schedule (only shown when fee is loaded with installment=true) -->
+        <div class="installment-schedule" *ngIf="paymentPlan==='installment' && feePreview && !isFeePreviewLoading">
           <div class="inst-sched-title">📆 Installment Schedule</div>
           <div class="inst-sched-table">
             <div class="is-header">
@@ -721,7 +753,7 @@
         </div>
 
         <!-- Full payment summary -->
-        <div class="full-pay-summary" *ngIf="paymentPlan==='full' && feePreview">
+        <div class="full-pay-summary" *ngIf="paymentPlan==='full' && feePreview && !isFeePreviewLoading">
           <div class="fps-row">
             <span>💰 Full Payment Amount</span>
             <strong>₱{{ feePreview.totalAssessment | number:'1.2-2' }}</strong>
@@ -926,6 +958,9 @@
 
         <!-- Fee breakdown (only when evaluated, not rejected) -->
         <div class="form-section fee-assessment-section" *ngIf="torEvalResult.fee && torReviewPhase==='done'">
+        <div class="fee-loading" *ngIf="isFeePreviewLoading" style="margin-bottom:8px;">
+          <span>⏳ Recalculating fees...</span>
+        </div>
           <h3 class="section-heading">💰 Fee Assessment After TOR Credit</h3>
           <div class="fee-breakdown-card">
             <div class="fee-breakdown-header">{{ selectedProgramName }} — {{ torEvalResult.approvedUnits }} units after credit</div>
@@ -940,6 +975,9 @@
               <div class="fb-row fb-discount" *ngIf="torEvalResult.fee.discount > 0">
                 <span>🎓 Scholarship Discount</span><span class="text-green">– ₱{{ torEvalResult.fee.discount | number:'1.2-2' }}</span>
               </div>
+              <div class="fb-row fb-installment" *ngIf="paymentPlan === 'installment' && !isFeePreviewLoading">
+                <span>Installment Fee</span><span>₱{{ torEvalResult.fee.installmentFee | number:'1.2-2' }}</span>
+              </div>
               <div class="fb-row fb-total">
                 <span><strong>TOTAL ASSESSMENT</strong></span>
                 <span><strong>₱{{ torEvalResult.fee.totalAssessment | number:'1.2-2' }}</strong></span>
@@ -951,12 +989,57 @@
           <div style="margin-top:16px">
             <h3 class="section-heading">📅 Payment Plan</h3>
             <div class="plan-toggle">
-              <button class="plan-btn" [class.selected]="paymentPlan==='full'" (click)="paymentPlan='full'">
+              <button class="plan-btn" [class.selected]="paymentPlan==='full'" (click)="paymentPlan='full'; onTorPaymentPlanChange()">
                 <span class="plan-icon">💰</span><span class="plan-label">Full Payment</span><span class="plan-sub">Pay everything at once</span>
               </button>
-              <button class="plan-btn" [class.selected]="paymentPlan==='installment'" (click)="paymentPlan='installment'">
-                <span class="plan-icon">📆</span><span class="plan-label">Installment</span><span class="plan-sub">4 payments — DP + 3 terms</span>
+              <button class="plan-btn" [class.selected]="paymentPlan==='installment'" (click)="paymentPlan='installment'; onTorPaymentPlanChange()">
+                <span class="plan-icon">📆</span><span class="plan-label">Installment</span><span class="plan-sub">4 payments — DP + 3 terms<br><small>+₱750 installment fee</small></span>
               </button>
+            </div>
+
+            <!-- Installment schedule for transferee -->
+            <div class="installment-schedule" *ngIf="paymentPlan==='installment' && !isFeePreviewLoading">
+              <div class="inst-sched-title">📆 Installment Schedule</div>
+              <div class="inst-sched-table">
+                <div class="is-header">
+                  <span>Period</span><span>Amount</span><span>Coverage</span>
+                </div>
+                <div class="is-row dp">
+                  <span>⬇️ <strong>Downpayment (DP)</strong></span>
+                  <span class="is-amount">₱{{ dpAmount | number:'1.2-2' }}</span>
+                  <span class="is-badge">Upon Enrollment</span>
+                </div>
+                <div class="is-row prelim">
+                  <span>📝 <strong>Prelim</strong></span>
+                  <span class="is-amount">₱{{ prelimAmount | number:'1.2-2' }}</span>
+                  <span class="is-badge">Before Prelim Exam</span>
+                </div>
+                <div class="is-row midterm">
+                  <span>📝 <strong>Midterm</strong></span>
+                  <span class="is-amount">₱{{ midtermAmount | number:'1.2-2' }}</span>
+                  <span class="is-badge">Before Midterm Exam</span>
+                </div>
+                <div class="is-row finals">
+                  <span>📝 <strong>Finals</strong></span>
+                  <span class="is-amount">₱{{ finalsAmount | number:'1.2-2' }}</span>
+                  <span class="is-badge">Before Finals Exam</span>
+                </div>
+                <div class="is-total">
+                  <span>Total</span>
+                  <span>₱{{ activeTotalAssessment | number:'1.2-2' }}</span>
+                  <span></span>
+                </div>
+              </div>
+              <div class="inst-note">ℹ️ Each installment will be recorded by Accounting with an OR/AR number as proof of payment.</div>
+            </div>
+
+            <!-- Full payment summary for transferee -->
+            <div class="full-pay-summary" *ngIf="paymentPlan==='full' && !isFeePreviewLoading">
+              <div class="fps-row">
+                <span class="fps-label">You will pay</span>
+                <span class="fps-amount">₱{{ torEvalResult.fee.totalAssessment | number:'1.2-2' }}</span>
+              </div>
+              <div class="fps-note">Full payment upon enrollment. Present your receipt to Accounting.</div>
             </div>
           </div>
 
@@ -966,6 +1049,12 @@
             <div class="payment-method-toggle">
               <button class="method-btn" [class.selected]="paymentMethod==='GCash'" (click)="paymentMethod='GCash'">📱 GCash</button>
               <button class="method-btn" [class.selected]="paymentMethod==='Cash'"  (click)="paymentMethod='Cash'">💵 Cash (walk-in)</button>
+            </div>
+            <div class="method-note" *ngIf="paymentMethod==='GCash'">
+              📱 You'll be directed to submit your GCash reference after logging in.
+            </div>
+            <div class="method-note cash" *ngIf="paymentMethod==='Cash'">
+              💵 Proceed to the <strong>Accounting Office</strong> to pay in person after logging in.
             </div>
           </div>
         </div>
@@ -1235,3 +1324,4 @@
 .status-enroll   { background: #eff6ff; color: #1d4ed8; }
 
 </style>
+<style>.prev-schools-list{display:flex;flex-direction:column;gap:8px}.prev-school-row{display:grid;grid-template-columns:150px 1fr 130px 32px;gap:8px;align-items:center}.btn-remove-school{background:none;border:1.5px solid #fca5a5;color:#ef4444;border-radius:6px;width:32px;height:36px;cursor:pointer}.btn-add-school{margin-top:4px;background:none;border:1.5px dashed #6366f1;color:#6366f1;border-radius:8px;padding:6px 14px;font-size:.85rem;cursor:pointer}.field-hint{display:block;margin-top:4px;color:#6366f1;font-size:.8rem;font-style:italic}</style>

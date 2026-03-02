@@ -53,9 +53,7 @@
           <div class="info-group"><label>Student Type</label><p>{{ student.studentType }}</p></div>
           <div class="info-group"><label>Enrollment Status</label><p>{{ student.enrollmentStatus }}</p></div>
           <div class="info-group"><label>Enrollment Date</label><p>{{ student.enrollmentDate ? (student.enrollmentDate | date:'MMM dd, yyyy') : '—' }}</p></div>
-          <div class="info-group"><label>GPA</label>
-            <p class="gpa-value">{{ student.gpa | number:'1.2-2' }} <span class="gpa-status">{{ getGPAStatus() }}</span></p>
-          </div>
+         
         </div>
 
         <!-- Payment & Scholarship -->

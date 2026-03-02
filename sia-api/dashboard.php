@@ -68,7 +68,8 @@ if ($action === 'get_dashboard') {
                 s.gcash_amount,
                 s.gcash_reference,
                 s.gcash_transaction_id,
-                s.gcash_date
+                s.gcash_date,
+                s.semester
          FROM students s
          WHERE $whereCol = ?
          LIMIT 1"
@@ -175,53 +176,87 @@ if ($action === 'get_dashboard') {
     }
     $stmt->close();
 
-    // ── 6. Fee calculation ───────────────────────────────────
-    // School fee rates — adjust per institution policy
-    $tuitionPerUnit = 650;    // ₱650 per credit unit
-    $miscFee        = 1500;   // flat miscellaneous fee
-    $tuitionBase    = $totalCredits * $tuitionPerUnit;
-    $totalFees      = $tuitionBase + $miscFee;
+        // -- 6. Fee calculation: read from tuition_fees + installment_payments --
+    $tfRes = $conn->query(
+        "SELECT units, tuition_fee, miscellaneous_fee, registration_fee,
+                laboratory_fee, energy_fee, subtotal, discount,
+                installment_fee, total_assessment
+         FROM tuition_fees WHERE student_id = $studentDbId LIMIT 1"
+    );
+    $tf = $tfRes ? $tfRes->fetch_assoc() : null;
 
-    // Sum verified payments from payment_logs
-    $amountPaid = 0.0;
-    foreach ($paymentHistory as $p) {
-        if ($p['status'] === 'Verified') {
-            $amountPaid += (float) $p['amount'];
-        }
+    $paidRes = $conn->query(
+        "SELECT COALESCE(SUM(amount), 0) AS total_paid FROM installment_payments WHERE student_id = $studentDbId"
+    );
+    $totalPaid = (float)(($paidRes ? $paidRes->fetch_assoc()['total_paid'] : 0) ?? 0);
+
+    if ($tf) {
+        $totalAssessment = (float)$tf['total_assessment'];
+        $discount        = (float)($tf['discount'] ?? 0);
+        $remainingBal    = max(0.0, $totalAssessment - $totalPaid);
+        $fees = [
+            'units'           => (int)$tf['units'],
+            'tuitionFee'      => (float)$tf['tuition_fee'],
+            'tuitionBase'     => (float)$tf['tuition_fee'],
+            'miscFee'         => (float)$tf['miscellaneous_fee'],
+            'registrationFee' => (float)$tf['registration_fee'],
+            'laboratoryFee'   => (float)$tf['laboratory_fee'],
+            'energyFee'       => (float)$tf['energy_fee'],
+            'subtotal'        => (float)$tf['subtotal'],
+            'discount'        => $discount,
+            'scholarship'     => $discount,
+            'installmentFee'  => (float)($tf['installment_fee'] ?? 0),
+            'totalAssessment' => $totalAssessment,
+            'totalFees'       => $totalAssessment,
+            'amountPaid'      => $totalPaid,
+            'remainingBal'    => $remainingBal,
+            'dueDate'         => date('Y-m-d', strtotime('+30 days')),
+            'paymentStatus'   => $remainingBal <= 0 ? 'Fully Paid'
+                               : ($totalPaid > 0 ? 'Partial' : $student['payment_status']),
+        ];
+    } else {
+        $tuitionBase  = $totalCredits * 650;
+        $miscFee      = 6688.00;
+        $regFee       = 700.00;
+        $energyFee    = $totalCredits * 63;
+        $totalFees    = $tuitionBase + $miscFee + $regFee + $energyFee;
+        $remainingBal = max(0.0, $totalFees - $totalPaid);
+        $fees = [
+            'units'           => $totalCredits,
+            'tuitionFee'      => $tuitionBase,
+            'tuitionBase'     => $tuitionBase,
+            'miscFee'         => $miscFee,
+            'registrationFee' => $regFee,
+            'laboratoryFee'   => 0,
+            'energyFee'       => $energyFee,
+            'subtotal'        => $totalFees,
+            'discount'        => 0,
+            'scholarship'     => 0,
+            'installmentFee'  => 0,
+            'totalAssessment' => $totalFees,
+            'totalFees'       => $totalFees,
+            'amountPaid'      => $totalPaid,
+            'remainingBal'    => $remainingBal,
+            'dueDate'         => date('Y-m-d', strtotime('+30 days')),
+            'paymentStatus'   => $student['payment_status'],
+        ];
     }
 
-    // Fallback: use student.gcash_amount if no payment_logs amount found
-    if ($amountPaid === 0.0 && !empty($student['gcash_amount'])) {
-        $amountPaid = (float) $student['gcash_amount'];
-    }
-
-    $remainingBal = max(0.0, $totalFees - $amountPaid);
-
-    $fees = [
-        'tuitionBase'   => $tuitionBase,
-        'miscFee'       => $miscFee,
-        'totalFees'     => $totalFees,
-        'scholarship'   => 0,
-        'amountPaid'    => $amountPaid,
-        'remainingBal'  => $remainingBal,
-        'dueDate'       => date('Y-m-d', strtotime('+30 days')),
-        'paymentStatus' => $student['payment_status'],  // from students table
-    ];
-
-    // ── 7. Academic summary ──────────────────────────────────
-    $semesterStr  = '1st Semester';
-    $academicYear = '2024–2025';
-
-    if (!empty($courses)) {
+    // -- 7. Academic summary: semester from student record (set during enrollment) --
+    $rawSem = trim($student['semester'] ?? '');
+    if ($rawSem === '' && !empty($courses)) {
         $rawSem = $courses[0]['semester'] ?? '';
-        // e.g. "1st Semester, AY 2024-2025"
-        if (preg_match('/AY\s*([\d\-–]+)/i', $rawSem, $m)) {
-            $academicYear = $m[1];
-        }
-        if (preg_match('/^([^,]+)/i', $rawSem, $m2)) {
-            $semesterStr = trim($m2[1]);
-        }
     }
+    if ($rawSem === '') {
+        $mo = (int)date('n'); $yr = (int)date('Y');
+        $semLabel = $mo >= 6 ? '1st Semester' : '2nd Semester';
+        $ayStart  = $mo >= 6 ? $yr : $yr - 1;
+        $rawSem   = $semLabel . ', AY ' . $ayStart . '-' . ($ayStart + 1);
+    }
+    $semesterStr  = '1st Semester';
+    $academicYear = date('Y') . '-' . ((int)date('Y') + 1);
+    if (preg_match('/^([^,]+)/i', $rawSem, $m2))  { $semesterStr = trim($m2[1]); }
+    if (preg_match('/AY\s*([\d]{4}[-][\d]{2,4})/i', $rawSem, $m)) { $academicYear = $m[1]; }
 
     $academic = [
         'yearLevel'    => $student['year_level'],

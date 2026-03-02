@@ -1,0 +1,70 @@
+.ps-wrap { padding: 24px; max-width: 960px; margin: 0 auto; }
+
+.pg-header { display: flex; align-items: center; gap: 16px; margin-bottom: 24px; }
+.pg-icon { font-size: 40px; }
+.pg-header h2 { margin: 0; font-size: 22px; font-weight: 700; color: #1e293b; }
+.pg-header p  { margin: 4px 0 0; font-size: 14px; color: #64748b; }
+
+.alert { padding: 12px 16px; border-radius: 8px; margin-bottom: 16px; font-size: 14px; font-weight: 500; }
+.alert-ok  { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; }
+.alert-err { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
+
+.loading { text-align: center; padding: 60px; color: #64748b; }
+.spin { width: 34px; height: 34px; border: 3px solid #e2e8f0; border-top-color: #3b82f6; border-radius: 50%; animation: spin .8s linear infinite; margin: 0 auto 12px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.empty { text-align: center; padding: 60px; background: #f8fafc; border-radius: 14px; }
+.empty div { font-size: 48px; margin-bottom: 12px; }
+.empty h3  { color: #1e293b; margin: 0 0 8px; }
+.empty p   { color: #64748b; font-size: 14px; margin: 0; }
+
+.summary { display: flex; align-items: center; gap: 24px; background: linear-gradient(135deg,#1e40af,#3b82f6); color: white; border-radius: 14px; padding: 20px 28px; margin-bottom: 20px; }
+.sum-divider { width: 1px; height: 44px; background: rgba(255,255,255,.3); }
+.sum-label { display: block; font-size: 12px; opacity: .8; margin-bottom: 4px; }
+.sum-value { font-size: 26px; font-weight: 700; }
+.type-badge { display: inline-block; padding: 5px 14px; border-radius: 999px; font-size: 13px; font-weight: 700; background: rgba(255,255,255,.25); }
+.type-badge.full { background: #22c55e; }
+
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px; }
+
+.period-card { background: white; border: 2px solid #e2e8f0; border-radius: 14px; padding: 20px; display: flex; flex-direction: column; gap: 14px; transition: box-shadow .2s; }
+.period-card:hover { box-shadow: 0 4px 18px rgba(0,0,0,.08); }
+.card-paid    { border-color: #86efac; background: #f0fdf4; }
+.card-partial { border-color: #fde68a; background: #fffbeb; }
+.card-locked  { border-color: #e2e8f0; background: #f8fafc; opacity: .85; }
+
+.card-header { display: flex; justify-content: space-between; align-items: center; }
+.period-label { font-size: 20px; font-weight: 700; color: #1e293b; }
+
+.status-badge { padding: 3px 11px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+.s-locked  { background: #f1f5f9; color: #94a3b8; }
+.s-unpaid  { background: #fee2e2; color: #dc2626; }
+.s-partial { background: #fef9c3; color: #b45309; }
+.s-paid    { background: #dcfce7; color: #16a34a; }
+
+.locked-msg { text-align: center; padding: 16px 8px; }
+.lock-icon  { font-size: 36px; margin-bottom: 8px; }
+.locked-msg p { font-size: 13px; color: #94a3b8; margin: 0; }
+
+.notice-box  { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 10px; padding: 12px 14px; }
+.notice-title { font-size: 12px; font-weight: 700; color: #1d4ed8; margin-bottom: 6px; }
+.notice-text  { font-size: 13px; color: #1e3a5f; line-height: 1.5; }
+.notice-due   { font-size: 12px; color: #2563eb; margin-top: 6px; }
+
+.amounts { display: flex; flex-direction: column; gap: 7px; }
+.amt-row { display: flex; justify-content: space-between; font-size: 13px; color: #475569; }
+.amt-row strong { color: #1e293b; }
+.paid    { color: #16a34a !important; }
+.balance-row { border-top: 1px solid #e2e8f0; padding-top: 7px; margin-top: 2px; }
+.balance { color: #dc2626 !important; }
+
+.permit-area { margin-top: 2px; }
+.permit-status { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-radius: 8px; font-size: 13px; font-weight: 600; flex-wrap: wrap; }
+.ps-pending  { background: #fef9c3; color: #b45309; }
+.ps-approved { background: #dcfce7; color: #166534; }
+.ps-rejected { background: #fee2e2; color: #991b1b; }
+.remarks-text { font-weight: 400; font-size: 12px; }
+
+.btn-permit { width: 100%; padding: 11px; border: none; border-radius: 9px; font-size: 13px; font-weight: 700; cursor: pointer; transition: all .2s; background: #2563eb; color: white; }
+.btn-permit:hover:not(:disabled) { background: #1d4ed8; transform: translateY(-1px); }
+.btn-permit:disabled { background: #94a3b8; cursor: not-allowed; }

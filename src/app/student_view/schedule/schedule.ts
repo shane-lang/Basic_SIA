@@ -47,7 +47,7 @@ export class Schedule implements OnInit {
   private colorMap: Record<number, string> = {};
 
   ngOnInit(): void {
-    const stored = localStorage.getItem('currentUser');
+    const stored = sessionStorage.getItem('currentUser');
     if (!stored) {
       this.error     = 'Not logged in.';
       this.isLoading = false;
@@ -57,7 +57,7 @@ export class Schedule implements OnInit {
     this.userId = JSON.parse(stored).id;
 
     // Prefer studentDbId saved by enrollment component (avoids lookup ambiguity)
-    const savedDbId = localStorage.getItem('studentDbId');
+    const savedDbId = sessionStorage.getItem('studentDbId');
     if (savedDbId) this.studentDbId = parseInt(savedDbId, 10);
 
     this.loadSchedule();

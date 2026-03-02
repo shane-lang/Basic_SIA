@@ -34,9 +34,9 @@ export class Grades implements OnInit {
   academicStatus = 'No grades yet'; totalCredits = 0;
 
   ngOnInit(): void {
-    const stored = localStorage.getItem('currentUser');
+    const stored = sessionStorage.getItem('currentUser');
     if (!stored) { this.error = 'Not logged in.'; this.isLoading = false; return; }
-    const dbId = localStorage.getItem('studentDbId');
+    const dbId = sessionStorage.getItem('studentDbId');
     const user = JSON.parse(stored);
     this.param = dbId ? `student_id=${dbId}` : `user_id=${user.id}`;
     this.loadSemesters();

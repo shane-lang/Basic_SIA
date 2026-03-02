@@ -449,26 +449,49 @@ function evaluateTOR($conn, $data) {
     $course_id_ints  = array_values(array_map(fn($s) => (int)$s['courseId'], $credited_subs));
     $course_ids_json = json_encode($course_id_ints);
 
-    // Get program units + existing discount/installment from tuition_fees
-    $tf_res        = $conn->query("SELECT units, discount, installment_fee FROM tuition_fees WHERE student_id = $student_id LIMIT 1");
-    $tf_row        = $tf_res ? $tf_res->fetch_assoc() : null;
-    $program_units = (int)($tf_row['units']           ?? 0);
-    $discount      = (float)($tf_row['discount']       ?? 0);
-    $inst_fee      = (float)($tf_row['installment_fee'] ?? 0);
+    // Get student's program, semester, year_level, and existing payment settings
+    $st_res  = $conn->query("SELECT program, semester, year_level FROM students WHERE id = $student_id LIMIT 1");
+    $st_row  = $st_res ? $st_res->fetch_assoc() : null;
+    $pn      = $conn->real_escape_string($st_row['program']    ?? '');
+    $sem_raw = trim($st_row['semester']   ?? '');
+    $yl      = $conn->real_escape_string($st_row['year_level'] ?? '1st Year');
 
-    // Fallback: sum program_courses if tuition_fees not yet written
-    if ($program_units === 0) {
-        $st_res = $conn->query("SELECT program FROM students WHERE id = $student_id LIMIT 1");
-        $st_row = $st_res ? $st_res->fetch_assoc() : null;
-        $pn     = $conn->real_escape_string($st_row['program'] ?? '');
-        $pu_res = $conn->query("
-            SELECT COALESCE(SUM(c.credits),0) AS u
-            FROM program_courses pc
-            JOIN programs pr ON pc.program_id=pr.id
-            JOIN courses c   ON pc.course_id=c.id
-            WHERE pr.name='$pn' OR pr.code='$pn'");
-        $program_units = (int)(($pu_res ? $pu_res->fetch_assoc()['u'] : 0) ?: 18);
+    // Get existing discount/installment_fee from tuition_fees (do NOT use cached units)
+    $tf_res   = $conn->query("SELECT discount, installment_fee FROM tuition_fees WHERE student_id = $student_id LIMIT 1");
+    $tf_row   = $tf_res ? $tf_res->fetch_assoc() : null;
+    $discount = (float)($tf_row['discount']        ?? 0);
+    $inst_fee = (float)($tf_row['installment_fee'] ?? 0);
+
+    // Compute program_units live — filtered by year_level + semester term only.
+    // NEVER use tuition_fees.units as the base: it may be stale (wrong year/sem).
+    // Strip AY suffix so courses stored under any school year are matched.
+    $semTerm   = '';
+    $semFilter = '';
+    if ($sem_raw !== '') {
+        preg_match('/^(1st Semester|2nd Semester|Summer)/i', $sem_raw, $sm);
+        $semTerm   = $conn->real_escape_string($sm[1] ?? $sem_raw);
+        $semFilter = "AND c.semester LIKE '$semTerm%'";
     }
+    $ylFilter = ($yl !== '') ? "AND c.year_level = '$yl'" : '';
+
+    // Source 1: program_courses junction table
+    $pu_res = $conn->query("
+        SELECT COALESCE(SUM(c.credits),0) AS u
+        FROM program_courses pc
+        JOIN programs pr ON pc.program_id=pr.id
+        JOIN courses c   ON pc.course_id=c.id
+        WHERE (pr.name='$pn' OR pr.code='$pn') $ylFilter $semFilter");
+    $program_units = (int)(($pu_res ? $pu_res->fetch_assoc()['u'] : 0) ?: 0);
+
+    // Source 2: courses.program direct column
+    if ($program_units <= 0) {
+        $fb_res = $conn->query("
+            SELECT COALESCE(SUM(credits),0) AS u
+            FROM courses
+            WHERE program='$pn' $ylFilter $semFilter");
+        $program_units = (int)(($fb_res ? $fb_res->fetch_assoc()['u'] : 0) ?: 18);
+    }
+    if ($program_units <= 0) $program_units = 18;
 
     $approved_units = max(0, $program_units - $credited_units);
 
@@ -504,10 +527,21 @@ function evaluateTOR($conn, $data) {
     $tuition_fee = $u * 650;
     $misc_fee    = 6688.00;
     $reg_fee     = 700.00;
-    $lab_fee     = $u * 1900;
     $energy_fee  = $u * 21 * 3;
-    $subtotal    = $tuition_fee + $misc_fee + $reg_fee + $lab_fee + $energy_fee;
-    $total       = max(0, $subtotal - $discount + $inst_fee);
+
+    // Count lab subjects — scoped to year_level + semester (same filters as unit count)
+    $lab_cnt_res = $conn->query("
+        SELECT COUNT(DISTINCT c.id) AS cnt FROM courses c
+        WHERE c.room LIKE '%Lab%'
+          $ylFilter
+          $semFilter
+          AND (c.program = '$pn'
+            OR c.id IN (SELECT pc.course_id FROM program_courses pc JOIN programs p ON pc.program_id=p.id WHERE p.name='$pn' OR p.code='$pn'))
+    ");
+    $lab_cnt = (int)(($lab_cnt_res ? $lab_cnt_res->fetch_assoc()['cnt'] : 0) ?? 0);
+    $lab_fee    = $lab_cnt * 1900;
+    $subtotal   = $tuition_fee + $misc_fee + $reg_fee + $lab_fee + $energy_fee;
+    $total      = max(0, $subtotal - $discount + $inst_fee);
 
     $upd = $conn->prepare("
         INSERT INTO tuition_fees
@@ -520,7 +554,8 @@ function evaluateTOR($conn, $data) {
             registration_fee=VALUES(registration_fee),
             laboratory_fee=VALUES(laboratory_fee),
             energy_fee=VALUES(energy_fee), subtotal=VALUES(subtotal),
-            total_assessment=VALUES(total_assessment)
+            discount=VALUES(discount), installment_fee=VALUES(installment_fee),
+            total_assessment=VALUES(total_assessment), updated_at=NOW()
     ");
     $upd->bind_param("iiddddddddd",
         $student_id, $u,

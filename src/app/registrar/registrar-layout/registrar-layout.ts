@@ -37,7 +37,7 @@ export class RegistrarLayout implements OnInit, OnDestroy {
 
   ngOnInit() {
     if (isPlatformBrowser(this.platformId)) {
-      const user = JSON.parse(localStorage.getItem('currentUser') || '{}');
+      const user = JSON.parse(sessionStorage.getItem('currentUser') || '{}');
       if (user?.role !== 'registrar') { this.router.navigate(['/login']); return; }
       this.userName.set(user.first_name || 'Registrar');
 
@@ -66,8 +66,8 @@ export class RegistrarLayout implements OnInit, OnDestroy {
 
   logout() {
     if (isPlatformBrowser(this.platformId)) {
-      localStorage.removeItem('currentUser');
-      localStorage.removeItem('token');
+      sessionStorage.removeItem('currentUser');
+      sessionStorage.removeItem('token');
     }
     this.router.navigate(['/login']);
   }

@@ -257,7 +257,7 @@ export class TorEvaluation implements OnInit {
     if (!this.selectedTor) return;
     if (!this.manualSubjects.length) { this.errorMessage = 'Add at least one subject to credit. Use Reject if none qualify.'; this.cdr.detectChanges(); return; }
     this.isSubmitting = true; this.errorMessage = '';
-    const user = JSON.parse(localStorage.getItem('currentUser') || '{}');
+    const user = JSON.parse(sessionStorage.getItem('currentUser') || '{}');
     const creditedSubjects = this.manualSubjects.map(s => ({
       courseId: 0,
       code: s.code, name: s.name, credits: s.credits,
@@ -364,7 +364,7 @@ export class TorEvaluation implements OnInit {
     if (!this.selectedTor) return;
     if (!this.selectedCourses.length) { this.errorMessage = 'Select at least one subject to credit. Use Reject if none qualify.'; this.cdr.detectChanges(); return; }
     this.isSubmitting = true; this.errorMessage = '';
-    const user = JSON.parse(localStorage.getItem('currentUser') || '{}');
+    const user = JSON.parse(sessionStorage.getItem('currentUser') || '{}');
     const creditedSubjects: CreditedSubject[] = this.selectedCourses.map(c => ({
       courseId: c.courseId, code: c.code, name: c.name, credits: c.credits,
       creditedFrom: this.selectedTor!.lastSchoolAttended || 'Previous School',
@@ -387,7 +387,7 @@ export class TorEvaluation implements OnInit {
     if (!this.selectedTor) return;
     if (!this.registrarNotes.trim()) { this.errorMessage = 'Please provide a reason for rejection.'; this.cdr.detectChanges(); return; }
     this.isSubmitting = true; this.errorMessage = '';
-    const user = JSON.parse(localStorage.getItem('currentUser') || '{}');
+    const user = JSON.parse(sessionStorage.getItem('currentUser') || '{}');
     this.safePost(`${this.registrarApi}?action=reject_tor`, {
       eval_id: this.selectedTor.evalId, student_id: this.selectedTor.studentId,
       registrar_user_id: user.id || 0, registrar_notes: this.registrarNotes,

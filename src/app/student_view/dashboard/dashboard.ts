@@ -68,7 +68,6 @@ export class StudentDashboard implements OnInit {
   dashboardCards = [
     { title: 'Courses',  value: '0',  icon: '📖', color: '#667eea' },
     { title: 'Credits',  value: '0',  icon: '⏰', color: '#48bb78' },
-    { title: 'GPA',      value: '—',  icon: '🎯', color: '#ed8936' },
     { title: 'Balance',  value: '₱0', icon: '💳', color: '#e53e3e' },
   ];
 
@@ -123,14 +122,14 @@ export class StudentDashboard implements OnInit {
 
   // ── Lifecycle ────────────────────────────────────────────────
   ngOnInit(): void {
-    const stored = localStorage.getItem('currentUser');
+    const stored = sessionStorage.getItem('currentUser');
     if (!stored) {
       this.isLoading = false;
       this.useFallback();
       return;
     }
     const user  = JSON.parse(stored);
-    const dbId  = localStorage.getItem('studentDbId');
+    const dbId  = sessionStorage.getItem('studentDbId');
     const param = dbId ? `student_id=${dbId}` : `user_id=${user.id}`;
 
     this.loadDashboard(param);
@@ -153,6 +152,8 @@ export class StudentDashboard implements OnInit {
           this.gpa             = a.gpa > 0 ? Number(a.gpa).toFixed(2) : '—';
           this.totalCredits    = a.totalCredits;
           this.academicStatus  = a.status;
+          this.semester        = a.semester ?? this.semester;
+          this.academicYear    = a.academicYear ?? this.academicYear;
           this.enrollmentStatus= s.enrollmentStatus;
           this.enrollmentDate  = s.enrollmentDate;
           this.paymentStatus   = s.paymentStatus;
@@ -173,11 +174,11 @@ export class StudentDashboard implements OnInit {
           this.dashboardCards = [
             { title: 'Courses', value: String(this.enrolledCourses.length), icon: '📖', color: '#667eea' },
             { title: 'Credits', value: String(this.totalCredits),            icon: '⏰', color: '#48bb78' },
-            { title: 'GPA',     value: this.gpa,                             icon: '🎯', color: '#ed8936' },
+       
             { title: 'Balance', value: this.fmt(this.fees.remainingBal),     icon: '💳', color: '#e53e3e' },
           ];
 
-          localStorage.setItem('studentDbId', String(s.dbId));
+          sessionStorage.setItem('studentDbId', String(s.dbId));
         } else {
           this.useFallback();
         }

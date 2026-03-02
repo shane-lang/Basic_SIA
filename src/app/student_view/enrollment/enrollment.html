@@ -109,7 +109,7 @@
           <div class="fp-row"><span>Tuition Fee ({{ feePreview.units }} × ₱650)</span><span>₱{{ feePreview.tuitionFee | number:'1.2-2' }}</span></div>
           <div class="fp-row"><span>Miscellaneous Fee</span><span>₱{{ feePreview.miscellaneousFee | number:'1.2-2' }}</span></div>
           <div class="fp-row"><span>Registration Fee</span><span>₱{{ feePreview.registrationFee | number:'1.2-2' }}</span></div>
-          <div class="fp-row"><span>Laboratory Fee ({{ feePreview.units }} × ₱1,900)</span><span>₱{{ feePreview.laboratoryFee | number:'1.2-2' }}</span></div>
+          <div class="fp-row"><span>Laboratory Fee (lab subjects × ₱1,900)</span><span>₱{{ feePreview.laboratoryFee | number:'1.2-2' }}</span></div>
           <div class="fp-row"><span>Energy Fee ({{ feePreview.units }} × ₱21 × 3)</span><span>₱{{ feePreview.energyFee | number:'1.2-2' }}</span></div>
           <div class="fp-row fp-subtotal"><span>Subtotal</span><span>₱{{ feePreview.subtotal | number:'1.2-2' }}</span></div>
           <div class="fp-row fp-discount" *ngIf="feePreview.discount > 0">
@@ -121,6 +121,15 @@
 
       <div class="gcash-form-section">
         <h3>Enter GCash Payment Details</h3>
+        <!-- Installment: remind student to pay DP only -->
+        <div class="installment-dp-notice" *ngIf="paymentPlan === 'installment' && feePreview">
+          <span class="dp-badge">💳 Installment — Downpayment Only</span>
+          <div class="dp-detail">
+            Pay only the <strong>Downpayment (DP)</strong> now: <strong class="dp-amount">₱{{ dpAmount | number:'1.2-2' }}</strong>
+            (¼ of ₱{{ feePreview.totalAssessment | number:'1.2-2' }}).
+            Remaining balance will be collected at Accounting before each exam period.
+          </div>
+        </div>
         <div class="form-group">
           <label>GCash Reference Number <span class="req">*</span></label>
           <input type="text" class="form-control" placeholder="e.g. G1234567890"
@@ -129,7 +138,10 @@
         <div class="form-group">
           <label>Amount Paid (₱) <span class="req">*</span></label>
           <input type="number" class="form-control" [(ngModel)]="gcashAmount" [disabled]="isProcessingPayment">
-          <small style="color:#6b7280;" *ngIf="feePreview">Total assessment: ₱{{ feePreview.totalAssessment | number:'1.2-2' }}</small>
+          <small style="color:#6b7280;" *ngIf="feePreview && paymentPlan === 'full'">Full payment total: ₱{{ feePreview.totalAssessment | number:'1.2-2' }}</small>
+          <small style="color:#1d4ed8;font-weight:600;" *ngIf="feePreview && paymentPlan === 'installment'">
+            Downpayment due: ₱{{ dpAmount | number:'1.2-2' }} &nbsp;|&nbsp; Full total: ₱{{ feePreview.totalAssessment | number:'1.2-2' }}
+          </small>
         </div>
         <div class="form-group">
           <label>Date of Payment</label>
@@ -187,13 +199,50 @@
           <div class="fp-row"><span>Tuition Fee ({{ feePreview.units }} × ₱650)</span><span>₱{{ feePreview.tuitionFee | number:'1.2-2' }}</span></div>
           <div class="fp-row"><span>Miscellaneous Fee</span><span>₱{{ feePreview.miscellaneousFee | number:'1.2-2' }}</span></div>
           <div class="fp-row"><span>Registration Fee</span><span>₱{{ feePreview.registrationFee | number:'1.2-2' }}</span></div>
-          <div class="fp-row"><span>Laboratory Fee ({{ feePreview.units }} × ₱1,900)</span><span>₱{{ feePreview.laboratoryFee | number:'1.2-2' }}</span></div>
+          <div class="fp-row"><span>Laboratory Fee</span><span>₱{{ feePreview.laboratoryFee | number:'1.2-2' }}</span></div>
           <div class="fp-row"><span>Energy Fee ({{ feePreview.units }} × ₱21 × 3)</span><span>₱{{ feePreview.energyFee | number:'1.2-2' }}</span></div>
           <div class="fp-row fp-subtotal"><span>Subtotal</span><span>₱{{ feePreview.subtotal | number:'1.2-2' }}</span></div>
           <div class="fp-row fp-discount" *ngIf="feePreview.discount > 0">
             <span>🎓 Scholarship Discount</span><span class="text-green">– ₱{{ feePreview.discount | number:'1.2-2' }}</span>
           </div>
+          <div class="fp-row fp-installment" *ngIf="paymentPlan === 'installment'">
+            <span>Installment Fee</span><span>₱750.00</span>
+          </div>
           <div class="fp-row fp-total"><span><strong>TOTAL ASSESSMENT</strong></span><span><strong>₱{{ feePreview.totalAssessment | number:'1.2-2' }}</strong></span></div>
+        </div>
+
+        <!-- Installment Schedule -->
+        <div class="installment-schedule" *ngIf="paymentPlan === 'installment'" style="margin-top:12px;">
+          <div class="inst-sched-title">📆 Your Installment Schedule</div>
+          <div class="inst-sched-table">
+            <div class="is-header"><span>Period</span><span>Amount Due</span><span>When</span></div>
+            <div class="is-row dp">
+              <span>⬇️ <strong>Downpayment (DP)</strong></span>
+              <span class="is-amount">₱{{ dpAmount | number:'1.2-2' }}</span>
+              <span class="is-badge">Pay now — upon enrollment</span>
+            </div>
+            <div class="is-row prelim">
+              <span>📝 <strong>Prelim</strong></span>
+              <span class="is-amount">₱{{ prelimAmount | number:'1.2-2' }}</span>
+              <span class="is-badge">Before Prelim Exam</span>
+            </div>
+            <div class="is-row midterm">
+              <span>📝 <strong>Midterm</strong></span>
+              <span class="is-amount">₱{{ midtermAmount | number:'1.2-2' }}</span>
+              <span class="is-badge">Before Midterm Exam</span>
+            </div>
+            <div class="is-row finals">
+              <span>📝 <strong>Finals</strong></span>
+              <span class="is-amount">₱{{ finalsAmount | number:'1.2-2' }}</span>
+              <span class="is-badge">Before Finals Exam</span>
+            </div>
+            <div class="is-total">
+              <span><strong>Total</strong></span>
+              <span><strong>₱{{ feePreview.totalAssessment | number:'1.2-2' }}</strong></span>
+              <span></span>
+            </div>
+          </div>
+          <div class="inst-note">⚠️ Go to Accounting to pay the <strong>Downpayment first</strong>. Each term must be paid before the corresponding exam.</div>
         </div>
       </div>
       <div class="cash-steps">
@@ -400,7 +449,7 @@
         <div class="section-header">
           <h2>🧾 Statement of Account</h2>
           <span class="pay-status-badge" [class]="getPayStatusClass(feeBreakdown.paymentStatus === 'Fully Paid' ? 'Paid' : feeBreakdown.paymentStatus)">
-            {{ feeBreakdown.paymentStatus === 'Fully Paid' ? '✅ Fully Paid' : feeBreakdown.paymentStatus === 'Partial' ? '🔶 Partially Paid' : '❌ Unpaid' }}
+            {{ feeBreakdown.paymentStatus === 'Fully Paid' ? '✅ Fully Paid' : feeBreakdown.paymentStatus === 'Partially Paid' ? '🔶 Partially Paid' : '❌ Unpaid' }}
           </span>
         </div>
         <div class="fees-grid">
@@ -411,7 +460,7 @@
               <div class="fee-row"><span class="fee-label">Tuition Fee ({{ feeBreakdown.units }} units × ₱650)</span><span class="fee-amount">₱{{ feeBreakdown.tuitionFee | number:'1.2-2' }}</span></div>
               <div class="fee-row"><span class="fee-label">Miscellaneous Fee</span><span class="fee-amount">₱{{ feeBreakdown.miscellaneousFee | number:'1.2-2' }}</span></div>
               <div class="fee-row"><span class="fee-label">Registration Fee</span><span class="fee-amount">₱{{ feeBreakdown.registrationFee | number:'1.2-2' }}</span></div>
-              <div class="fee-row"><span class="fee-label">Laboratory Fee ({{ feeBreakdown.units }} × ₱1,900)</span><span class="fee-amount">₱{{ feeBreakdown.laboratoryFee | number:'1.2-2' }}</span></div>
+              <div class="fee-row"><span class="fee-label">Laboratory Fee</span><span class="fee-amount">₱{{ feeBreakdown.laboratoryFee | number:'1.2-2' }}</span></div>
               <div class="fee-row"><span class="fee-label">Energy Fee ({{ feeBreakdown.units }} × ₱21 × 3)</span><span class="fee-amount">₱{{ feeBreakdown.energyFee | number:'1.2-2' }}</span></div>
               <div class="fee-row subtotal"><span class="fee-label">Subtotal</span><span class="fee-amount">₱{{ feeBreakdown.subtotal | number:'1.2-2' }}</span></div>
               <div class="fee-row discount" *ngIf="feeBreakdown.discount > 0">
@@ -424,9 +473,18 @@
               </div>
               <div class="fee-row total"><span class="fee-label" style="font-weight:800;">TOTAL ASSESSMENT</span><span class="fee-amount" style="font-weight:800;">₱{{ feeBreakdown.totalAssessment | number:'1.2-2' }}</span></div>
 
-              <!-- FULL PAYMENT: single Amount Paid row -->
-              <ng-container *ngIf="paymentPlan === 'full'">
-                <div class="fee-row paid"><span class="fee-label">Amount Paid</span><span class="fee-amount text-green">₱{{ feeBreakdown.totalPaid | number:'1.2-2' }}</span></div>
+              <!-- FULL PAYMENT: show amount paid only after payment is confirmed -->
+              <ng-container *ngIf="paymentPlan === 'full' && feeBreakdown.totalPaid > 0">
+                <div class="fee-row paid">
+                  <span class="fee-label">✅ Amount Paid (Full Payment)</span>
+                  <span class="fee-amount text-green">₱{{ feeBreakdown.totalPaid | number:'1.2-2' }}</span>
+                </div>
+              </ng-container>
+              <ng-container *ngIf="paymentPlan === 'full' && feeBreakdown.totalPaid === 0">
+                <div class="fee-row" style="color:#6b7280;">
+                  <span class="fee-label">Amount Paid</span>
+                  <span class="fee-amount">₱0.00 — awaiting Accounting confirmation</span>
+                </div>
               </ng-container>
 
               <!-- INSTALLMENT: per-term payment schedule -->
@@ -435,6 +493,15 @@
                   <span class="fee-label" style="font-weight:700;color:#1d4ed8;">💳 Installment Payment Schedule</span>
                   <span class="fee-amount" style="color:#6b7280;font-size:0.8rem;">4 equal terms</span>
                 </div>
+                <!-- If only DP is paid, show note that this is the initial payment -->
+                <div class="inst-initial-note" *ngIf="installmentSchedule | slice:0:1 as first; else nothing">
+                  <ng-container *ngIf="first[0]?.paid && !installmentSchedule[1]?.paid">
+                    <span style="font-size:0.8rem;color:#92400e;background:#fef9c3;padding:3px 10px;border-radius:6px;display:inline-block;margin-bottom:6px;">
+                      ⬇️ Initial payment (Downpayment) recorded. Remaining 3 terms payable before each exam.
+                    </span>
+                  </ng-container>
+                </div>
+                <ng-template #nothing></ng-template>
                 <ng-container *ngFor="let t of installmentSchedule">
                   <!-- PAID term -->
                   <div class="fee-row paid" *ngIf="t.paid" style="background:#f0fdf4;border-left:3px solid #16a34a;padding-left:8px;">
@@ -511,8 +578,8 @@
                 <td><strong>{{ r.orArNumber }}</strong></td>
                 <td><span class="or-badge" [class.or-type-or]="r.orArType==='OR'" [class.or-type-ar]="r.orArType==='AR'">{{ r.orArType }}</span></td>
                 <td>{{ r.paymentDate | date:'MMM d, yyyy' }}</td>
-                <td><span class="period-badge">{{ r.examPeriod }}</span></td>
-                <td>{{ r.paymentMethod }}</td>
+                <td><span class="period-badge">{{ r.period }}</span></td>
+                <td>{{ r.method }}</td>
                 <td style="text-align:right;font-weight:700;color:#1d4ed8;">₱{{ r.amount | number:'1.2-2' }}</td>
               </tr>
             </tbody>
@@ -613,6 +680,13 @@
 .receipt-table { width:100%; border-collapse:collapse; font-size:0.875rem; }
 .receipt-table th { background:#f1f5f9; padding:8px 12px; text-align:left; font-weight:600; color:#374151; }
 .receipt-table td { padding:8px 12px; border-bottom:1px solid #f1f5f9; }
+/* ── INSTALLMENT DP NOTICE ── */
+.installment-dp-notice { background:#eff6ff; border:1.5px solid #93c5fd; border-radius:10px; padding:0.85rem 1rem; margin-bottom:1rem; }
+.dp-badge { background:#1d4ed8; color:#fff; font-size:0.78rem; font-weight:700; padding:3px 10px; border-radius:20px; margin-bottom:6px; display:inline-block; }
+.dp-detail { font-size:0.875rem; color:#1e3a5f; margin-top:6px; line-height:1.6; }
+.dp-amount { color:#1d4ed8; font-size:1rem; }
+.inst-initial-note { margin-bottom:4px; }
+.fp-installment { color:#1d4ed8; }
 .receipt-fullpaid-card { display:flex; align-items:center; gap:1rem; background:#f0fdf4; border:1.5px solid #86efac; border-radius:10px; padding:1rem 1.2rem; margin-bottom:1rem; }
 .fp-icon { font-size:2rem; }
 .fp-title { font-weight:800; font-size:1.1rem; color:#15803d; }
