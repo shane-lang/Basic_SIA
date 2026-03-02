@@ -101,7 +101,7 @@ export const routes: Routes = [
       { path: 'accounting', component: Accounting },
       { path: 'permits',    component: PermitGeneration },
       { path: 'report',     component: Report },
-      { path: '', redirectTo: 'asr', pathMatch: 'full' }
+      { path: '', redirectTo: 'accounting', pathMatch: 'full' }
     ]
   },
 
@@ -119,6 +119,8 @@ export const routes: Routes = [
       { path: 'students',                   component: StudentEnrollmentReviewComponent },
       { path: 'student-enrollment-review',  component: StudentEnrollmentReviewComponent },
       { path: 'tor-evaluation',             component: TorEvaluation },
+
+      
       { path: '', redirectTo: 'dashboard', pathMatch: 'full' }
     ]
   },
