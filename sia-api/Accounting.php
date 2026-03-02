@@ -1457,105 +1457,105 @@ function getAllEnrolledStudents($conn) {
 // ─────────────────────────────────────────────────────────────
 function unlockPaymentPeriod($conn, $data) {
     $student_id  = (int)($data['student_id']  ?? 0);
-    $exam_period = $conn->real_escape_string($data['exam_period'] ?? '');
+    $exam_period = trim($data['exam_period']  ?? '');
     $acc_user_id = (int)($data['accounting_user_id'] ?? 0);
 
-    if (!$student_id || !in_array($exam_period, ['Prelim','Midterm','Finals'])) {
-        echo json_encode(['success' => false, 'message' => 'Invalid student_id or exam_period']); return;
+    if (!$student_id || !in_array($exam_period, ['Prelim', 'Midterm', 'Finals'])) {
+        echo json_encode(['success' => false, 'message' => 'Invalid student_id or exam_period']);
+        return;
     }
 
-    $p = strtolower($exam_period);
-    $status_col = $p . '_status';
-    $unlocked_col = $p . '_unlocked_at';
-
-    // Check if payment_schedules record exists
+    // ── 1. Check whether payment_schedules record already exists ──────────
     $check = $conn->query("SELECT id FROM payment_schedules WHERE student_id = $student_id LIMIT 1");
-    
     if (!$check) {
-        // Query failed - output error for debugging
-        echo json_encode(['success' => false, 'message' => 'Database error: ' . $conn->error]); return;
+        echo json_encode(['success' => false, 'message' => 'DB error (check): ' . $conn->error]);
+        return;
     }
-    
+
     if ($check->num_rows === 0) {
-        // Create payment_schedules record if it doesn't exist
+        // ── 2a. No record yet — fetch total_assessment from tuition_fees ──
         $tfRes = $conn->query("SELECT total_assessment FROM tuition_fees WHERE student_id = $student_id LIMIT 1");
-        
-        if (!$tfRes) {
-            echo json_encode(['success' => false, 'message' => 'Database error fetching tuition fees: ' . $conn->error]); return;
-        }
-        
-        $tfRow = $tfRes->fetch_assoc();
+        $tfRow = $tfRes ? $tfRes->fetch_assoc() : null;
         $total = $tfRow ? (float)$tfRow['total_assessment'] : 0;
-        
+
+        // Fallback: compute from students + formula if tuition_fees row is missing
         if ($total <= 0) {
-            echo json_encode(['success' => false, 'message' => 'No tuition fees found for this student']); return;
+            $stRes = $conn->query("SELECT program FROM students WHERE id = $student_id LIMIT 1");
+            $stRow = $stRes ? $stRes->fetch_assoc() : null;
+            if ($stRow) {
+                // Use default 18 units as last resort — same fallback as getFeePreview()
+                $units         = 18;
+                $total         = ($units * 650) + 6688 + 700 + ($units * 21 * 3);
+            }
         }
-        
+
+        if ($total <= 0) {
+            echo json_encode(['success' => false, 'message' => 'No tuition fees found for this student. Please compute fees first.']);
+            return;
+        }
+
         $pd = round($total * 0.40, 2);
         $md = round($total * 0.30, 2);
         $fd = round($total - $pd - $md, 2);
-        
-        // Build the INSERT query with all required fields
-        $insertSql = "INSERT INTO payment_schedules 
-            (student_id, payment_type, total_assessment, 
-             prelim_due, midterm_due, finals_due, 
-             prelim_status, midterm_status, finals_status, 
-             prelim_unlocked_at, midterm_unlocked_at, finals_unlocked_at)
-            VALUES ($student_id, 'installment', $total, 
-                    $pd, $md, $fd, 
-                    'locked', 'locked', 'locked', 
-                    NULL, NULL, NULL)";
-        
-        // Set the specific period to unlocked
-        if ($exam_period === 'Prelim') {
-            $insertSql = "INSERT INTO payment_schedules 
-                (student_id, payment_type, total_assessment, 
-                 prelim_due, midterm_due, finals_due, 
-                 prelim_status, midterm_status, finals_status, 
-                 prelim_unlocked_at)
-                VALUES ($student_id, 'installment', $total, 
-                        $pd, $md, $fd, 
-                        'unpaid', 'locked', 'locked', 
-                        NOW())";
-        } elseif ($exam_period === 'Midterm') {
-            $insertSql = "INSERT INTO payment_schedules 
-                (student_id, payment_type, total_assessment, 
-                 prelim_due, midterm_due, finals_due, 
-                 prelim_status, midterm_status, finals_status, 
-                 midterm_unlocked_at)
-                VALUES ($student_id, 'installment', $total, 
-                        $pd, $md, $fd, 
-                        'locked', 'unpaid', 'locked', 
-                        NOW())";
-        } else { // Finals
-            $insertSql = "INSERT INTO payment_schedules 
-                (student_id, payment_type, total_assessment, 
-                 prelim_due, midterm_due, finals_due, 
-                 prelim_status, midterm_status, finals_status, 
-                 finals_unlocked_at)
-                VALUES ($student_id, 'installment', $total, 
-                        $pd, $md, $fd, 
-                        'locked', 'locked', 'unpaid', 
-                        NOW())";
-        }
-        
+
+       
+        $prelim_status  = ($exam_period === 'Prelim')   ? 'unpaid' : 'locked';
+        $midterm_status = ($exam_period === 'Midterm')  ? 'unpaid' : 'locked';
+        $finals_status  = ($exam_period === 'Finals')   ? 'unpaid' : 'locked';
+        $prelim_ts      = ($exam_period === 'Prelim')   ? 'NOW()' : 'NULL';
+        $midterm_ts     = ($exam_period === 'Midterm')  ? 'NOW()' : 'NULL';
+        $finals_ts      = ($exam_period === 'Finals')   ? 'NOW()' : 'NULL';
+
+        $insertSql = "
+            INSERT INTO payment_schedules
+                (student_id, payment_type, total_assessment,
+                 prelim_due, midterm_due, finals_due,
+                 prelim_status, midterm_status, finals_status,
+                 prelim_unlocked_at, midterm_unlocked_at, finals_unlocked_at)
+            VALUES (
+                $student_id, 'installment', $total,
+                $pd, $md, $fd,
+                '$prelim_status', '$midterm_status', '$finals_status',
+                $prelim_ts, $midterm_ts, $finals_ts
+            )
+        ";
+
         $conn->query($insertSql);
-        
         if ($conn->error) {
-            echo json_encode(['success' => false, 'message' => 'Database error inserting: ' . $conn->error]); return;
+            echo json_encode(['success' => false, 'message' => 'DB error (insert): ' . $conn->error]);
+            return;
         }
+
     } else {
-        // Update existing record - unlock the period
-        $conn->query("UPDATE payment_schedules 
-            SET $status_col = IF($status_col = 'locked', 'unpaid', $status_col),
-                $unlocked_col = IF($unlocked_col IS NULL, NOW(), $unlocked_col)
-            WHERE student_id = $student_id");
         
+        //
+        if ($exam_period === 'Prelim') {
+            $sql = "UPDATE payment_schedules
+                    SET prelim_status      = IF(prelim_status      = 'locked', 'unpaid', prelim_status),
+                        prelim_unlocked_at = IF(prelim_unlocked_at IS NULL, NOW(), prelim_unlocked_at)
+                    WHERE student_id = $student_id";
+        } elseif ($exam_period === 'Midterm') {
+            $sql = "UPDATE payment_schedules
+                    SET midterm_status      = IF(midterm_status      = 'locked', 'unpaid', midterm_status),
+                        midterm_unlocked_at = IF(midterm_unlocked_at IS NULL, NOW(), midterm_unlocked_at)
+                    WHERE student_id = $student_id";
+        } else { // Finals
+            $sql = "UPDATE payment_schedules
+                    SET finals_status      = IF(finals_status      = 'locked', 'unpaid', finals_status),
+                        finals_unlocked_at = IF(finals_unlocked_at IS NULL, NOW(), finals_unlocked_at)
+                    WHERE student_id = $student_id";
+        }
+
+        $conn->query($sql);
         if ($conn->error) {
-            echo json_encode(['success' => false, 'message' => 'Database error updating: ' . $conn->error]); return;
+            echo json_encode(['success' => false, 'message' => 'DB error (update): ' . $conn->error]);
+            return;
         }
     }
 
-    echo json_encode(['success' => true, 'message' => "$exam_period payment period has been unlocked."]);
+    echo json_encode([
+        'success' => true,
+        'message' => "$exam_period payment period has been unlocked.",
+    ]);
 }
 ?>
