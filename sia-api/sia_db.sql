@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1
--- Generation Time: Mar 02, 2026 at 11:29 AM
+-- Generation Time: Mar 02, 2026 at 07:24 PM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.2.12
 
@@ -81,17 +81,17 @@ CREATE TABLE `courses` (
 --
 
 INSERT INTO `courses` (`id`, `code`, `name`, `credits`, `instructor`, `faculty_id`, `schedule`, `day`, `time`, `room`, `capacity`, `enrolled_count`, `semester`, `description`, `department`, `program`, `year_level`, `created_at`) VALUES
-(1, 'CS111', 'Introduction to Programming', 3, 'Engr. Maria Santos', NULL, 'MWF 8:00 AM - 9:30 AM', 'Monday,Wednesday,Friday', '8:00 AM - 9:30 AM', 'Room 301 (Science Building)', 51, 39, '1st Semester, AY 2024-2025', 'Fundamentals of programming using Python', 'Information Technology', 'BS Computer Science', '1st Year', '2026-01-31 08:04:35'),
-(2, 'CS112', 'Web Development Basics', 3, 'Engr. Juan Reyes', NULL, 'TTh 10:00 AM - 11:30 AM', 'Tuesday,Thursday', '10:00 AM - 11:30 AM', 'Lab 202 (IT Building)', 35, 37, '1st Semester, AY 2024-2025', 'HTML, CSS, and JavaScript fundamentals', 'Information Technology', 'BS Computer Science', '1st Year', '2026-01-31 08:04:35'),
-(3, 'MATH101', 'Discrete Mathematics', 4, 'Engr. Anna Garcia', NULL, 'MWF 9:45 AM - 11:15 AM', 'Monday,Wednesday,Friday', '9:45 AM - 11:15 AM', 'Room 205 (Science Building)', 40, 26, '1st Semester, AY 2024-2025', 'Sets, logic, and mathematical proofs', 'Mathematics', 'BS Computer Science', '1st Year', '2026-01-31 08:04:35'),
-(5, 'ENG101', 'English Composition', 3, 'Prof. Sarah Kim', NULL, 'MWF 1:00 PM - 2:30 PM', 'Monday,Wednesday,Friday', '1:00 PM - 2:30 PM', 'Room 101 (Liberal Arts Building)', 45, 28, '1st Semester, AY 2024-2025', 'Academic writing and communication skills', 'English', 'BS Computer Science', '1st Year', '2026-01-31 08:04:35'),
+(1, 'CS111', 'Introduction to Programming', 3, 'Engr. Maria Santos', NULL, 'MWF 8:00 AM - 9:30 AM', 'Monday,Wednesday,Friday', '8:00 AM - 9:30 AM', 'Room 301 (Science Building)', 51, 45, '1st Semester, AY 2024-2025', 'Fundamentals of programming using Python', 'Information Technology', 'BS Computer Science', '1st Year', '2026-01-31 08:04:35'),
+(2, 'CS112', 'Web Development Basics', 3, 'Engr. Juan Reyes', NULL, 'TTh 10:00 AM - 11:30 AM', 'Tuesday,Thursday', '10:00 AM - 11:30 AM', 'Lab 202 (IT Building)', 35, 43, '1st Semester, AY 2024-2025', 'HTML, CSS, and JavaScript fundamentals', 'Information Technology', 'BS Computer Science', '1st Year', '2026-01-31 08:04:35'),
+(3, 'MATH101', 'Discrete Mathematics', 4, 'Engr. Anna Garcia', NULL, 'MWF 9:45 AM - 11:15 AM', 'Monday,Wednesday,Friday', '9:45 AM - 11:15 AM', 'Room 205 (Science Building)', 40, 30, '1st Semester, AY 2024-2025', 'Sets, logic, and mathematical proofs', 'Mathematics', 'BS Computer Science', '1st Year', '2026-01-31 08:04:35'),
+(5, 'ENG101', 'English Composition', 3, 'Prof. Sarah Kim', NULL, 'MWF 1:00 PM - 2:30 PM', 'Monday,Wednesday,Friday', '1:00 PM - 2:30 PM', 'Room 101 (Liberal Arts Building)', 45, 32, '1st Semester, AY 2024-2025', 'Academic writing and communication skills', 'English', 'BS Computer Science', '1st Year', '2026-01-31 08:04:35'),
 (18, 'IT101', 'Introduction to Computing', 3, 'Engr. Maria Santos', NULL, 'MWF 7:30 AM - 8:30 AM', 'Monday,Wednesday,Friday', '7:30 AM - 8:30 AM', 'Room 301 (IT Building)', 40, 9, '1st Semester, AY 2024-2025', 'Overview of computing concepts, history, and modern applications', 'Information Technology', 'BS Information Technology', '1st Year', '2026-01-31 13:46:28'),
-(19, 'IT102', 'Computer Programming 1', 3, 'Engr. Juan Reyes', NULL, 'TTh 7:30 AM - 9:00 AM', 'Tuesday,Thursday', '7:30 AM - 9:00 AM', 'Lab 101 (IT Building)', 35, 34, '1st Semester, AY 2024-2025', 'Fundamentals of programming using Python — logic, loops, functions', 'Information Technology', 'BS Computer Science', '1st Year', '2026-01-31 13:46:28'),
-(20, 'IT103', 'Computer Hardware Fundamentals', 3, 'Engr. Luis Rodriguez', NULL, 'MWF 9:00 AM - 10:00 AM', 'Monday,Wednesday,Friday', '9:00 AM - 10:00 AM', 'Lab 202 (IT Building)', 35, 34, '1st Semester, AY 2024-2025', 'Hardware components, assembly, troubleshooting, and maintenance', 'Information Technology', 'BS Computer Science', '1st Year', '2026-01-31 13:46:28'),
+(19, 'IT102', 'Computer Programming 1', 3, 'Engr. Juan Reyes', NULL, 'TTh 7:30 AM - 9:00 AM', 'Tuesday,Thursday', '7:30 AM - 9:00 AM', 'Lab 101 (IT Building)', 35, 40, '1st Semester, AY 2024-2025', 'Fundamentals of programming using Python — logic, loops, functions', 'Information Technology', 'BS Computer Science', '1st Year', '2026-01-31 13:46:28'),
+(20, 'IT103', 'Computer Hardware Fundamentals', 3, 'Engr. Luis Rodriguez', NULL, 'MWF 9:00 AM - 10:00 AM', 'Monday,Wednesday,Friday', '9:00 AM - 10:00 AM', 'Lab 202 (IT Building)', 35, 40, '1st Semester, AY 2024-2025', 'Hardware components, assembly, troubleshooting, and maintenance', 'Information Technology', 'BS Computer Science', '1st Year', '2026-01-31 13:46:28'),
 (21, 'IT104', 'Web Development 1', 3, 'Engr. Anna Garcia', NULL, 'TTh 10:30 AM - 12:00 PM', 'Tuesday,Thursday', '10:30 AM - 12:00 PM', 'Lab 101 (IT Building)', 35, 19, '2nd Semester, AY 2024-2025', 'HTML5, CSS3, and responsive design fundamentals', 'Information Technology', 'BS Computer Science', '1st Year', '2026-01-31 13:46:28'),
 (22, 'MATH111', 'College Algebra', 3, 'Prof. Reyna Cruz', NULL, 'MWF 10:30 AM - 11:30 AM', 'Monday,Wednesday,Friday', '10:30 AM - 11:30 AM', 'Room 205 (Science Building)', 40, 5, '1st Semester, AY 2024-2025', 'Algebraic expressions, equations, functions, and graphing', 'Mathematics', 'BS Information Technology', '1st Year', '2026-01-31 13:46:28'),
 (23, 'MATH112', 'Discrete Mathematics', 3, 'Prof. Reyna Cruz', NULL, 'TTh 1:00 PM - 2:30 PM', 'Tuesday,Thursday', '1:00 PM - 2:30 PM', 'Room 205 (Science Building)', 40, 5, '1st Semester, AY 2024-2025', 'Sets, logic, relations, functions, and graph theory', 'Mathematics', 'BS Information Technology', '1st Year', '2026-01-31 13:46:28'),
-(24, 'GE101', 'Purposive Communication', 3, 'Prof. Sarah Kim', NULL, 'MWF 1:00 PM - 2:00 PM', 'Monday,Wednesday,Friday', '1:00 PM - 2:00 PM', 'Room 101 (Liberal Arts)', 45, 25, '1st Semester, AY 2024-2025', 'Academic and professional communication skills', 'English', 'BS Computer Science', '1st Year', '2026-01-31 13:46:28'),
+(24, 'GE101', 'Purposive Communication', 3, 'Prof. Sarah Kim', NULL, 'MWF 1:00 PM - 2:00 PM', 'Monday,Wednesday,Friday', '1:00 PM - 2:00 PM', 'Room 101 (Liberal Arts)', 45, 29, '1st Semester, AY 2024-2025', 'Academic and professional communication skills', 'English', 'BS Computer Science', '1st Year', '2026-01-31 13:46:28'),
 (25, 'GE102', 'Understanding the Self', 3, 'Prof. James Lim', NULL, 'TTh 3:00 PM - 4:30 PM', 'Tuesday,Thursday', '3:00 PM - 4:30 PM', 'Room 102 (Liberal Arts)', 45, 6, '1st Semester, AY 2024-2025', 'Self-development, identity, and human values', 'General Education', 'BS Information Technology', '1st Year', '2026-01-31 13:46:28'),
 (26, 'GE103', 'Readings in Philippine History', 3, 'Prof. Maria Reyes', NULL, 'MWF 2:30 PM - 3:30 PM', 'Monday,Wednesday,Friday', '2:30 PM - 3:30 PM', 'Room 103 (Liberal Arts)', 45, 5, '1st Semester, AY 2024-2025', 'Critical reading of primary sources in Philippine history', 'General Education', 'BS Information Technology', '1st Year', '2026-01-31 13:46:28'),
 (27, 'PE101', 'Physical Fitness and Wellness', 2, 'Coach Robert Lee', NULL, 'Saturday 8:00 AM - 10:00 AM', 'Saturday', '8:00 AM - 10:00 AM', 'Sports Complex', 60, 5, '1st Semester, AY 2024-2025', 'Physical fitness, health, and wellness activities', 'Physical Education', 'BS Information Technology', '1st Year', '2026-01-31 13:46:28'),
@@ -115,6 +115,33 @@ CREATE TABLE `enrollments` (
   `created_at` timestamp NOT NULL DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
+--
+-- Dumping data for table `enrollments`
+--
+
+INSERT INTO `enrollments` (`id`, `student_id`, `course_id`, `enrollment_date`, `status`, `grade`, `semester`, `notes`, `created_at`) VALUES
+(383, 105, 1, '2026-03-02', 'Enrolled', NULL, '1st Semester, AY 2028-2029', 'Auto-enrolled', '2026-03-02 17:41:51'),
+(384, 105, 2, '2026-03-02', 'Enrolled', NULL, '1st Semester, AY 2028-2029', 'Auto-enrolled', '2026-03-02 17:41:51'),
+(385, 105, 3, '2026-03-02', 'Enrolled', NULL, '1st Semester, AY 2028-2029', 'Auto-enrolled', '2026-03-02 17:41:52'),
+(386, 105, 5, '2026-03-02', 'Enrolled', NULL, '1st Semester, AY 2028-2029', 'Auto-enrolled', '2026-03-02 17:41:52'),
+(387, 105, 19, '2026-03-02', 'Enrolled', NULL, '1st Semester, AY 2028-2029', 'Auto-enrolled', '2026-03-02 17:41:53'),
+(388, 105, 20, '2026-03-02', 'Enrolled', NULL, '1st Semester, AY 2028-2029', 'Auto-enrolled', '2026-03-02 17:41:53'),
+(389, 105, 24, '2026-03-02', 'Enrolled', NULL, '1st Semester, AY 2028-2029', 'Auto-enrolled', '2026-03-02 17:41:53'),
+(390, 106, 5, '2026-03-02', 'Dropped', NULL, 'TOR Credit', 'Credited via TOR evaluation — permanently excluded', '2026-03-02 18:05:57'),
+(391, 106, 24, '2026-03-02', 'Dropped', NULL, 'TOR Credit', 'Credited via TOR evaluation — permanently excluded', '2026-03-02 18:05:57'),
+(392, 106, 3, '2026-03-02', 'Dropped', NULL, 'TOR Credit', 'Credited via TOR evaluation — permanently excluded', '2026-03-02 18:05:57'),
+(393, 106, 1, '2026-03-02', 'Enrolled', NULL, '1st Semester, AY 2028-2029', 'Auto-enrolled (Transferee)', '2026-03-02 18:07:04'),
+(394, 106, 2, '2026-03-02', 'Enrolled', NULL, '1st Semester, AY 2028-2029', 'Auto-enrolled (Transferee)', '2026-03-02 18:07:04'),
+(395, 106, 19, '2026-03-02', 'Enrolled', NULL, '1st Semester, AY 2028-2029', 'Auto-enrolled (Transferee)', '2026-03-02 18:07:04'),
+(396, 106, 20, '2026-03-02', 'Enrolled', NULL, '1st Semester, AY 2028-2029', 'Auto-enrolled (Transferee)', '2026-03-02 18:07:04'),
+(397, 107, 5, '2026-03-02', 'Dropped', NULL, 'TOR Credit', 'Credited via TOR evaluation — permanently excluded', '2026-03-02 18:12:00'),
+(398, 107, 24, '2026-03-02', 'Dropped', NULL, 'TOR Credit', 'Credited via TOR evaluation — permanently excluded', '2026-03-02 18:12:00'),
+(399, 107, 3, '2026-03-02', 'Dropped', NULL, 'TOR Credit', 'Credited via TOR evaluation — permanently excluded', '2026-03-02 18:12:01'),
+(400, 107, 1, '2026-03-02', 'Enrolled', NULL, '1st Semester, AY 2026-2027', 'Auto-enrolled (Transferee)', '2026-03-02 18:12:52'),
+(401, 107, 2, '2026-03-02', 'Enrolled', NULL, '1st Semester, AY 2026-2027', 'Auto-enrolled (Transferee)', '2026-03-02 18:12:53'),
+(402, 107, 19, '2026-03-02', 'Enrolled', NULL, '1st Semester, AY 2026-2027', 'Auto-enrolled (Transferee)', '2026-03-02 18:12:53'),
+(403, 107, 20, '2026-03-02', 'Enrolled', NULL, '1st Semester, AY 2026-2027', 'Auto-enrolled (Transferee)', '2026-03-02 18:12:53');
+
 -- --------------------------------------------------------
 
 --
@@ -133,6 +160,13 @@ CREATE TABLE `exam_permits` (
   `approved_by` int(11) DEFAULT NULL,
   `remarks` text DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Dumping data for table `exam_permits`
+--
+
+INSERT INTO `exam_permits` (`id`, `student_id`, `exam_period`, `school_year`, `semester`, `status`, `requested_at`, `approved_at`, `approved_by`, `remarks`) VALUES
+(2, 107, 'Prelim', '2026-2027', '1st Semester', 'approved', '2026-03-02 18:13:52', '2026-03-02 18:14:01', 3, '');
 
 -- --------------------------------------------------------
 
@@ -187,6 +221,18 @@ CREATE TABLE `installment_payments` (
   `created_at` timestamp NOT NULL DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
+--
+-- Dumping data for table `installment_payments`
+--
+
+INSERT INTO `installment_payments` (`id`, `student_id`, `payment_log_id`, `or_ar_number`, `or_ar_type`, `amount`, `payment_date`, `payment_method`, `gcash_reference`, `exam_period`, `notes`, `recorded_by`, `created_at`) VALUES
+(47, 105, 88, 'AR-20260001', 'AR', 7381.00, '2026-03-02', 'Cash', '', 'Downpayment', '', 3, '2026-03-02 17:41:44'),
+(48, 105, 89, 'AR-20260002', 'AR', 7381.00, '2026-03-02', 'Cash', '', 'Prelim', '[Prelim]', 3, '2026-03-02 17:42:42'),
+(49, 105, 90, 'AR-20260003', 'AR', 7381.00, '2026-03-02', 'GCash', '12345', 'Midterm', '[Midterm]', 3, '2026-03-02 17:44:12'),
+(50, 106, 91, 'OR-20260004', 'OR', 21644.00, '2026-03-02', 'GCash', '21644', 'Full', '', 3, '2026-03-02 18:06:55'),
+(51, 107, 92, 'AR-20260005', 'AR', 5599.00, '2026-03-02', 'Cash', '', 'Downpayment', '', 3, '2026-03-02 18:12:47'),
+(52, 107, 93, 'AR-20260006', 'AR', 5599.50, '2026-03-02', 'Cash', '', 'Prelim', '[Prelim] 5598.5', 3, '2026-03-02 18:13:49');
+
 -- --------------------------------------------------------
 
 --
@@ -213,6 +259,18 @@ CREATE TABLE `payment_logs` (
   `created_at` timestamp NOT NULL DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
+--
+-- Dumping data for table `payment_logs`
+--
+
+INSERT INTO `payment_logs` (`id`, `student_id`, `payment_method`, `gcash_reference`, `gcash_amount`, `gcash_date`, `transaction_id`, `semester`, `status`, `verified_by`, `verified_at`, `notes`, `is_scholar`, `scholar_type`, `scholar_grantor`, `scholarship_amount`, `created_at`) VALUES
+(88, 105, 'Cash', '', 7381.00, '2026-03-02', NULL, '1st Semester, AY 2026-2027', 'Verified', 3, '2026-03-02 17:41:44', '', 0, NULL, NULL, 0.00, '2026-03-02 17:41:00'),
+(89, 105, 'Cash', 'PAY-20260002', 7381.00, '2026-03-02', NULL, NULL, 'Verified', 3, '2026-03-02 17:42:42', '', 0, NULL, NULL, 0.00, '2026-03-02 17:42:26'),
+(90, 105, 'GCash', '12345', 7381.00, '2026-03-02', NULL, NULL, 'Verified', 3, '2026-03-02 17:44:12', '', 0, NULL, NULL, 0.00, '2026-03-02 17:44:04'),
+(91, 106, 'GCash', '21644', 21644.00, '2026-03-02', 'TXN-1772474804181-FBBWF', '1st Semester, AY 2028-2029', 'Verified', 3, '2026-03-02 18:06:55', '', 0, NULL, NULL, 0.00, '2026-03-02 18:06:44'),
+(92, 107, 'Cash', '', 5599.00, '2026-03-02', NULL, '1st Semester, AY 2026-2027', 'Verified', 3, '2026-03-02 18:12:47', '', 0, NULL, NULL, 0.00, '2026-03-02 18:11:33'),
+(93, 107, 'Cash', 'PAY-20260006', 5599.50, '2026-03-02', NULL, NULL, 'Verified', 3, '2026-03-02 18:13:49', '', 0, NULL, NULL, 0.00, '2026-03-02 18:13:34');
+
 -- --------------------------------------------------------
 
 --
@@ -230,6 +288,15 @@ CREATE TABLE `payment_notices` (
   `sent_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `is_read` tinyint(1) NOT NULL DEFAULT 0
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Dumping data for table `payment_notices`
+--
+
+INSERT INTO `payment_notices` (`id`, `student_id`, `exam_period`, `amount_due`, `due_date`, `message`, `sent_by`, `sent_at`, `is_read`) VALUES
+(3, 105, 'Prelim', 7381.00, NULL, 'Dear shane, your Prelim payment of ₱7,381.00 is now due. Please settle at the Accounting office.', 3, '2026-03-02 17:42:15', 0),
+(4, 105, 'Midterm', 7381.00, NULL, 'Dear shane, your Midterm payment of ₱7,381.00 is now due. Please settle at the Accounting office.', 3, '2026-03-02 17:43:01', 0),
+(5, 107, 'Prelim', 5598.50, NULL, 'Dear Dave, your Prelim payment of ₱5,598.50 is now due. Please settle at the Accounting office.', 3, '2026-03-02 18:13:15', 0);
 
 -- --------------------------------------------------------
 
@@ -257,6 +324,15 @@ CREATE TABLE `payment_schedules` (
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Dumping data for table `payment_schedules`
+--
+
+INSERT INTO `payment_schedules` (`id`, `student_id`, `payment_type`, `total_assessment`, `prelim_due`, `midterm_due`, `finals_due`, `prelim_paid`, `midterm_paid`, `finals_paid`, `prelim_status`, `prelim_unlocked_at`, `midterm_status`, `midterm_unlocked_at`, `finals_status`, `finals_unlocked_at`, `created_at`, `updated_at`) VALUES
+(139, 105, 'installment', 29524.00, 7381.00, 7381.00, 7381.00, 7381.00, 7381.00, 0.00, 'paid', '2026-03-02 17:42:15', 'paid', '2026-03-02 17:43:01', 'locked', NULL, '2026-03-02 17:42:01', '2026-03-02 17:44:12'),
+(150, 106, 'full', 21644.00, 5411.00, 5411.00, 5411.00, 0.00, 0.00, 0.00, 'paid', NULL, 'paid', NULL, 'paid', NULL, '2026-03-02 18:08:09', '2026-03-02 18:08:09'),
+(151, 107, 'installment', 22394.00, 5598.50, 5598.50, 5598.50, 5599.50, 0.00, 0.00, 'paid', '2026-03-02 18:13:15', 'locked', NULL, 'locked', NULL, '2026-03-02 18:13:01', '2026-03-02 18:13:49');
 
 -- --------------------------------------------------------
 
@@ -459,6 +535,15 @@ CREATE TABLE `students` (
   `guardian_contact` varchar(50) DEFAULT ''
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
+--
+-- Dumping data for table `students`
+--
+
+INSERT INTO `students` (`id`, `user_id`, `student_number`, `first_name`, `last_name`, `middle_name`, `suffix`, `lrn_no`, `sex`, `religion`, `age`, `place_of_birth`, `citizenship`, `mother_tongue`, `is_indigenous`, `has_special_needs`, `special_needs_details`, `has_assistive_tech`, `assistive_tech_details`, `strand`, `learning_delivery`, `last_school_attended`, `psa_birth_cert_no`, `guardian_name`, `guardian_address`, `email`, `phone`, `date_of_birth`, `address`, `emergency_contact`, `emergency_phone`, `program`, `year_level`, `gpa`, `enrollment_status`, `student_type`, `tor_eval_status`, `student_category`, `payment_status`, `approval_status`, `payment_method`, `payment_plan`, `semester`, `is_scholar`, `scholar_type`, `scholar_grantor`, `scholarship_amount`, `gcash_reference`, `gcash_amount`, `gcash_date`, `gcash_transaction_id`, `accounting_approved_by`, `accounting_approved_at`, `accounting_notes`, `profile_picture`, `tor_file`, `psa_file`, `enrollment_date`, `created_at`, `guardian_contact`) VALUES
+(105, 99, 'STU-2026-0001', 'shane', 'binoya', 'carlo', '', '123456', 'Male', 'cathiolic', 19, 'Olongapo', 'Filipino', '0', 0, 0, '0', 0, '0', '', '', 'Elementary - OCES (2016-2021)', '', 'shane carlo binoya', 'New Cabalan', 'cashinstallment1', '09300987316', '2002-11-22', 'New Cabalan', 'shane carlo binoya', '09186637382', 'BS Computer Science', '1st Year', 0.00, 'Enrolled', 'New', 'NotRequired', 'College', 'Paid', 'Approved', 'Cash', 'installment', '1st Semester, AY 2028-2029', 0, '', '', 0.00, NULL, NULL, NULL, NULL, 3, '2026-03-02 17:41:44', '', NULL, NULL, NULL, '2026-03-02', '2026-03-02 17:41:00', '09186637382'),
+(106, 100, 'STU-2026-0002', 'Dave', 'Cuevas', 'zarene', '', '1234567', 'Male', 'Catholic', 23, 'Olongapo', 'Filipino', '0', 0, 0, '0', 0, '', NULL, NULL, '0', '123', 'jane zarene Cuevas', 'zambales', 'cashinstallmenttrans', '09300987316', '2002-11-22', 'New Cabalan', 'jane zarene Cuevas', '09300987316', 'BS Computer Science', '1st Year', 0.00, 'Enrolled', 'Transferee', 'Evaluated', 'College', 'Paid', 'Approved', 'GCash', 'full', '1st Semester, AY 2028-2029', 0, '', '', 0.00, '21644', 21644.00, '2026-03-02', 'TXN-1772474804181-FBBWF', 3, '2026-03-02 18:06:55', '', NULL, 'tor_106_1772474725.jpg', NULL, '2026-03-02', '2026-03-02 18:05:25', '09300987316'),
+(107, 101, 'STU-2026-0003', 'Dave', 'Cuevas', 'zarene', '', '123', 'Male', 'Catholic', 23, 'Olongapo', 'Filipino', '0', 0, 0, '0', 0, '', NULL, NULL, '0', '', 'Dave zarene Cuevas', 'sadsd', 'cashinstallmenttrans1', '0918787287', '2002-11-22', 'Olongapo', 'Dave zarene Cuevas', '3232332323', 'BS Computer Science', '1st Year', 0.00, 'Enrolled', 'Transferee', 'Evaluated', 'College', 'Paid', 'Approved', 'Cash', 'installment', '1st Semester, AY 2026-2027', 0, '', '', 0.00, NULL, NULL, NULL, NULL, 3, '2026-03-02 18:12:47', '', NULL, 'tor_107_1772475082.jpg', NULL, '2026-03-02', '2026-03-02 18:11:22', '3232332323');
+
 -- --------------------------------------------------------
 
 --
@@ -499,6 +584,14 @@ CREATE TABLE `tor_evaluations` (
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
+--
+-- Dumping data for table `tor_evaluations`
+--
+
+INSERT INTO `tor_evaluations` (`id`, `student_id`, `status`, `credited_units`, `approved_units`, `credited_subjects`, `credited_course_ids`, `registrar_notes`, `evaluated_by`, `evaluated_at`, `created_at`, `updated_at`) VALUES
+(32, 106, 'Evaluated', 10, 12, '[{\"courseId\":5,\"code\":\"ENG101\",\"name\":\"English Composition\",\"credits\":3,\"creditedFrom\":\"0\"},{\"courseId\":24,\"code\":\"GE101\",\"name\":\"Purposive Communication\",\"credits\":3,\"creditedFrom\":\"0\"},{\"courseId\":3,\"code\":\"MATH101\",\"name\":\"Discrete Mathematics\",\"credits\":4,\"creditedFrom\":\"0\"}]', '[5,24,3]', '', 4, '2026-03-02 18:05:56', '2026-03-02 18:05:25', '2026-03-02 18:05:56'),
+(34, 107, 'Evaluated', 10, 12, '[{\"courseId\":5,\"code\":\"ENG101\",\"name\":\"English Composition\",\"credits\":3,\"creditedFrom\":\"0\"},{\"courseId\":24,\"code\":\"GE101\",\"name\":\"Purposive Communication\",\"credits\":3,\"creditedFrom\":\"0\"},{\"courseId\":3,\"code\":\"MATH101\",\"name\":\"Discrete Mathematics\",\"credits\":4,\"creditedFrom\":\"0\"}]', '[5,24,3]', '', 4, '2026-03-02 18:12:00', '2026-03-02 18:11:22', '2026-03-02 18:12:00');
+
 -- --------------------------------------------------------
 
 --
@@ -521,6 +614,15 @@ CREATE TABLE `tuition_fees` (
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Dumping data for table `tuition_fees`
+--
+
+INSERT INTO `tuition_fees` (`id`, `student_id`, `units`, `tuition_fee`, `miscellaneous_fee`, `registration_fee`, `laboratory_fee`, `energy_fee`, `subtotal`, `discount`, `installment_fee`, `total_assessment`, `created_at`, `updated_at`) VALUES
+(409, 105, 22, 14300.00, 6688.00, 700.00, 5700.00, 1386.00, 28774.00, 0.00, 750.00, 29524.00, '2026-03-02 17:41:00', '2026-03-02 17:50:29'),
+(422, 106, 12, 7800.00, 6688.00, 700.00, 5700.00, 756.00, 21644.00, 0.00, 0.00, 21644.00, '2026-03-02 18:05:57', '2026-03-02 18:07:20'),
+(429, 107, 12, 7800.00, 6688.00, 700.00, 5700.00, 756.00, 21644.00, 0.00, 750.00, 22394.00, '2026-03-02 18:12:00', '2026-03-02 18:16:18');
 
 -- --------------------------------------------------------
 
@@ -546,7 +648,10 @@ INSERT INTO `users` (`id`, `email`, `password`, `role`, `first_name`, `last_name
 (1, 'student@example.com', 'password123', 'student', 'Juan', 'Dela Cruz', '2026-01-29 07:51:13'),
 (2, 'admin@example.com', 'admin123', 'admin', 'Admin', 'User', '2026-01-29 07:51:13'),
 (3, 'accounting@example.com', 'acc123', 'accounting', 'Accounting', 'Staff', '2026-01-29 07:51:13'),
-(4, 'registrar@example.com', 'registrar123', 'registrar', 'Registrar', 'Admin', '2026-01-29 08:54:49');
+(4, 'registrar@example.com', 'registrar123', 'registrar', 'Registrar', 'Admin', '2026-01-29 08:54:49'),
+(99, 'cashinstallment1', 'shane1', 'student', 'shane', 'binoya', '2026-03-02 17:40:59'),
+(100, 'cashinstallmenttrans', 'shane1', 'student', 'Dave', 'Cuevas', '2026-03-02 18:05:25'),
+(101, 'cashinstallmenttrans1', 'shane1', 'student', 'Dave', 'Cuevas', '2026-03-02 18:11:22');
 
 --
 -- Indexes for dumped tables
@@ -702,13 +807,13 @@ ALTER TABLE `courses`
 -- AUTO_INCREMENT for table `enrollments`
 --
 ALTER TABLE `enrollments`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=361;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=404;
 
 --
 -- AUTO_INCREMENT for table `exam_permits`
 --
 ALTER TABLE `exam_permits`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
 
 --
 -- AUTO_INCREMENT for table `faculty`
@@ -720,25 +825,25 @@ ALTER TABLE `faculty`
 -- AUTO_INCREMENT for table `installment_payments`
 --
 ALTER TABLE `installment_payments`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=37;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=53;
 
 --
 -- AUTO_INCREMENT for table `payment_logs`
 --
 ALTER TABLE `payment_logs`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=79;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=94;
 
 --
 -- AUTO_INCREMENT for table `payment_notices`
 --
 ALTER TABLE `payment_notices`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=6;
 
 --
 -- AUTO_INCREMENT for table `payment_schedules`
 --
 ALTER TABLE `payment_schedules`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=19;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=159;
 
 --
 -- AUTO_INCREMENT for table `programs`
@@ -768,7 +873,7 @@ ALTER TABLE `school_events`
 -- AUTO_INCREMENT for table `students`
 --
 ALTER TABLE `students`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=102;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=108;
 
 --
 -- AUTO_INCREMENT for table `term_payments`
@@ -780,19 +885,19 @@ ALTER TABLE `term_payments`
 -- AUTO_INCREMENT for table `tor_evaluations`
 --
 ALTER TABLE `tor_evaluations`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=32;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=36;
 
 --
 -- AUTO_INCREMENT for table `tuition_fees`
 --
 ALTER TABLE `tuition_fees`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=302;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=441;
 
 --
 -- AUTO_INCREMENT for table `users`
 --
 ALTER TABLE `users`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=96;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=102;
 
 --
 -- Constraints for dumped tables

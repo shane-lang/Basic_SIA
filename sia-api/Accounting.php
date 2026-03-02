@@ -130,6 +130,7 @@ switch ($method) {
             case 'get_payment_notices':       getPaymentNotices($conn);       break;
             case 'get_all_enrolled_students': getAllEnrolledStudents($conn); break;
             case 'get_student_installment':   getStudentInstallment($conn); break;
+            case 'get_permit_details':         getPermitDetails($conn);      break;
             default: echo json_encode(['success' => false, 'message' => 'Unknown action']);
         }
         break;
@@ -146,6 +147,7 @@ switch ($method) {
             case 'request_exam_permit':  requestExamPermit($conn, $data);  break;
             case 'process_exam_permit':  processExamPermit($conn, $data);  break;
             case 'unlock_payment_period': unlockPaymentPeriod($conn, $data); break;
+            case 'submit_installment_payment': submitInstallmentPayment($conn, $data); break;
             default: echo json_encode(['success' => false, 'message' => 'Unknown action']);
         }
         break;
@@ -966,17 +968,19 @@ function submitGcash($conn, $data) {
 function getPendingPayments($conn) {
     $rows = [];
 
+    // Fetch ALL pending payment_logs — includes both enrollment payments
+    // AND installment term payments (Prelim/Midterm/Finals) from enrolled students
     $sql = "
         SELECT pl.id AS log_id, pl.student_id, pl.payment_method, pl.gcash_reference,
-               pl.gcash_amount, pl.gcash_date, pl.transaction_id, pl.semester, pl.created_at AS submitted_at,
+               pl.gcash_amount, pl.gcash_date, pl.transaction_id, pl.semester,
+               pl.notes, pl.created_at AS submitted_at,
                s.student_number, s.first_name, s.last_name, s.program, s.year_level,
-               s.payment_status, s.approval_status,
-               tf.total_assessment, tf.units
+               s.payment_status, s.approval_status, s.enrollment_status,
+               tf.total_assessment
         FROM payment_logs pl
         JOIN students s ON pl.student_id = s.id
         LEFT JOIN tuition_fees tf ON tf.student_id = s.id
         WHERE pl.status = 'Pending'
-          AND s.enrollment_status != 'Enrolled'
         ORDER BY pl.created_at DESC
     ";
 
@@ -988,6 +992,14 @@ function getPendingPayments($conn) {
             $pr      = $conn->query("SELECT COALESCE(SUM(amount),0) AS tp FROM installment_payments WHERE student_id = $sid");
             $total_paid = (float)($pr->fetch_assoc()['tp'] ?? 0);
 
+            // Parse exam_period from notes field (format: "Prelim|notes" or "Midterm|notes")
+            $notesRaw   = $r['notes'] ?? '';
+            $examPeriod = '';
+            if (preg_match('/^(Prelim|Midterm|Finals|Downpayment|Full)\|?/i', $notesRaw, $m)) {
+                $examPeriod = $m[1];
+                $notesRaw   = trim(substr($notesRaw, strlen($m[0])));
+            }
+
             $rows[] = [
                 'logId'          => (int)$r['log_id'],
                 'studentId'      => $sid,
@@ -996,12 +1008,15 @@ function getPendingPayments($conn) {
                 'lastName'       => $r['last_name'],
                 'program'        => $r['program'],
                 'yearLevel'      => $r['year_level'],
+                'enrollmentStatus'=> $r['enrollment_status'],
                 'paymentMethod'  => $isCash ? 'Cash' : 'GCash',
                 'gcashReference' => $isCash ? '' : ($r['gcash_reference'] ?? ''),
                 'gcashAmount'    => $isCash ? 0 : (float)($r['gcash_amount'] ?? 0),
                 'gcashDate'      => $isCash ? '' : ($r['gcash_date'] ?? ''),
                 'transactionId'  => $isCash ? '' : ($r['transaction_id'] ?? ''),
                 'semester'       => $r['semester'] ?? '',
+                'examPeriod'     => $examPeriod,   // which term this payment is for
+                'notes'          => $notesRaw,
                 'status'         => 'Pending',
                 'submittedAt'    => $r['submitted_at'],
                 'paymentStatus'  => $r['payment_status'],
@@ -1013,11 +1028,11 @@ function getPendingPayments($conn) {
         }
     }
 
-    // Students (Cash OR GCash) with no payment_log yet — show them so accounting can see
+    // Also show students with no payment_log (Cash pending enrollment, not yet enrolled)
     $noLogSql = "
         SELECT s.id AS student_id, s.student_number, s.first_name, s.last_name,
                s.program, s.year_level, s.payment_status, s.approval_status,
-               s.payment_method, s.created_at AS submitted_at,
+               s.payment_method, s.semester, s.created_at AS submitted_at,
                tf.total_assessment
         FROM students s
         LEFT JOIN payment_logs pl ON pl.student_id = s.id AND pl.status = 'Pending'
@@ -1033,7 +1048,8 @@ function getPendingPayments($conn) {
             $sid = (int)$r['student_id'];
             if (in_array($sid, $alreadyAdded)) continue;
 
-            $semester = '1st Semester, AY 2024-2025';
+            $rawSem   = trim($r['semester'] ?? '');
+            $semester = $rawSem ?: '1st Semester, AY ' . date('Y') . '-' . (date('Y')+1);
             $ins = $conn->prepare("INSERT INTO payment_logs (student_id, payment_method, gcash_reference, gcash_amount, semester, status) VALUES (?, 'Cash', '', 0, ?, 'Pending')");
             $ins->bind_param("is", $sid, $semester);
             $ins->execute();
@@ -1050,9 +1066,12 @@ function getPendingPayments($conn) {
                 'lastName'       => $r['last_name'],
                 'program'        => $r['program'],
                 'yearLevel'      => $r['year_level'],
+                'enrollmentStatus'=> 'Pending',
                 'paymentMethod'  => 'Cash',
                 'gcashReference' => '', 'gcashAmount' => 0, 'gcashDate' => '', 'transactionId' => '',
                 'semester'       => $semester,
+                'examPeriod'     => '',
+                'notes'          => '',
                 'status'         => 'Pending',
                 'submittedAt'    => $r['submitted_at'],
                 'paymentStatus'  => $r['payment_status'],
@@ -1139,28 +1158,46 @@ function verifyPayment($conn, $data) {
         echo json_encode(['success' => false, 'message' => 'log_id and student_id required']); return;
     }
 
-    // Update payment log
+    // Read original notes + amount BEFORE updating (notes will be overwritten by accounting notes)
+    $logRow = $conn->query("SELECT gcash_amount, gcash_date, payment_method, notes, status FROM payment_logs WHERE id = $log_id LIMIT 1")->fetch_assoc();
+    if (!$logRow) {
+        echo json_encode(['success' => false, 'message' => 'Payment log not found']); return;
+    }
+    if ($logRow['status'] !== 'Pending') {
+        echo json_encode(['success' => false, 'message' => 'Payment already processed']); return;
+    }
+    $originalNotes = $logRow['notes']; // preserve exam_period prefix before overwriting
+
+    // Update payment log (notes field = accounting remarks, may overwrite original notes)
     if ($payment_method === 'cash' && $cash_amount !== null) {
-        $stmt = $conn->prepare("UPDATE payment_logs SET status = 'Verified', verified_by = ?, verified_at = NOW(), notes = ?, gcash_amount = ?, gcash_date = ? WHERE id = ? AND status = 'Pending'");
+        $stmt = $conn->prepare("UPDATE payment_logs SET status = 'Verified', verified_by = ?, verified_at = NOW(), notes = ?, gcash_amount = ?, gcash_date = ? WHERE id = ?");
         $stmt->bind_param("isdsi", $acc_user_id, $notes, $cash_amount, $cash_date, $log_id);
     } else {
-        $stmt = $conn->prepare("UPDATE payment_logs SET status = 'Verified', verified_by = ?, verified_at = NOW(), notes = ? WHERE id = ? AND status = 'Pending'");
+        $stmt = $conn->prepare("UPDATE payment_logs SET status = 'Verified', verified_by = ?, verified_at = NOW(), notes = ? WHERE id = ?");
         $stmt->bind_param("isi", $acc_user_id, $notes, $log_id);
     }
     $stmt->execute();
     if ($stmt->affected_rows === 0) {
-        echo json_encode(['success' => false, 'message' => 'Payment log not found or already processed']); return;
+        echo json_encode(['success' => false, 'message' => 'Failed to update payment log']); return;
     }
 
-    // Get payment_log details (for GCash we need amount + date from the log)
-    $logRow = $conn->query("SELECT gcash_amount, gcash_date, payment_method FROM payment_logs WHERE id = $log_id LIMIT 1")->fetch_assoc();
+    // Use pre-UPDATE logRow (has original notes with exam_period prefix)
     $final_amount = ($payment_method === 'cash') ? ($cash_amount ?? 0) : (float)($logRow['gcash_amount'] ?? 0);
     $final_date   = ($payment_method === 'cash') ? $cash_date : ($logRow['gcash_date'] ?? date('Y-m-d'));
     $pm_label     = ($payment_method === 'cash') ? 'Cash' : 'GCash';
 
     // Get student payment plan
-    $stRow       = $conn->query("SELECT payment_plan FROM students WHERE id = $student_id LIMIT 1")->fetch_assoc();
+    $stRow       = $conn->query("SELECT payment_plan, enrollment_status FROM students WHERE id = $student_id LIMIT 1")->fetch_assoc();
     $paymentPlan = $stRow['payment_plan'] ?? 'full';
+    $isEnrolled  = ($stRow['enrollment_status'] ?? '') === 'Enrolled';
+
+    // Parse exam_period from ORIGINAL notes (before accounting overwrote it)
+    $notesRaw   = trim($originalNotes ?? $logRow['notes'] ?? '');
+    $examPeriod = '';
+    if (preg_match('/^(Prelim|Midterm|Finals|Downpayment|Full)\|?/i', $notesRaw, $m)) {
+        $examPeriod = $m[1];
+        $notes      = $notes ?: trim(substr($notesRaw, strlen($m[0])));
+    }
 
     // Auto-create installment_payments record if not already done
     // Avoid duplicates via payment_log_id check
@@ -1172,15 +1209,19 @@ function verifyPayment($conn, $data) {
         $count_res = $conn->query("SELECT COUNT(*) AS cnt FROM installment_payments WHERE YEAR(created_at) = $year");
         $count     = (int)($count_res->fetch_assoc()['cnt'] ?? 0) + 1;
 
-        if ($paymentPlan === 'installment') {
-            // Installment: first payment is Downpayment AR
+        if ($isEnrolled && $examPeriod && in_array($examPeriod, ['Prelim','Midterm','Finals'])) {
+            // Installment term payment (Prelim/Midterm/Finals) from enrolled student
+            $or_ar_type = 'AR';
+            $or_no      = 'AR-' . $year . str_pad($count, 4, '0', STR_PAD_LEFT);
+        } elseif ($paymentPlan === 'installment') {
+            // Initial downpayment AR
             $or_ar_type  = 'AR';
-            $exam_period = 'Downpayment';
+            $examPeriod  = $examPeriod ?: 'Downpayment';
             $or_no       = 'AR-' . $year . str_pad($count, 4, '0', STR_PAD_LEFT);
         } else {
-            // Full payment: OR
+            // Full payment OR
             $or_ar_type  = 'OR';
-            $exam_period = 'Full';
+            $examPeriod  = $examPeriod ?: 'Full';
             $or_no       = 'OR-' . $year . str_pad($count, 4, '0', STR_PAD_LEFT);
         }
 
@@ -1191,8 +1232,24 @@ function verifyPayment($conn, $data) {
                 (student_id, payment_log_id, or_ar_number, or_ar_type, amount, payment_date, payment_method, gcash_reference, exam_period, notes, recorded_by)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ");
-        $ins->bind_param("iissdsssssi", $student_id, $log_id, $or_no, $or_ar_type, $final_amount, $final_date, $pm_label, $gcash_ref, $exam_period, $notes, $acc_user_id);
+        $ins->bind_param("iissdsssssi", $student_id, $log_id, $or_no, $or_ar_type, $final_amount, $final_date, $pm_label, $gcash_ref, $examPeriod, $notes, $acc_user_id);
         $ins->execute();
+
+        // Sync payment_schedules for this period
+        if ($isEnrolled && in_array($examPeriod, ['Prelim','Midterm','Finals'])) {
+            $ep = strtolower($examPeriod);
+            $schedRes = $conn->query("SELECT {$ep}_due FROM payment_schedules WHERE student_id=$student_id LIMIT 1");
+            $schedRow = $schedRes ? $schedRes->fetch_assoc() : null;
+            $periodDue = $schedRow ? (float)$schedRow[$ep.'_due'] : 0;
+            $paidRes   = $conn->query("SELECT COALESCE(SUM(amount),0) AS paid FROM installment_payments WHERE student_id=$student_id AND exam_period='$examPeriod'");
+            $periodPaid = (float)$paidRes->fetch_assoc()['paid'];
+            $newStatus  = $periodPaid <= 0 ? 'unpaid' : ($periodPaid >= $periodDue ? 'paid' : 'partial');
+            $conn->query("UPDATE payment_schedules SET {$ep}_paid=$periodPaid, {$ep}_status='$newStatus' WHERE student_id=$student_id");
+
+            // Don't change enrollment/approval status for term payments — student already enrolled
+            echo json_encode(['success' => true, 'message' => "$examPeriod payment verified. ₱" . number_format($final_amount, 2) . " recorded."]);
+            return;
+        }
     }
 
     $upd = $conn->prepare("UPDATE students SET payment_status='Paid', approval_status='Approved', enrollment_status='Enrolled', accounting_approved_by=?, accounting_approved_at=NOW(), accounting_notes=? WHERE id=?");
@@ -1227,25 +1284,36 @@ function getPaymentSchedule($conn) {
     $student_id = (int)($_GET['student_id'] ?? 0);
     if (!$student_id) { echo json_encode(['success'=>false,'message'=>'student_id required']); return; }
 
-    $stRes = $conn->query("SELECT payment_method, semester FROM students WHERE id=$student_id LIMIT 1");
+    // Support lookup by user_id as fallback
+    $stRes = $conn->query("SELECT id, payment_method, payment_plan, semester FROM students WHERE id=$student_id LIMIT 1");
     $stRow = $stRes ? $stRes->fetch_assoc() : null;
-    $ptype = (strtolower($stRow['payment_method'] ?? '') === 'full') ? 'full' : 'installment';
+    if (!$stRow) {
+        // Try by user_id
+        $stRes2 = $conn->query("SELECT id, payment_method, payment_plan, semester FROM students WHERE user_id=$student_id LIMIT 1");
+        $stRow  = $stRes2 ? $stRes2->fetch_assoc() : null;
+        if ($stRow) $student_id = (int)$stRow['id'];
+    }
+    if (!$stRow) { echo json_encode(['success'=>true,'schedule'=>null,'notices'=>[]]); return; }
+
+    $ptype = (strtolower($stRow['payment_plan'] ?? '') === 'full') ? 'full' : 'installment';
 
     $tfRes = $conn->query("SELECT total_assessment FROM tuition_fees WHERE student_id=$student_id LIMIT 1");
     $tfRow = $tfRes ? $tfRes->fetch_assoc() : null;
     $total = $tfRow ? (float)$tfRow['total_assessment'] : 0;
+    $pd    = $total > 0 ? round($total / 4, 2) : 0;
+    $md    = $pd;
+    $fd    = $total > 0 ? round($total - $pd - $md * 2, 2) : 0;
 
-    if ($total > 0) {
-        $pd = round($total / 4, 2);
-        $md = round($total / 4, 2);
-        $fd = round($total - $pd - $md * 2, 2); // absorb rounding in Finals
-        $conn->query("INSERT INTO payment_schedules
-            (student_id,payment_type,total_assessment,prelim_due,midterm_due,finals_due)
-            VALUES ($student_id,'$ptype',$total,$pd,$md,$fd)
-            ON DUPLICATE KEY UPDATE
-              total_assessment=IF(total_assessment=0,$total,total_assessment),
-              payment_type='$ptype'");
-    }
+    // Always ensure a payment_schedules row exists (even if total=0 for now)
+    $conn->query("INSERT INTO payment_schedules
+        (student_id,payment_type,total_assessment,prelim_due,midterm_due,finals_due)
+        VALUES ($student_id,'$ptype',$total,$pd,$md,$fd)
+        ON DUPLICATE KEY UPDATE
+          total_assessment=IF(total_assessment=0 AND $total>0,$total,total_assessment),
+          payment_type='$ptype',
+          prelim_due=IF($pd>0 AND ABS(prelim_due - $pd) > 100, $pd, prelim_due),
+          midterm_due=IF($md>0 AND ABS(midterm_due - $md) > 100, $md, midterm_due),
+          finals_due=IF($fd>0 AND ABS(finals_due - $fd) > 100, $fd, finals_due)");
 
     $res = $conn->query("SELECT * FROM payment_schedules WHERE student_id=$student_id LIMIT 1");
     $schedule = $res ? $res->fetch_assoc() : null;
@@ -1265,12 +1333,25 @@ function getPaymentSchedule($conn) {
     }
 
     if ($schedule['payment_type'] === 'full') {
-        $tpRes = $conn->query("SELECT COALESCE(SUM(amount),0) AS tp FROM installment_payments WHERE student_id=$student_id");
-        $tp = $tpRes ? (float)$tpRes->fetch_assoc()['tp'] : 0;
-        if ($tp >= (float)$schedule['total_assessment']) {
-            $schedule['prelim_status'] = $schedule['midterm_status'] = $schedule['finals_status'] = 'paid';
+        $stPayRes = $conn->query("SELECT payment_status FROM students WHERE id=$student_id LIMIT 1");
+        $stPayRow = $stPayRes ? $stPayRes->fetch_assoc() : null;
+        $isFullyPaid = ($stPayRow && $stPayRow['payment_status'] === 'Paid');
+        if (!$isFullyPaid) {
+            $tpRes = $conn->query("SELECT COALESCE(SUM(amount),0) AS tp FROM installment_payments WHERE student_id=$student_id");
+            $tp = $tpRes ? (float)$tpRes->fetch_assoc()['tp'] : 0;
+            $isFullyPaid = ($schedule['total_assessment'] > 0 && $tp >= (float)$schedule['total_assessment']);
+        }
+        if ($isFullyPaid) {
+            $schedule['prelim_status']  = 'paid';
+            $schedule['midterm_status'] = 'paid';
+            $schedule['finals_status']  = 'paid';
+            $conn->query("UPDATE payment_schedules SET prelim_status='paid',midterm_status='paid',finals_status='paid' WHERE student_id=$student_id");
         }
     }
+
+    // Add downpayment_paid for accurate total balance display
+    $dpRes = $conn->query("SELECT COALESCE(SUM(amount),0) AS dp FROM installment_payments WHERE student_id=$student_id AND exam_period='Downpayment'");
+    $schedule['downpayment_paid'] = $dpRes ? (float)$dpRes->fetch_assoc()['dp'] : 0;
 
     $noticeRes = $conn->query("SELECT exam_period, amount_due, due_date, message, sent_at, is_read
         FROM payment_notices WHERE student_id=$student_id");
@@ -1305,17 +1386,20 @@ function sendPaymentNotice($conn, $data) {
     $p = strtolower($exam_period);
     $due_date_val = $due_date ? "'$due_date'" : 'NULL';
 
+    // Save/update the payment notice AND unlock the period so student can pay
     $conn->query("INSERT INTO payment_notices (student_id,exam_period,amount_due,due_date,message,sent_by)
         VALUES ($student_id,'$exam_period',$amount_due,$due_date_val,'$message',$sent_by)
         ON DUPLICATE KEY UPDATE amount_due=$amount_due,due_date=$due_date_val,
         message='$message',sent_by=$sent_by,sent_at=NOW(),is_read=0");
 
+    // Unlock the period so student can now pay
     $unlocked_col = $p.'_unlocked_at';
     $conn->query("UPDATE payment_schedules
         SET {$p}_status=IF({$p}_status='locked','unpaid',{$p}_status),
             $unlocked_col=IF($unlocked_col IS NULL,NOW(),$unlocked_col)
         WHERE student_id=$student_id");
 
+    // Create a payment_schedules row if none exists yet (new student)
     $check = $conn->query("SELECT id FROM payment_schedules WHERE student_id=$student_id");
     if (!$check || $check->num_rows === 0) {
         $tfRes = $conn->query("SELECT total_assessment FROM tuition_fees WHERE student_id=$student_id LIMIT 1");
@@ -1327,14 +1411,14 @@ function sendPaymentNotice($conn, $data) {
             VALUES ($student_id,'installment',$total,$pd,$md,$fd,'unpaid',NOW())");
     }
 
-    echo json_encode(['success'=>true,'message'=>"$exam_period notice sent and payment unlocked."]);
+    echo json_encode(['success'=>true,'message'=>"$exam_period notice sent. Payment period is now unlocked for the student."]);
 }
 
 function getExamPermits($conn) {
     $status = $conn->real_escape_string($_GET['status'] ?? 'pending');
     $res = $conn->query("
         SELECT ep.*, s.student_number, s.first_name, s.last_name,
-               s.program, s.year_level, s.semester,
+               s.program, s.year_level, s.semester AS student_raw_sem,
                u.first_name AS approved_by_first, u.last_name AS approved_by_last
         FROM exam_permits ep
         JOIN students s ON ep.student_id=s.id
@@ -1342,7 +1426,31 @@ function getExamPermits($conn) {
         WHERE ep.status='$status'
         ORDER BY ep.requested_at DESC");
     $permits = [];
-    while ($row = $res->fetch_assoc()) $permits[] = $row;
+    while ($row = $res->fetch_assoc()) {
+        // Parse semester + school_year from stored permit values (set correctly at request time)
+        // But if they look like old hardcoded values, fix them using the student's raw semester
+        $raw = trim($row['student_raw_sem'] ?? '');
+        $sem = trim($row['semester'] ?? '');
+        $ay  = trim($row['school_year'] ?? '');
+
+        // If permit semester looks like a full combined string, re-parse it
+        if (preg_match('/^(.+?),\s*AY\s*([\d]{4}-[\d]{4})/i', $sem, $m)) {
+            $sem = trim($m[1]);
+            $ay  = trim($m[2]);
+        } elseif (preg_match('/^(.+?),\s*AY\s*([\d]{4}-[\d]{4})/i', $raw, $m)) {
+            // Fall back to student's raw semester
+            $sem = trim($m[1]);
+            $ay  = trim($m[2]);
+        } elseif (preg_match('/([\d]{4}-[\d]{4})/', $raw, $m)) {
+            $ay  = $m[1];
+            $sem = trim(preg_replace('/,?\s*AY\s*[\d]{4}-[\d]{4}/i', '', $raw));
+        }
+
+        $row['semester']    = $sem;
+        $row['school_year'] = $ay;
+        unset($row['student_raw_sem']);
+        $permits[] = $row;
+    }
     echo json_encode(['success'=>true,'permits'=>$permits]);
 }
 
@@ -1358,39 +1466,60 @@ function getStudentPermitStatus($conn) {
 function requestExamPermit($conn, $data) {
     $student_id  = (int)($data['student_id']  ?? 0);
     $exam_period = $conn->real_escape_string($data['exam_period'] ?? '');
-    $school_year = $conn->real_escape_string($data['school_year'] ?? '2025-2026');
-    $semester    = $conn->real_escape_string($data['semester']    ?? '2nd Semester');
 
     if (!$student_id || !in_array($exam_period, ['Prelim','Midterm','Finals'])) {
         echo json_encode(['success'=>false,'message'=>'Invalid data']); return;
     }
 
+    // ── Resolve accurate semester + school_year from the student's own record ──
+    // The students.semester field stores the full string e.g. "2nd Semester, AY 2025-2026"
+    // We split it to get clean values for the permit.
+    $stRes = $conn->query("SELECT semester FROM students WHERE id = $student_id LIMIT 1");
+    $stRow = $stRes ? $stRes->fetch_assoc() : null;
+    $rawSemester = trim($stRow['semester'] ?? '');
+
+    // Parse "2nd Semester, AY 2025-2026" → semester="2nd Semester" school_year="2025-2026"
+    // Also handle "1st Semester" without AY, or data passed directly from the client
+    $semester    = $rawSemester;
+    $school_year = date('Y') . '-' . (date('Y') + 1); // default fallback
+
+    if (preg_match('/^(.+?),\s*AY\s*([\d]{4}-[\d]{4})/i', $rawSemester, $m)) {
+        $semester    = trim($m[1]);   // "2nd Semester"
+        $school_year = trim($m[2]);   // "2025-2026"
+    } elseif (preg_match('/([\d]{4}-[\d]{4})/', $rawSemester, $m)) {
+        $school_year = $m[1];
+        $semester    = trim(preg_replace('/,?\s*AY\s*[\d]{4}-[\d]{4}/i', '', $rawSemester));
+    }
+
+    // Fall back to client-supplied values only if DB has nothing
+    if (!$semester)    $semester    = $conn->real_escape_string($data['semester']    ?? '2nd Semester');
+    if (!$school_year) $school_year = $conn->real_escape_string($data['school_year'] ?? date('Y').'-'.(date('Y')+1));
+
+    $semester_esc    = $conn->real_escape_string($semester);
+    $school_year_esc = $conn->real_escape_string($school_year);
+
     $p   = strtolower($exam_period);
-    $res = $conn->query("SELECT * FROM payment_schedules WHERE student_id=$student_id LIMIT 1");
-    $sch = $res ? $res->fetch_assoc() : null;
-
-    if (!$sch) {
-        echo json_encode(['success'=>false,'message'=>'No payment record. Contact Accounting.']); return;
-    }
-    if ($sch[$p.'_status'] === 'locked') {
-        echo json_encode(['success'=>false,'message'=>"$exam_period payment has not been unlocked yet. Wait for Accounting to send your payment notice."]); return;
-    }
-
-    if ($sch['payment_type'] === 'full') {
-        $tpRes = $conn->query("SELECT COALESCE(SUM(amount),0) AS tp FROM installment_payments WHERE student_id=$student_id");
-        $tp    = $tpRes ? (float)$tpRes->fetch_assoc()['tp'] : 0;
-        if ($tp < (float)$sch['total_assessment']) {
-            $bal = number_format((float)$sch['total_assessment'] - $tp, 2);
-            echo json_encode(['success'=>false,'message'=>"Full payment required. Balance: ₱$bal"]); return;
+    $stPlanRes = $conn->query("SELECT payment_status, payment_plan FROM students WHERE id=$student_id LIMIT 1");
+    $stPlanRow = $stPlanRes ? $stPlanRes->fetch_assoc() : null;
+    $isFullPlan  = $stPlanRow && strtolower($stPlanRow['payment_plan'] ?? '') === 'full';
+    $studentPaid = $stPlanRow && $stPlanRow['payment_status'] === 'Paid';
+    if ($isFullPlan) {
+        if (!$studentPaid) {
+            echo json_encode(['success'=>false,'message'=>'Full payment not yet verified by Accounting.']); return;
         }
     } else {
-        $paidRes = $conn->query("SELECT COALESCE(SUM(amount),0) AS paid
-            FROM installment_payments WHERE student_id=$student_id AND exam_period='$exam_period'");
+        $res = $conn->query("SELECT * FROM payment_schedules WHERE student_id=$student_id LIMIT 1");
+        $sch = $res ? $res->fetch_assoc() : null;
+        if (!$sch) { echo json_encode(['success'=>false,'message'=>'No payment record. Contact Accounting.']); return; }
+        if ($sch[$p.'_status'] === 'locked') {
+            echo json_encode(['success'=>false,'message'=>"$exam_period not unlocked yet. Wait for Accounting notice."]); return;
+        }
+        $paidRes = $conn->query("SELECT COALESCE(SUM(amount),0) AS paid FROM installment_payments WHERE student_id=$student_id AND exam_period='$exam_period'");
         $paid = $paidRes ? (float)$paidRes->fetch_assoc()['paid'] : 0;
-        $due  = (float)$sch[$p.'_due'];
+        $due  = (float)($sch[$p.'_due'] ?? 0);
         if ($paid < $due) {
             $bal = number_format($due - $paid, 2);
-            echo json_encode(['success'=>false,'message'=>"$exam_period balance ₱$bal must be paid before requesting a permit."]); return;
+            echo json_encode(['success'=>false,'message'=>"$exam_period balance ₱$bal must be paid first."]); return;
         }
     }
 
@@ -1398,7 +1527,7 @@ function requestExamPermit($conn, $data) {
         (student_id,exam_period,school_year,semester,status)
         VALUES (?,?,?,?,'pending')
         ON DUPLICATE KEY UPDATE status='pending',requested_at=NOW(),remarks=NULL,approved_at=NULL");
-    $stmt->bind_param("isss",$student_id,$exam_period,$school_year,$semester);
+    $stmt->bind_param("isss", $student_id, $exam_period, $school_year, $semester);
     $stmt->execute(); $stmt->close();
     echo json_encode(['success'=>true,'message'=>"$exam_period permit request submitted! Accounting will process it shortly."]);
 }
@@ -1425,6 +1554,8 @@ function getAllEnrolledStudents($conn) {
             s.semester,
             s.payment_method,
             s.payment_plan,
+            s.approval_status,
+            s.enrollment_status,
             COALESCE(tf.total_assessment, 0) AS total_assessment,
             COALESCE(ps.prelim_due,   ROUND(COALESCE(tf.total_assessment,0) / 4, 2)) AS prelim_due,
             COALESCE(ps.midterm_due,  ROUND(COALESCE(tf.total_assessment,0) / 4, 2)) AS midterm_due,
@@ -1440,36 +1571,67 @@ function getAllEnrolledStudents($conn) {
         LEFT JOIN payment_schedules ps ON ps.student_id = s.id
         WHERE s.approval_status   = 'Approved'
           AND s.enrollment_status = 'Enrolled'
-          AND LOWER(s.payment_plan) = 'installment'
+          AND s.payment_plan      = 'installment'
         ORDER BY s.last_name ASC, s.first_name ASC
     ");
 
     $students = [];
     while ($row = $res->fetch_assoc()) {
-        $students[] = [
-            'studentId'      => (int)$row['student_id'],
-            'studentNumber'  => $row['student_number'],
-            'firstName'      => $row['first_name'],
-            'lastName'       => $row['last_name'],
-            'program'        => $row['program'],
-            'yearLevel'      => $row['year_level'],
-            'semester'       => $row['semester'],
-            'paymentMethod'  => $row['payment_method'],
-            'paymentPlan'    => $row['payment_plan'],
-            'totalAssessment'=> (float)$row['total_assessment'],
-            'prelimDue'      => (float)$row['prelim_due'],
-            'midtermDue'     => (float)$row['midterm_due'],
-            'finalsDue'      => (float)$row['finals_due'],
-            'prelimPaid'     => (float)$row['prelim_paid'],
-            'midtermPaid'    => (float)$row['midterm_paid'],
-            'finalsPaid'     => (float)$row['finals_paid'],
-            'prelimStatus'   => $row['prelim_status'],
-            'midtermStatus'  => $row['midterm_status'],
-            'finalsStatus'   => $row['finals_status'],
-        ];
+        $students[] = buildStudentRow($row);
+    }
+
+    // DEBUG: if nothing found, return all students with actual status so we can diagnose
+    if (empty($students)) {
+        $all = $conn->query("
+            SELECT
+                s.id AS student_id, s.student_number, s.first_name, s.last_name,
+                s.program, s.year_level, s.semester, s.payment_method, s.payment_plan,
+                s.approval_status, s.enrollment_status,
+                COALESCE(tf.total_assessment,0) AS total_assessment,
+                ROUND(COALESCE(tf.total_assessment,0)/4,2) AS prelim_due,
+                ROUND(COALESCE(tf.total_assessment,0)/4,2) AS midterm_due,
+                ROUND(COALESCE(tf.total_assessment,0)/4,2) AS finals_due,
+                0 AS prelim_paid, 0 AS midterm_paid, 0 AS finals_paid,
+                'locked' AS prelim_status, 'locked' AS midterm_status, 'locked' AS finals_status
+            FROM students s
+            LEFT JOIN tuition_fees tf ON tf.student_id = s.id
+            ORDER BY s.last_name ASC
+        ");
+        $debug = [];
+        while ($row = $all->fetch_assoc()) {
+            $debug[] = buildStudentRow($row);
+        }
+        echo json_encode(['success' => true, 'students' => $debug, 'debug' => true, 'note' => 'No Enrolled+Approved students found. Showing all students for diagnosis.']);
+        return;
     }
 
     echo json_encode(['success' => true, 'students' => $students]);
+}
+
+function buildStudentRow($row) {
+    return [
+        'studentId'      => (int)$row['student_id'],
+        'studentNumber'  => $row['student_number'],
+        'firstName'      => $row['first_name'],
+        'lastName'       => $row['last_name'],
+        'program'        => $row['program'],
+        'yearLevel'      => $row['year_level'],
+        'semester'       => $row['semester'],
+        'paymentMethod'  => $row['payment_method'],
+        'paymentPlan'    => $row['payment_plan'],
+        'approvalStatus' => $row['approval_status'] ?? '',
+        'enrollmentStatus'=> $row['enrollment_status'] ?? '',
+        'totalAssessment'=> (float)$row['total_assessment'],
+        'prelimDue'      => (float)$row['prelim_due'],
+        'midtermDue'     => (float)$row['midterm_due'],
+        'finalsDue'      => (float)$row['finals_due'],
+        'prelimPaid'     => (float)$row['prelim_paid'],
+        'midtermPaid'    => (float)$row['midterm_paid'],
+        'finalsPaid'     => (float)$row['finals_paid'],
+        'prelimStatus'   => $row['prelim_status'],
+        'midtermStatus'  => $row['midterm_status'],
+        'finalsStatus'   => $row['finals_status'],
+    ];
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -1751,5 +1913,164 @@ function getStudentInstallment($conn) {
         'paymentStatus'    => $total_paid_all <= 0 ? 'Unpaid'
                               : ($remaining_balance <= 0 ? 'Fully Paid' : 'Partial'),
     ]);
+}
+// ─────────────────────────────────────────────────────────────
+// STUDENT: Submit installment payment for Accounting approval
+// POST ?action=submit_installment_payment
+// Body: { student_id, amount, payment_date, payment_method,
+//         gcash_reference?, exam_period, notes? }
+//
+// This mirrors the enrollment GCash/Cash flow:
+//  1. Saves a pending payment_log record
+//  2. Accounting sees it in their queue (get_pending_payments)
+//  3. Accounting verifies → verify_payment → recordInstallment runs
+//     which also syncs payment_schedules
+// ─────────────────────────────────────────────────────────────
+function submitInstallmentPayment($conn, $data) {
+    $student_id     = (int)($data['student_id']      ?? 0);
+    $amount         = (float)($data['amount']         ?? 0);
+    $payment_date   = trim($data['payment_date']     ?? date('Y-m-d'));
+    $payment_method = trim($data['payment_method']   ?? 'Cash');
+    $gcash_ref      = trim($data['gcash_reference']  ?? '');
+    $exam_period    = trim($data['exam_period']      ?? '');
+    $notes          = trim($data['notes']            ?? '');
+
+    if (!$student_id || $amount <= 0) {
+        echo json_encode(['success' => false, 'message' => 'student_id and amount required']); return;
+    }
+    if (!in_array($exam_period, ['Prelim', 'Midterm', 'Finals'])) {
+        echo json_encode(['success' => false, 'message' => 'Invalid exam_period']); return;
+    }
+
+    // Generate a temporary reference number for tracking
+    $year    = date('Y');
+    $cntRes  = $conn->query("SELECT COUNT(*) AS cnt FROM payment_logs WHERE YEAR(created_at) = $year");
+    $cnt     = (int)($cntRes->fetch_assoc()['cnt'] ?? 0) + 1;
+    $ref     = 'PAY-' . $year . str_pad($cnt, 4, '0', STR_PAD_LEFT);
+
+    $pm_esc    = $conn->real_escape_string($payment_method);
+    $ref_esc   = $conn->real_escape_string($gcash_ref ?: $ref);
+    $date_esc  = $conn->real_escape_string($payment_date);
+    $ep_esc    = $conn->real_escape_string($exam_period);
+    $extra_esc = $conn->real_escape_string($notes);
+    // notes format: "Midterm|[Midterm] extra notes" — exam_period prefix BEFORE bracket
+    // This is what verifyPayment parses with regex /^(Prelim|Midterm|Finals...)\|?/
+    $notes_full = $conn->real_escape_string("$exam_period|[$exam_period] $notes");
+
+    // Insert into payment_logs as Pending — same table Accounting watches
+    // notes set in one query to avoid race condition
+    $conn->query("INSERT INTO payment_logs
+        (student_id, gcash_reference, gcash_amount, gcash_date, payment_method, status, notes)
+        VALUES ($student_id, '$ref_esc', $amount, '$date_esc', '$pm_esc', 'Pending', '$notes_full')");
+
+    if ($conn->error) {
+        echo json_encode(['success' => false, 'message' => 'DB error: ' . $conn->error]); return;
+    }
+
+    $log_id = $conn->insert_id;
+
+    echo json_encode([
+        'success'     => true,
+        'message'     => 'Payment submitted. Waiting for Accounting to verify.',
+        'orArNumber'  => $ref,
+        'logId'       => $log_id,
+    ]);
+}
+
+// ─────────────────────────────────────────────────────────────
+// GET PERMIT DETAILS — for student permit viewer
+// GET ?action=get_permit_details&permit_id=XX&student_id=XX
+//
+// Returns permit + student info + enrolled courses
+// ─────────────────────────────────────────────────────────────
+function getPermitDetails($conn) {
+    $permit_id  = (int)($_GET['permit_id']  ?? 0);
+    $student_id = (int)($_GET['student_id'] ?? 0);
+    if (!$permit_id || !$student_id) {
+        echo json_encode(['success' => false, 'message' => 'permit_id and student_id required']); return;
+    }
+
+    // Permit + approver info
+    $pRes = $conn->query("
+        SELECT ep.*,
+               s.student_number, s.first_name, s.last_name, s.program, s.year_level,
+               s.semester AS raw_semester,
+               u.first_name AS approved_by_first, u.last_name AS approved_by_last
+        FROM exam_permits ep
+        JOIN students s ON ep.student_id = s.id
+        LEFT JOIN users u ON ep.approved_by = u.id
+        WHERE ep.id = $permit_id AND ep.student_id = $student_id
+        LIMIT 1
+    ");
+    $permit = $pRes ? $pRes->fetch_assoc() : null;
+    if (!$permit) {
+        echo json_encode(['success' => false, 'message' => 'Permit not found']); return;
+    }
+
+    // ── Parse accurate semester + school_year from DB ─────────────────────
+    // students.semester stores full string: "2nd Semester, AY 2025-2026"
+    $rawSemester = trim($permit['raw_semester'] ?? '');
+    $semLabel    = $permit['semester'];    // already stored when permit was created
+    $schoolYear  = $permit['school_year']; // already stored when permit was created
+
+    // If the stored permit semester looks like the full raw string, re-parse it
+    if (preg_match('/^(.+?),\s*AY\s*([\d]{4}-[\d]{4})/i', $semLabel, $m)) {
+        $semLabel   = trim($m[1]);
+        $schoolYear = trim($m[2]);
+    } elseif (preg_match('/^(.+?),\s*AY\s*([\d]{4}-[\d]{4})/i', $rawSemester, $m)) {
+        $semLabel   = trim($m[1]);
+        $schoolYear = trim($m[2]);
+    }
+
+    $permit['semester']    = $semLabel;
+    $permit['school_year'] = $schoolYear;
+
+    // ── Enrolled courses filtered by the student's current semester ───────
+    // Use the semester stored in the courses table for accurate matching.
+    // The raw semester from students table (e.g. "2nd Semester, AY 2025-2026")
+    // must match courses.semester exactly — or we do a partial match on the AY.
+    $semEsc = $conn->real_escape_string($rawSemester ?: $semLabel);
+    $ayEsc  = $conn->real_escape_string($schoolYear);
+
+    $cRes = $conn->query("
+        SELECT DISTINCT c.code, c.name, c.instructor, c.semester AS course_sem
+        FROM enrollments e
+        JOIN courses c ON e.course_id = c.id
+        WHERE e.student_id = $student_id
+          AND e.status = 'Enrolled'
+          AND (
+            c.semester = '$semEsc'
+            OR c.semester LIKE '%$ayEsc%'
+            OR c.semester LIKE '%$semLabel%'
+          )
+        ORDER BY c.code ASC
+    ");
+    $courses = [];
+    if ($cRes) {
+        while ($r = $cRes->fetch_assoc()) {
+            $courses[] = ['code' => $r['code'], 'name' => $r['name'], 'instructor' => $r['instructor']];
+        }
+    }
+
+    // Fallback: if no courses matched the semester filter, return all enrolled courses
+    if (empty($courses)) {
+        $cRes2 = $conn->query("
+            SELECT DISTINCT c.code, c.name, c.instructor
+            FROM enrollments e
+            JOIN courses c ON e.course_id = c.id
+            WHERE e.student_id = $student_id AND e.status = 'Enrolled'
+            ORDER BY c.code ASC
+        ");
+        if ($cRes2) {
+            while ($r = $cRes2->fetch_assoc()) {
+                $courses[] = ['code' => $r['code'], 'name' => $r['name'], 'instructor' => $r['instructor']];
+            }
+        }
+    }
+
+    $permit['courses'] = $courses;
+    unset($permit['raw_semester']); // clean up internal field
+
+    echo json_encode(['success' => true, 'permit' => $permit]);
 }
 ?>
