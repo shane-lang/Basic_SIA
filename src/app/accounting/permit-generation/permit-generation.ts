@@ -79,11 +79,18 @@ export class PermitGeneration implements OnInit {
   this.isLoadingStudents = true;
   this.http.get<any>(`${this.apiUrl}?action=get_all_enrolled_students`).subscribe({
     next: (res) => {
+      console.log('[PermitGeneration] API response:', res);
+      console.log('[PermitGeneration] students count:', res.students?.length);
       this.isLoadingStudents = false;
       this.students = res.success ? res.students : [];
+      console.log('[PermitGeneration] this.students:', this.students);
       this.cdr.detectChanges();
     },
-    error: () => { this.isLoadingStudents = false; this.cdr.detectChanges(); }
+    error: (err) => { 
+      console.error('[PermitGeneration] API error:', err);
+      this.isLoadingStudents = false; 
+      this.cdr.detectChanges(); 
+    }
   });
 }
 

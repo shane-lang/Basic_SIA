@@ -129,6 +129,7 @@ switch ($method) {
             case 'get_student_permit_status': getStudentPermitStatus($conn);  break;
             case 'get_payment_notices':       getPaymentNotices($conn);       break;
             case 'get_all_enrolled_students': getAllEnrolledStudents($conn); break;
+            case 'get_student_installment':   getStudentInstallment($conn); break;
             default: echo json_encode(['success' => false, 'message' => 'Unknown action']);
         }
         break;
@@ -550,6 +551,27 @@ function recordInstallment($conn, $data) {
 
     $pay_status = $is_fully_paid ? 'Paid' : 'Pending';
     $conn->query("UPDATE students SET payment_status = '$pay_status' WHERE id = $student_id");
+
+    // ── BUG FIX: Sync payment_schedules after recording payment ──────────
+    // After each installment, recalculate how much was paid per period and
+    // update the status so the student's Payment Schedule page reflects it.
+    $sched_check = $conn->query("SELECT id FROM payment_schedules WHERE student_id = $student_id LIMIT 1");
+    if ($sched_check && $sched_check->num_rows > 0) {
+        foreach (['Prelim', 'Midterm', 'Finals'] as $period) {
+            $p = strtolower($period);
+            // Only update non-locked periods
+            $lock_check = $conn->query("SELECT {$p}_status, {$p}_due FROM payment_schedules WHERE student_id = $student_id LIMIT 1");
+            $lock_row = $lock_check ? $lock_check->fetch_assoc() : null;
+            if (!$lock_row || $lock_row[$p.'_status'] === 'locked') continue;
+
+            $period_paid_res = $conn->query("SELECT COALESCE(SUM(amount),0) AS paid FROM installment_payments WHERE student_id = $student_id AND exam_period = '$period'");
+            $period_paid = (float)($period_paid_res->fetch_assoc()['paid'] ?? 0);
+            $period_due  = (float)($lock_row[$p.'_due'] ?? 0);
+            $new_status  = $period_paid <= 0 ? 'unpaid' : ($period_paid >= $period_due ? 'paid' : 'partial');
+            $conn->query("UPDATE payment_schedules SET {$p}_paid = $period_paid, {$p}_status = '$new_status' WHERE student_id = $student_id");
+        }
+    }
+    // ─────────────────────────────────────────────────────────────────────
 
     echo json_encode([
         'success'     => true,
@@ -1214,9 +1236,9 @@ function getPaymentSchedule($conn) {
     $total = $tfRow ? (float)$tfRow['total_assessment'] : 0;
 
     if ($total > 0) {
-        $pd = round($total * 0.40, 2);
-        $md = round($total * 0.30, 2);
-        $fd = round($total - $pd - $md, 2);
+        $pd = round($total / 4, 2);
+        $md = round($total / 4, 2);
+        $fd = round($total - $pd - $md * 2, 2); // absorb rounding in Finals
         $conn->query("INSERT INTO payment_schedules
             (student_id,payment_type,total_assessment,prelim_due,midterm_due,finals_due)
             VALUES ($student_id,'$ptype',$total,$pd,$md,$fd)
@@ -1299,7 +1321,7 @@ function sendPaymentNotice($conn, $data) {
         $tfRes = $conn->query("SELECT total_assessment FROM tuition_fees WHERE student_id=$student_id LIMIT 1");
         $tfRow = $tfRes ? $tfRes->fetch_assoc() : null;
         $total = $tfRow ? (float)$tfRow['total_assessment'] : $amount_due;
-        $pd = round($total*0.40,2); $md = round($total*0.30,2); $fd = round($total-$pd-$md,2);
+        $pd = round($total/4,2); $md = round($total/4,2); $fd = round($total-$pd-$md*2,2);
         $conn->query("INSERT INTO payment_schedules
             (student_id,payment_type,total_assessment,prelim_due,midterm_due,finals_due,{$p}_status,{$unlocked_col})
             VALUES ($student_id,'installment',$total,$pd,$md,$fd,'unpaid',NOW())");
@@ -1404,9 +1426,9 @@ function getAllEnrolledStudents($conn) {
             s.payment_method,
             s.payment_plan,
             COALESCE(tf.total_assessment, 0) AS total_assessment,
-            COALESCE(ps.prelim_due,   ROUND(COALESCE(tf.total_assessment,0) * 0.40, 2)) AS prelim_due,
-            COALESCE(ps.midterm_due,  ROUND(COALESCE(tf.total_assessment,0) * 0.30, 2)) AS midterm_due,
-            COALESCE(ps.finals_due,   ROUND(COALESCE(tf.total_assessment,0) * 0.30, 2)) AS finals_due,
+            COALESCE(ps.prelim_due,   ROUND(COALESCE(tf.total_assessment,0) / 4, 2)) AS prelim_due,
+            COALESCE(ps.midterm_due,  ROUND(COALESCE(tf.total_assessment,0) / 4, 2)) AS midterm_due,
+            COALESCE(ps.finals_due,   ROUND(COALESCE(tf.total_assessment,0) / 4, 2)) AS finals_due,
             COALESCE(ps.prelim_paid,  0) AS prelim_paid,
             COALESCE(ps.midterm_paid, 0) AS midterm_paid,
             COALESCE(ps.finals_paid,  0) AS finals_paid,
@@ -1494,9 +1516,9 @@ function unlockPaymentPeriod($conn, $data) {
             return;
         }
 
-        $pd = round($total * 0.40, 2);
-        $md = round($total * 0.30, 2);
-        $fd = round($total - $pd - $md, 2);
+        $pd = round($total / 4, 2);
+        $md = round($total / 4, 2);
+        $fd = round($total - $pd - $md * 2, 2);
 
        
         $prelim_status  = ($exam_period === 'Prelim')   ? 'unpaid' : 'locked';
@@ -1553,9 +1575,181 @@ function unlockPaymentPeriod($conn, $data) {
         }
     }
 
+    // ── BUG FIX: Write a payment_notice so student sees the unlocked period ──
+    // Without this, the student's Payment Schedule page stays blank after unlock
+    // because it checks payment_notices to know which periods are active.
+    $schedRes = $conn->query("SELECT {$p}_due FROM payment_schedules WHERE student_id = $student_id LIMIT 1");
+    $schedRow = $schedRes ? $schedRes->fetch_assoc() : null;
+    $due_amt  = $schedRow ? (float)$schedRow[$p.'_due'] : 0;
+    if ($due_amt <= 0) {
+        $tfRes2 = $conn->query("SELECT total_assessment FROM tuition_fees WHERE student_id = $student_id LIMIT 1");
+        $tfRow2 = $tfRes2 ? $tfRes2->fetch_assoc() : null;
+        $total2 = $tfRow2 ? (float)$tfRow2['total_assessment'] : 0;
+        $due_amt = round($total2 / 4, 2);
+    }
+    $msg_esc = $conn->real_escape_string("Your $exam_period payment of ₱" . number_format($due_amt, 2) . " has been unlocked. Please settle at the Accounting office.");
+    $conn->query("INSERT INTO payment_notices (student_id, exam_period, amount_due, message, sent_by)
+        VALUES ($student_id, '$exam_period', $due_amt, '$msg_esc', $acc_user_id)
+        ON DUPLICATE KEY UPDATE
+            amount_due = $due_amt,
+            message    = '$msg_esc',
+            sent_by    = $acc_user_id,
+            sent_at    = NOW(),
+            is_read    = 0");
+    // ─────────────────────────────────────────────────────────────────────
+
     echo json_encode([
         'success' => true,
         'message' => "$exam_period payment period has been unlocked.",
+    ]);
+}
+// ─────────────────────────────────────────────────────────────
+// GET STUDENT INSTALLMENT BREAKDOWN
+// GET ?action=get_student_installment&student_id=XX
+//
+// Returns the full installment schedule for a student:
+// - per-term due/paid/status/balance
+// - total assessment, total paid, remaining balance
+// - all payment receipts (installment_payments rows)
+// - payment notices per period
+// Used by: accounting permit page, student payment-schedule page
+// ─────────────────────────────────────────────────────────────
+function getStudentInstallment($conn) {
+    $student_id = (int)($_GET['student_id'] ?? 0);
+
+    // Also accept user_id and resolve to student_id (defensive)
+    if (!$student_id) {
+        $user_id = (int)($_GET['user_id'] ?? 0);
+        if ($user_id) {
+            $ur = $conn->query("SELECT id FROM students WHERE user_id = $user_id LIMIT 1");
+            $ur_row = $ur ? $ur->fetch_assoc() : null;
+            if ($ur_row) $student_id = (int)$ur_row['id'];
+        }
+    }
+    if (!$student_id) { echo json_encode(['success' => false, 'message' => 'student_id required']); return; }
+
+    // ── Student info ──────────────────────────────────────────
+    $stRes = $conn->query("SELECT id, student_number, first_name, last_name, program, year_level,
+                                  semester, payment_plan, payment_method, payment_status
+                           FROM students WHERE id = $student_id LIMIT 1");
+    $student = $stRes ? $stRes->fetch_assoc() : null;
+    if (!$student) { echo json_encode(['success' => false, 'message' => 'Student not found']); return; }
+
+    // ── Tuition fees ──────────────────────────────────────────
+    $tfRes = $conn->query("SELECT * FROM tuition_fees WHERE student_id = $student_id LIMIT 1");
+    $tf    = $tfRes ? $tfRes->fetch_assoc() : null;
+    $total_assessment = $tf ? (float)$tf['total_assessment'] : 0;
+
+    // ── Payment schedule row (per-term due/paid/status) ───────
+    $psRes = $conn->query("SELECT * FROM payment_schedules WHERE student_id = $student_id LIMIT 1");
+    $ps    = $psRes ? $psRes->fetch_assoc() : null;
+
+    // Compute per-term due amounts (4 equal terms for installment)
+    $term_due = $total_assessment > 0 ? round($total_assessment / 4, 2) : 0;
+
+    $terms = ['Prelim', 'Midterm', 'Finals'];
+    $term_data = [];
+    $total_paid_all = 0;
+
+    // Downpayment (DP) — first installment
+    $dp_res  = $conn->query("SELECT COALESCE(SUM(amount),0) AS paid FROM installment_payments WHERE student_id=$student_id AND exam_period='Downpayment'");
+    $dp_paid = (float)($dp_res->fetch_assoc()['paid'] ?? 0);
+    $dp_due  = $term_due;
+    $dp_balance = max(0, $dp_due - $dp_paid);
+    $dp_status  = $dp_paid <= 0 ? 'unpaid' : ($dp_paid >= $dp_due ? 'paid' : 'partial');
+    $total_paid_all += $dp_paid;
+
+    $term_data[] = [
+        'period'   => 'Downpayment',
+        'due'      => $dp_due,
+        'paid'     => $dp_paid,
+        'balance'  => $dp_balance,
+        'status'   => $dp_status,
+        'schedStatus' => $dp_status,
+    ];
+
+    foreach ($terms as $period) {
+        $p = strtolower($period);
+        $due    = $ps ? (float)$ps[$p.'_due']  : $term_due;
+        $paid   = $ps ? (float)$ps[$p.'_paid'] : 0;
+        $status = $ps ? $ps[$p.'_status'] : 'locked';
+
+        // Recompute paid from installment_payments for accuracy
+        $pr = $conn->query("SELECT COALESCE(SUM(amount),0) AS paid FROM installment_payments WHERE student_id=$student_id AND exam_period='$period'");
+        $paid = (float)($pr->fetch_assoc()['paid'] ?? 0);
+
+        $balance = max(0, $due - $paid);
+        $total_paid_all += $paid;
+
+        $term_data[] = [
+            'period'      => $period,
+            'due'         => $due,
+            'paid'        => $paid,
+            'balance'     => $balance,
+            'status'      => $status,
+            'schedStatus' => $status,
+        ];
+    }
+
+    $remaining_balance = max(0, $total_assessment - $total_paid_all);
+
+    // ── All payment receipts ──────────────────────────────────
+    $ipRes = $conn->query("
+        SELECT ip.*, u.first_name AS recorded_by_name
+        FROM installment_payments ip
+        LEFT JOIN users u ON ip.recorded_by = u.id
+        WHERE ip.student_id = $student_id
+        ORDER BY ip.payment_date ASC, ip.created_at ASC
+    ");
+    $receipts = [];
+    if ($ipRes) {
+        while ($r = $ipRes->fetch_assoc()) {
+            $receipts[] = [
+                'id'             => (int)$r['id'],
+                'orArNumber'     => $r['or_ar_number'],
+                'orArType'       => $r['or_ar_type'],
+                'amount'         => (float)$r['amount'],
+                'paymentDate'    => $r['payment_date'],
+                'paymentMethod'  => $r['payment_method'],
+                'gcashReference' => $r['gcash_reference'] ?? '',
+                'examPeriod'     => $r['exam_period'],
+                'notes'          => $r['notes'] ?? '',
+                'recordedByName' => $r['recorded_by_name'] ?? 'Accounting',
+            ];
+        }
+    }
+
+    // ── Payment notices per period ────────────────────────────
+    $notRes = $conn->query("SELECT exam_period, amount_due, due_date, message, sent_at, is_read
+                            FROM payment_notices WHERE student_id=$student_id");
+    $notices = [];
+    if ($notRes) {
+        while ($r = $notRes->fetch_assoc()) $notices[$r['exam_period']] = $r;
+    }
+
+    echo json_encode([
+        'success'          => true,
+        'student'          => $student,
+        'fees'             => $tf ? [
+            'units'            => (int)$tf['units'],
+            'tuitionFee'       => (float)$tf['tuition_fee'],
+            'miscellaneousFee' => (float)$tf['miscellaneous_fee'],
+            'registrationFee'  => (float)$tf['registration_fee'],
+            'laboratoryFee'    => (float)$tf['laboratory_fee'],
+            'energyFee'        => (float)$tf['energy_fee'],
+            'subtotal'         => (float)$tf['subtotal'],
+            'discount'         => (float)$tf['discount'],
+            'installmentFee'   => (float)$tf['installment_fee'],
+            'totalAssessment'  => $total_assessment,
+        ] : null,
+        'terms'            => $term_data,       // per-term: due/paid/balance/status
+        'receipts'         => $receipts,        // all OR/AR receipts
+        'notices'          => $notices,         // payment notices per period
+        'totalAssessment'  => $total_assessment,
+        'totalPaid'        => $total_paid_all,
+        'remainingBalance' => $remaining_balance,
+        'paymentStatus'    => $total_paid_all <= 0 ? 'Unpaid'
+                              : ($remaining_balance <= 0 ? 'Fully Paid' : 'Partial'),
     ]);
 }
 ?>

@@ -97,6 +97,17 @@
           <div class="info-row"><span class="info-label">Program</span><span class="info-value">{{ p.program }}</span></div>
           <div class="info-row"><span class="info-label">Year Level</span><span class="info-value">{{ p.yearLevel }}</span></div>
           <div class="info-row"><span class="info-label">Semester</span><span class="info-value">{{ p.semester }}</span></div>
+
+          <!-- Term payment indicator (Prelim/Midterm/Finals) -->
+          <div *ngIf="p.examPeriod" class="info-row highlight" style="background:#eff6ff;border-left:3px solid #3b82f6;padding:8px 10px;border-radius:6px;margin:6px 0;">
+            <span class="info-label">Term Payment</span>
+            <span class="info-value" style="color:#1d4ed8;font-weight:700;">📋 {{ p.examPeriod }} Installment</span>
+          </div>
+          <div *ngIf="!p.examPeriod" class="info-row highlight" style="background:#f0fdf4;border-left:3px solid #22c55e;padding:8px 10px;border-radius:6px;margin:6px 0;">
+            <span class="info-label">Payment For</span>
+            <span class="info-value" style="color:#15803d;font-weight:700;">🎓 Enrollment / Downpayment</span>
+          </div>
+
           <div class="divider"></div>
 
           <!-- Scholar info -->
@@ -258,6 +269,11 @@
           <div class="info-row"><span class="info-label">Verified By</span><span class="info-value">{{ h.verifiedByName }}</span></div>
           <div class="info-row"><span class="info-label">Verified At</span><span class="info-value muted">{{ formatDateTime(h.verifiedAt) }}</span></div>
           <div class="info-row" *ngIf="h.notes"><span class="info-label">Notes</span><span class="info-value">{{ h.notes }}</span></div>
+          <div class="info-row" *ngIf="h.orArNumber"><span class="info-label">Receipt No.</span><span class="info-value"><strong>{{ h.orArNumber }}</strong></span></div>
+        </div>
+        <div class="card-footer" style="padding:8px 12px;border-top:1px solid #f1f5f9;display:flex;gap:8px;" *ngIf="h.status==='Verified' && h.orArNumber">
+          <button *ngIf="h.orArType==='OR'" class="btn-print-receipt" (click)="printOR(h)">🖨️ Print OR</button>
+          <button *ngIf="h.orArType==='AR'" class="btn-print-receipt btn-print-ar" (click)="printAR(h)">🖨️ Print AR</button>
         </div>
       </div>
     </div>
@@ -268,7 +284,7 @@
         <thead>
           <tr>
             <th>Student</th><th>Program</th><th>Method</th><th>Reference / Details</th>
-            <th>Amount</th><th>Payment Date</th><th>Status</th><th>Verified By</th><th>Verified At</th><th>Notes</th>
+            <th>Amount</th><th>Period</th><th>Receipt No.</th><th>Payment Date</th><th>Status</th><th>Verified By</th><th>Print</th>
           </tr>
         </thead>
         <tbody>
@@ -283,11 +299,16 @@
             <td><span class="badge" [class.badge-gcash]="isGCash(h)" [class.badge-cash]="isCash(h)">{{ isCash(h) ? '💵 Cash' : '📱 GCash' }}</span></td>
             <td><span class="mono" *ngIf="isGCash(h)">{{ h.gcashReference }}</span><span class="muted" *ngIf="isCash(h)">Walk-in Cash</span></td>
             <td><strong class="amount">₱{{ formatAmount(h.gcashAmount) }}</strong></td>
+            <td><span *ngIf="h.examPeriod" class="badge badge-cash">{{ h.examPeriod }}</span><span *ngIf="!h.examPeriod" class="muted">—</span></td>
+            <td><strong *ngIf="h.orArNumber">{{ h.orArNumber }}</strong><span *ngIf="!h.orArNumber" class="muted">—</span></td>
             <td>{{ formatDate(h.gcashDate || h.verifiedAt) }}</td>
             <td><span class="badge" [class.verified]="h.status === 'Verified'" [class.rejected]="h.status === 'Rejected'">{{ h.status === 'Verified' ? '✓ Verified' : '✗ Rejected' }}</span></td>
             <td>{{ h.verifiedByName }}</td>
-            <td class="muted">{{ formatDateTime(h.verifiedAt) }}</td>
-            <td>{{ h.notes }}</td>
+            <td style="white-space:nowrap;">
+              <button *ngIf="h.status==='Verified' && h.orArType==='OR'" class="btn-print-receipt" (click)="printOR(h)">🖨️ OR</button>
+              <button *ngIf="h.status==='Verified' && h.orArType==='AR'" class="btn-print-receipt btn-print-ar" (click)="printAR(h)">🖨️ AR</button>
+              <span *ngIf="!h.orArNumber" class="muted">—</span>
+            </td>
           </tr>
         </tbody>
       </table>

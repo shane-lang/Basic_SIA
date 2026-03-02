@@ -439,4 +439,305 @@ export class Enrollment implements OnInit {
     const i = this.notifications.findIndex(n => n.id === id);
     if (i !== -1) { this.notifications.splice(i, 1); this.cdr.detectChanges(); }
   }
+
+  // ── Number to words (for receipt) ────────────────────────────────────────
+  private amountToWords(amount: number): string {
+    const ones = ['','One','Two','Three','Four','Five','Six','Seven','Eight','Nine',
+      'Ten','Eleven','Twelve','Thirteen','Fourteen','Fifteen','Sixteen','Seventeen','Eighteen','Nineteen'];
+    const tens = ['','','Twenty','Thirty','Forty','Fifty','Sixty','Seventy','Eighty','Ninety'];
+    const toWords = (n: number): string => {
+      if (n === 0) return '';
+      if (n < 20) return ones[n] + ' ';
+      if (n < 100) return tens[Math.floor(n/10)] + (n%10 ? ' ' + ones[n%10] : '') + ' ';
+      return ones[Math.floor(n/100)] + ' Hundred ' + toWords(n%100);
+    };
+    const pesos = Math.floor(amount);
+    const centavos = Math.round((amount - pesos) * 100);
+    let result = toWords(pesos).trim() + ' Pesos';
+    if (centavos > 0) result += ' and ' + toWords(centavos).trim() + '/100 Centavos';
+    return result;
+  }
+
+  // ── Print OR (Official Receipt) — for Full Payment ───────────────────────
+  printOR(receipt: any): void {
+    const s = this.student;
+    const name = `${s.lastName || s.last_name || ''}, ${s.firstName || s.first_name || ''}`;
+    const amount = receipt.amount || 0;
+    const amtWords = this.amountToWords(amount);
+    const fmt = (n: number) => n.toLocaleString('en-PH', { minimumFractionDigits: 2 });
+    const courses = (this.enrolledCourses || []);
+
+    const subjectRows = courses.length > 0
+      ? courses.map((c: any) => `<tr><td>${c.code}</td><td>${c.name}</td><td>${c.credits || ''}</td></tr>`).join('')
+      : '<tr><td colspan="3">&nbsp;</td></tr><tr><td colspan="3">&nbsp;</td></tr>';
+
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>Official Receipt ${receipt.orArNumber}</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:Arial,sans-serif;font-size:11px;padding:20px 24px;color:#000;}
+  .header{display:flex;align-items:flex-start;gap:12px;border-bottom:2px solid #000;padding-bottom:8px;margin-bottom:6px;}
+  .logo{width:60px;height:60px;border:2px solid #000;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:8px;text-align:center;flex-shrink:0;}
+  .school-name{font-size:15px;font-weight:900;text-transform:uppercase;}
+  .school-sub{font-size:9px;}
+  .school-addr{font-size:9px;margin-top:2px;}
+  .badges{font-size:8px;text-align:right;margin-left:auto;}
+  .receipt-title{text-align:center;font-size:14px;font-weight:900;letter-spacing:1px;border:2px solid #000;padding:4px;margin:6px 0;}
+  .receipt-no{text-align:right;font-size:13px;font-weight:900;color:#c00;margin-bottom:4px;}
+  .body-section{border:1px solid #000;padding:8px 10px;margin:6px 0;font-size:11px;}
+  .field-line{display:flex;align-items:flex-end;gap:6px;margin-bottom:5px;}
+  .field-label{white-space:nowrap;font-size:10px;}
+  .field-val{border-bottom:1px solid #000;flex:1;min-width:80px;font-weight:700;padding-bottom:1px;}
+  .amount-words{font-style:italic;font-size:11px;}
+  .two-col{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:6px 0;}
+  .particulars-table{width:100%;border-collapse:collapse;font-size:10px;}
+  .particulars-table th,.particulars-table td{border:1px solid #000;padding:3px 5px;}
+  .particulars-table th{background:#eee;text-align:left;}
+  .subjects-table{width:100%;border-collapse:collapse;font-size:10px;}
+  .subjects-table th,.subjects-table td{border:1px solid #000;padding:3px 5px;}
+  .subjects-table th{background:#eee;}
+  .payment-section{display:flex;gap:16px;align-items:center;margin:4px 0;}
+  .pay-label{font-size:10px;}
+  .pay-box{border:1px solid #000;padding:2px 8px;font-size:10px;margin-right:4px;}
+  .checked{font-weight:900;}
+  .sig-area{display:flex;justify-content:space-between;margin-top:20px;}
+  .sig-block{text-align:center;min-width:160px;}
+  .sig-line{border-top:1.5px solid #000;padding-top:3px;font-size:9px;}
+  .footer-text{font-size:8px;color:#555;margin-top:8px;border-top:1px solid #ccc;padding-top:4px;}
+  @media print{body{padding:10px 14px;}@page{margin:8mm;}}
+</style></head><body>
+
+<div class="header">
+  <div class="logo">ST.<br>BENILDE</div>
+  <div>
+    <div class="school-name">St. Benilde Center for Global Competence, Inc.</div>
+    <div class="school-sub">NON-VAT Reg. TIN: 006-722-355-00000</div>
+    <div class="school-addr">2647 Rizal Avenue, West Bajac-Bajac, Olongapo City &nbsp;|&nbsp; Tel/Fax: (047) 223-3031</div>
+  </div>
+  <div class="badges">Registered with:<br>CHED · TESDA<br>DepEd</div>
+</div>
+
+<div class="receipt-title">OFFICIAL RECEIPT (EXEMPT)</div>
+<div class="receipt-no">No. &nbsp; ${receipt.orArNumber}</div>
+
+<div class="body-section">
+  <div class="field-line">
+    <span class="field-label">RECEIVED from</span>
+    <span class="field-val">${name}</span>
+    <span class="field-label">with TIN</span>
+    <span class="field-val" style="max-width:120px;"></span>
+  </div>
+  <div class="field-line">
+    <span class="field-label">business style of</span>
+    <span class="field-val"></span>
+    <span class="field-label">and address at</span>
+    <span class="field-val">Olongapo City</span>
+  </div>
+  <div class="field-line">
+    <span class="field-label">in partial/full payment for</span>
+    <span class="field-val">${receipt.period || 'Full Payment'} — ${s.program || ''} ${s.semester || ''}</span>
+  </div>
+  <div class="field-line">
+    <span class="field-label">the sum of</span>
+    <span class="field-val amount-words">( P &nbsp;${fmt(amount)} ) &nbsp; ${amtWords}</span>
+    <span class="field-label">pesos</span>
+  </div>
+
+  <div class="payment-section" style="margin-top:8px;">
+    <span class="field-label">Form of Payment:</span>
+    <span class="pay-box ${receipt.method === 'Cash' ? 'checked' : ''}">
+      ${receipt.method === 'Cash' ? '☑' : '☐'} Cash
+    </span>
+    <span class="pay-box ${receipt.method !== 'Cash' ? 'checked' : ''}">
+      ${receipt.method !== 'Cash' ? '☑' : '☐'} Check
+    </span>
+    <span class="field-label" style="margin-left:12px;">Bank</span>
+    <span class="field-val" style="max-width:120px;">${receipt.method !== 'Cash' ? (receipt.gcashReference || '') : ''}</span>
+    <span class="field-label">Check No.</span>
+    <span class="field-val" style="max-width:100px;"></span>
+    <span class="field-label">Date</span>
+    <span class="field-val" style="max-width:100px;">${receipt.paymentDate || ''}</span>
+  </div>
+</div>
+
+<div class="two-col">
+  <div>
+    <table class="particulars-table">
+      <thead><tr><th colspan="2">In settlement of the following:</th></tr>
+        <tr><th>Particulars</th><th>Amount</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Downpayment</td><td style="text-align:right;">${receipt.period==='Downpayment' ? 'P '+fmt(amount) : ''}</td></tr>
+        <tr><td>1st Payment</td><td style="text-align:right;">${receipt.period==='Prelim' ? 'P '+fmt(amount) : ''}</td></tr>
+        <tr><td>2nd Payment</td><td style="text-align:right;">${receipt.period==='Midterm' ? 'P '+fmt(amount) : ''}</td></tr>
+        <tr><td>3rd Payment</td><td style="text-align:right;">${receipt.period==='Finals' ? 'P '+fmt(amount) : ''}</td></tr>
+        <tr><td>4th Payment</td><td style="text-align:right;"></td></tr>
+        <tr><td>Others</td><td style="text-align:right;"></td></tr>
+        <tr><td><strong>Total Due</strong></td><td style="text-align:right;"><strong>P ${fmt(amount)}</strong></td></tr>
+        <tr><td>Less: Withholding Tax</td><td></td></tr>
+        <tr><td><strong>Payment Due</strong></td><td style="text-align:right;"><strong>P ${fmt(amount)}</strong></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div>
+    <table class="subjects-table">
+      <thead><tr><th>Code</th><th>Subject</th><th>Units</th></tr></thead>
+      <tbody>${subjectRows}</tbody>
+    </table>
+  </div>
+</div>
+
+<div class="sig-area">
+  <div class="sig-block">
+    <div style="height:30px;"></div>
+    <div class="sig-line">Cashier / Authorized Representative</div>
+  </div>
+  <div style="font-size:9px;text-align:right;color:#555;">
+    Date: ${receipt.paymentDate || new Date().toLocaleDateString('en-PH')}<br>
+    <em>THIS DOCUMENT IS NOT VALID FOR CLAIM OF INPUT TAXES</em>
+  </div>
+</div>
+
+<div class="footer-text">
+  Printer's Accreditation No.: 018MP2019000000000001 &nbsp;|&nbsp; Date Issued: 01-09-2019<br>
+  BIR Authority to Print No.: OCN: 018AU20220000004994
+</div>
+
+<script>window.onload=()=>{window.print();}<\/script>
+</body></html>`;
+
+    const win = window.open('', '_blank', 'width=820,height=900');
+    if (!win) return;
+    win.document.write(html);
+    win.document.close();
+  }
+
+  // ── Print AR (Acknowledgement Receipt) — for Installment Payments ────────
+  printAR(receipt: any): void {
+    const s = this.student;
+    const name = `${s.lastName || s.last_name || ''}, ${s.firstName || s.first_name || ''}`;
+    const amount = receipt.amount || 0;
+    const fmt = (n: number) => n.toLocaleString('en-PH', { minimumFractionDigits: 2 });
+    const courses = (this.enrolledCourses || []);
+
+    const subjectRows = courses.length > 0
+      ? courses.map((c: any) => `<tr>
+          <td style="font-size:10px;">${c.code}</td>
+          <td style="font-size:10px;">${c.name}</td>
+          <td style="text-align:center;">${c.credits || ''}</td>
+          <td style="text-align:center;">&nbsp;</td>
+        </tr>`).join('')
+      : '<tr><td colspan="4">&nbsp;</td></tr><tr><td colspan="4">&nbsp;</td></tr>';
+
+    const periodLabel: any = {
+      'Downpayment': 'Downpayment / Enrollment',
+      'Prelim': '1st Term (Prelim) Installment',
+      'Midterm': '2nd Term (Midterm) Installment',
+      'Finals': '3rd Term (Finals) Installment',
+    };
+
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>Acknowledgement Receipt ${receipt.orArNumber}</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:Arial,sans-serif;font-size:11px;padding:20px 24px;color:#000;}
+  .header{text-align:center;border-bottom:2px solid #000;padding-bottom:8px;margin-bottom:8px;}
+  .school-name{font-size:16px;font-weight:900;text-transform:uppercase;letter-spacing:1px;}
+  .school-addr{font-size:9px;margin-top:3px;}
+  .form-label{font-size:9px;color:#555;margin-top:2px;}
+  .receipt-title{text-align:center;font-size:14px;font-weight:900;letter-spacing:1px;border:2px solid #000;padding:5px;margin:6px 0;}
+  .receipt-no-row{display:flex;justify-content:space-between;margin-bottom:6px;}
+  .receipt-no{font-size:12px;font-weight:900;color:#c00;}
+  .receipt-date{font-size:11px;}
+  .body-section{border:1px solid #000;padding:8px 10px;margin:6px 0;}
+  .field-line{display:flex;align-items:flex-end;gap:6px;margin-bottom:5px;}
+  .field-label{white-space:nowrap;font-size:10px;}
+  .field-val{border-bottom:1px solid #000;flex:1;font-weight:700;padding-bottom:1px;}
+  .checkbox-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;margin:8px 0 4px 0;font-size:10px;}
+  .cb-item{display:flex;align-items:center;gap:5px;}
+  .cb-box{width:13px;height:13px;border:1px solid #000;display:inline-block;text-align:center;font-size:10px;line-height:13px;}
+  .other-line{display:flex;align-items:flex-end;gap:6px;margin-top:4px;font-size:10px;}
+  .info-row{display:flex;gap:12px;margin-top:8px;font-size:10px;}
+  .info-field{display:flex;align-items:flex-end;gap:4px;}
+  .info-val{border-bottom:1px solid #000;min-width:80px;font-weight:700;padding-bottom:1px;}
+  .subjects-table{width:100%;border-collapse:collapse;margin-top:8px;font-size:10px;}
+  .subjects-table th,.subjects-table td{border:1px solid #000;padding:3px 5px;}
+  .subjects-table th{background:#eee;text-align:center;}
+  .sig-area{display:flex;justify-content:flex-end;margin-top:20px;}
+  .sig-block{text-align:center;min-width:140px;}
+  .sig-line{border-top:1.5px solid #000;padding-top:3px;font-size:9px;font-weight:700;}
+  @media print{body{padding:10px 14px;}@page{margin:8mm;}}
+</style></head><body>
+
+<div class="header">
+  <div class="school-name">St. Benilde Center for Global Competence, Inc.</div>
+  <div class="school-addr">2647 Rizal Avenue, West Bajac-Bajac, Olongapo City</div>
+  <div class="form-label">ADMIN FORM 09</div>
+</div>
+
+<div class="receipt-title">ACKNOWLEDGEMENT RECEIPT</div>
+<div class="receipt-no-row">
+  <span class="receipt-no">No. &nbsp; ${receipt.orArNumber}</span>
+  <span class="receipt-date">DATE: &nbsp; ${receipt.paymentDate || new Date().toLocaleDateString('en-PH')}</span>
+</div>
+
+<div class="body-section">
+  <div class="field-line">
+    <span class="field-label">This is to acknowledge the receipt of payment from</span>
+    <span class="field-val">${name}</span>
+  </div>
+  <div class="field-line">
+    <span class="field-label">amounting to,</span>
+    <span class="field-val">( P &nbsp;${fmt(amount)} )</span>
+  </div>
+  <div style="margin-top:8px;font-size:10px;font-weight:700;">As partial/Full payment for:</div>
+
+  <div class="checkbox-grid">
+    <div class="cb-item"><span class="cb-box">&nbsp;</span> School Uniform</div>
+    <div class="cb-item"><span class="cb-box">&nbsp;</span> Graduation</div>
+    <div class="cb-item"><span class="cb-box">&nbsp;</span> ID Lace</div>
+    <div class="cb-item"><span class="cb-box">&nbsp;</span> Sports Fest</div>
+    <div class="cb-item"><span class="cb-box">&nbsp;</span> P.E. Uniform</div>
+    <div class="cb-item"><span class="cb-box">☑</span> <strong>Tuition / ${periodLabel[receipt.period] || receipt.period}</strong></div>
+    <div class="cb-item"><span class="cb-box">&nbsp;</span> Books/Workbooks</div>
+  </div>
+  <div class="other-line">
+    <span>Other student trainings &amp; activities (please specify):</span>
+    <span class="field-val"></span>
+  </div>
+
+  <div class="info-row">
+    <div class="info-field"><span>Course:</span><span class="info-val">${s.program || ''}</span></div>
+    <div class="info-field"><span>Semester:</span><span class="info-val">${s.semester || ''}</span></div>
+    <div class="info-field"><span>Academic Year:</span><span class="info-val">${new Date().getFullYear()}-${new Date().getFullYear()+1}</span></div>
+  </div>
+</div>
+
+<table class="subjects-table">
+  <thead>
+    <tr>
+      <th style="width:12%;">Code</th>
+      <th>Subject / Description</th>
+      <th style="width:8%;">Units</th>
+      <th style="width:10%;">Grade</th>
+    </tr>
+  </thead>
+  <tbody>${subjectRows}</tbody>
+</table>
+
+<div class="sig-area">
+  <div class="sig-block">
+    <div style="height:32px;"></div>
+    <div class="sig-line">CASHIER</div>
+  </div>
+</div>
+
+<script>window.onload=()=>{window.print();}<\/script>
+</body></html>`;
+
+    const win = window.open('', '_blank', 'width=760,height=860');
+    if (!win) return;
+    win.document.write(html);
+    win.document.close();
+  }
 }

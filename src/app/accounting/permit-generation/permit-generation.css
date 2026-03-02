@@ -40,11 +40,12 @@
 .st-partial { background: #fef9c3; color: #b45309; }
 .st-paid    { background: #dcfce7; color: #16a34a; }
 
-.period-cell { display: flex; flex-direction: column; gap: 5px; align-items: flex-start; padding: 10px 14px; }
 .amt-info span { font-size: 11px; color: #64748b; }
 
 .btn-notice { padding: 4px 10px; border: none; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; background: #3b82f6; color: white; white-space: nowrap; }
 .btn-notice:hover { background: #2563eb; }
+.btn-resend { background: #64748b !important; }
+.btn-resend:hover { background: #475569 !important; }
 
 .pbadge { padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 700; }
 .badge-prelim  { background: #dbeafe; color: #1d4ed8; }
@@ -86,9 +87,10 @@ button:disabled { opacity: .6; cursor: not-allowed; }
 .midterm-color { background: #ede9fe; color: #6d28d9; }
 .finals-color  { background: #fce7f3; color: #be185d; }
 
-.period-cell { vertical-align: middle; min-width: 150px; }
-.period-cell .sbadge { display: block; margin-bottom: 5px; }
-.amt-info { display: flex; align-items: center; gap: 4px; font-size: 12px; margin-bottom: 5px; }
+.period-cell { vertical-align: top; min-width: 155px; padding: 10px 14px !important; }
+.cell-inner { display: flex; flex-direction: column; gap: 5px; align-items: flex-start; }
+.period-cell .sbadge { display: inline-block; margin-bottom: 5px; }
+.amt-info { display: flex; align-items: center; gap: 4px; font-size: 12px; margin-bottom: 6px; }
 .paid-amt { color: #16a34a; font-weight: 600; }
 .due-amt  { color: #64748b; }
 .sep      { color: #cbd5e1; }

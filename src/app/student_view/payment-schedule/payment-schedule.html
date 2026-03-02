@@ -20,11 +20,23 @@
 
   <div *ngIf="!isLoading && schedule">
 
-    <!-- Summary -->
+    <!-- Summary bar -->
     <div class="summary">
       <div class="sum-item">
         <span class="sum-label">Total Assessment</span>
         <span class="sum-value">₱{{ fmt(schedule.total_assessment) }}</span>
+      </div>
+      <div class="sum-divider"></div>
+      <div class="sum-item">
+        <span class="sum-label">Total Paid</span>
+        <span class="sum-value paid">₱{{ fmt(totalPaid) }}</span>
+      </div>
+      <div class="sum-divider"></div>
+      <div class="sum-item">
+        <span class="sum-label">Remaining Balance</span>
+        <span class="sum-value" [class.balance-zero]="remainingBalance===0" [class.balance-due]="remainingBalance>0">
+          ₱{{ fmt(remainingBalance) }}{{ remainingBalance === 0 ? ' — Fully Paid' : '' }}
+        </span>
       </div>
       <div class="sum-divider"></div>
       <div class="sum-item">
@@ -53,14 +65,14 @@
           </span>
         </div>
 
-        <!-- Locked state -->
-        <div *ngIf="getStatus(period)==='locked'" class="locked-msg">
+        <!-- Locked (no notice yet) -->
+        <div *ngIf="getStatus(period)==='locked' && !getNotice(period)" class="locked-msg">
           <div class="lock-icon">🔒</div>
           <p>Waiting for Accounting to send your payment notice.</p>
         </div>
 
         <!-- Notice received -->
-        <div *ngIf="getStatus(period)!=='locked' && getNotice(period)" class="notice-box">
+        <div *ngIf="getNotice(period)" class="notice-box">
           <div class="notice-title">📢 Payment Notice</div>
           <div class="notice-text">{{ getNotice(period)!.message }}</div>
           <div *ngIf="getNotice(period)!.due_date" class="notice-due">
@@ -68,18 +80,20 @@
           </div>
         </div>
 
-        <!-- Amounts (only when unlocked) -->
+        <!-- Amounts -->
         <div *ngIf="getStatus(period)!=='locked'" class="amounts">
           <div class="amt-row"><span>Amount Due</span><strong>₱{{ fmt(getDue(period)) }}</strong></div>
           <div class="amt-row"><span>Amount Paid</span><strong class="paid">₱{{ fmt(getPaid(period)) }}</strong></div>
           <div class="amt-row balance-row">
             <span>Balance</span>
-            <strong class="balance">₱{{ fmt(getDue(period) - getPaid(period)) }}</strong>
+            <strong class="balance">₱{{ fmt(getBalance(period)) }}</strong>
           </div>
         </div>
 
-        <!-- Permit section (only when unlocked) -->
+        <!-- Actions -->
         <div *ngIf="getStatus(period)!=='locked'" class="permit-area">
+
+          <!-- Permit status chip -->
           <ng-container *ngIf="getPermit(period) as permit">
             <div class="permit-status"
               [class.ps-pending]="permit.status==='pending'"
@@ -89,16 +103,206 @@
               Permit {{ permit.status | titlecase }}
               <span *ngIf="permit.remarks && permit.status==='rejected'" class="remarks-text"> — {{ permit.remarks }}</span>
             </div>
+
+            <!-- View/Download permit if approved -->
+            <button class="btn-view-permit" *ngIf="permit.status==='approved'" (click)="openPermitViewer(permit)">
+              🎫 View & Print Permit
+            </button>
           </ng-container>
+
+          <!-- Pay button (unpaid/partial) -->
+          <button class="btn-pay"
+            *ngIf="getStatus(period)==='unpaid' || getStatus(period)==='partial'"
+            (click)="openPayModal(period)">
+            💳 Pay ₱{{ fmt(getBalance(period)) }}
+          </button>
+
+          <!-- Request permit button (paid, no active permit) -->
           <button class="btn-permit"
-            *ngIf="!getPermit(period) || getPermit(period)?.status==='rejected'"
+            *ngIf="getStatus(period)==='paid' && (!getPermit(period) || getPermit(period)?.status==='rejected')"
             [disabled]="!canRequest(period) || isRequesting"
             (click)="requestPermit(period)">
-            {{ getStatus(period)==='paid' ? ('Request ' + period + ' Permit') : 'Pay to Unlock Permit' }}
+            🎫 Request {{ period }} Permit
           </button>
-        </div>
 
+        </div>
       </div>
     </div>
   </div>
+
+
+  <!-- ════════════════════════════════════════════════════════════
+       PAYMENT MODAL — submit to Accounting for approval
+       ════════════════════════════════════════════════════════════ -->
+  <div class="modal-overlay" *ngIf="showPayModal" (click)="closePayModal()">
+    <div class="modal-box" (click)="$event.stopPropagation()">
+
+      <div class="modal-header">
+        <div class="modal-title">💳 Pay {{ payPeriod }} Installment</div>
+        <button class="modal-close" (click)="closePayModal()" [disabled]="isSubmitting">✕</button>
+      </div>
+
+      <!-- ── Submitted: waiting for accounting approval ── -->
+      <div *ngIf="paySubmitted" class="approval-waiting">
+        <div class="approval-icon">⏳</div>
+        <h3>Payment Submitted!</h3>
+        <p>Your payment is being reviewed by Accounting.</p>
+        <p *ngIf="payOrArNumber" class="ar-no">Reference: <strong>{{ payOrArNumber }}</strong></p>
+        <div class="approval-pulse">
+          <div class="pulse-dot"></div>
+          Waiting for Accounting to verify and approve...
+        </div>
+        <p class="approval-note">You will be notified once approved. You may close this window.</p>
+        <button class="btn-close-wait" (click)="closePayModal()">Close</button>
+      </div>
+
+      <!-- ── Payment form ── -->
+      <ng-container *ngIf="!paySubmitted">
+        <div *ngIf="payMsg" class="alert mx" [class.alert-ok]="payMsgType==='ok'" [class.alert-err]="payMsgType==='err'">
+          {{ payMsg }}
+        </div>
+
+        <div class="modal-body">
+
+          <div class="field-group">
+            <label>Amount (₱)</label>
+            <input type="number" [(ngModel)]="payAmount" min="1" [max]="getBalance(payPeriod)"
+                   placeholder="Enter amount" [disabled]="isSubmitting" />
+            <span class="field-hint">Balance: ₱{{ fmt(getBalance(payPeriod)) }}</span>
+          </div>
+
+          <div class="field-group">
+            <label>Payment Date</label>
+            <input type="date" [(ngModel)]="payDate" [disabled]="isSubmitting" />
+          </div>
+
+          <div class="field-group">
+            <label>Payment Method</label>
+            <div class="method-toggle">
+              <button [class.active]="payMethod==='Cash'" (click)="payMethod='Cash'" [disabled]="isSubmitting">💵 Cash</button>
+              <button [class.active]="payMethod==='GCash'" (click)="payMethod='GCash'" [disabled]="isSubmitting">📱 GCash</button>
+            </div>
+          </div>
+
+          <div class="field-group" *ngIf="payMethod==='GCash'">
+            <label>GCash Reference No.</label>
+            <input type="text" [(ngModel)]="payGcashRef" placeholder="e.g. 1234567890" [disabled]="isSubmitting" />
+          </div>
+
+          <div class="info-banner">
+            <span>ℹ️</span>
+            <span>Your payment will be verified and approved by Accounting before it takes effect.</span>
+          </div>
+
+          <div class="field-group">
+            <label>Notes <span class="optional">(optional)</span></label>
+            <input type="text" [(ngModel)]="payNote" placeholder="Any remarks..." [disabled]="isSubmitting" />
+          </div>
+
+        </div>
+
+        <div class="modal-footer">
+          <button class="btn-cancel" (click)="closePayModal()" [disabled]="isSubmitting">Cancel</button>
+          <button class="btn-submit" (click)="submitPayment()" [disabled]="isSubmitting">
+            <span *ngIf="isSubmitting" class="spin-sm"></span>
+            {{ isSubmitting ? 'Submitting...' : 'Submit Payment' }}
+          </button>
+        </div>
+      </ng-container>
+
+    </div>
+  </div>
+
+
+  <!-- ════════════════════════════════════════════════════════════
+       PERMIT VIEWER MODAL
+       ════════════════════════════════════════════════════════════ -->
+  <div class="modal-overlay permit-overlay" *ngIf="showPermitViewer" (click)="closePermitViewer()">
+    <div class="permit-modal" (click)="$event.stopPropagation()">
+
+      <div class="permit-modal-header">
+        <span>🎫 Exam Permit</span>
+        <div style="display:flex;gap:8px;">
+          <button class="btn-print" (click)="printPermit()">🖨️ Print / Download</button>
+          <button class="modal-close dark" (click)="closePermitViewer()">✕</button>
+        </div>
+      </div>
+
+      <div *ngIf="isLoadingPermit" class="loading" style="padding:40px">
+        <div class="spin"></div><p>Loading permit...</p>
+      </div>
+
+      <!-- Permit preview (matches physical format) -->
+      <div class="permit-preview" *ngIf="!isLoadingPermit && viewingPermit">
+        <div class="pp-wrap">
+
+          <!-- Header -->
+          <div class="pp-header">
+            <div class="pp-logo">🏫</div>
+            <div class="pp-school">
+              <div class="pp-name">ST. BENILDE</div>
+              <div class="pp-subname">CENTER FOR GLOBAL COMPETENCE, INC.</div>
+              <div class="pp-addr">#247 Rizal Avenue, West Bajac-Bajac, Olongapo City | Tel/Fax: (047) 223-3031</div>
+            </div>
+          </div>
+
+          <!-- Blue title bar -->
+          <div class="pp-title-bar">
+            <div class="pp-title">{{ viewingPermit.exam_period.toUpperCase() }} EXAMINATION PERMIT</div>
+            <div class="pp-sem">{{ viewingPermit.semester }} &nbsp;&nbsp; A.Y. {{ viewingPermit.school_year }}</div>
+          </div>
+
+          <!-- Student info grid -->
+          <div class="pp-info">
+            <div class="pp-field">
+              <span class="pp-label">Student No.:</span>
+              <span class="pp-val">{{ viewingPermit.student_number }}</span>
+            </div>
+            <div class="pp-field">
+              <span class="pp-label">Date of Exam:</span>
+              <span class="pp-val"></span>
+            </div>
+            <div class="pp-field pp-full">
+              <span class="pp-label">Name:</span>
+              <span class="pp-val bold">{{ viewingPermit.last_name | uppercase }}, {{ viewingPermit.first_name | uppercase }}</span>
+            </div>
+            <div class="pp-field pp-full">
+              <span class="pp-label">Course/Major:</span>
+              <span class="pp-course-badge">{{ viewingPermit.program }}</span>
+            </div>
+          </div>
+
+          <!-- Note -->
+          <div class="pp-note">NOTE: ANY ERASURE WILL INVALIDATE THIS {{ viewingPermit.exam_period.toUpperCase() }} PERMIT</div>
+
+          <!-- Subject table -->
+          <table class="pp-table">
+            <thead>
+              <tr><th>Subject</th><th>Instructor's Signature</th></tr>
+            </thead>
+            <tbody>
+              <tr *ngFor="let c of viewingPermit.courses">
+                <td>{{ c.code }} — {{ c.name }}</td>
+                <td></td>
+              </tr>
+              <tr *ngFor="let _ of blankRows(viewingPermit.courses?.length || 0)">
+                <td>&nbsp;</td><td></td>
+              </tr>
+            </tbody>
+          </table>
+
+          <!-- Signature -->
+          <div class="pp-sig">
+            <div class="pp-sig-block">
+              <div class="pp-sig-name">{{ viewingPermit.approved_by_first }} {{ viewingPermit.approved_by_last }}</div>
+              <div class="pp-sig-line">Account Management Officer / Cashier</div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+    </div>
+  </div>
+
 </div>

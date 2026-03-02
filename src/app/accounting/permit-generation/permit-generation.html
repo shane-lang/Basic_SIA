@@ -14,15 +14,17 @@
     <button class="mtab" [class.active]="mainTab==='permits'" (click)="switchMainTab('permits')">🎫 Exam Permits</button>
   </div>
 
-  <!-- ════════ NOTICES TAB ════════ -->
-  <div *ngIf="mainTab==='notices'">
+  <!-- ════════════════════════════════
+       NOTICES TAB
+       ════════════════════════════════ -->
+  <ng-container *ngIf="mainTab==='notices'">
     <div class="filter-bar">
       <input class="search" type="text" placeholder="Search student..." [(ngModel)]="searchStudents">
     </div>
 
     <div *ngIf="isLoadingStudents" class="loading"><div class="spin"></div><p>Loading students...</p></div>
     <div *ngIf="!isLoadingStudents && filteredStudents.length===0" class="empty">
-      <div>📭</div><p>No enrolled students found</p>
+      <div>📭</div><p>No enrolled installment students found</p>
     </div>
 
     <div *ngIf="!isLoadingStudents && filteredStudents.length>0" class="students-table-wrap">
@@ -30,78 +32,87 @@
         <thead>
           <tr>
             <th>Student</th>
-            <th>Program</th>
+            <th>Program / Year</th>
             <th>Total Assessment</th>
-            <th class="period-th">Prelim</th>
-            <th class="period-th">Midterm</th>
-            <th class="period-th">Finals</th>
+            <th class="period-th"><div class="period-header-cell prelim-color">PRELIM</div></th>
+            <th class="period-th"><div class="period-header-cell midterm-color">MIDTERM</div></th>
+            <th class="period-th"><div class="period-header-cell finals-color">FINALS</div></th>
           </tr>
         </thead>
         <tbody>
           <tr *ngFor="let s of filteredStudents">
+
             <td>
               <div class="sname">{{ s.lastName }}, {{ s.firstName }}</div>
               <div class="snum">{{ s.studentNumber }}</div>
             </td>
-            <td><div>{{ s.program }}</div><div class="snum">{{ s.yearLevel }}</div></td>
+            <td>
+              <div>{{ s.program }}</div>
+              <div class="snum">{{ s.yearLevel }}</div>
+            </td>
             <td><strong>₱{{ fmt(s.totalAssessment) }}</strong></td>
 
-            <!-- Prelim -->
+            <!-- PRELIM -->
             <td class="period-cell">
-              <span class="sbadge" [ngClass]="statusClass(s.prelimStatus)">{{ s.prelimStatus | titlecase }}</span>
-              <div class="amt-info" *ngIf="s.prelimStatus!=='locked'">
-                <span>₱{{ fmt(s.prelimPaid) }} / ₱{{ fmt(s.prelimDue) }}</span>
-              </div>
-              <div class="button-group">
-                <button class="btn-unlock" *ngIf="s.prelimStatus==='locked'" (click)="unlockPeriod(s,'Prelim')" title="Direct unlock without sending notice">
-                  🔓 Unlock
-                </button>
-                <button class="btn-notice" (click)="openNoticeModal(s,'Prelim')"
-                  [title]="s.prelimStatus==='locked' ? 'Unlock & send notice' : 'Resend notice'">
-                  {{ s.prelimStatus==='locked' ? '📢 Notice' : '📢 Resend' }}
-                </button>
+              <div class="cell-inner">
+                <span class="sbadge" [ngClass]="statusClass(s.prelimStatus)">{{ s.prelimStatus | titlecase }}</span>
+                <div class="amt-info" *ngIf="s.prelimStatus !== 'locked'">
+                  <span class="paid-amt">₱{{ fmt(s.prelimPaid) }}</span>
+                  <span class="sep">/</span>
+                  <span class="due-amt">₱{{ fmt(s.prelimDue) }}</span>
+                </div>
+                <div class="button-group">
+                  <button class="btn-notice" [class.btn-resend]="s.prelimStatus !== 'locked'" (click)="openNoticeModal(s, 'Prelim')">
+                    {{ s.prelimStatus === 'locked' ? '📢 Send Notice' : '🔁 Resend' }}
+                  </button>
+                </div>
               </div>
             </td>
 
-            <!-- Midterm -->
+            <!-- MIDTERM -->
             <td class="period-cell">
-              <span class="sbadge" [ngClass]="statusClass(s.midtermStatus)">{{ s.midtermStatus | titlecase }}</span>
-              <div class="amt-info" *ngIf="s.midtermStatus!=='locked'">
-                <span>₱{{ fmt(s.midtermPaid) }} / ₱{{ fmt(s.midtermDue) }}</span>
-              </div>
-              <div class="button-group">
-                <button class="btn-unlock" *ngIf="s.midtermStatus==='locked'" (click)="unlockPeriod(s,'Midterm')" title="Direct unlock without sending notice">
-                  🔓 Unlock
-                </button>
-                <button class="btn-notice" (click)="openNoticeModal(s,'Midterm')">
-                  {{ s.midtermStatus==='locked' ? '📢 Notice' : '📢 Resend' }}
-                </button>
+              <div class="cell-inner">
+                <span class="sbadge" [ngClass]="statusClass(s.midtermStatus)">{{ s.midtermStatus | titlecase }}</span>
+                <div class="amt-info" *ngIf="s.midtermStatus !== 'locked'">
+                  <span class="paid-amt">₱{{ fmt(s.midtermPaid) }}</span>
+                  <span class="sep">/</span>
+                  <span class="due-amt">₱{{ fmt(s.midtermDue) }}</span>
+                </div>
+                <div class="button-group">
+                  <button class="btn-notice" [class.btn-resend]="s.midtermStatus !== 'locked'" (click)="openNoticeModal(s, 'Midterm')">
+                    {{ s.midtermStatus === 'locked' ? '📢 Send Notice' : '🔁 Resend' }}
+                  </button>
+                </div>
               </div>
             </td>
 
-            <!-- Finals -->
+            <!-- FINALS -->
             <td class="period-cell">
-              <span class="sbadge" [ngClass]="statusClass(s.finalsStatus)">{{ s.finalsStatus | titlecase }}</span>
-              <div class="amt-info" *ngIf="s.finalsStatus!=='locked'">
-                <span>₱{{ fmt(s.finalsPaid) }} / ₱{{ fmt(s.finalsDue) }}</span>
-              </div>
-              <div class="button-group">
-                <button class="btn-unlock" *ngIf="s.finalsStatus==='locked'" (click)="unlockPeriod(s,'Finals')" title="Direct unlock without sending notice">
-                  🔓 Unlock
-                </button>
-                <button class="btn-notice" (click)="openNoticeModal(s,'Finals')">
-                  {{ s.finalsStatus==='locked' ? '📢 Notice' : '📢 Resend' }}
-                </button>
+              <div class="cell-inner">
+                <span class="sbadge" [ngClass]="statusClass(s.finalsStatus)">{{ s.finalsStatus | titlecase }}</span>
+                <div class="amt-info" *ngIf="s.finalsStatus !== 'locked'">
+                  <span class="paid-amt">₱{{ fmt(s.finalsPaid) }}</span>
+                  <span class="sep">/</span>
+                  <span class="due-amt">₱{{ fmt(s.finalsDue) }}</span>
+                </div>
+                <div class="button-group">
+                  <button class="btn-notice" [class.btn-resend]="s.finalsStatus !== 'locked'" (click)="openNoticeModal(s, 'Finals')">
+                    {{ s.finalsStatus === 'locked' ? '📢 Send Notice' : '🔁 Resend' }}
+                  </button>
+                </div>
               </div>
             </td>
+
           </tr>
         </tbody>
       </table>
     </div>
-  </div>
+  </ng-container>
 
-  <!-- ════════ PERMITS TAB ════════ -->
-  <div *ngIf="mainTab==='permits'">
+  <!-- ════════════════════════════════
+       PERMITS TAB
+       ════════════════════════════════ -->
+  <ng-container *ngIf="mainTab==='permits'">
     <div class="sub-tabs">
       <button class="stab" [class.active]="permitTab==='pending'"  (click)="switchPermitTab('pending')">⏳ Pending</button>
       <button class="stab" [class.active]="permitTab==='approved'" (click)="switchPermitTab('approved')">✅ Approved</button>
@@ -119,7 +130,9 @@
     </div>
 
     <div *ngIf="isLoadingPermits" class="loading"><div class="spin"></div><p>Loading...</p></div>
-    <div *ngIf="!isLoadingPermits && filteredPermits.length===0" class="empty"><div>📭</div><p>No {{ permitTab }} permit requests</p></div>
+    <div *ngIf="!isLoadingPermits && filteredPermits.length===0" class="empty">
+      <div>📭</div><p>No {{ permitTab }} permit requests</p>
+    </div>
 
     <div *ngIf="!isLoadingPermits && filteredPermits.length>0" class="students-table-wrap">
       <table class="tbl">
@@ -128,7 +141,8 @@
             <th>Student</th>
             <th>Program</th>
             <th>Period</th>
-            <th>Semester / AY</th>
+            <th>Semester</th>
+            <th>A.Y.</th>
             <th>Requested</th>
             <th *ngIf="permitTab!=='pending'">Processed</th>
             <th>Actions</th>
@@ -136,16 +150,23 @@
         </thead>
         <tbody>
           <tr *ngFor="let p of filteredPermits">
-            <td><div class="sname">{{ p.last_name }}, {{ p.first_name }}</div><div class="snum">{{ p.student_number }}</div></td>
-            <td><div>{{ p.program }}</div><div class="snum">{{ p.year_level }}</div></td>
+            <td>
+              <div class="sname">{{ p.last_name }}, {{ p.first_name }}</div>
+              <div class="snum">{{ p.student_number }}</div>
+            </td>
+            <td>
+              <div>{{ p.program }}</div>
+              <div class="snum">{{ p.year_level }}</div>
+            </td>
             <td><span class="pbadge" [ngClass]="periodClass(p.exam_period)">{{ p.exam_period }}</span></td>
-            <td><div class="snum">{{ p.semester }}</div><div class="snum">A.Y. {{ p.school_year }}</div></td>
+            <td class="snum">{{ p.semester }}</td>
+            <td class="snum">{{ p.school_year }}</td>
             <td class="snum">{{ fmtDate(p.requested_at) }}</td>
             <td *ngIf="permitTab!=='pending'" class="snum">{{ fmtDate(p.approved_at) }}</td>
             <td class="act-cell">
               <ng-container *ngIf="permitTab==='pending'">
-                <button class="btn-approve" (click)="openPermitModal(p,'approve')">Approve</button>
-                <button class="btn-reject"  (click)="openPermitModal(p,'reject')">Reject</button>
+                <button class="btn-approve" (click)="openPermitModal(p,'approve')">✅ Approve</button>
+                <button class="btn-reject"  (click)="openPermitModal(p,'reject')">❌ Reject</button>
               </ng-container>
               <button *ngIf="permitTab==='approved'" class="btn-print" (click)="printPermit(p)">🖨️ Print</button>
               <span *ngIf="permitTab==='rejected'" class="rej-text">{{ p.remarks || '—' }}</span>
@@ -154,133 +175,58 @@
         </tbody>
       </table>
     </div>
-  </div>
+  </ng-container>
 
 </div>
 
-<!-- ════════ NOTICES TAB ════════ -->
-<div *ngIf="mainTab==='notices'">
-  <div class="filter-bar">
-    <input class="search" type="text" placeholder="Search student..." [(ngModel)]="searchStudents">
-  </div>
-
-  <div *ngIf="isLoadingStudents" class="loading"><div class="spin"></div><p>Loading students...</p></div>
-
-  <div *ngIf="!isLoadingStudents && filteredStudents.length===0" class="empty">
-    <div>📭</div><p>No installment students found</p>
-  </div>
-
-  <div *ngIf="!isLoadingStudents && filteredStudents.length>0" class="students-table-wrap">
-    <table class="tbl">
-      <thead>
-        <tr>
-          <th>Student</th>
-          <th>Program / Year</th>
-          <th>Total Assessment</th>
-          <th class="period-th">
-            <div class="period-header-cell prelim-color">PRELIM</div>
-          </th>
-          <th class="period-th">
-            <div class="period-header-cell midterm-color">MIDTERM</div>
-          </th>
-          <th class="period-th">
-            <div class="period-header-cell finals-color">FINALS</div>
-          </th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr *ngFor="let s of filteredStudents">
-
-          <!-- Student info -->
-          <td>
-            <div class="sname">{{ s.lastName }}, {{ s.firstName }}</div>
-            <div class="snum">{{ s.studentNumber }}</div>
-          </td>
-
-          <!-- Program -->
-          <td>
-            <div>{{ s.program }}</div>
-            <div class="snum">{{ s.yearLevel }}</div>
-          </td>
-
-          <!-- Total -->
-          <td><strong>₱{{ fmt(s.totalAssessment) }}</strong></td>
-
-          <!-- PRELIM cell -->
-          <td class="period-cell">
-            <span class="sbadge" [ngClass]="statusClass(s.prelimStatus)">
-              {{ s.prelimStatus | titlecase }}
-            </span>
-            <div class="amt-info" *ngIf="s.prelimStatus !== 'locked'">
-              <span class="paid-amt">₱{{ fmt(s.prelimPaid) }}</span>
-              <span class="sep">/</span>
-              <span class="due-amt">₱{{ fmt(s.prelimDue) }}</span>
-            </div>
-            <div class="button-group">
-              <button class="btn-unlock" *ngIf="s.prelimStatus === 'locked'" (click)="unlockPeriod(s, 'Prelim')" title="Direct unlock without sending notice">
-                🔓 Unlock
-              </button>
-              <button class="btn-notice" (click)="openNoticeModal(s, 'Prelim')">
-                {{ s.prelimStatus === 'locked' ? '📢 Notice' : '📢 Resend' }}
-              </button>
-            </div>
-          </td>
-
-          <!-- MIDTERM cell -->
-          <td class="period-cell">
-            <span class="sbadge" [ngClass]="statusClass(s.midtermStatus)">
-              {{ s.midtermStatus | titlecase }}
-            </span>
-            <div class="amt-info" *ngIf="s.midtermStatus !== 'locked'">
-              <span class="paid-amt">₱{{ fmt(s.midtermPaid) }}</span>
-              <span class="sep">/</span>
-              <span class="due-amt">₱{{ fmt(s.midtermDue) }}</span>
-            </div>
-            <div class="button-group">
-              <button class="btn-unlock" *ngIf="s.midtermStatus === 'locked'" (click)="unlockPeriod(s, 'Midterm')" title="Direct unlock without sending notice">
-                🔓 Unlock
-              </button>
-              <button class="btn-notice" (click)="openNoticeModal(s, 'Midterm')">
-                {{ s.midtermStatus === 'locked' ? '📢 Notice' : '📢 Resend' }}
-              </button>
-            </div>
-          </td>
-
-          <!-- FINALS cell -->
-          <td class="period-cell">
-            <span class="sbadge" [ngClass]="statusClass(s.finalsStatus)">
-              {{ s.finalsStatus | titlecase }}
-            </span>
-            <div class="amt-info" *ngIf="s.finalsStatus !== 'locked'">
-              <span class="paid-amt">₱{{ fmt(s.finalsPaid) }}</span>
-              <span class="sep">/</span>
-              <span class="due-amt">₱{{ fmt(s.finalsDue) }}</span>
-            </div>
-            <div class="button-group">
-              <button class="btn-unlock" *ngIf="s.finalsStatus === 'locked'" (click)="unlockPeriod(s, 'Finals')" title="Direct unlock without sending notice">
-                🔓 Unlock
-              </button>
-              <button class="btn-notice" (click)="openNoticeModal(s, 'Finals')">
-                {{ s.finalsStatus === 'locked' ? '📢 Notice' : '📢 Resend' }}
-              </button>
-            </div>
-          </td>
-
-        </tr>
-      </tbody>
-    </table>
+<!-- ── Send / Resend Notice Modal ──────────────────────── -->
+<div class="overlay" *ngIf="showNoticeModal" (click)="closeNoticeModal()">
+  <div class="modal" (click)="$event.stopPropagation()">
+    <h3>{{ noticeForm.exam_period === noticeStudent?.prelimStatus ? '📢' : '🔁' }} Send Payment Notice</h3>
+    <div class="modal-body" *ngIf="noticeStudent">
+      <div class="notice-student">
+        <div>
+          <div class="sname">{{ noticeStudent.lastName }}, {{ noticeStudent.firstName }}</div>
+          <div class="snum">{{ noticeStudent.studentNumber }} · {{ noticeForm.exam_period }}</div>
+        </div>
+      </div>
+      <div class="form-row">
+        <label>Amount Due (₱)</label>
+        <input type="number" class="finput" [(ngModel)]="noticeForm.amount_due" min="0" />
+      </div>
+      <div class="form-row">
+        <label>Deadline Date <span style="color:#9ca3af;font-weight:400">(optional)</span></label>
+        <input type="date" class="finput" [(ngModel)]="noticeForm.due_date" />
+      </div>
+      <div class="form-row">
+        <label>Message</label>
+        <textarea class="finput" rows="3" [(ngModel)]="noticeForm.message"></textarea>
+      </div>
+      <div class="alert alert-ok" *ngIf="noticeResult && noticeResultType==='success'">{{ noticeResult }}</div>
+      <div class="alert alert-err" *ngIf="noticeResult && noticeResultType==='error'">{{ noticeResult }}</div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" (click)="closeNoticeModal()" [disabled]="isSendingNotice">Cancel</button>
+      <button class="btn-send" (click)="sendNotice()" [disabled]="isSendingNotice">
+        {{ isSendingNotice ? 'Sending...' : 'Send Notice' }}
+      </button>
+    </div>
   </div>
 </div>
 
-<!-- ── Permit Approve/Reject Modal ───────────────── -->
+<!-- ── Permit Approve/Reject Modal ─────────────────────── -->
 <div class="overlay" *ngIf="showPermitModal" (click)="closePermitModal()">
   <div class="modal" (click)="$event.stopPropagation()">
     <h3>{{ modalAction==='approve' ? '✅ Approve' : '❌ Reject' }} Permit</h3>
     <div class="modal-body" *ngIf="selectedPermit">
-      <p>Student: <strong>{{ selectedPermit.last_name }}, {{ selectedPermit.first_name }}</strong></p>
-      <p>Period: <strong>{{ selectedPermit.exam_period }}</strong></p>
+      <div class="notice-student">
+        <div>
+          <div class="sname">{{ selectedPermit.last_name }}, {{ selectedPermit.first_name }}</div>
+          <div class="snum">{{ selectedPermit.student_number }} · {{ selectedPermit.exam_period }} · {{ selectedPermit.semester }} A.Y. {{ selectedPermit.school_year }}</div>
+        </div>
+      </div>
       <div class="form-row">
-        <label>Remarks (optional)</label>
+        <label>Remarks <span style="color:#9ca3af;font-weight:400">(optional)</span></label>
         <textarea [(ngModel)]="remarks" rows="3" class="finput" placeholder="Add remarks..."></textarea>
       </div>
     </div>
