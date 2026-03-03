@@ -12,13 +12,30 @@
 
   <div *ngIf="isLoading" class="loading"><div class="spin"></div><p>Loading...</p></div>
 
-  <div *ngIf="!isLoading && !schedule" class="empty">
+  <!-- SHS — free, no payment schedule needed -->
+  <div *ngIf="!isLoading && isFreeStudent && studentCategory === 'SHS'" class="empty" style="background:linear-gradient(135deg,#f0fdf4,#dcfce7);border:1.5px solid #86efac;border-radius:12px;padding:2.5rem;">
+    <div style="font-size:2.5rem;margin-bottom:0.5rem">🎓</div>
+    <h3 style="color:#15803d;margin:0 0 0.5rem">No Tuition Fee Required</h3>
+    <p style="color:#16a34a;margin:0 0 0.5rem">Your enrollment is fully covered by the <strong>Senior High School Voucher Program (SHS VP)</strong>.</p>
+    <p style="color:#4ade80;font-size:0.85rem;margin:0">No payment schedule or exam permit fees apply.</p>
+  </div>
+
+  <!-- TVET — free, no payment schedule needed -->
+  <div *ngIf="!isLoading && isFreeStudent && studentCategory === 'TVET'" class="empty" style="background:linear-gradient(135deg,#fff7ed,#ffedd5);border:1.5px solid #fed7aa;border-radius:12px;padding:2.5rem;">
+    <div style="font-size:2.5rem;margin-bottom:0.5rem">🛠️</div>
+    <h3 style="color:#9a3412;margin:0 0 0.5rem">No Tuition Fee Required</h3>
+    <p style="color:#c2410c;margin:0 0 0.5rem">Your TVET program is fully funded by <strong>TESDA PRISAA</strong>.</p>
+    <p style="color:#fb923c;font-size:0.85rem;margin:0">No payment schedule or exam permit fees apply.</p>
+  </div>
+
+  <!-- College — no schedule yet -->
+  <div *ngIf="!isLoading && !schedule && !isFreeStudent" class="empty">
     <div>📋</div>
     <h3>No payment schedule yet</h3>
     <p>Accounting will send you a notice when your payment is ready.</p>
   </div>
 
-  <div *ngIf="!isLoading && schedule">
+  <div *ngIf="!isLoading && schedule && !isFreeStudent">
 
     <!-- Summary bar -->
     <div class="summary">

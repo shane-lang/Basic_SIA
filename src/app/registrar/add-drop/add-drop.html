@@ -1,0 +1,293 @@
+<div class="adr-page">
+
+  <!-- Header -->
+  <div class="adr-header">
+    <div class="adr-header-icon">📋</div>
+    <div>
+      <h1 class="adr-title">Add / Drop Management</h1>
+      <p class="adr-subtitle">Review student requests and perform manual subject changes</p>
+    </div>
+  </div>
+
+  <!-- Success -->
+  <div class="adr-success" *ngIf="successMsg">✅ {{ successMsg }}<button (click)="successMsg=''">✕</button></div>
+
+  <!-- Main tabs -->
+  <div class="adr-main-tabs">
+    <button class="adr-main-tab" [class.adr-main-active]="mainTab==='requests'" (click)="mainTab='requests';loadRequests()">
+      📨 Student Requests
+      <span class="adr-badge" *ngIf="pendingCount() > 0">{{ pendingCount() }}</span>
+    </button>
+    <button class="adr-main-tab" [class.adr-main-active]="mainTab==='manual'" (click)="mainTab='manual'">
+      ✏️ Manual Add / Drop
+    </button>
+    <button class="adr-main-tab" [class.adr-main-active]="mainTab==='window'" (click)="mainTab='window';loadWindow()">
+      🕐 Add/Drop Window
+      <span class="adr-win-dot" [class.adr-win-open]="windowOpen" [class.adr-win-closed]="!windowOpen">
+        {{ windowOpen ? 'OPEN' : 'CLOSED' }}
+      </span>
+    </button>
+  </div>
+
+  <!-- ══ REQUESTS TAB ══ -->
+  <div *ngIf="mainTab === 'requests'">
+
+    <!-- Status filter -->
+    <div class="adr-filter-bar">
+      <button class="adr-filter-btn" [class.adr-f-pending]="statusFilter==='Pending'" (click)="statusFilter='Pending';loadRequests()">⏳ Pending</button>
+      <button class="adr-filter-btn" [class.adr-f-approved]="statusFilter==='Approved'" (click)="statusFilter='Approved';loadRequests()">✅ Approved</button>
+      <button class="adr-filter-btn" [class.adr-f-rejected]="statusFilter==='Rejected'" (click)="statusFilter='Rejected';loadRequests()">❌ Rejected</button>
+      <button class="adr-filter-btn" [class.adr-f-all]="statusFilter===''" (click)="statusFilter='';loadRequests()">📂 All</button>
+    </div>
+
+    <div class="adr-loading" *ngIf="isLoadingReqs"><div class="adr-spinner"></div> Loading requests...</div>
+
+    <div class="adr-empty" *ngIf="!isLoadingReqs && allRequests.length === 0">
+      <span>📭</span>
+      <p>No {{ statusFilter || '' }} requests found</p>
+    </div>
+
+    <!-- Requests list -->
+    <div class="adr-req-list" *ngIf="!isLoadingReqs && allRequests.length > 0">
+      <div class="adr-req-card" *ngFor="let r of allRequests">
+        <div class="adr-req-type-col">
+          <span class="adr-type-badge" [class.adr-type-add]="r.request_type==='Add'" [class.adr-type-drop]="r.request_type==='Drop'">
+            {{ r.request_type==='Add' ? '➕ Add' : '➖ Drop' }}
+          </span>
+          <span class="adr-status-pill" [class]="statusCls(r.status)">{{ r.status }}</span>
+        </div>
+        <div class="adr-req-student">
+          <div class="adr-req-avatar" [style.background]="getCatColor(r.student_category)">{{ getInitials(r) }}</div>
+          <div>
+            <strong>{{ r.first_name }} {{ r.last_name }}</strong>
+            <span>{{ r.student_number }} · {{ r.program }}</span>
+          </div>
+        </div>
+        <div class="adr-req-subject">
+          <span class="adr-subj-code">{{ r.code }}</span>
+          <span class="adr-subj-name">{{ r.course_name }}</span>
+          <span class="adr-subj-meta">{{ r.credits }} units · {{ r.instructor }} · {{ r.day }} {{ r.time }}</span>
+        </div>
+        <div class="adr-req-reason">
+          <span class="adr-reason-lbl">Reason:</span> {{ r.reason }}
+          <div class="adr-remarks" *ngIf="r.remarks"><em>Remarks: {{ r.remarks }}</em></div>
+        </div>
+        <div class="adr-req-date">{{ r.created_at | date:'MMM d, y h:mm a' }}</div>
+        <div class="adr-req-actions" *ngIf="r.status === 'Pending'">
+          <button class="adr-btn-approve" (click)="openProcess(r, 'Approved')">✓ Approve</button>
+          <button class="adr-btn-reject"  (click)="openProcess(r, 'Rejected')">✕ Reject</button>
+        </div>
+        <div class="adr-req-done" *ngIf="r.status !== 'Pending'">
+          <span class="adr-processed">Processed</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ MANUAL TAB ══ -->
+  <div *ngIf="mainTab === 'manual'">
+
+    <!-- Student search -->
+    <div class="adr-search-card" *ngIf="!selectedStudent">
+      <div class="adr-search-lbl">🔍 Search Student</div>
+      <div class="adr-search-wrap">
+        <input class="adr-search-input" [(ngModel)]="searchQuery" (ngModelChange)="onSearch()" placeholder="Type name or student number..." autocomplete="off">
+        <span *ngIf="isSearching">⏳</span>
+      </div>
+      <div class="adr-results" *ngIf="searchResults.length > 0">
+        <div class="adr-result-row" *ngFor="let s of searchResults" (click)="selectStudent(s)">
+          <div class="adr-result-av" [style.background]="getCatColor(s.studentCategory)">{{ getInitials(s) }}</div>
+          <div class="adr-result-info">
+            <strong>{{ s.firstName }} {{ s.lastName }}</strong>
+            <span>{{ s.studentNumber }} · {{ s.program }}</span>
+          </div>
+          <span class="adr-cat-pill" [style.background]="getCatColor(s.studentCategory)">{{ s.studentCategory||'College' }}</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Selected student -->
+    <div *ngIf="selectedStudent">
+      <div class="adr-student-bar">
+        <div class="adr-st-av" [style.background]="getCatColor(selectedStudent.studentCategory)">{{ getInitials(selectedStudent) }}</div>
+        <div class="adr-st-info">
+          <strong>{{ selectedStudent.firstName }} {{ selectedStudent.lastName }}</strong>
+          <span>{{ selectedStudent.studentNumber }} · {{ selectedStudent.program }} · {{ selectedStudent.yearLevel }}</span>
+        </div>
+        <button class="adr-change-btn" (click)="clearStudent()">🔄 Change</button>
+      </div>
+
+      <div class="adr-loading" *ngIf="isLoadingSubjects"><div class="adr-spinner"></div> Loading...</div>
+
+      <div *ngIf="!isLoadingSubjects">
+        <div class="adr-sub-tabs">
+          <button class="adr-sub-tab" [class.adr-sub-drop]="manualTab==='drop'" (click)="manualTab='drop'">
+            ➖ Drop Subject <span class="adr-sub-cnt">{{ enrolled.length }}</span>
+          </button>
+          <button class="adr-sub-tab" [class.adr-sub-add]="manualTab==='add'" (click)="manualTab='add'">
+            ➕ Add Subject <span class="adr-sub-cnt">{{ available.length }}</span>
+          </button>
+        </div>
+
+        <!-- Drop panel -->
+        <div *ngIf="manualTab==='drop'">
+          <div class="adr-panel-bar">
+            <span class="adr-panel-lbl">Enrolled Subjects</span>
+            <input class="adr-filter" [(ngModel)]="enFilter" placeholder="Filter...">
+          </div>
+          <div class="adr-empty" *ngIf="filteredEnrolled.length===0"><span>📭</span><p>No enrolled subjects</p></div>
+          <div class="adr-cards" *ngIf="filteredEnrolled.length>0">
+            <div class="adr-card adr-card-en" *ngFor="let s of filteredEnrolled">
+              <div class="adr-c-top"><span class="adr-c-code">{{ s.code }}</span><span class="adr-c-units">{{ s.credits }} units</span></div>
+              <div class="adr-c-name">{{ s.name }}</div>
+              <div class="adr-c-meta"><span>👨‍🏫 {{ s.instructor||'—' }}</span><span>📅 {{ s.day||'—' }} {{ s.time }}</span><span>🚪 {{ s.room||'—' }}</span></div>
+              <div class="adr-c-foot">
+                <button class="adr-btn-drop" (click)="openManual(s,'drop')">➖ Drop</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Add panel -->
+        <div *ngIf="manualTab==='add'">
+          <div class="adr-panel-bar">
+            <span class="adr-panel-lbl">Available Subjects</span>
+            <input class="adr-filter" [(ngModel)]="avFilter" placeholder="Filter...">
+          </div>
+          <div class="adr-empty" *ngIf="filteredAvailable.length===0"><span>📭</span><p>No available subjects</p></div>
+          <div class="adr-cards" *ngIf="filteredAvailable.length>0">
+            <div class="adr-card adr-card-av" *ngFor="let s of filteredAvailable" [class.adr-full]="s.available_seats===0">
+              <div class="adr-c-top"><span class="adr-c-code">{{ s.code }}</span><span class="adr-c-units">{{ s.credits }} units</span></div>
+              <div class="adr-c-name">{{ s.name }}</div>
+              <div class="adr-c-meta"><span>👨‍🏫 {{ s.instructor||'—' }}</span><span>📅 {{ s.day||'—' }} {{ s.time }}</span></div>
+              <div class="adr-seats-row">
+                <div class="adr-seats-bar"><div class="adr-seats-fill" [style.width.%]="seatPct(s)" [class.adr-sw]="s.available_seats<=5&&s.available_seats>0" [class.adr-sf]="s.available_seats===0"></div></div>
+                <span class="adr-seats-txt" [class.adr-full-txt]="s.available_seats===0">{{ s.available_seats===0?'Full':s.available_seats+' left' }}</span>
+              </div>
+              <div class="adr-c-foot">
+                <button class="adr-btn-add" [disabled]="s.available_seats===0" (click)="openManual(s,'add')">➕ Add</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ WINDOW TAB ══ -->
+<div *ngIf="mainTab === 'window'" class="adr-win-page">
+
+  <!-- Current Status Card -->
+  <div class="adr-win-status-card" [class.adr-win-status-open]="windowOpen" [class.adr-win-status-closed]="!windowOpen">
+    <div class="adr-win-status-icon">{{ windowOpen ? '🟢' : '🔴' }}</div>
+    <div class="adr-win-status-info">
+      <div class="adr-win-status-title">Add/Drop is currently <strong>{{ windowOpen ? 'OPEN' : 'CLOSED' }}</strong></div>
+      <div class="adr-win-status-sub" *ngIf="currentWindow">
+        {{ fmtDate(currentWindow.start_date) }} – {{ fmtDate(currentWindow.end_date) }}
+        <span *ngIf="currentWindow.label"> · {{ currentWindow.label }}</span>
+      </div>
+      <div class="adr-win-status-sub" *ngIf="!currentWindow">No window has been set yet.</div>
+    </div>
+  </div>
+
+  <!-- Set Window Form -->
+  <div class="adr-win-form-card">
+    <div class="adr-win-form-title">📅 Set Add/Drop Window</div>
+    <div class="adr-win-form-sub">Students can only submit requests within this period.</div>
+
+    <div class="adr-win-success" *ngIf="windowSuccess">✅ {{ windowSuccess }}</div>
+    <div class="adr-win-error"   *ngIf="windowError">⚠️ {{ windowError }}</div>
+
+    <div class="adr-win-fields">
+      <div class="adr-win-field">
+        <label class="adr-win-lbl">📅 Start Date &amp; Time <span class="adr-win-req">*</span></label>
+        <input class="adr-win-input" type="datetime-local" [(ngModel)]="windowForm.start_date">
+      </div>
+      <div class="adr-win-field">
+        <label class="adr-win-lbl">📅 End Date &amp; Time <span class="adr-win-req">*</span></label>
+        <input class="adr-win-input" type="datetime-local" [(ngModel)]="windowForm.end_date">
+      </div>
+      <div class="adr-win-field adr-win-full">
+        <label class="adr-win-lbl">🏷️ Label (optional)</label>
+        <input class="adr-win-input" type="text" [(ngModel)]="windowForm.label"
+          placeholder="e.g. 2nd Semester AY 2025-2026 Add/Drop Period">
+      </div>
+    </div>
+
+    <div class="adr-win-form-footer">
+      <button class="adr-win-save-btn" (click)="saveWindow()" [disabled]="isSavingWindow">
+        {{ isSavingWindow ? '⏳ Saving...' : '💾 Save Window' }}
+      </button>
+      <span class="adr-win-note">⚠️ Saving a new window will replace the current one.</span>
+    </div>
+  </div>
+</div>
+
+
+<!-- ══ PROCESS MODAL ══ -->
+<div class="adr-overlay" *ngIf="showProcessModal" (click)="closeProcess()">
+  <div class="adr-modal" (click)="$event.stopPropagation()">
+    <div class="adr-modal-hdr" [class.adr-hdr-approve]="processAction==='Approved'" [class.adr-hdr-reject]="processAction==='Rejected'">
+      <span>{{ processAction==='Approved' ? '✅' : '❌' }}</span>
+      <div>
+        <div class="adr-modal-title">{{ processAction==='Approved' ? 'Approve' : 'Reject' }} Request</div>
+        <div class="adr-modal-sub" *ngIf="processReq">{{ processReq.first_name }} {{ processReq.last_name }} — {{ processReq.request_type }} {{ processReq.code }}</div>
+      </div>
+      <button class="adr-modal-x" (click)="closeProcess()">✕</button>
+    </div>
+    <div class="adr-modal-body" *ngIf="processReq">
+      <div class="adr-modal-info">
+        <div class="adr-modal-code">{{ processReq.code }}</div>
+        <div class="adr-modal-name">{{ processReq.course_name }}</div>
+        <div class="adr-modal-meta2">{{ processReq.credits }} units · {{ processReq.instructor }}</div>
+        <div class="adr-modal-reason">Student's reason: <em>{{ processReq.reason }}</em></div>
+      </div>
+      <div class="adr-modal-field">
+        <label>Remarks / Notes (optional)</label>
+        <input class="adr-modal-input" [(ngModel)]="processRemarks" placeholder="Add a note for the student...">
+      </div>
+      <div class="adr-modal-err" *ngIf="errorMsg">⚠️ {{ errorMsg }}</div>
+    </div>
+    <div class="adr-modal-ftr">
+      <button class="adr-mf-cancel" (click)="closeProcess()">Cancel</button>
+      <button class="adr-mf-confirm" (click)="confirmProcess()" [disabled]="isProcessing"
+        [class.adr-mf-approve]="processAction==='Approved'" [class.adr-mf-reject]="processAction==='Rejected'">
+        {{ isProcessing ? '⏳ Processing...' : (processAction==='Approved' ? '✓ Confirm Approve' : '✕ Confirm Reject') }}
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ MANUAL MODAL ══ -->
+<div class="adr-overlay" *ngIf="showManualModal" (click)="closeManual()">
+  <div class="adr-modal" (click)="$event.stopPropagation()">
+    <div class="adr-modal-hdr" [class.adr-hdr-add]="manualAction==='add'" [class.adr-hdr-drop]="manualAction==='drop'">
+      <span>{{ manualAction==='add' ? '➕' : '➖' }}</span>
+      <div>
+        <div class="adr-modal-title">Manual {{ manualAction==='add' ? 'Add' : 'Drop' }}</div>
+        <div class="adr-modal-sub">{{ selectedStudent?.firstName }} {{ selectedStudent?.lastName }}</div>
+      </div>
+      <button class="adr-modal-x" (click)="closeManual()">✕</button>
+    </div>
+    <div class="adr-modal-body">
+      <div class="adr-modal-info">
+        <div class="adr-modal-code">{{ manualSubject?.code }}</div>
+        <div class="adr-modal-name">{{ manualSubject?.name }}</div>
+        <div class="adr-modal-meta2">{{ manualSubject?.credits }} units · {{ manualSubject?.instructor }} · {{ manualSubject?.day }} {{ manualSubject?.time }}</div>
+      </div>
+      <div class="adr-modal-field">
+        <label>Reason / Remarks</label>
+        <input class="adr-modal-input" [(ngModel)]="manualReason" placeholder="e.g. Student request, administrative override...">
+      </div>
+      <div class="adr-modal-err" *ngIf="errorMsg">⚠️ {{ errorMsg }}</div>
+    </div>
+    <div class="adr-modal-ftr">
+      <button class="adr-mf-cancel" (click)="closeManual()">Cancel</button>
+      <button class="adr-mf-confirm" (click)="confirmManual()" [disabled]="isManualProcessing"
+        [class.adr-mf-approve]="manualAction==='add'" [class.adr-mf-reject]="manualAction==='drop'">
+        {{ isManualProcessing ? '⏳...' : '✓ Confirm' }}
+      </button>
+    </div>
+  </div>
+</div>

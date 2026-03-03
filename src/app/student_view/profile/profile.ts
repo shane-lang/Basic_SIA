@@ -59,7 +59,24 @@ export class Profile implements OnInit, OnDestroy {
     profilePicture: 'https://ui-avatars.com/api/?name=Student&size=150',
   };
 
+  
+  /** Returns HTTP headers with the auth token. Call this in every API request. */
+  private getHeaders() {
+    const token = sessionStorage.getItem('token') ?? '';
+    return { headers: { Authorization: `Bearer ${token}` } };
+  }
+
   constructor(private http: HttpClient, private router: Router, private cdr: ChangeDetectorRef) {}
+
+  get isSHS(): boolean { return (this.student.studentCategory ?? '').toUpperCase() === 'SHS'; }
+  get displayYearLevel(): string {
+    const yl = this.student.yearLevel ?? '';
+    if (this.isSHS) {
+      if (yl === '1st Year' || yl === 'Grade 11') return 'Grade 11';
+      if (yl === '2nd Year' || yl === 'Grade 12') return 'Grade 12';
+    }
+    return yl || '—';
+  }
 
   ngOnInit(): void {
     this.loadProfile();
@@ -79,7 +96,7 @@ export class Profile implements OnInit, OnDestroy {
     const storedUser = sessionStorage.getItem('currentUser');
     if (!storedUser) { this.errorMessage = 'Not logged in.'; this.isLoading = false; this.cdr.detectChanges(); return; }
     const user = JSON.parse(storedUser);
-    this.http.get<any>(`${this.apiUrl}?action=get_profile&user_id=${user.id}`).subscribe({
+    this.http.get<any>(`${this.apiUrl}?action=get_profile&user_id=${user.id}`, this.getHeaders()).subscribe({
       next: (res) => {
         if (res.success) { this.student = res.student; }
         else { this.errorMessage = 'Profile not found. Please complete enrollment first.'; }

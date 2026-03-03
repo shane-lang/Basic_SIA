@@ -39,6 +39,13 @@ export class Gcash implements OnInit {
   processing       = false;
   submitted        = false; // true after successful submission to accounting
 
+  
+  /** Returns HTTP headers with the auth token. Call this in every API request. */
+  private getHeaders() {
+    const token = sessionStorage.getItem('token') ?? '';
+    return { headers: { Authorization: `Bearer ${token}` } };
+  }
+
   constructor(
     private http: HttpClient,
     private snackBar: MatSnackBar,
@@ -54,7 +61,7 @@ export class Gcash implements OnInit {
     if (!stored) return;
     const user = JSON.parse(stored);
 
-    this.http.get<any>(`${this.enrollmentApi}?action=get_profile&user_id=${user.id}`).subscribe({
+    this.http.get<any>(`${this.enrollmentApi}?action=get_profile&user_id=${user.id}`, this.getHeaders()).subscribe({
       next: (res) => {
         if (res.success) {
           const s = res.student;
@@ -98,7 +105,7 @@ export class Gcash implements OnInit {
     };
 
     // Submit to accounting API
-    this.http.post<any>(`${this.apiUrl}?action=submit_gcash`, payload).subscribe({
+    this.http.post<any>(`${this.apiUrl}?action=submit_gcash`, payload, this.getHeaders()).subscribe({
       next: (res) => {
         this.processing = false;
         if (res.success) {

@@ -13,6 +13,7 @@ import { Profile } from './student_view/profile/profile';
 import { Schedule } from './student_view/schedule/schedule';
 import { About } from './student_view/about/about';
 import { PaymentSchedule } from './student_view/payment-schedule/payment-schedule';
+import { Grades } from './student_view/grades/grades';
 
 //  admin sub-components
 import { AdminDashboard } from './admin/admin-dashboard/admin-dashboard';
@@ -39,10 +40,12 @@ import { AddSubjectComponent } from './registrar/add-subject/add-subject';
 import { DropSubjectComponent } from './registrar/drop-subject/drop-subject';
 import { StudentEnrollmentReviewComponent } from './registrar/student-enrollment-review/student-enrollment-review';
 import { ClassSections } from './admin/class-sections/class-sections';
-import { GradeSubmission } from './admin/grade-submission/grade-submission';
+import { GradeSubmission } from './registrar/grade-submission/grade-submission';
 import { Reports } from './admin/reports/reports';
 import { Accounting } from './accounting/accounting/accounting';
 import { TorEvaluation } from './registrar/tor-evaluation/tor-evaluation';
+import { AddDropComponent } from './registrar/add-drop/add-drop';
+import { StudentAddDropComponent } from './student_view/student-add-drop/student-add-drop';
 
 export const routes: Routes = [
   { path: 'login', component: LoginComponent },
@@ -59,7 +62,8 @@ export const routes: Routes = [
       { path: 'profile',    component: Profile },
       { path: 'payment-schedule', component: PaymentSchedule },
       { path: 'schedule',   component: Schedule },
-      { path: 'grades',     component: GradeSubmission },
+      { path: 'grades',     component: Grades },
+      { path: 'add-drop',   component: StudentAddDropComponent },
       { path: 'about',      component: About },
       { path: '', redirectTo: 'dashboard', pathMatch: 'full' }
     ]
@@ -77,7 +81,7 @@ export const routes: Routes = [
       { path: 'courses',         component: Courses },
       { path: 'faculty',         component: Faculty },
       { path: 'grading',         component: Grading },
-      { path: 'grade-submission',component: GradeSubmission },
+  
       { path: 'analytics',       component: Analytics },
       { path: 'reports',         component: Reports },
       { path: 'audit-logs',      component: AuditLogs },
@@ -119,6 +123,8 @@ export const routes: Routes = [
       { path: 'students',                   component: StudentEnrollmentReviewComponent },
       { path: 'student-enrollment-review',  component: StudentEnrollmentReviewComponent },
       { path: 'tor-evaluation',             component: TorEvaluation },
+      { path: 'add-drop',                   component: AddDropComponent },
+      { path: 'grade-submission',           component: GradeSubmission },
       { path: '', redirectTo: 'dashboard', pathMatch: 'full' }
     ]
   },

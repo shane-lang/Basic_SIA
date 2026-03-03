@@ -41,15 +41,27 @@ export class AuthService {
     if (isPlatformBrowser(this.platformId)) {
       localStorage.removeItem('currentUser');
       localStorage.removeItem('token');
+      sessionStorage.removeItem('token');
+      sessionStorage.removeItem('currentUser');
     }
     this.currentUserSubject.next(null);
   }
 
-  setCurrentUser(user: any): void {
+  setCurrentUser(user: any, token?: string): void {
     if (isPlatformBrowser(this.platformId)) {
       localStorage.setItem('currentUser', JSON.stringify(user));
+      if (token) {
+        localStorage.setItem('token', token);
+        sessionStorage.setItem('token', token); // keep sessionStorage in sync
+      }
     }
     this.currentUserSubject.next(user);
+  }
+
+  getToken(): string {
+    if (!isPlatformBrowser(this.platformId)) return '';
+    // Prefer sessionStorage (active session), fall back to localStorage (after refresh)
+    return sessionStorage.getItem('token') || localStorage.getItem('token') || '';
   }
 
   getCurrentUser(): any {

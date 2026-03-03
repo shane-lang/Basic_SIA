@@ -66,6 +66,13 @@ export class PermitGeneration implements OnInit {
   remarks = '';
   isProcessing = false;
 
+  
+  /** Returns HTTP headers with the auth token. Call this in every API request. */
+  private getHeaders() {
+    const token = sessionStorage.getItem('token') ?? '';
+    return { headers: { Authorization: `Bearer ${token}` } };
+  }
+
   constructor(private http: HttpClient, private cdr: ChangeDetectorRef) {}
 
   ngOnInit(): void {
@@ -77,7 +84,7 @@ export class PermitGeneration implements OnInit {
   // ── Students with payment schedules ──────────────────────────────────────
  loadStudents(): void {
   this.isLoadingStudents = true;
-  this.http.get<any>(`${this.apiUrl}?action=get_all_enrolled_students`).subscribe({
+  this.http.get<any>(`${this.apiUrl}?action=get_all_enrolled_students`, this.getHeaders()).subscribe({
     next: (res) => {
       console.log('[PermitGeneration] API response:', res);
       console.log('[PermitGeneration] students count:', res.students?.length);
@@ -95,7 +102,7 @@ export class PermitGeneration implements OnInit {
 }
 
   loadStudentSchedule(student: EnrolledStudent): void {
-    this.http.get<any>(`${this.apiUrl}?action=get_payment_schedule&student_id=${student.studentId}`).subscribe({
+    this.http.get<any>(`${this.apiUrl}?action=get_payment_schedule&student_id=${student.studentId}`, this.getHeaders()).subscribe({
       next: (res) => {
         if (res.success && res.schedule) {
           const s = res.schedule;
@@ -146,7 +153,7 @@ export class PermitGeneration implements OnInit {
       due_date:            this.noticeForm.due_date,
       message:             this.noticeForm.message,
       accounting_user_id:  this.accountingUserId
-    }).subscribe({
+    }, this.getHeaders()).subscribe({
       next: (res) => {
         this.isSendingNotice = false;
         this.noticeResult     = res.message;
@@ -166,7 +173,7 @@ export class PermitGeneration implements OnInit {
   // ── Permits ───────────────────────────────────────────────────────────────
   loadPermits(): void {
     this.isLoadingPermits = true;
-    this.http.get<any>(`${this.apiUrl}?action=get_exam_permits&status=${this.permitTab}`).subscribe({
+    this.http.get<any>(`${this.apiUrl}?action=get_exam_permits&status=${this.permitTab}`, this.getHeaders()).subscribe({
       next: (res) => { this.permits = res.success ? res.permits : []; this.isLoadingPermits = false; this.cdr.detectChanges(); },
       error: () => { this.isLoadingPermits = false; this.cdr.detectChanges(); }
     });
@@ -179,7 +186,7 @@ export class PermitGeneration implements OnInit {
       student_id: student.studentId,
       exam_period: period,
       accounting_user_id: this.accountingUserId
-    }).subscribe({
+    }, this.getHeaders()).subscribe({
       next: (res) => {
         if (res.success) {
           const p = period.toLowerCase() as 'prelim'|'midterm'|'finals';
@@ -229,7 +236,7 @@ export class PermitGeneration implements OnInit {
       action:              this.modalAction,
       remarks:             this.remarks,
       accounting_user_id:  this.accountingUserId
-    }).subscribe({
+    }, this.getHeaders()).subscribe({
       next: (res) => {
         this.isProcessing = false;
         if (res.success) { this.permits = this.permits.filter(p => p.id !== this.selectedPermit!.id); this.closePermitModal(); }

@@ -1,0 +1,222 @@
+<div class="sad-page">
+
+  <!-- Header -->
+  <div class="sad-header">
+    <div class="sad-header-icon">📋</div>
+    <div>
+      <h1 class="sad-title">Add / Drop Subjects</h1>
+      <p class="sad-subtitle">Submit a request to add or drop subjects. The Registrar will review and approve your request.</p>
+    </div>
+  </div>
+
+  <!-- Add/Drop Window Status Banner -->
+  <div *ngIf="!windowLoading">
+    <div class="sad-window-open" *ngIf="windowOpen">
+      🟢 <strong>Add/Drop is OPEN</strong>
+      <span *ngIf="window"> · {{ windowDates() }}</span>
+      <span *ngIf="window?.label"> · {{ window!.label }}</span>
+    </div>
+    <div class="sad-window-closed" *ngIf="!windowOpen">
+      🔴 <strong>Add/Drop is CLOSED</strong>
+      <span *ngIf="window"> · Last window: {{ windowDates() }}</span>
+      <span *ngIf="!window"> · The Registrar has not set a schedule yet.</span>
+    </div>
+  </div>
+
+  <!-- Success -->
+  <div class="sad-success" *ngIf="successMsg">
+    ✅ {{ successMsg }}
+    <button (click)="successMsg=''">✕</button>
+  </div>
+
+  <!-- Main tabs -->
+  <div class="sad-main-tabs">
+    <button class="sad-main-tab" [class.sad-main-active]="activeTab==='request'" (click)="activeTab='request'">
+      📝 Submit Request
+    </button>
+    <button class="sad-main-tab" [class.sad-main-active]="activeTab==='history'" (click)="activeTab='history'">
+      📂 My Requests
+      <span class="sad-badge" *ngIf="pendingCount > 0">{{ pendingCount }}</span>
+    </button>
+  </div>
+
+  <!-- ── REQUEST TAB ── -->
+  <div *ngIf="activeTab === 'request'">
+
+    <div class="sad-info-box">
+      ℹ️ Add/Drop requests are reviewed by the Registrar. Approved requests are applied immediately to your enrollment.
+    </div>
+
+    <!-- Sub tabs -->
+    <div class="sad-sub-tabs">
+      <button class="sad-sub-tab" [class.sad-sub-drop]="requestTab==='drop'" [class.sad-sub-active]="requestTab==='drop'" (click)="requestTab='drop'">
+        ➖ Drop a Subject
+        <span class="sad-sub-count">{{ enrolled.length }}</span>
+      </button>
+      <button class="sad-sub-tab" [class.sad-sub-add]="requestTab==='add'" [class.sad-sub-active]="requestTab==='add'" (click)="requestTab='add'">
+        ➕ Add a Subject
+        <span class="sad-sub-count">{{ available.length }}</span>
+      </button>
+    </div>
+
+    <!-- Loading -->
+    <div class="sad-loading" *ngIf="isLoading">
+      <div class="sad-spinner"></div> Loading subjects...
+    </div>
+
+    <!-- DROP subjects -->
+    <div *ngIf="requestTab==='drop' && !isLoading">
+      <div class="sad-panel-bar">
+        <span class="sad-panel-label">Your Enrolled Subjects</span>
+        <input class="sad-filter" [(ngModel)]="enFilter" placeholder="Filter...">
+      </div>
+      <div class="sad-empty" *ngIf="filteredEnrolled.length === 0">
+        <span>📭</span><p>No enrolled subjects</p>
+      </div>
+      <div class="sad-cards" *ngIf="filteredEnrolled.length > 0">
+        <div class="sad-card sad-card-enrolled" *ngFor="let s of filteredEnrolled">
+          <div class="sad-card-top">
+            <span class="sad-code">{{ s.code }}</span>
+            <span class="sad-units">{{ s.credits }} units</span>
+          </div>
+          <div class="sad-name">{{ s.name }}</div>
+          <div class="sad-meta">
+            <span>👨‍🏫 {{ s.instructor || '—' }}</span>
+            <span>📅 {{ s.day || '—' }} {{ s.time || '' }}</span>
+            <span>🚪 {{ s.room || '—' }}</span>
+          </div>
+          <div class="sad-card-foot">
+            <span class="sad-pending-tag" *ngIf="hasPending(s.course_id, 'Drop')">⏳ Pending request</span>
+            <button class="sad-btn-drop"
+              [disabled]="hasPending(s.course_id, 'Drop') || !windowOpen"
+              [title]="!windowOpen ? 'Add/Drop is currently closed' : ''"
+              (click)="open(s, 'drop')">
+              ➖ Request Drop
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ADD subjects -->
+    <div *ngIf="requestTab==='add' && !isLoading">
+      <div class="sad-panel-bar">
+        <span class="sad-panel-label">Available Subjects</span>
+        <input class="sad-filter" [(ngModel)]="avFilter" placeholder="Filter...">
+      </div>
+      <div class="sad-empty" *ngIf="filteredAvailable.length === 0">
+        <span>📭</span><p>No available subjects for this semester</p>
+      </div>
+      <div class="sad-cards" *ngIf="filteredAvailable.length > 0">
+        <div class="sad-card sad-card-available" *ngFor="let s of filteredAvailable" [class.sad-full]="s.available_seats===0">
+          <div class="sad-card-top">
+            <span class="sad-code">{{ s.code }}</span>
+            <span class="sad-units">{{ s.credits }} units</span>
+          </div>
+          <div class="sad-name">{{ s.name }}</div>
+          <div class="sad-meta">
+            <span>👨‍🏫 {{ s.instructor || '—' }}</span>
+            <span>📅 {{ s.day || '—' }} {{ s.time || '' }}</span>
+            <span>🚪 {{ s.room || '—' }}</span>
+          </div>
+          <div class="sad-seats-row">
+            <div class="sad-seats-bar">
+              <div class="sad-seats-fill"
+                [style.width.%]="seatPct(s)"
+                [class.sad-seats-warn]="s.available_seats <= 5 && s.available_seats > 0"
+                [class.sad-seats-full]="s.available_seats === 0">
+              </div>
+            </div>
+            <span class="sad-seats-txt" [class.sad-full-txt]="s.available_seats===0">
+              {{ s.available_seats === 0 ? 'Full' : s.available_seats + ' seats left' }}
+            </span>
+          </div>
+          <div class="sad-card-foot">
+            <span class="sad-pending-tag" *ngIf="hasPending(s.id, 'Add')">⏳ Pending request</span>
+            <button class="sad-btn-add"
+              [disabled]="s.available_seats===0 || hasPending(s.id, 'Add') || !windowOpen"
+              [title]="!windowOpen ? 'Add/Drop is currently closed' : ''"
+              (click)="open(s, 'add')">
+              ➕ Request Add
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── HISTORY TAB ── -->
+  <div *ngIf="activeTab === 'history'">
+    <div class="sad-empty" *ngIf="requests.length === 0">
+      <span>📂</span><p>You have no add/drop requests yet</p>
+    </div>
+    <div class="sad-history" *ngIf="requests.length > 0">
+      <div class="sad-req-card" *ngFor="let r of requests">
+        <div class="sad-req-left">
+          <span class="sad-req-type" [class.sad-type-add]="r.request_type==='Add'" [class.sad-type-drop]="r.request_type==='Drop'">
+            {{ r.request_type === 'Add' ? '➕' : '➖' }} {{ r.request_type }}
+          </span>
+          <div class="sad-req-course">
+            <strong>{{ r.code }}</strong> — {{ r.course_name }}
+          </div>
+          <div class="sad-req-meta">
+            {{ r.credits }} units · {{ r.instructor }} · {{ r.day }} {{ r.time }}
+          </div>
+          <div class="sad-req-reason">Reason: {{ r.reason }}</div>
+          <div class="sad-req-remarks" *ngIf="r.remarks">Registrar note: {{ r.remarks }}</div>
+        </div>
+        <div class="sad-req-right">
+          <span class="sad-status-badge" [class]="statusCls(r.status)">
+            {{ statusIcon(r.status) }} {{ r.status }}
+          </span>
+          <span class="sad-req-date">{{ r.created_at | date:'MMM d, y' }}</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ══ MODAL ══ -->
+<div class="sad-overlay" *ngIf="showModal" (click)="close()">
+  <div class="sad-modal" (click)="$event.stopPropagation()">
+    <div class="sad-modal-hdr" [class.sad-hdr-drop]="modalType==='drop'" [class.sad-hdr-add]="modalType==='add'">
+      <span>{{ modalType==='add' ? '➕' : '➖' }}</span>
+      <div>
+        <div class="sad-modal-title">Request to {{ modalType==='add' ? 'Add' : 'Drop' }} Subject</div>
+        <div class="sad-modal-sub">Your request will be sent to the Registrar for approval</div>
+      </div>
+      <button class="sad-modal-x" (click)="close()">✕</button>
+    </div>
+    <div class="sad-modal-body">
+      <div class="sad-modal-subj">
+        <div class="sad-modal-code">{{ modalSubject?.code }}</div>
+        <div class="sad-modal-name">{{ modalSubject?.name }}</div>
+        <div class="sad-modal-meta">
+          <span>{{ modalSubject?.credits }} units</span>
+          <span>{{ modalSubject?.instructor }}</span>
+          <span>{{ modalSubject?.day }} {{ modalSubject?.time }}</span>
+          <span *ngIf="modalType==='add' && modalSubject?.available_seats !== undefined">
+            {{ modalSubject.available_seats }} seats left
+          </span>
+        </div>
+      </div>
+      <div class="sad-modal-warn" *ngIf="modalType==='drop'">
+        ⚠️ Dropping a subject may affect your units and academic standing.
+      </div>
+      <div class="sad-modal-field">
+        <label>Reason for {{ modalType==='add' ? 'Adding' : 'Dropping' }} <span style="color:#ef4444">*</span></label>
+        <textarea class="sad-modal-ta" [(ngModel)]="modalReason" rows="3"
+          placeholder="e.g. Schedule conflict, missed pre-requisite, wrong section..."></textarea>
+      </div>
+      <div class="sad-modal-err" *ngIf="errorMsg">⚠️ {{ errorMsg }}</div>
+    </div>
+    <div class="sad-modal-ftr">
+      <button class="sad-mf-cancel" (click)="close()">Cancel</button>
+      <button class="sad-mf-submit" (click)="submit()" [disabled]="isSubmitting"
+        [class.sad-mf-add]="modalType==='add'" [class.sad-mf-drop]="modalType==='drop'">
+        {{ isSubmitting ? '⏳ Submitting...' : '📨 Submit Request' }}
+      </button>
+    </div>
+  </div>
+</div>

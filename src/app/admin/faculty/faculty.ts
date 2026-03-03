@@ -53,12 +53,19 @@ export class Faculty implements OnInit {
 
   coursesFromDb: { code: string; name: string }[] = [];
 
+  
+  /** Returns HTTP headers with the auth token. Call this in every API request. */
+  private getHeaders() {
+    const token = sessionStorage.getItem('token') ?? '';
+    return { headers: { Authorization: `Bearer ${token}` } };
+  }
+
   constructor(private http: HttpClient, private cdr: ChangeDetectorRef) {}
 
   ngOnInit(): void { this.loadFaculty(); this.loadCoursesFromDb(); }
 
   loadCoursesFromDb(): void {
-    this.http.get<any>('http://localhost/sia-api/admin.php?action=get_courses').subscribe({
+    this.http.get<any>('http://localhost/sia-api/admin.php?action=get_courses', this.getHeaders()).subscribe({
       next: (res) => {
         if (res.success) {
           this.coursesFromDb = res.courses.map((c: any) => ({ code: c.code, name: c.name }));
@@ -74,7 +81,7 @@ export class Faculty implements OnInit {
 
   loadFaculty(): void {
     this.isLoading = true;
-    this.http.get<any>(`${this.api}?action=get_faculty`).subscribe({
+    this.http.get<any>(`${this.api}?action=get_faculty`, this.getHeaders()).subscribe({
       next: (res) => {
         this.isLoading = false;
         if (res.success) { this.facultyList = res.faculty; this.applyFilter(); }
@@ -144,7 +151,7 @@ export class Faculty implements OnInit {
     }
     this.isSaving = true;
     const action = this.isEditing ? 'update_faculty' : 'create_faculty';
-    this.http.post<any>(`${this.api}?action=${action}`, this.form).subscribe({
+    this.http.post<any>(`${this.api}?action=${action}`, this.form, this.getHeaders()).subscribe({
       next: (res) => {
         this.isSaving = false;
         if (res.success) {
@@ -171,7 +178,7 @@ export class Faculty implements OnInit {
   doDelete(): void {
     if (!this.deleteTarget) return;
     this.isDeleting = true;
-    this.http.post<any>(`${this.api}?action=delete_faculty`, { id: this.deleteTarget.id }).subscribe({
+    this.http.post<any>(`${this.api}?action=delete_faculty`, { id: this.deleteTarget.id }, this.getHeaders()).subscribe({
       next: (res) => {
         this.isDeleting = false;
         if (res.success) { this.showToast('success', 'Faculty deleted.'); this.loadFaculty(); }

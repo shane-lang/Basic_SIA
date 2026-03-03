@@ -15,6 +15,7 @@ interface Course {
   semester: string;
   instructor?: string;
   room?: string;
+  is_lab?: number;
   enrolled_count?: number;
   created_at?: string;
 }
@@ -54,17 +55,24 @@ export class Courses implements OnInit {
   readonly YEAR_LEVELS = ['1st Year', '2nd Year', '3rd Year', '4th Year', 'Grade 11', 'Grade 12'];
   readonly SEMESTERS   = ['1st Semester, AY 2024-2025', '2nd Semester, AY 2024-2025', '1st Semester, AY 2025-2026', '2nd Semester, AY 2025-2026'];
 
+  
+  /** Returns HTTP headers with the auth token. Call this in every API request. */
+  private getHeaders() {
+    const token = sessionStorage.getItem('token') ?? '';
+    return { headers: { Authorization: `Bearer ${token}` } };
+  }
+
   constructor(private http: HttpClient, private cdr: ChangeDetectorRef) {}
 
   ngOnInit(): void { this.loadCourses(); }
 
   emptyForm(): Partial<Course> {
-    return { code: '', name: '', description: '', credits: 3, department: '', program: '', year_level: '1st Year', semester: '' };
+    return { code: '', name: '', description: '', credits: 3, department: '', program: '', year_level: '1st Year', semester: '', is_lab: 0 };
   }
 
   loadCourses(): void {
     this.isLoading = true;
-    this.http.get<any>(`${this.api}?action=get_courses`).subscribe({
+    this.http.get<any>(`${this.api}?action=get_courses`, this.getHeaders()).subscribe({
       next: (res) => {
         this.isLoading = false;
         if (res.success) { this.courseList = res.courses; this.applyFilter(); }
@@ -125,7 +133,7 @@ export class Courses implements OnInit {
     }
     this.isSaving = true;
     const action = this.isEditing ? 'update_course' : 'create_course';
-    this.http.post<any>(`${this.api}?action=${action}`, this.form).subscribe({
+    this.http.post<any>(`${this.api}?action=${action}`, this.form, this.getHeaders()).subscribe({
       next: (res) => {
         this.isSaving = false;
         if (res.success) {
@@ -151,7 +159,7 @@ export class Courses implements OnInit {
   doDelete(): void {
     if (!this.deleteTarget) return;
     this.isDeleting = true;
-    this.http.post<any>(`${this.api}?action=delete_course`, { id: this.deleteTarget.id }).subscribe({
+    this.http.post<any>(`${this.api}?action=delete_course`, { id: this.deleteTarget.id }, this.getHeaders()).subscribe({
       next: (res) => {
         this.isDeleting = false;
         if (res.success) { this.showToast('success', 'Course deleted.'); this.loadCourses(); }

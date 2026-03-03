@@ -24,6 +24,13 @@ export class Grades implements OnInit {
   private apiUrl = 'http://localhost/sia-api/grades.php';
   private param  = '';
 
+  
+  /** Returns HTTP headers with the auth token. Call this in every API request. */
+  private getHeaders() {
+    const token = sessionStorage.getItem('token') ?? '';
+    return { headers: { Authorization: `Bearer ${token}` } };
+  }
+
   constructor(private http: HttpClient, private cdr: ChangeDetectorRef) {}
 
   isLoading = true; error = '';
@@ -44,7 +51,7 @@ export class Grades implements OnInit {
   }
 
   loadSemesters(): void {
-    this.http.get<any>(`${this.apiUrl}?action=get_semesters&${this.param}`).subscribe({
+    this.http.get<any>(`${this.apiUrl}?action=get_semesters&${this.param}`, this.getHeaders()).subscribe({
       next: (res) => {
         if (res.success) {
           this.semesters = res.semesters;
@@ -60,7 +67,7 @@ export class Grades implements OnInit {
   loadGrades(): void {
     this.isLoading = true;
     const sp = this.selectedSemester ? `&semester=${encodeURIComponent(this.selectedSemester)}` : '';
-    this.http.get<any>(`${this.apiUrl}?action=get_grades&${this.param}${sp}`).subscribe({
+    this.http.get<any>(`${this.apiUrl}?action=get_grades&${this.param}${sp}`, this.getHeaders()).subscribe({
       next: (res) => {
         this.isLoading = false;
         if (res.success) { this.grades = res.grades ?? []; this.currentGWA = res.gwa ?? null; this.totalCredits = res.totalCredits ?? 0; }
@@ -72,7 +79,7 @@ export class Grades implements OnInit {
   }
 
   loadSummary(): void {
-    this.http.get<any>(`${this.apiUrl}?action=get_grade_summary&${this.param}`).subscribe({
+    this.http.get<any>(`${this.apiUrl}?action=get_grade_summary&${this.param}`, this.getHeaders()).subscribe({
       next: (res) => {
         if (res.success) { this.overallGWA = res.overallGWA ?? null; this.academicStatus = res.academicStatus ?? 'No grades yet'; this.semesterGWA = res.semesterGWA ?? []; }
         this.cdr.detectChanges();

@@ -1,38 +1,200 @@
-<div class="audit-header">
-  <h1>📝 Audit Logs</h1>
-  <p class="subtitle">System activity and user action history</p>
+<!-- Page Header -->
+<div class="page-header">
+  <div class="page-header-left">
+    <span class="hdr-icon">📋</span>
+    <div>
+      <h1>Audit Logs</h1>
+      <p class="hdr-sub">System activity and user action history</p>
+    </div>
+  </div>
+  <div class="header-actions">
+    <button class="btn-toggle-stats" (click)="showStats = !showStats">
+      {{ showStats ? '📊 Hide Stats' : '📊 Show Stats' }}
+    </button>
+  </div>
 </div>
 
-<div class="audit-container">
-  <div class="filters">
-    <input type="text" placeholder="Filter by user or action...">
-    <input type="date">
+<!-- Stats Cards -->
+<div class="stats-section" *ngIf="showStats && stats">
+  <div class="stat-card">
+    <div class="stat-val">{{ stats.totalAll | number }}</div>
+    <div class="stat-label">Total Events</div>
+  </div>
+  <div class="stat-card sc-today">
+    <div class="stat-val">{{ stats.today }}</div>
+    <div class="stat-label">Today</div>
   </div>
 
-  <div class="table-responsive">
-    <table class="audit-table">
-      <thead>
-        <tr>
-          <th>Timestamp</th>
-          <th>User</th>
-          <th>Action</th>
-          <th>Details</th>
-          <th>Status</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr *ngFor="let log of logs">
-          <td>{{ log.timestamp }}</td>
-          <td>{{ log.user }}</td>
-          <td>{{ log.action }}</td>
-          <td class="details-cell">{{ log.details }}</td>
-          <td>
-            <span class="status-badge" [ngClass]="log.status.toLowerCase()">
-              {{ log.status }}
-            </span>
-          </td>
-        </tr>
-      </tbody>
-    </table>
+  <!-- Top Actions -->
+  <div class="stat-wide sc-actions">
+    <div class="sw-title">Top Actions (7 days)</div>
+    <div class="action-bars">
+      <div class="ab-row" *ngFor="let a of stats.topActions.slice(0,5)">
+        <span class="ab-label">{{ formatAction(a.action) }}</span>
+        <div class="ab-track">
+          <div class="ab-fill" [style.width.%]="(a.cnt / (stats.topActions[0]?.cnt || 1)) * 100"></div>
+        </div>
+        <span class="ab-cnt">{{ a.cnt }}</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Daily Activity Chart -->
+  <div class="stat-wide sc-daily">
+    <div class="sw-title">Daily Activity (14 days)</div>
+    <div class="daily-bars">
+      <div class="db-col" *ngFor="let d of stats.daily">
+        <div class="db-bar-wrap">
+          <div class="db-bar" [style.height.%]="barWidth(d.cnt)" [title]="d.day + ': ' + d.cnt"></div>
+        </div>
+        <span class="db-label">{{ d.day | date:'d' }}</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- By Role -->
+  <div class="stat-card sc-roles">
+    <div class="sw-title">By Role</div>
+    <div class="role-list">
+      <div class="rl-row" *ngFor="let r of stats.byRole">
+        <span class="role-badge" [ngClass]="roleClass(r.user_role)">{{ r.user_role || 'system' }}</span>
+        <span class="rl-cnt">{{ r.cnt }}</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Filters -->
+<div class="filters-bar">
+  <input type="text" class="filter-input" placeholder="🔍 Filter by user/email…"
+    [(ngModel)]="filterUser" (input)="onFilterChange()">
+
+  <input type="text" class="filter-input" placeholder="🏷️ Filter by action…"
+    [(ngModel)]="filterAction" (input)="onFilterChange()">
+
+  <select class="filter-select" [(ngModel)]="filterRole" (change)="onFilterChange()">
+    <option value="">All Roles</option>
+    <option value="admin">Admin</option>
+    <option value="registrar">Registrar</option>
+    <option value="accounting">Accounting</option>
+    <option value="student">Student</option>
+  </select>
+
+  <input type="date" class="filter-input filter-date"
+    [(ngModel)]="filterDateFrom" (change)="onFilterChange()" placeholder="From">
+
+  <input type="date" class="filter-input filter-date"
+    [(ngModel)]="filterDateTo" (change)="onFilterChange()" placeholder="To">
+
+  <button class="btn-clear" (click)="clearFilters()"
+    *ngIf="filterAction||filterRole||filterUser||filterDateFrom||filterDateTo">
+    ✕ Clear
+  </button>
+</div>
+
+<!-- Results info -->
+<div class="results-bar">
+  <span>{{ totalLogs | number }} event{{ totalLogs !== 1 ? 's' : '' }} found</span>
+</div>
+
+<!-- Loading -->
+<div class="loading-state" *ngIf="isLoading">
+  <div class="spinner"></div>
+  <p>Loading audit logs…</p>
+</div>
+
+<!-- Empty -->
+<div class="empty-state" *ngIf="!isLoading && logs.length === 0">
+  <div class="es-icon">📋</div>
+  <p>No audit logs found for the selected filters.</p>
+  <button class="btn-link" (click)="clearFilters()">Clear all filters</button>
+</div>
+
+<!-- Logs Table -->
+<div class="table-container" *ngIf="!isLoading && logs.length > 0">
+  <table class="audit-table">
+    <thead>
+      <tr>
+        <th>Timestamp</th>
+        <th>User</th>
+        <th>Role</th>
+        <th>Action</th>
+        <th>Target</th>
+        <th>Description</th>
+        <th>IP</th>
+        <th class="tc">Details</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr *ngFor="let log of logs">
+        <td class="td-time">
+          <div class="time-date">{{ log.created_at | date:'MMM d, y' }}</div>
+          <div class="time-hr">{{ log.created_at | date:'h:mm:ss a' }}</div>
+        </td>
+        <td class="td-user">
+          <div class="user-email">{{ log.user_email || 'System' }}</div>
+          <div class="user-id" *ngIf="log.user_id">ID: {{ log.user_id }}</div>
+        </td>
+        <td>
+          <span class="role-badge" [ngClass]="roleClass(log.user_role)">{{ log.user_role || 'system' }}</span>
+        </td>
+        <td>
+          <span class="action-tag" [ngClass]="actionClass(log.action)">{{ formatAction(log.action) }}</span>
+        </td>
+        <td class="td-target">
+          <span *ngIf="log.target_type" class="target-type">{{ log.target_type }}</span>
+          <span *ngIf="log.target_id" class="target-id">#{{ log.target_id }}</span>
+        </td>
+        <td class="td-desc">{{ log.description || '—' }}</td>
+        <td class="td-ip mono">{{ log.ip_address || '—' }}</td>
+        <td class="tc">
+          <button class="btn-detail" (click)="openDetail(log)"
+            *ngIf="log.old_values || log.new_values">
+            Diff
+          </button>
+          <span *ngIf="!log.old_values && !log.new_values" class="no-diff">—</span>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- Pagination -->
+<div class="pagination" *ngIf="totalPages > 1 && !isLoading">
+  <button class="pg-btn" [disabled]="currentPage === 1" (click)="prevPage()">‹ Prev</button>
+  <button class="pg-btn" *ngFor="let p of getPages()"
+    [class.pg-active]="p === currentPage" (click)="loadLogs(p)">{{ p }}</button>
+  <button class="pg-btn" [disabled]="currentPage === totalPages" (click)="nextPage()">Next ›</button>
+  <span class="pg-info">Page {{ currentPage }} of {{ totalPages }}</span>
+</div>
+
+<!-- Detail Modal (Diff viewer) -->
+<div class="modal-overlay" *ngIf="showDetailModal && selectedLog" (click)="closeDetail()">
+  <div class="modal-box" (click)="$event.stopPropagation()">
+    <button class="modal-close" (click)="closeDetail()">✕</button>
+    <h2 class="modal-title">
+      <span class="action-tag" [ngClass]="actionClass(selectedLog.action)">{{ formatAction(selectedLog.action) }}</span>
+    </h2>
+    <p class="modal-meta">
+      By <strong>{{ selectedLog.user_email }}</strong> ·
+      <span class="role-badge" [ngClass]="roleClass(selectedLog.user_role)">{{ selectedLog.user_role }}</span> ·
+      {{ selectedLog.created_at | date:'medium' }}
+    </p>
+    <p class="modal-desc" *ngIf="selectedLog.description">{{ selectedLog.description }}</p>
+
+    <div class="diff-grid">
+      <div class="diff-col" *ngIf="selectedLog.old_values">
+        <div class="diff-header diff-old">Before</div>
+        <pre class="diff-body diff-body-old">{{ formatJson(selectedLog.old_values) }}</pre>
+      </div>
+      <div class="diff-col" *ngIf="selectedLog.new_values">
+        <div class="diff-header diff-new">After</div>
+        <pre class="diff-body diff-body-new">{{ formatJson(selectedLog.new_values) }}</pre>
+      </div>
+    </div>
+
+    <div class="modal-footer">
+      <span class="modal-ip">IP: {{ selectedLog.ip_address || '—' }}</span>
+    </div>
   </div>
 </div>

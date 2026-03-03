@@ -17,12 +17,12 @@
     </div>
     <div class="info-item">
       <span class="info-label">Year Level</span>
-      <span class="info-value">{{ yearLevel || '—' }}</span>
+      <span class="info-value">{{ displayYearLevel }}</span>
     </div>
     
     <div class="info-item">
       <span class="info-label">Status</span>
-      <span class="info-value info-status-pill">{{ academicStatus || enrollmentStatus || '—' }}</span>
+      <span class="info-value info-status-pill">{{ isIrregular ? 'Irregular' : (academicStatus || enrollmentStatus || '—') }}</span>
     </div>
   </div>
 </div>
@@ -45,11 +45,14 @@
         <p class="prog-line">{{ getProgramFull(program) }}</p>
         <div class="welcome-chips">
           <span class="wchip">📅 {{ academicYear }} · {{ semester }}</span>
-          <span class="wchip" *ngIf="yearLevel">🎓 {{ yearLevel }}</span>
+          <span class="wchip" *ngIf="yearLevel">🎓 {{ displayYearLevel }}</span>
           <span class="wchip" [class.wchip-green]="enrollmentStatus==='Enrolled'" [class.wchip-orange]="enrollmentStatus!=='Enrolled'">
             {{ enrollmentStatus || 'Pending' }}
           </span>
-          <span class="wchip" [class.wchip-green]="paymentStatus==='Paid'" [class.wchip-red]="paymentStatus!=='Paid'">
+          <span class="wchip wchip-purple" *ngIf="isIrregular" title="You have credited subjects from transfer — your curriculum differs from regular students.">
+            🔀 Irregular
+          </span>
+          <span class="wchip" [class.wchip-green]="paymentStatus==='Paid'" [class.wchip-red]="paymentStatus!=='Paid'" *ngIf="isCollege">
             💳 {{ paymentStatus }}
           </span>
         </div>
@@ -68,6 +71,32 @@
       <div class="stat-info">
         <h3>{{ card.title }}</h3>
         <p class="stat-number" [style.color]="card.color">{{ card.value }}</p>
+      </div>
+    </div>
+    <!-- Balance stat — college only -->
+    <div class="stat-card" *ngIf="isCollege">
+      <div class="stat-icon">💳</div>
+      <div class="stat-info">
+        <h3>Balance</h3>
+        <p class="stat-number" style="color:#e53e3e">{{ fmt(fees.remainingBal) }}</p>
+      </div>
+    </div>
+    <!-- SHS — Free voucher badge -->
+    <div class="stat-card" *ngIf="isSHS && isFreeStudent" style="background:linear-gradient(135deg,#f0fdf4,#dcfce7);border:1px solid #86efac">
+      <div class="stat-icon">🎓</div>
+      <div class="stat-info">
+        <h3>Tuition</h3>
+        <p class="stat-number" style="color:#15803d">FREE</p>
+        <small style="color:#16a34a;font-size:0.7rem">SHS Voucher Program</small>
+      </div>
+    </div>
+    <!-- TVET — Free subsidy badge -->
+    <div class="stat-card" *ngIf="isTVET && isFreeStudent" style="background:linear-gradient(135deg,#fff7ed,#ffedd5);border:1px solid #fed7aa">
+      <div class="stat-icon">🛠️</div>
+      <div class="stat-info">
+        <h3>Tuition</h3>
+        <p class="stat-number" style="color:#9a3412">FREE</p>
+        <small style="color:#c2410c;font-size:0.7rem">TESDA PRISAA Subsidy</small>
       </div>
     </div>
     <div class="stat-card">
@@ -99,7 +128,9 @@
   <section class="courses-section">
     <div class="section-header">
       <h2>🎓 Your Enrolled Courses</h2>
-      <p class="section-subtitle">{{ enrolledCourses.length }} courses · {{ totalCredits }} units this semester</p>
+        <p class="section-subtitle" *ngIf="isCollege">{{ enrolledCourses.length }} courses · {{ totalCredits }} units this semester</p>
+        <p class="section-subtitle" *ngIf="isSHS">{{ enrolledCourses.length }} subjects this semester</p>
+        <p class="section-subtitle" *ngIf="isTVET">{{ enrolledCourses.length }} subjects enrolled</p>
     </div>
     <div *ngIf="enrolledCourses.length === 0" class="empty-card">
       <p>📚 No enrolled courses yet. Go to <strong>Enrollment</strong> to enlist subjects.</p>
@@ -130,8 +161,8 @@
     </div>
   </section>
 
-  <!-- ══ FINANCIAL SUMMARY ══════════════════════════════════ -->
-  <section class="fees-section">
+  <!-- ══ FINANCIAL SUMMARY (College only) ═════════════════════ -->
+  <section class="fees-section" *ngIf="isCollege">
     <div class="section-header">
       <h2>💰 Financial Summary</h2>
       <p class="section-subtitle">Tuition, fees, scholarships, payment history & balance</p>
@@ -207,6 +238,32 @@
           </tbody>
         </table>
       </div>
+    </div>
+  </section>
+
+  <!-- ══ SHS PAYMENT NOTICE (SHS only) ════════════════════════ -->
+  <section class="fees-section" *ngIf="isSHS && isFreeStudent">
+    <div class="section-header">
+      <h2>💰 Tuition & Fees</h2>
+    </div>
+    <div class="fees-card" style="padding:1.5rem;text-align:center;background:linear-gradient(135deg,#f0fdf4,#dcfce7);border:1px solid #86efac;border-radius:12px;">
+      <div style="font-size:2.5rem;margin-bottom:0.5rem">🎓</div>
+      <h3 style="color:#15803d;font-size:1.3rem;margin:0 0 0.5rem">No Tuition Fee Required</h3>
+      <p style="color:#16a34a;margin:0">Your tuition is fully covered by the <strong>Senior High School Voucher Program (SHS VP)</strong>.</p>
+      <p style="color:#4ade80;font-size:0.85rem;margin-top:0.5rem">No payment required for this semester.</p>
+    </div>
+  </section>
+
+  <!-- ══ TVET PAYMENT NOTICE (TVET only) ══════════════════════ -->
+  <section class="fees-section" *ngIf="isTVET && isFreeStudent">
+    <div class="section-header">
+      <h2>💰 Tuition & Fees</h2>
+    </div>
+    <div class="fees-card" style="padding:1.5rem;text-align:center;background:linear-gradient(135deg,#fff7ed,#ffedd5);border:1px solid #fed7aa;border-radius:12px;">
+      <div style="font-size:2.5rem;margin-bottom:0.5rem">🛠️</div>
+      <h3 style="color:#9a3412;font-size:1.3rem;margin:0 0 0.5rem">No Tuition Fee Required</h3>
+      <p style="color:#c2410c;margin:0">Your TVET program is fully funded by <strong>TESDA's Private Education Student Financial Assistance (PRISAA)</strong>.</p>
+      <p style="color:#fb923c;font-size:0.85rem;margin-top:0.5rem">No tuition payment required regardless of student type.</p>
     </div>
   </section>
 

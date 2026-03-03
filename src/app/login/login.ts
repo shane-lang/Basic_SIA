@@ -1,4 +1,4 @@
-import { Component, ChangeDetectorRef } from '@angular/core';
+import { Component, ChangeDetectorRef, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule, isPlatformBrowser } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
@@ -16,7 +16,7 @@ import { PLATFORM_ID, inject } from '@angular/core';
   templateUrl: './login.html',
   styleUrls: ['./login.css']
 })
-export class LoginComponent {
+export class LoginComponent implements OnInit, OnDestroy {
   private apiUrl     = 'http://localhost/sia-api/enrollment.php';
   private authUrl    = 'http://localhost/sia-api/auth.php';
   private adminUrl   = 'http://localhost/sia-api/admin.php';
@@ -35,6 +35,10 @@ export class LoginComponent {
   // Step 1
   studentTypeCategory: 'College' | 'SHS' | 'TVET' | '' = '';
   selectedProgram = ''; selectedProgramName = ''; selectedDepartment = '';
+  // Step 1 — sub-selection state
+  selectedDept      = '';   // College: selected department
+  selectedGradeLevel = '';  // SHS: 'Grade 11' | 'Grade 12'
+  selectedTvetType  = '';   // TVET: 'Diploma' | 'NC II'
 
   // Step 1 — Programs loaded from DB
   programsLoading = false;
@@ -180,7 +184,60 @@ export class LoginComponent {
   // Step 4
   accountForm = { email: '', password: '', confirmPassword: '' };
 
+  // ── SHS / TVET Fee State ─────────────────────────────────
+  shsFeeResult: { isFree: boolean; fees: any } | null = null;
+  tvetFeeResult: { isFree: boolean; fees: any } | null = null;
+  isSHSFeeLoading = false;
+  isTVETFeeLoading = false;
+
+  // ── SHS-specific step tracking ───────────────────────────
+  // SHS: gradeLevel → track → strand → program
+  shsSelectedTrack = '';  // 'Academic' | 'TVL-HE' | 'TVL-ICT'
+  shsTrackOptions = ['Academic Track', 'Technical-Vocational Livelihood (TVL)'];
+  get shsStrandsByTrack(): { id: string; name: string; dept: string }[] {
+    if (!this.shsSelectedTrack) return [];
+    return (this.programsByType['SHS'] || []).filter(p => p.dept === this.shsSelectedTrack);
+  }
+
+  // ── TVET-specific step tracking ──────────────────────────
+  // TVET: type (Diploma / NC II / NC III) → program
+  tvetSelectedType = '';  // 'Diploma' | 'NCII' | 'NCIII'
+  tvetTypeOptions = ['Diploma', 'NC II', 'NC III'];
+  get tvetProgramsByType(): { id: string; name: string; dept: string }[] {
+    if (!this.tvetSelectedType) return [];
+    return (this.programsByType['TVET'] || []).filter(p => {
+      const name = p.name.toUpperCase();
+      if (this.tvetSelectedType === 'Diploma')  return name.includes('DIPLOMA') || name.startsWith('2-YR');
+      if (this.tvetSelectedType === 'NC II')    return name.includes('NCII') || name.includes('NC II');
+      if (this.tvetSelectedType === 'NC III')   return name.includes('NCIII') || name.includes('NC III');
+      return false;
+    });
+  }
+
   constructor(private http: HttpClient, private router: Router, private cdr: ChangeDetectorRef) {}
+
+  ngOnInit(): void {
+    // Resume TOR polling if student refreshed mid-evaluation
+    const saved = sessionStorage.getItem('torReviewStudentId');
+    if (saved) {
+      const sid = parseInt(saved, 10);
+      if (sid > 0) {
+        this.torReviewStudentId = sid;
+        this.view        = 'enroll';
+        this.enrollStep  = 'tor-review';
+        this.torReviewPhase = 'waiting';
+        console.log('[TOR RESUME] Resuming poll for student_id', sid);
+        this.startTorPoll();
+        this.cdr.detectChanges();
+      }
+    }
+  }
+
+  ngOnDestroy(): void {
+    if (this.torPollTimer) clearInterval(this.torPollTimer);
+  }
+
+
 
   // ══ LOAD PROGRAMS FROM DB ═════════════════════════════════════
   loadPrograms(): void {
@@ -233,7 +290,7 @@ export class LoginComponent {
   // ══ ENROLLMENT WIZARD ════════════════════════════════════════
   openEnrollment(): void {
     this.view = 'enroll'; this.enrollStep = 'program'; this.enrollError = '';
-    this.studentTypeCategory = ''; this.selectedProgram = ''; this.selectedProgramName = ''; this.selectedDepartment = '';
+    this.studentTypeCategory = ''; this.selectedProgram = ''; this.selectedProgramName = ''; this.selectedDepartment = ''; this.selectedDept = ''; this.selectedGradeLevel = ''; this.selectedTvetType = '';
     this.regForm = { lastName:'',firstName:'',middleName:'',suffix:'',studentType:'New',lrnNo:'',dateOfBirth:'',lastSchoolAttended:'',psaBirthCertNo:'',sex:'',religion:'',age:'',placeOfBirth:'',citizenship:'',homeAddress:'',contactNumber:'',isIndigenous:'No',motherTongue:'',hasSpecialNeeds:'No',specialNeedsDetails:'',hasAssistiveTech:'No',assistiveTechDetails:'',strand:'',learningDelivery:'',guardianName:'',guardianAddress:'',guardianContact:'',yearLevel:'1st Year',semesterEnroll:'',ayYear:'' };
     this.torFile=null; this.goodMoralFile=null; this.psaFile=null; this.form138File=null; this.picFile=null;
     this.torFileName=''; this.goodMoralFileName=''; this.psaFileName=''; this.form138FileName=''; this.picFileName='';
@@ -259,12 +316,66 @@ export class LoginComponent {
   }
 
   // Step 1
-  selectStudentTypeCategory(t: 'College' | 'SHS' | 'TVET'): void { this.studentTypeCategory = t; this.selectedProgram = ''; this.selectedProgramName = ''; this.cdr.detectChanges(); }
+  selectStudentTypeCategory(t: 'College' | 'SHS' | 'TVET'): void {
+    this.studentTypeCategory = t;
+    this.selectedProgram = ''; this.selectedProgramName = '';
+    this.selectedDept = ''; this.selectedGradeLevel = ''; this.selectedTvetType = '';
+    this.shsSelectedTrack = ''; this.tvetSelectedType = '';
+    this.cdr.detectChanges();
+  }
+
+  selectDept(dept: string): void {
+    this.selectedDept = dept;
+    this.selectedProgram = ''; this.selectedProgramName = '';
+    this.cdr.detectChanges();
+  }
+
+  selectGradeLevel(grade: string): void {
+    this.selectedGradeLevel = grade;
+    this.regForm.yearLevel  = grade;  // sync so Grade 11/12 is saved correctly
+    this.selectedProgram = ''; this.selectedProgramName = '';
+    this.cdr.detectChanges();
+  }
+
+  selectTvetType(type: string): void {
+    this.selectedTvetType = type;
+    this.selectedProgram = ''; this.selectedProgramName = '';
+    this.cdr.detectChanges();
+  }
+
+  // Returns unique departments for the current level — fully dynamic from DB
+  getDeptsForLevel(level: string): string[] {
+    return [...new Set(
+      (this.programsByType[level] || [])
+        .map(p => p.dept)
+        .filter(d => d && d.trim() !== '')
+    )];
+  }
+
+  get collegeDepts(): string[] { return this.getDeptsForLevel('College'); }
+  get shsDepts():     string[] { return this.getDeptsForLevel('SHS'); }
+  get tvetDepts():    string[] { return this.getDeptsForLevel('TVET'); }
+
+  get filteredPrograms(): { id: string; name: string; dept: string }[] {
+    const all = this.availablePrograms;
+    if (this.studentTypeCategory === 'College' && this.selectedDept) {
+      return all.filter(p => p.dept === this.selectedDept);
+    }
+    if (this.studentTypeCategory === 'SHS' && this.selectedGradeLevel) {
+      return all.filter(p => p.dept === this.selectedGradeLevel);
+    }
+    if (this.studentTypeCategory === 'TVET' && this.selectedTvetType) {
+      return all.filter(p => p.dept === this.selectedTvetType);
+    }
+    return [];
+  }
   selectProgram(p: { id: string; name: string; dept: string }): void { this.selectedProgram = p.id; this.selectedProgramName = p.name; this.selectedDepartment = p.dept; this.cdr.detectChanges(); }
 
   proceedFromProgram(): void {
     if (!this.studentTypeCategory) { this.enrollError = 'Please select a student level.'; this.cdr.detectChanges(); return; }
     if (!this.selectedProgram)     { this.enrollError = 'Please select a program.';        this.cdr.detectChanges(); return; }
+    // Auto-set strand for SHS from the selected program name
+    if (this.isSHS) { this.regForm.strand = this.selectedProgramName; }
     this.enrollError = ''; this.enrollStep = 'info'; this.cdr.detectChanges();
   }
 
@@ -346,10 +457,15 @@ export class LoginComponent {
 
     console.log('[STEP 2] All validations passed → proceeding to documents');
     this.enrollError = ''; this.enrollStep = 'documents';
-    if (!this.isTransfereeEnrolling) {
-      this.loadFeePreview();
-    } else {
+    if (this.isTransfereeEnrolling) {
       this.loadProgramCourses();
+    } else if (this.isSHS) {
+      this.loadSHSFee();
+    } else if (this.isTVET) {
+      this.loadTVETFee();
+    } else {
+      // College only
+      this.loadFeePreview();
     }
     this.cdr.detectChanges();
   }
@@ -360,6 +476,8 @@ export class LoginComponent {
     this.isFeePreviewLoading = true;
     this.feePreviewError = '';
     this.feePreview = null;
+    this.shsFeeResult = null;    // clear SHS state so SHS sections stay hidden
+    this.tvetFeeResult = null;   // clear TVET state so TVET sections stay hidden
     this.cdr.detectChanges();
 
     const discount = this.isScholar && this.scholarshipAmount > 0 ? this.scholarshipAmount : 0;
@@ -413,7 +531,9 @@ export class LoginComponent {
 
   // Re-compute when payment plan or scholarship changes
   onPaymentPlanChange(): void {
-    this.loadFeePreview();
+    if (this.isSHS)        this.loadSHSFee();
+    else if (this.isTVET)  this.loadTVETFee();
+    else                   this.loadFeePreview(); // College only
   }
 
   // Called when transferee changes payment plan AFTER TOR evaluation
@@ -440,7 +560,10 @@ export class LoginComponent {
   }
 
   onScholarshipChange(): void {
-    if (this.enrollStep === 'documents') this.loadFeePreview();
+    if (this.enrollStep !== 'documents') return;
+    if (this.isSHS)        this.loadSHSFee();
+    else if (this.isTVET)  this.loadTVETFee();
+    else                   this.loadFeePreview(); // College only
   }
 
   // ── Program course grouping helpers ──────────────────────
@@ -582,10 +705,15 @@ export class LoginComponent {
 
   private checkTorEval(): void {
     const sid = this.torReviewStudentId;
-    if (!sid) return;
+    if (!sid) { console.warn('[TOR POLL] No student_id — polling skipped'); return; }
+    console.log('[TOR POLL] Checking evaluation for student_id', sid);
     this.http.get<any>(`http://localhost/sia-api/registrar.php?action=get_tor_evaluation&student_id=${sid}`).subscribe({
       next: (res) => {
-        if (!res.success || !res.evaluation || res.evaluation.status === 'Pending') return;
+        console.log('[TOR POLL] Response:', res);
+        if (!res.success || !res.evaluation || res.evaluation.status === 'Pending') {
+          console.log('[TOR POLL] Still pending — waiting...');
+          return;
+        }
         clearInterval(this.torPollTimer);
         const ev = res.evaluation;
         const disc = this.isScholar && this.scholarshipAmount > 0 ? this.scholarshipAmount : 0;
@@ -601,6 +729,7 @@ export class LoginComponent {
   }
 
   private setTorResult(ev: any, fee: any): void {
+    console.log('[TOR RESULT] Evaluation:', ev, 'Fee:', fee);
     const subs: { courseId:number; code:string; name:string; credits:number }[] = ev.creditedSubjects || [];
     this.torCreditedCodes = new Set(subs.map(s => s.code));
     this.torEvalResult = {
@@ -671,6 +800,339 @@ export class LoginComponent {
         this.cdr.detectChanges();
       }
     });
+  }
+
+  // ══════════════════════════════════════════════════════════
+  // SHS ENROLLMENT SUBMIT — separate function, does NOT modify College flow
+  // ══════════════════════════════════════════════════════════
+  submitEnrollmentSHS(): void {
+    const a = this.accountForm;
+    if (!a.email || !a.password)             { this.enrollError = 'Email and password are required.';        this.cdr.detectChanges(); return; }
+    if (a.password !== a.confirmPassword)    { this.enrollError = 'Passwords do not match.';                 this.cdr.detectChanges(); return; }
+    if (a.password.length < 6)              { this.enrollError = 'Password must be at least 6 characters.'; this.cdr.detectChanges(); return; }
+
+    this.isSubmitting = true; this.enrollError = ''; this.cdr.detectChanges();
+
+    // STEP 1 — Create user account
+    this.http.post<any>(`${this.authUrl}?action=register`, {
+      email: a.email, password: a.password, role: 'student',
+      first_name: this.regForm.firstName, last_name: this.regForm.lastName
+    }).subscribe({
+      next: (res) => {
+        if (!res.success && !res.user_id) {
+          this.isSubmitting = false;
+          this.enrollError = res.message || 'Failed to create account.';
+          this.cdr.detectChanges(); return;
+        }
+        const userId = res.user_id;
+
+        // STEP 2 — Register SHS student profile
+        this.http.post<any>(`${this.apiUrl}?action=register_student_shs`, {
+          user_id: userId,
+          firstName: this.regForm.firstName,   lastName: this.regForm.lastName,
+          middleName: this.regForm.middleName, suffix: this.regForm.suffix,
+          email: a.email, phone: this.regForm.contactNumber,
+          dateOfBirth: this.regForm.dateOfBirth, address: this.regForm.homeAddress,
+          guardianName: this.regForm.guardianName, guardianAddress: this.regForm.guardianAddress,
+          guardianContact: this.regForm.guardianContact,
+          program: this.selectedProgramName,
+          studentType: this.regForm.studentType,
+          studentCategory: 'SHS',
+          lrnNo: this.regForm.lrnNo,
+          sex: this.regForm.sex, religion: this.regForm.religion,
+          age: this.regForm.age, placeOfBirth: this.regForm.placeOfBirth,
+          citizenship: this.regForm.citizenship, motherTongue: this.regForm.motherTongue,
+          isIndigenous: this.regForm.isIndigenous,
+          hasSpecialNeeds: this.regForm.hasSpecialNeeds,
+          specialNeedsDetails: this.regForm.specialNeedsDetails,
+          hasAssistiveTech: this.regForm.hasAssistiveTech,
+          assistiveTechDetails: this.regForm.assistiveTechDetails,
+          psaBirthCertNo: this.regForm.psaBirthCertNo,
+          lastSchoolAttended: this.regForm.lastSchoolAttended,
+          strand: this.regForm.strand,
+          learningDelivery: this.regForm.learningDelivery,
+          gradeLevel: this.regForm.yearLevel,
+          isScholar: this.isScholar ? 1 : 0,
+          scholarType: this.scholarType, scholarGrantor: this.scholarGrantor,
+          scholarshipAmount: this.scholarshipAmount,
+          paymentMethod: this.paymentMethod, paymentPlan: this.paymentPlan,
+          semester: this.fullSemester, yearLevel: this.regForm.yearLevel,
+        }).subscribe({
+          next: (sRes) => {
+            this.isSubmitting = false;
+            if (!sRes.success && !sRes.student_id && !sRes.student_number) {
+              this.enrollError = sRes.message || 'SHS registration failed.';
+              this.cdr.detectChanges(); return;
+            }
+            if (isPlatformBrowser(this.platformId)) {
+              sessionStorage.setItem('pendingPaymentMethod', this.paymentMethod);
+              sessionStorage.setItem('pendingPaymentPlan', this.paymentPlan);
+            }
+            // STEP 3 — Upload docs then auto-login
+            const studentId = sRes.student_id || sRes.studentId;
+            const doUploadsThenLogin = () => {
+              const doLogin = () => {
+                this.http.post<any>(this.authUrl, { email: a.email, password: a.password }).subscribe({
+                  next: (lr) => {
+                    if (lr.success && isPlatformBrowser(this.platformId)) {
+                      sessionStorage.setItem('currentUser', JSON.stringify(lr.user));
+                      sessionStorage.setItem('token', lr.token);
+                    }
+                    this.router.navigate(['/student/enrollment']);
+                  },
+                  error: () => { this.view = 'login'; this.email = a.email; this.successMessage = 'Account created! Please log in.'; this.cdr.detectChanges(); }
+                });
+              };
+              // Upload Form 138 if present
+              if (this.form138File && studentId) {
+                const fd = new FormData();
+                fd.append('student_id', String(studentId));
+                fd.append('document_type', 'form138');
+                fd.append('file', this.form138File);
+                this.http.post<any>('http://localhost/sia-api/registrar.php?action=upload_document', fd)
+                  .subscribe({ next: () => doLogin(), error: () => doLogin() });
+              } else { doLogin(); }
+            };
+            doUploadsThenLogin();
+          },
+          error: (err) => {
+            this.isSubmitting = false;
+            this.enrollError = err?.error?.message || 'SHS registration failed.';
+            this.cdr.detectChanges();
+          }
+        });
+      },
+      error: () => {
+        this.isSubmitting = false;
+        this.enrollError = 'Cannot connect to server. Check XAMPP is running.';
+        this.cdr.detectChanges();
+      }
+    });
+  }
+
+  // ══════════════════════════════════════════════════════════
+  // TVET ENROLLMENT SUBMIT — separate function, does NOT modify College flow
+  // ══════════════════════════════════════════════════════════
+  submitEnrollmentTVET(): void {
+    const a = this.accountForm;
+    if (!a.email || !a.password)            { this.enrollError = 'Email and password are required.';        this.cdr.detectChanges(); return; }
+    if (a.password !== a.confirmPassword)   { this.enrollError = 'Passwords do not match.';                 this.cdr.detectChanges(); return; }
+    if (a.password.length < 6)             { this.enrollError = 'Password must be at least 6 characters.'; this.cdr.detectChanges(); return; }
+
+    this.isSubmitting = true; this.enrollError = ''; this.cdr.detectChanges();
+
+    // STEP 1 — Create user account
+    this.http.post<any>(`${this.authUrl}?action=register`, {
+      email: a.email, password: a.password, role: 'student',
+      first_name: this.regForm.firstName, last_name: this.regForm.lastName
+    }).subscribe({
+      next: (res) => {
+        if (!res.success && !res.user_id) {
+          this.isSubmitting = false;
+          this.enrollError = res.message || 'Failed to create account.';
+          this.cdr.detectChanges(); return;
+        }
+        const userId = res.user_id;
+
+        // STEP 2 — Register TVET student profile
+        this.http.post<any>(`${this.apiUrl}?action=register_student_tvet`, {
+          user_id: userId,
+          firstName: this.regForm.firstName,   lastName: this.regForm.lastName,
+          middleName: this.regForm.middleName, suffix: this.regForm.suffix,
+          email: a.email, phone: this.regForm.contactNumber,
+          dateOfBirth: this.regForm.dateOfBirth, address: this.regForm.homeAddress,
+          guardianName: this.regForm.guardianName, guardianAddress: this.regForm.guardianAddress,
+          guardianContact: this.regForm.guardianContact,
+          program: this.selectedProgramName,
+          studentType: this.regForm.studentType,
+          studentCategory: 'TVET',
+          tvetType: this.tvetSelectedType,
+          lrnNo: this.regForm.lrnNo,
+          sex: this.regForm.sex, religion: this.regForm.religion,
+          age: this.regForm.age, placeOfBirth: this.regForm.placeOfBirth,
+          citizenship: this.regForm.citizenship, motherTongue: this.regForm.motherTongue,
+          isIndigenous: this.regForm.isIndigenous,
+          hasSpecialNeeds: this.regForm.hasSpecialNeeds,
+          specialNeedsDetails: this.regForm.specialNeedsDetails,
+          hasAssistiveTech: this.regForm.hasAssistiveTech,
+          assistiveTechDetails: this.regForm.assistiveTechDetails,
+          psaBirthCertNo: this.regForm.psaBirthCertNo,
+          lastSchoolAttended: this.regForm.lastSchoolAttended,
+          isScholar: this.isScholar ? 1 : 0,
+          scholarType: this.scholarType, scholarGrantor: this.scholarGrantor,
+          scholarshipAmount: this.scholarshipAmount,
+          paymentMethod: this.paymentMethod, paymentPlan: this.paymentPlan,
+          semester: this.fullSemester, yearLevel: this.regForm.yearLevel,
+        }).subscribe({
+          next: (sRes) => {
+            this.isSubmitting = false;
+            if (!sRes.success && !sRes.student_id && !sRes.student_number) {
+              this.enrollError = sRes.message || 'TVET registration failed.';
+              this.cdr.detectChanges(); return;
+            }
+            if (isPlatformBrowser(this.platformId)) {
+              sessionStorage.setItem('pendingPaymentMethod', this.paymentMethod);
+              sessionStorage.setItem('pendingPaymentPlan', this.paymentPlan);
+            }
+            // Auto-login
+            this.http.post<any>(this.authUrl, { email: a.email, password: a.password }).subscribe({
+              next: (lr) => {
+                if (lr.success && isPlatformBrowser(this.platformId)) {
+                  sessionStorage.setItem('currentUser', JSON.stringify(lr.user));
+                  sessionStorage.setItem('token', lr.token);
+                }
+                this.router.navigate(['/student/enrollment']);
+              },
+              error: () => { this.view = 'login'; this.email = a.email; this.successMessage = 'Account created! Please log in.'; this.cdr.detectChanges(); }
+            });
+          },
+          error: (err) => {
+            this.isSubmitting = false;
+            this.enrollError = err?.error?.message || 'TVET registration failed.';
+            this.cdr.detectChanges();
+          }
+        });
+      },
+      error: () => {
+        this.isSubmitting = false;
+        this.enrollError = 'Cannot connect to server. Check XAMPP is running.';
+        this.cdr.detectChanges();
+      }
+    });
+  }
+
+  // ══════════════════════════════════════════════════════════
+  // VALIDATION helpers for SHS / TVET specific steps
+  // ══════════════════════════════════════════════════════════
+  proceedFromInfoSHS(): void {
+    const f = this.regForm;
+    if (!f.lastName?.trim())        { this.enrollError = 'Last Name is required.';        this.cdr.detectChanges(); return; }
+    if (!f.firstName?.trim())       { this.enrollError = 'First Name is required.';       this.cdr.detectChanges(); return; }
+    if (!f.studentType)             { this.enrollError = 'Type of Student is required.';  this.cdr.detectChanges(); return; }
+    if (!f.lrnNo?.trim())           { this.enrollError = 'LRN No. is required for SHS.'; this.cdr.detectChanges(); return; }
+    if (!f.dateOfBirth)             { this.enrollError = 'Date of Birth is required.';    this.cdr.detectChanges(); return; }
+    if (!f.sex)                     { this.enrollError = 'Sex is required.';              this.cdr.detectChanges(); return; }
+    if (!f.religion?.trim())        { this.enrollError = 'Religion is required.';         this.cdr.detectChanges(); return; }
+    if (!f.age?.toString().trim())  { this.enrollError = 'Age is required.';              this.cdr.detectChanges(); return; }
+    if (!f.placeOfBirth?.trim())    { this.enrollError = 'Place of Birth is required.';   this.cdr.detectChanges(); return; }
+    if (!f.citizenship?.trim())     { this.enrollError = 'Citizenship is required.';      this.cdr.detectChanges(); return; }
+    if (!f.homeAddress?.trim())     { this.enrollError = 'Home Address is required.';     this.cdr.detectChanges(); return; }
+    if (!f.contactNumber?.trim())   { this.enrollError = 'Contact Number is required.';   this.cdr.detectChanges(); return; }
+    if (!f.motherTongue?.trim())    { this.enrollError = 'Mother Tongue is required.';    this.cdr.detectChanges(); return; }
+    if (!f.isIndigenous)            { this.enrollError = 'Please answer the IP question.'; this.cdr.detectChanges(); return; }
+    if (!f.hasSpecialNeeds)         { this.enrollError = 'Please answer: Special Education Needs?'; this.cdr.detectChanges(); return; }
+    if (f.hasSpecialNeeds === 'Yes' && !f.specialNeedsDetails?.trim()) { this.enrollError = 'Please specify your special education needs.'; this.cdr.detectChanges(); return; }
+    if (!f.hasAssistiveTech)        { this.enrollError = 'Please answer: Assistive Technology?'; this.cdr.detectChanges(); return; }
+    if (!f.guardianName?.trim())    { this.enrollError = 'Parent / Guardian Name is required.'; this.cdr.detectChanges(); return; }
+    if (!f.guardianContact?.trim()) { this.enrollError = 'Parent / Guardian Contact is required.'; this.cdr.detectChanges(); return; }
+    if (!f.strand)                  { this.enrollError = 'Please choose your SHS strand.'; this.cdr.detectChanges(); return; }
+    if (!f.yearLevel)               { this.enrollError = 'Grade Level is required.';      this.cdr.detectChanges(); return; }
+    // Build lastSchoolAttended from previousSchools
+    const filledSchools = this.previousSchools.filter(s => s.schoolName?.trim());
+    if (filledSchools.length === 0) { this.enrollError = 'Please enter at least one previous school.'; this.cdr.detectChanges(); return; }
+    f.lastSchoolAttended = filledSchools.map(s => `${s.level} - ${s.schoolName} (${s.schoolYear})`).join('; ');
+    this.enrollError = '';
+    this.enrollStep = 'documents';
+    this.loadSHSFee();
+    this.cdr.detectChanges();
+  }
+
+  loadSHSFee(): void {
+    this.isSHSFeeLoading = true;
+    this.shsFeeResult = null;
+    this.feePreviewError = '';   // clear any stale College error
+    this.feePreview = null;      // clear College fee so College section stays hidden
+    this.cdr.detectChanges();
+    const discount = this.isScholar && this.scholarshipAmount > 0 ? this.scholarshipAmount : 0;
+    const inst = this.paymentPlan === 'installment' ? 1 : 0;
+    this.http.get<any>(
+      `${this.accountingUrl}?action=get_shs_fee` +
+      `&student_type=${encodeURIComponent(this.regForm.studentType)}` +
+      `&discount=${discount}&has_installment=${inst}`
+    ).subscribe({
+      next: (res) => {
+        this.isSHSFeeLoading = false;
+        if (res.success) {
+          this.shsFeeResult = res;
+          if (!res.isFree) {
+            this.tuitionAmount = res.fees.totalAssessment;
+            // NOTE: do NOT set this.feePreview here — that's College-only
+          }
+        }
+        this.cdr.detectChanges();
+      },
+      error: () => { this.isSHSFeeLoading = false; this.cdr.detectChanges(); }
+    });
+  }
+
+  proceedFromInfoTVET(): void {
+    const f = this.regForm;
+    if (!f.lastName?.trim())        { this.enrollError = 'Last Name is required.';        this.cdr.detectChanges(); return; }
+    if (!f.firstName?.trim())       { this.enrollError = 'First Name is required.';       this.cdr.detectChanges(); return; }
+    if (!f.studentType)             { this.enrollError = 'Type of Student is required.';  this.cdr.detectChanges(); return; }
+    if (!f.lrnNo?.trim())           { this.enrollError = 'LRN No. is required for TVET.'; this.cdr.detectChanges(); return; }
+    if (!f.dateOfBirth)             { this.enrollError = 'Date of Birth is required.';    this.cdr.detectChanges(); return; }
+    if (!f.sex)                     { this.enrollError = 'Sex is required.';              this.cdr.detectChanges(); return; }
+    if (!f.religion?.trim())        { this.enrollError = 'Religion is required.';         this.cdr.detectChanges(); return; }
+    if (!f.age?.toString().trim())  { this.enrollError = 'Age is required.';              this.cdr.detectChanges(); return; }
+    if (!f.placeOfBirth?.trim())    { this.enrollError = 'Place of Birth is required.';   this.cdr.detectChanges(); return; }
+    if (!f.citizenship?.trim())     { this.enrollError = 'Citizenship is required.';      this.cdr.detectChanges(); return; }
+    if (!f.homeAddress?.trim())     { this.enrollError = 'Home Address is required.';     this.cdr.detectChanges(); return; }
+    if (!f.contactNumber?.trim())   { this.enrollError = 'Contact Number is required.';   this.cdr.detectChanges(); return; }
+    if (!f.motherTongue?.trim())    { this.enrollError = 'Mother Tongue is required.';    this.cdr.detectChanges(); return; }
+    if (!f.isIndigenous)            { this.enrollError = 'Please answer the IP question.'; this.cdr.detectChanges(); return; }
+    if (!f.hasSpecialNeeds)         { this.enrollError = 'Please answer: Special Education Needs?'; this.cdr.detectChanges(); return; }
+    if (f.hasSpecialNeeds === 'Yes' && !f.specialNeedsDetails?.trim()) { this.enrollError = 'Please specify your special education needs.'; this.cdr.detectChanges(); return; }
+    if (!f.hasAssistiveTech)        { this.enrollError = 'Please answer: Assistive Technology?'; this.cdr.detectChanges(); return; }
+    if (!f.guardianName?.trim())    { this.enrollError = 'Parent / Guardian Name is required.'; this.cdr.detectChanges(); return; }
+    if (!f.guardianContact?.trim()) { this.enrollError = 'Parent / Guardian Contact is required.'; this.cdr.detectChanges(); return; }
+    if (!f.yearLevel)               { this.enrollError = 'Year Level is required.';       this.cdr.detectChanges(); return; }
+    // Build lastSchoolAttended
+    const filledSchools = this.previousSchools.filter(s => s.schoolName?.trim());
+    if (filledSchools.length === 0) { this.enrollError = 'Please enter at least one previous school.'; this.cdr.detectChanges(); return; }
+    f.lastSchoolAttended = filledSchools.map(s => `${s.level} - ${s.schoolName} (${s.schoolYear})`).join('; ');
+    this.enrollError = '';
+    this.enrollStep = 'documents';
+    this.loadTVETFee();
+    this.cdr.detectChanges();
+  }
+
+  loadTVETFee(): void {
+    this.isTVETFeeLoading = true;
+    this.tvetFeeResult = null;
+    this.feePreviewError = '';   // clear any stale College error
+    this.feePreview = null;      // clear College fee so College section stays hidden
+    this.cdr.detectChanges();
+    this.http.get<any>(
+      `${this.accountingUrl}?action=get_tvet_fee` +
+      `&program=${encodeURIComponent(this.selectedProgramName)}` +
+      `&student_type=${encodeURIComponent(this.regForm.studentType)}`
+    ).subscribe({
+      next: (res) => {
+        this.isTVETFeeLoading = false;
+        if (res.success) { this.tvetFeeResult = res; }
+        this.cdr.detectChanges();
+      },
+      error: () => { this.isTVETFeeLoading = false; this.cdr.detectChanges(); }
+    });
+  }
+
+  proceedFromDocumentsSHS(): void {
+    if (this.isScholar && !this.scholarType) { this.enrollError = 'Please select a scholarship type.'; this.cdr.detectChanges(); return; }
+    // SHS Transferee: check fee is loaded before proceeding
+    if (this.isTransfereeEnrolling && this.isSHSFeeLoading) {
+      this.enrollError = 'Fee assessment is still loading. Please wait.'; this.cdr.detectChanges(); return;
+    }
+    this.enrollError = '';
+    this.enrollStep = 'account';
+    this.cdr.detectChanges();
+  }
+
+  proceedFromDocumentsTVET(): void {
+    if (this.isScholar && !this.scholarType) { this.enrollError = 'Please select a scholarship type.'; this.cdr.detectChanges(); return; }
+    this.enrollError = '';
+    this.enrollStep = 'account';
+    this.cdr.detectChanges();
   }
 
   // Step 4 — Submit

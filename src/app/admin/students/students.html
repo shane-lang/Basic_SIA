@@ -1,38 +1,264 @@
-<div class="students-header">
-  <h1>👨‍🎓 Student Management</h1>
-  <button class="btn-primary">+ Add New Student</button>
+<!-- Toast -->
+<div class="toast" [class.show]="toast.show" [class.toast-ok]="toast.type==='success'" [class.toast-err]="toast.type==='error'">
+  {{ toast.type==='success' ? '✅' : '❌' }} {{ toast.message }}
 </div>
 
-<div class="students-container">
-  <div class="table-responsive">
-    <table class="students-table">
-      <thead>
-        <tr>
-          <th>Student ID</th>
-          <th>Name</th>
-          <th>Email</th>
-          <th>Grade Level</th>
-          <th>Status</th>
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr *ngFor="let student of students">
-          <td>{{ student.id }}</td>
-          <td>{{ student.name }}</td>
-          <td>{{ student.email }}</td>
-          <td>{{ student.grade }}</td>
-          <td>
-            <span class="status-badge" [ngClass]="student.status.toLowerCase()">
-              {{ student.status }}
-            </span>
-          </td>
-          <td>
-            <button class="btn-sm btn-edit">Edit</button>
-            <button class="btn-sm btn-delete">Delete</button>
-          </td>
-        </tr>
-      </tbody>
-    </table>
+<!-- Page Header -->
+<div class="page-header">
+  <div class="page-header-left">
+    <span class="hdr-icon">👨‍🎓</span>
+    <div>
+      <h1>Student Directory</h1>
+      <p class="hdr-sub">View-only — read access to all enrolled students</p>
+    </div>
+  </div>
+  <div class="header-stats" *ngIf="stats">
+    <div class="hs-card">
+      <span class="hs-val">{{ stats.total }}</span>
+      <span class="hs-label">Total</span>
+    </div>
+    <div class="hs-card hs-enrolled">
+      <span class="hs-val">{{ stats.enrolled }}</span>
+      <span class="hs-label">Enrolled</span>
+    </div>
+    <div class="hs-card hs-pending">
+      <span class="hs-val">{{ stats.pending }}</span>
+      <span class="hs-label">Pending</span>
+    </div>
+    <div class="hs-card hs-inactive">
+      <span class="hs-val">{{ stats.inactive }}</span>
+      <span class="hs-label">Inactive</span>
+    </div>
+  </div>
+</div>
+
+<!-- Filters -->
+<div class="filters-bar">
+  <div class="search-wrap">
+    <span class="s-icon">🔍</span>
+    <input type="text" class="s-input" placeholder="Search by name or student no…"
+      [(ngModel)]="searchQuery" (input)="onSearchInput()">
+    <button *ngIf="searchQuery" class="s-clear" (click)="searchQuery=''; loadStudents(1)">✕</button>
+  </div>
+
+  <select class="filter-select" [(ngModel)]="filterProgram" (change)="applyFilters()">
+    <option value="">All Programs</option>
+    <option *ngFor="let p of programs" [value]="p">{{ p }}</option>
+  </select>
+
+  <select class="filter-select" [(ngModel)]="filterStatus" (change)="applyFilters()">
+    <option value="">All Statuses</option>
+    <option value="Enrolled">Enrolled</option>
+    <option value="Pending">Pending</option>
+    <option value="Inactive">Inactive</option>
+    <option value="Dropped">Dropped</option>
+    <option value="Graduated">Graduated</option>
+  </select>
+
+  <select class="filter-select" [(ngModel)]="filterYearLevel" (change)="applyFilters()">
+    <option value="">All Year Levels</option>
+    <option value="1st Year">1st Year</option>
+    <option value="2nd Year">2nd Year</option>
+    <option value="3rd Year">3rd Year</option>
+    <option value="4th Year">4th Year</option>
+  </select>
+
+  <button class="btn-clear-all" (click)="clearFilters()" *ngIf="searchQuery||filterProgram||filterStatus||filterYearLevel">
+    Clear Filters
+  </button>
+</div>
+
+<!-- Results Bar -->
+<div class="results-bar">
+  <span class="results-count">{{ totalStudents }} student{{ totalStudents !== 1 ? 's' : '' }} found</span>
+  <span class="view-note">👁️ View only — no edits allowed</span>
+</div>
+
+<!-- Loading -->
+<div class="loading-state" *ngIf="isLoading">
+  <div class="spinner"></div>
+  <p>Loading students…</p>
+</div>
+
+<!-- Empty -->
+<div class="empty-state" *ngIf="!isLoading && students.length === 0">
+  <div class="es-icon">🔍</div>
+  <p>No students match your search criteria.</p>
+  <button class="btn-link" (click)="clearFilters()">Clear all filters</button>
+</div>
+
+<!-- Table -->
+<div class="table-container" *ngIf="!isLoading && students.length > 0">
+  <table class="students-table">
+    <thead>
+      <tr>
+        <th>Student</th>
+        <th>Student No.</th>
+        <th>Program</th>
+        <th>Year Level</th>
+        <th>Semester</th>
+        <th>Type</th>
+        <th>Status</th>
+        <th class="tc">Details</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr *ngFor="let s of students">
+        <td>
+          <div class="student-cell">
+            <div class="avatar" [attr.data-initials]="getInitials(s)">{{ getInitials(s) }}</div>
+            <div class="student-info">
+              <div class="s-name">{{ s.last_name }}, {{ s.first_name }}</div>
+              <div class="s-email">{{ s.email }}</div>
+            </div>
+          </div>
+        </td>
+        <td class="mono">{{ s.student_number }}</td>
+        <td>{{ s.program }}</td>
+        <td>{{ s.year_level }}</td>
+        <td>{{ s.semester }}</td>
+        <td>
+          <span class="type-badge">{{ s.student_type || '—' }}</span>
+        </td>
+        <td>
+          <span class="status-badge" [ngClass]="statusClass(s.enrollment_status)">
+            {{ s.enrollment_status }}
+          </span>
+        </td>
+        <td class="tc">
+          <button class="btn-view" (click)="openDetail(s)">View</button>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- Pagination -->
+<div class="pagination" *ngIf="totalPages > 1 && !isLoading">
+  <button class="pg-btn" [disabled]="currentPage === 1" (click)="prevPage()">‹ Prev</button>
+  <button class="pg-btn" *ngFor="let p of getPages()"
+    [class.pg-active]="p === currentPage" (click)="loadStudents(p)">{{ p }}</button>
+  <button class="pg-btn" [disabled]="currentPage === totalPages" (click)="nextPage()">Next ›</button>
+  <span class="pg-info">Page {{ currentPage }} of {{ totalPages }}</span>
+</div>
+
+<!-- Detail Modal -->
+<div class="modal-overlay" *ngIf="showDetailModal" (click)="closeDetail()">
+  <div class="modal-box" (click)="$event.stopPropagation()">
+    <button class="modal-close" (click)="closeDetail()">✕</button>
+
+    <div class="modal-loading" *ngIf="isLoadingDetail">
+      <div class="spinner"></div>
+      <p>Loading student details…</p>
+    </div>
+
+    <ng-container *ngIf="!isLoadingDetail && selectedStudent">
+      <!-- Modal Header -->
+      <div class="modal-head">
+        <div class="modal-avatar">{{ getInitials(selectedStudent) }}</div>
+        <div>
+          <h2 class="modal-name">{{ selectedStudent.last_name }}, {{ selectedStudent.first_name }}</h2>
+          <p class="modal-sub">{{ selectedStudent.student_number }} · {{ selectedStudent.program }}</p>
+          <span class="status-badge" [ngClass]="statusClass(selectedStudent.enrollment_status)">
+            {{ selectedStudent.enrollment_status }}
+          </span>
+        </div>
+      </div>
+
+      <!-- Info Grid -->
+      <div class="info-grid">
+        <div class="info-item">
+          <span class="info-label">Email</span>
+          <span class="info-val">{{ selectedStudent.email || '—' }}</span>
+        </div>
+        <div class="info-item">
+          <span class="info-label">Contact</span>
+          <span class="info-val">{{ selectedStudent.contact_number || '—' }}</span>
+        </div>
+        <div class="info-item">
+          <span class="info-label">Year Level</span>
+          <span class="info-val">{{ selectedStudent.year_level }}</span>
+        </div>
+        <div class="info-item">
+          <span class="info-label">Semester</span>
+          <span class="info-val">{{ selectedStudent.semester || '—' }}</span>
+        </div>
+        <div class="info-item">
+          <span class="info-label">Student Type</span>
+          <span class="info-val">{{ selectedStudent.student_type || '—' }}</span>
+        </div>
+        <div class="info-item">
+          <span class="info-label">Enrolled Since</span>
+          <span class="info-val">{{ selectedStudent.created_at | date:'mediumDate' }}</span>
+        </div>
+        <div class="info-item info-full">
+          <span class="info-label">Address</span>
+          <span class="info-val">{{ selectedStudent.address || '—' }}</span>
+        </div>
+      </div>
+
+      <!-- Enrollments -->
+      <div class="modal-section">
+        <h3 class="section-title">📚 Enrolled Subjects ({{ selectedStudent.enrollments.length || 0 }})</h3>
+        <div class="enroll-table-wrap" *ngIf="selectedStudent.enrollments.length">
+          <table class="mini-table">
+            <thead>
+              <tr>
+                <th>Code</th>
+                <th>Subject</th>
+                <th>Units</th>
+                <th>Instructor</th>
+                <th>Semester</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr *ngFor="let e of selectedStudent.enrollments">
+                <td class="mono">{{ e.code }}</td>
+                <td>{{ e.course_name }}</td>
+                <td class="tc">{{ e.credits }}</td>
+                <td>{{ e.instructor || '—' }}</td>
+                <td>{{ e.semester || '—' }}</td>
+                <td><span class="status-badge" [ngClass]="statusClass(e.status)">{{ e.status }}</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="empty-mini" *ngIf="!selectedStudent.enrollments.length">No enrollment records.</p>
+      </div>
+
+      <!-- Grades -->
+      <div class="modal-section">
+        <h3 class="section-title">📊 Grade Summary</h3>
+        <div class="enroll-table-wrap" *ngIf="selectedStudent.grades.length">
+          <table class="mini-table">
+            <thead>
+              <tr>
+                <th>Code</th>
+                <th>Subject</th>
+                <th>Semester</th>
+                <th class="tc">Final Grade</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr *ngFor="let g of selectedStudent.grades">
+                <td class="mono">{{ g.code }}</td>
+                <td>{{ g.course_name }}</td>
+                <td>{{ g.semester || '—' }}</td>
+                <td class="tc">
+                  <span *ngIf="g.final_grade !== null" class="grade-pill"
+                    [class.g-pass]="g.final_grade <= 3.0"
+                    [class.g-fail]="g.final_grade > 3.0">
+                    {{ g.final_grade | number:'1.2-2' }}
+                  </span>
+                  <span *ngIf="g.final_grade === null" class="in-progress">In Progress</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="empty-mini" *ngIf="!selectedStudent.grades.length">No grade records yet.</p>
+      </div>
+    </ng-container>
   </div>
 </div>

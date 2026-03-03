@@ -30,9 +30,14 @@
       <span class="stat-val">{{ collegePrograms.length }}</span>
       <span class="stat-lbl">College</span>
     </div>
+
     <div class="stat-item stat-shs">
       <span class="stat-val">{{ shsPrograms.length }}</span>
       <span class="stat-lbl">SHS Strands</span>
+    </div>
+    <div class="stat-item stat-tvet">
+      <span class="stat-val">{{ tvetPrograms.length }}</span>
+      <span class="stat-lbl">TVET</span>
     </div>
     <div class="stat-item stat-courses">
       <span class="stat-val">{{ allCourses.length }}</span>
@@ -65,12 +70,16 @@
   <div *ngIf="!isLoading && filteredPrograms.length > 0" class="programs-grid">
     <div class="prog-card" *ngFor="let p of filteredPrograms"
          [class.prog-college]="p.level_type==='College'"
-         [class.prog-shs]="p.level_type==='SHS'">
+         [class.prog-shs]="p.level_type==='SHS'"
+         [class.prog-tvet]="p.level_type==='TVET'">
 
       <div class="prog-card-top">
         <div class="prog-badges">
-          <span class="prog-type-badge" [class.badge-college]="p.level_type==='College'" [class.badge-shs]="p.level_type==='SHS'">
-            {{ p.level_type === 'College' ? '🏫 College' : '📗 SHS' }}
+          <span class="prog-type-badge"
+            [class.badge-college]="p.level_type==='College'"
+            [class.badge-shs]="p.level_type==='SHS'"
+            [class.badge-tvet]="p.level_type==='TVET'">
+            {{ p.level_type === 'College' ? '🏫 College' : p.level_type === 'SHS' ? '📗 SHS' : '🔧 TVET' }}
           </span>
           <span class="prog-dur-badge">{{ p.duration }} year{{ p.duration > 1 ? 's' : '' }}</span>
         </div>

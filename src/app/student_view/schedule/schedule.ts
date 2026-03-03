@@ -27,6 +27,13 @@ interface ScheduleEntry {
 export class Schedule implements OnInit {
   private apiUrl = 'http://localhost/sia-api/enrollment.php';
 
+  
+  /** Returns HTTP headers with the auth token. Call this in every API request. */
+  private getHeaders() {
+    const token = sessionStorage.getItem('token') ?? '';
+    return { headers: { Authorization: `Bearer ${token}` } };
+  }
+
   constructor(private http: HttpClient, private cdr: ChangeDetectorRef) {}
 
   userId:      number = 0;

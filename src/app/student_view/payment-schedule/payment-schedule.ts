@@ -47,6 +47,13 @@ export class PaymentSchedule implements OnInit {
   notices: Record<string, Notice> = {};
   permits: Permit[] = [];
   isLoading    = true;
+  studentCategory = '';   // 'SHS' | 'TVET' | '' (College)
+  studentType     = '';   // 'New' | 'Old' | 'Transferee'
+  // Free only when SHS/TVET AND not a Transferee (Transferees pay ₱20k)
+  get isFreeStudent(): boolean {
+    const isSHSTVET = this.studentCategory === 'SHS' || this.studentCategory === 'TVET';
+    return isSHSTVET && this.studentType !== 'Transferee';
+  }
   isRequesting = false;
   msg = ''; msgType: 'ok'|'err' = 'ok';
 
@@ -74,18 +81,53 @@ export class PaymentSchedule implements OnInit {
   viewingPermit: Permit | null = null;
   isLoadingPermit   = false;
 
+  
+  /** Returns HTTP headers with the auth token. Call this in every API request. */
+  private getHeaders() {
+    const token = sessionStorage.getItem('token') ?? '';
+    return { headers: { Authorization: `Bearer ${token}` } };
+  }
+
   constructor(private http: HttpClient, private cdr: ChangeDetectorRef) {}
 
   ngOnInit(): void {
     const s = sessionStorage.getItem('currentUser');
     if (s) { const u = JSON.parse(s); this.studentId = u.id; this.studentInfo = u; }
 
-    // BUG FIX: use students-table PK saved by enrollment component
     const dbId = sessionStorage.getItem('studentDbId');
     if (dbId) this.studentId = parseInt(dbId, 10);
 
     this.payDate = new Date().toISOString().split('T')[0];
-    this.load();
+
+    // Always fetch fresh from API — do not rely on sessionStorage cache
+    // load() is called inside the callback so category is set before rendering
+    this.http.get<any>(`${this.enrollApi}?action=get_student_context&student_id=${this.studentId}`, this.getHeaders()).subscribe({
+      next: (res) => {
+        if (res.success) {
+          const cat = (res.student?.studentCategory ?? '').toUpperCase();
+          this.studentType = res.student?.studentType ?? '';
+          // Fallback: infer from student number if DB category is blank
+          const studentNum: string = res.student?.id ?? '';
+          if (cat) {
+            this.studentCategory = cat;
+          } else if (studentNum.startsWith('SHS-')) {
+            this.studentCategory = 'SHS';
+          } else if (studentNum.startsWith('TVET-')) {
+            this.studentCategory = 'TVET';
+          }
+          sessionStorage.setItem('studentCategory', this.studentCategory);
+        }
+        this.load();
+        this.cdr.detectChanges();
+      },
+      error: () => {
+        // Fallback: try sessionStorage then just load
+        const cached = sessionStorage.getItem('studentCategory');
+        if (cached) this.studentCategory = cached.toUpperCase();
+        this.load();
+        this.cdr.detectChanges();
+      }
+    });
   }
 
   ngOnDestroy(): void {
@@ -94,7 +136,7 @@ export class PaymentSchedule implements OnInit {
 
   load(): void {
     this.isLoading = true;
-    this.http.get<any>(`${this.apiUrl}?action=get_payment_schedule&student_id=${this.studentId}`).subscribe({
+    this.http.get<any>(`${this.apiUrl}?action=get_payment_schedule&student_id=${this.studentId}`, this.getHeaders()).subscribe({
       next: (res) => {
         this.schedule = res.success ? res.schedule : null;
         this.notices  = res.notices  || {};
@@ -107,7 +149,7 @@ export class PaymentSchedule implements OnInit {
   }
 
   loadPermits(): void {
-    this.http.get<any>(`${this.apiUrl}?action=get_student_permit_status&student_id=${this.studentId}`).subscribe({
+    this.http.get<any>(`${this.apiUrl}?action=get_student_permit_status&student_id=${this.studentId}`, this.getHeaders()).subscribe({
       next: (res) => { this.permits = res.success ? res.permits : []; this.cdr.detectChanges(); }
     });
   }
@@ -123,6 +165,7 @@ export class PaymentSchedule implements OnInit {
 
   get totalPaid(): number {
     if (!this.schedule) return 0;
+    // Each component is already capped server-side; just sum them up.
     return (this.schedule.downpayment_paid || 0)
          + (this.schedule.prelim_paid  || 0)
          + (this.schedule.midterm_paid || 0)
@@ -151,7 +194,7 @@ export class PaymentSchedule implements OnInit {
       exam_period: period,
       school_year: this.studentInfo.school_year || '2025-2026',
       semester:    this.studentInfo.semester    || '2nd Semester'
-    }).subscribe({
+    }, this.getHeaders()).subscribe({
       next: (res) => {
         this.isRequesting = false;
         this.msg     = res.message;
@@ -212,7 +255,7 @@ export class PaymentSchedule implements OnInit {
       gcash_reference:    this.payGcashRef.trim(),
       exam_period:        this.payPeriod,
       notes:              this.payNote.trim(),
-    }).subscribe({
+    }, this.getHeaders()).subscribe({
       next: (res) => {
         this.isSubmitting = false;
         if (res.success) {
@@ -240,7 +283,7 @@ export class PaymentSchedule implements OnInit {
   startApprovalPolling(): void {
     this.isPollingApproval = true;
     this.pollTimer = setInterval(() => {
-      this.http.get<any>(`${this.apiUrl}?action=get_payment_schedule&student_id=${this.studentId}`).subscribe({
+      this.http.get<any>(`${this.apiUrl}?action=get_payment_schedule&student_id=${this.studentId}`, this.getHeaders()).subscribe({
         next: (res) => {
           if (!res.success) return;
           const sched = res.schedule;
@@ -273,7 +316,7 @@ export class PaymentSchedule implements OnInit {
     this.cdr.detectChanges();
 
     // Fetch full permit details including courses + approver name
-    this.http.get<any>(`${this.apiUrl}?action=get_permit_details&permit_id=${permit.id}&student_id=${this.studentId}`).subscribe({
+    this.http.get<any>(`${this.apiUrl}?action=get_permit_details&permit_id=${permit.id}&student_id=${this.studentId}`, this.getHeaders()).subscribe({
       next: (res) => {
         this.isLoadingPermit = false;
         if (res.success) {

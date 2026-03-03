@@ -112,30 +112,100 @@
         </div>
       </div>
 
-      <!-- Programs grouped by department -->
-      <div class="form-section" *ngIf="studentTypeCategory">
-        <h3 class="section-heading">Select Your Program — {{ studentTypeCategoryLabel() }}</h3>
-
-        <!-- Loading state -->
-        <div *ngIf="programsLoading" style="text-align:center;padding:2rem;color:#6b7280;">
-          <div style="font-size:1.5rem;margin-bottom:0.5rem;">⏳</div>
-          Loading programs…
+      <!-- ══ COLLEGE: Step 1b — Select Department ══ -->
+      <div class="form-section sub-select-section" *ngIf="studentTypeCategory === 'College'">
+        <h3 class="section-heading">Select Department</h3>
+        <div *ngIf="programsLoading" style="text-align:center;padding:1rem;color:#6b7280;">⏳ Loading…</div>
+        <div class="sub-cards" *ngIf="!programsLoading">
+          <div *ngFor="let dept of collegeDepts"
+               class="sub-card" [class.selected]="selectedDept === dept"
+               (click)="selectDept(dept)">
+            <div class="sub-card-name">{{ dept }}</div>
+            <div class="sub-check" *ngIf="selectedDept === dept">✓</div>
+          </div>
+          <div *ngIf="collegeDepts.length === 0" style="color:#9ca3af;padding:1rem;">
+            📭 No departments found. Contact admin.
+          </div>
         </div>
 
-        <!-- No programs found -->
-        <div *ngIf="!programsLoading && groupedPrograms.length === 0" style="text-align:center;padding:2rem;color:#6b7280;">
-          <div style="font-size:1.5rem;margin-bottom:0.5rem;">📭</div>
-          No programs available for this level yet. Please contact the admin.
-        </div>
-
-        <div *ngFor="let group of groupedPrograms" class="dept-group">
-          <div class="dept-label">{{ group.dept }}</div>
+        <!-- College: courses dropdown after dept selected -->
+        <div class="program-select-wrap" *ngIf="selectedDept">
+          <h4 class="sub-section-label">Select Course — <em>{{ selectedDept }}</em></h4>
           <div class="program-cards">
-            <div *ngFor="let prog of group.programs"
-                 class="program-card" [class.selected]="selectedProgram===prog.id"
+            <div *ngFor="let prog of filteredPrograms"
+                 class="program-card" [class.selected]="selectedProgram === prog.id"
                  (click)="selectProgram(prog)">
               <div class="prog-name">{{ prog.name }}</div>
-              <div class="prog-check" *ngIf="selectedProgram===prog.id">✓</div>
+              <div class="prog-check" *ngIf="selectedProgram === prog.id">✓</div>
+            </div>
+            <div *ngIf="filteredPrograms.length === 0" style="color:#9ca3af;padding:1rem;">
+              No courses in this department yet.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══ SHS: Step 1b — Dynamic dept cards from DB ══ -->
+      <div class="form-section sub-select-section" *ngIf="studentTypeCategory === 'SHS'">
+        <h3 class="section-heading">Select Grade Level</h3>
+        <div *ngIf="programsLoading" style="text-align:center;padding:1rem;color:#6b7280;">⏳ Loading…</div>
+        <div class="sub-cards" *ngIf="!programsLoading">
+          <div *ngFor="let dept of shsDepts"
+               class="sub-card" [class.selected]="selectedGradeLevel === dept"
+               (click)="selectGradeLevel(dept)">
+            <div class="sub-card-name">{{ dept }}</div>
+            <div class="sub-check" *ngIf="selectedGradeLevel === dept">✓</div>
+          </div>
+          <div *ngIf="shsDepts.length === 0" style="color:#9ca3af;padding:1rem;">
+            📭 No SHS grade levels found. Please contact the admin.
+          </div>
+        </div>
+
+        <!-- SHS: strands/programs after grade selected -->
+        <div class="program-select-wrap" *ngIf="selectedGradeLevel">
+          <h4 class="sub-section-label">Select Strand — <em>{{ selectedGradeLevel }}</em></h4>
+          <div class="program-cards">
+            <div *ngFor="let prog of filteredPrograms"
+                 class="program-card" [class.selected]="selectedProgram === prog.id"
+                 (click)="selectProgram(prog)">
+              <div class="prog-name">{{ prog.name }}</div>
+              <div class="prog-check" *ngIf="selectedProgram === prog.id">✓</div>
+            </div>
+            <div *ngIf="filteredPrograms.length === 0" style="color:#9ca3af;padding:1rem;">
+              No strands found. Please contact the admin.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══ TVET: Step 1b — Dynamic dept cards from DB ══ -->
+      <div class="form-section sub-select-section" *ngIf="studentTypeCategory === 'TVET'">
+        <h3 class="section-heading">Select Program Type</h3>
+        <div *ngIf="programsLoading" style="text-align:center;padding:1rem;color:#6b7280;">⏳ Loading…</div>
+        <div class="sub-cards" *ngIf="!programsLoading">
+          <div *ngFor="let dept of tvetDepts"
+               class="sub-card" [class.selected]="selectedTvetType === dept"
+               (click)="selectTvetType(dept)">
+            <div class="sub-card-name">{{ dept }}</div>
+            <div class="sub-check" *ngIf="selectedTvetType === dept">✓</div>
+          </div>
+          <div *ngIf="tvetDepts.length === 0" style="color:#9ca3af;padding:1rem;">
+            📭 No TVET types found. Please contact the admin.
+          </div>
+        </div>
+
+        <!-- TVET: courses after type selected -->
+        <div class="program-select-wrap" *ngIf="selectedTvetType">
+          <h4 class="sub-section-label">Select Course — <em>{{ selectedTvetType }}</em></h4>
+          <div class="program-cards">
+            <div *ngFor="let prog of filteredPrograms"
+                 class="program-card" [class.selected]="selectedProgram === prog.id"
+                 (click)="selectProgram(prog)">
+              <div class="prog-name">{{ prog.name }}</div>
+              <div class="prog-check" *ngIf="selectedProgram === prog.id">✓</div>
+            </div>
+            <div *ngIf="filteredPrograms.length === 0" style="color:#9ca3af;padding:1rem;">
+              No courses found. Please contact the admin.
             </div>
           </div>
         </div>
@@ -335,23 +405,15 @@
         </div>
       </div>
 
-      <!-- SHS-only: Strand & Delivery -->
-      <div class="form-section" *ngIf="isSHS">
-        <h3 class="section-heading">📚 Senior High School Details</h3>
+      <!-- TVET-only: Year Level note -->
+      <div class="form-section" *ngIf="isTVET">
+        <h3 class="section-heading">🔧 TVET Program Details</h3>
         <div class="form-grid">
           <div class="form-group full-col">
-            <label>Choose what Strand would you like to enroll <span class="req">*</span></label>
-            <select class="form-control" [(ngModel)]="regForm.strand">
-              <option value="">-- Select Strand --</option>
-              <option *ngFor="let s of strandOptions" [value]="s">{{ s }}</option>
-            </select>
-          </div>
-          <div class="form-group full-col">
-            <label>Preferred Learning Delivery Mode <span class="req">*</span></label>
-            <div class="radio-group vertical">
-              <label class="radio-opt" *ngFor="let d of deliveryOptions">
-                <input type="radio" [(ngModel)]="regForm.learningDelivery" [value]="d"> {{ d }}
-              </label>
+            <label>Year Level <span class="req">*</span></label>
+            <div class="radio-group">
+              <label class="radio-opt"><input type="radio" name="tvetYear" [(ngModel)]="regForm.yearLevel" value="1st Year"> 1st Year</label>
+              <label class="radio-opt"><input type="radio" name="tvetYear" [(ngModel)]="regForm.yearLevel" value="2nd Year"> 2nd Year</label>
             </div>
           </div>
         </div>
@@ -408,7 +470,9 @@
 
       <div class="wiz-actions">
         <button class="btn-back" (click)="enrollStep='program'; enrollError=''">← Back</button>
-        <button class="btn-next" (click)="proceedFromInfo()">Next: Documents →</button>
+        <button class="btn-next" *ngIf="isCollege"  (click)="proceedFromInfo()">Next: Documents →</button>
+        <button class="btn-next" *ngIf="isSHS"      (click)="proceedFromInfoSHS()">Next: Documents →</button>
+        <button class="btn-next" *ngIf="isTVET"     (click)="proceedFromInfoTVET()">Next: Documents →</button>
       </div>
     </div>
 
@@ -417,73 +481,162 @@
       <h2 class="wiz-title">Step 3 of 4 — Documents & Payment</h2>
       <p class="wiz-subtitle">Upload your requirements for {{ selectedProgramName }}</p>
 
-      <!-- ── SHS Requirements ── -->
+      <!-- ── SHS Documents & Fee ── -->
       <div *ngIf="isSHS">
-        <div class="req-banner shs-banner">
-          <strong>📋 Senior High School Requirements</strong>
-          <ul>
-            <li>Report Card (Form 138) <span class="req">*</span></li>
-            <li>Certificate of Good Moral <span class="req">*</span></li>
-            <li>Original Copy of Birth Certificate (PSA) <span class="req">*</span></li>
-            <li>2×2 Picture with White Background (2 copies) <span class="req">*</span></li>
-          </ul>
+
+        <!-- FREE notice for New/Old -->
+        <div class="level-free-banner" *ngIf="!isTransfereeEnrolling">
+          <div class="lfb-icon">🎓</div>
+          <div class="lfb-body">
+            <div class="lfb-title">SHS Voucher Program — No Tuition Fee</div>
+            <div class="lfb-sub">As a {{ regForm.studentType }} SHS student, your tuition is fully covered by the <strong>Senior High School Voucher Program (SHS VP)</strong>. No payment required.</div>
+          </div>
         </div>
-        <div class="form-section">
-          <div class="upload-item">
-            <div class="upload-label-row">
-              <span class="upload-title">📄 Report Card (Form 138) <span class="req">*</span></span>
-            </div>
-            <div class="upload-box" [class.has-file]="form138File">
-              <label class="upload-label" for="form138Upload">
-                <span *ngIf="!form138File">📁 Click to upload Form 138 (PDF or image)</span>
-                <span *ngIf="form138File" class="file-name">✓ {{ form138FileName }}</span>
-              </label>
-              <input type="file" id="form138Upload" accept=".pdf,image/*" (change)="onFileChange($event,'form138')" hidden>
+
+        <!-- ₱20,000 fee notice for Transferees -->
+        <div *ngIf="isTransfereeEnrolling">
+          <div class="level-fee-banner">
+            <div class="lfb-icon">💳</div>
+            <div class="lfb-body">
+              <div class="lfb-title">SHS Transferee — Flat Rate Fee</div>
+              <div class="lfb-sub">As a Transferee, a flat rate of <strong>₱20,000</strong> applies for the semester.</div>
             </div>
           </div>
-          <div class="upload-item">
-            <div class="upload-label-row">
-              <span class="upload-title">📄 Certificate of Good Moral <span class="req">*</span></span>
-            </div>
-            <div class="upload-box" [class.has-file]="goodMoralFile">
-              <label class="upload-label" for="goodMoralUpload">
-                <span *ngIf="!goodMoralFile">📁 Click to upload Certificate of Good Moral</span>
-                <span *ngIf="goodMoralFile" class="file-name">✓ {{ goodMoralFileName }}</span>
-              </label>
-              <input type="file" id="goodMoralUpload" accept=".pdf,image/*" (change)="onFileChange($event,'goodMoral')" hidden>
-            </div>
-          </div>
-          <div class="upload-item">
-            <div class="upload-label-row">
-              <span class="upload-title">📄 PSA Birth Certificate (Original) <span class="req">*</span></span>
-            </div>
-            <div class="upload-box" [class.has-file]="psaFile">
-              <label class="upload-label" for="psaUpload">
-                <span *ngIf="!psaFile">📁 Click to upload PSA Birth Certificate</span>
-                <span *ngIf="psaFile" class="file-name">✓ {{ psaFileName }}</span>
-              </label>
-              <input type="file" id="psaUpload" accept=".pdf,image/*" (change)="onFileChange($event,'psa')" hidden>
+          <!-- Fee breakdown for transferee -->
+          <div class="fee-breakdown-card" *ngIf="shsFeeResult && !isSHSFeeLoading" style="margin-top:1rem;">
+            <div class="fee-breakdown-header">Fee Assessment — {{ selectedProgramName }}</div>
+            <div class="fee-breakdown-table">
+              <div class="fb-row"><span>SHS Flat Rate</span><span>₱20,000.00</span></div>
+              <div class="fb-row fb-discount" *ngIf="shsFeeResult.fees.discount > 0">
+                <span>🎓 Scholarship Discount</span><span class="text-green">– ₱{{ shsFeeResult.fees.discount | number:'1.2-2' }}</span>
+              </div>
+              <div class="fb-row fb-installment" *ngIf="paymentPlan === 'installment'">
+                <span>Installment Fee</span><span>₱750.00</span>
+              </div>
+              <div class="fb-row fb-total">
+                <span><strong>TOTAL ASSESSMENT</strong></span>
+                <span><strong>₱{{ shsFeeResult.fees.totalAssessment | number:'1.2-2' }}</strong></span>
+              </div>
             </div>
           </div>
-          <div class="upload-item">
-            <div class="upload-label-row">
-              <span class="upload-title">📷 2×2 Picture with White Background <span class="req">*</span></span>
-            </div>
-            <div class="upload-box" [class.has-file]="picFile">
-              <label class="upload-label" for="picUpload">
-                <span *ngIf="!picFile">📷 Click to upload 2×2 Picture</span>
-                <span *ngIf="picFile" class="file-name">✓ {{ picFileName }}</span>
-              </label>
-              <input type="file" id="picUpload" accept="image/*" (change)="onFileChange($event,'pic')" hidden>
+          <div class="fee-loading" *ngIf="isSHSFeeLoading"><span>⏳ Computing fee...</span></div>
+          <!-- Payment plan for transferee -->
+          <div style="margin-top:1rem;" *ngIf="shsFeeResult && !isSHSFeeLoading">
+            <h3 class="section-heading">📅 Payment Plan</h3>
+            <div class="plan-toggle">
+              <button class="plan-btn" [class.selected]="paymentPlan==='full'" (click)="paymentPlan='full'; loadSHSFee()">
+                <span class="plan-icon">💰</span><span class="plan-label">Full Payment</span><span class="plan-sub">Pay everything at once</span>
+              </button>
+              <button class="plan-btn" [class.selected]="paymentPlan==='installment'" (click)="paymentPlan='installment'; loadSHSFee()">
+                <span class="plan-icon">📆</span><span class="plan-label">Installment</span><span class="plan-sub">4 payments — DP + 3 terms<br><small>+₱750 installment fee</small></span>
+              </button>
             </div>
           </div>
+          <!-- Payment method for transferee -->
+          <div style="margin-top:0.75rem;" *ngIf="shsFeeResult && !isSHSFeeLoading">
+            <h3 class="section-heading">💳 Payment Method</h3>
+            <div class="payment-method-toggle">
+              <button class="method-btn" [class.selected]="paymentMethod==='GCash'" (click)="paymentMethod='GCash'">📱 GCash</button>
+              <button class="method-btn" [class.selected]="paymentMethod==='Cash'"  (click)="paymentMethod='Cash'">💵 Cash (walk-in)</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Requirements notice (no upload — bring physically) -->
+        <div class="docs-notice-banner">
+          <div class="dnb-title">📋 Required Documents — Bring to Registrar's Office</div>
+          <ul class="dnb-list">
+            <li>Report Card (Form 138) / Junior High School Card</li>
+            <li>Certificate of Good Moral Character</li>
+            <li>Original Copy of PSA Birth Certificate</li>
+            <li>2×2 Picture with White Background (2 copies)</li>
+            <li>Certificate of Completion / Diploma from JHS</li>
+            <li *ngIf="isTransfereeEnrolling">TOR / Form 137 (for Transferees)</li>
+          </ul>
+          <div class="dnb-note">📌 Documents will be submitted and verified at the Registrar's Office upon enrollment. No need to upload online.</div>
         </div>
       </div>
 
-      <!-- ── TVET / College Requirements ── -->
-      <div *ngIf="isTVET || isCollege">
-        <div class="req-banner" [class.tvet-banner]="isTVET" [class.college-banner]="isCollege">
-          <strong>{{ isTVET ? '🔧 TVET Program Requirements' : '🎓 College Requirements' }}</strong>
+      <!-- ── TVET Documents & Fee ── -->
+      <div *ngIf="isTVET">
+
+        <!-- FREE notice for New / Old -->
+        <div class="level-free-banner tvet-free-banner" *ngIf="!isTransfereeEnrolling">
+          <div class="lfb-icon">🛠️</div>
+          <div class="lfb-body">
+            <div class="lfb-title">TESDA PRISAA — No Tuition Fee</div>
+            <div class="lfb-sub">Your TVET program is fully funded by <strong>TESDA's Private Education Student Financial Assistance (PRISAA)</strong>. No tuition payment required.</div>
+          </div>
+        </div>
+
+        <!-- ₱20,000 fee section for Transferees -->
+        <div *ngIf="isTransfereeEnrolling">
+          <div class="level-fee-banner">
+            <div class="lfb-icon">💳</div>
+            <div class="lfb-body">
+              <div class="lfb-title">TVET Transferee — Flat Rate Fee</div>
+              <div class="lfb-sub">As a Transferee, a flat rate of <strong>₱20,000</strong> applies for the semester.</div>
+            </div>
+          </div>
+          <!-- Fee breakdown -->
+          <div class="fee-breakdown-card" *ngIf="tvetFeeResult && !isTVETFeeLoading" style="margin-top:1rem;">
+            <div class="fee-breakdown-header">Fee Assessment — {{ selectedProgramName }}</div>
+            <div class="fee-breakdown-table">
+              <div class="fb-row"><span>TVET Flat Rate</span><span>₱20,000.00</span></div>
+              <div class="fb-row fb-discount" *ngIf="tvetFeeResult.fees.discount > 0">
+                <span>🎓 Scholarship Discount</span><span class="text-green">– ₱{{ tvetFeeResult.fees.discount | number:'1.2-2' }}</span>
+              </div>
+              <div class="fb-row fb-installment" *ngIf="paymentPlan === 'installment'">
+                <span>Installment Fee</span><span>₱750.00</span>
+              </div>
+              <div class="fb-row fb-total">
+                <span><strong>TOTAL ASSESSMENT</strong></span>
+                <span><strong>₱{{ tvetFeeResult.fees.totalAssessment | number:'1.2-2' }}</strong></span>
+              </div>
+            </div>
+          </div>
+          <div class="fee-loading" *ngIf="isTVETFeeLoading"><span>⏳ Computing fee...</span></div>
+          <!-- Payment plan -->
+          <div style="margin-top:1rem;" *ngIf="tvetFeeResult && !isTVETFeeLoading">
+            <h3 class="section-heading">📅 Payment Plan</h3>
+            <div class="plan-toggle">
+              <button class="plan-btn" [class.selected]="paymentPlan==='full'" (click)="paymentPlan='full'; loadTVETFee()">
+                <span class="plan-icon">💰</span><span class="plan-label">Full Payment</span><span class="plan-sub">Pay everything at once</span>
+              </button>
+              <button class="plan-btn" [class.selected]="paymentPlan==='installment'" (click)="paymentPlan='installment'; loadTVETFee()">
+                <span class="plan-icon">📆</span><span class="plan-label">Installment</span><span class="plan-sub">4 payments — DP + 3 terms<br><small>+₱750 installment fee</small></span>
+              </button>
+            </div>
+          </div>
+          <!-- Payment method -->
+          <div style="margin-top:0.75rem;" *ngIf="tvetFeeResult && !isTVETFeeLoading">
+            <h3 class="section-heading">💳 Payment Method</h3>
+            <div class="payment-method-toggle">
+              <button class="method-btn" [class.selected]="paymentMethod==='GCash'" (click)="paymentMethod='GCash'">📱 GCash</button>
+              <button class="method-btn" [class.selected]="paymentMethod==='Cash'"  (click)="paymentMethod='Cash'">💵 Cash (walk-in)</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Requirements notice -->
+        <div class="docs-notice-banner">
+          <div class="dnb-title">📋 Required Documents — Bring to Registrar's Office</div>
+          <ul class="dnb-list">
+            <li>TOR / Form 137 (Photocopy)</li>
+            <li>Certificate of Good Moral Character</li>
+            <li>PSA Birth Certificate (Original &amp; Photocopy)</li>
+            <li>TESDA Assessment Result (if applicable)</li>
+            <li>2×2 Picture with White Background (2 copies)</li>
+          </ul>
+          <div class="dnb-note">📌 Documents will be submitted and verified at the Registrar's Office upon enrollment. No need to upload online.</div>
+        </div>
+      </div>
+
+
+      <!-- ── College Requirements ── -->
+      <div *ngIf="isCollege">
+        <div class="req-banner college-banner">
+          <strong>🎓 College Requirements</strong>
           <ul>
             <li>TOR / Form 137 (Photocopy) <span class="req">*</span></li>
             <li>Certificate of Good Moral <span class="optional-tag">If Available</span></li>
@@ -491,8 +644,6 @@
           </ul>
         </div>
         <div class="form-section">
-
-          <!-- TOR Upload — extra prominent for transferees -->
           <div class="upload-item" [class.upload-item-transferee]="isTransfereeEnrolling">
             <div class="upload-label-row">
               <span class="upload-title">
@@ -502,56 +653,42 @@
               </span>
             </div>
             <div class="upload-box" [class.has-file]="torFile">
-              <label class="upload-label" for="torUpload">
+              <label class="upload-label" for="torUploadCollege">
                 <span *ngIf="!torFile">📁 Click to upload TOR / Form 137 (PDF or image)</span>
                 <span *ngIf="torFile" class="file-name">✓ {{ torFileName }}</span>
               </label>
-              <input type="file" id="torUpload" accept=".pdf,image/*" (change)="onFileChange($event,'tor')" hidden>
-            </div>
-            <!-- Transferee CTA after file selected -->
-            <div class="tor-upload-cta" *ngIf="isTransfereeEnrolling && torFile">
-              <div class="tuc-row">
-                <span class="tuc-icon">✅</span>
-                <div class="tuc-body">
-                  <strong>TOR ready to send</strong>
-                  <p>When you complete enrollment (Step 4), this file will be automatically sent to the Registrar for evaluation. You'll be notified once they've reviewed it.</p>
-                </div>
-              </div>
-            </div>
-            <div class="tor-upload-notice" *ngIf="isTransfereeEnrolling && !torFile">
-              📤 Upload your scanned TOR above — it will be sent to the Registrar when you complete enrollment
+              <input type="file" id="torUploadCollege" accept=".pdf,image/*" (change)="onFileChange($event,'tor')" hidden>
             </div>
           </div>
-
           <div class="upload-item">
             <div class="upload-label-row">
               <span class="upload-title">📄 Certificate of Good Moral <span class="optional-tag">If Available</span></span>
             </div>
             <div class="upload-box" [class.has-file]="goodMoralFile">
-              <label class="upload-label" for="goodMoralUpload2">
+              <label class="upload-label" for="goodMoralUploadCollege">
                 <span *ngIf="!goodMoralFile">📁 Click to upload (optional)</span>
                 <span *ngIf="goodMoralFile" class="file-name">✓ {{ goodMoralFileName }}</span>
               </label>
-              <input type="file" id="goodMoralUpload2" accept=".pdf,image/*" (change)="onFileChange($event,'goodMoral')" hidden>
+              <input type="file" id="goodMoralUploadCollege" accept=".pdf,image/*" (change)="onFileChange($event,'goodMoral')" hidden>
             </div>
           </div>
           <div class="upload-item">
             <div class="upload-label-row">
-              <span class="upload-title">📄 Birth Certificate / PSA (Original &amp; Photocopy) <span class="req">*</span></span>
+              <span class="upload-title">📄 Birth Certificate / PSA <span class="req">*</span></span>
             </div>
             <div class="upload-box" [class.has-file]="psaFile">
-              <label class="upload-label" for="psaUpload2">
+              <label class="upload-label" for="psaUploadCollege">
                 <span *ngIf="!psaFile">📁 Click to upload PSA Birth Certificate</span>
                 <span *ngIf="psaFile" class="file-name">✓ {{ psaFileName }}</span>
               </label>
-              <input type="file" id="psaUpload2" accept=".pdf,image/*" (change)="onFileChange($event,'psa')" hidden>
+              <input type="file" id="psaUploadCollege" accept=".pdf,image/*" (change)="onFileChange($event,'psa')" hidden>
             </div>
           </div>
         </div>
       </div>
 
-      <!-- Scholarship -->
-      <div class="form-section scholar-section">
+      <!-- Scholarship — hidden for SHS New/Old (free via voucher) -->
+      <div class="form-section scholar-section" *ngIf="!(isSHS && !isTransfereeEnrolling)">
         <h3 class="section-heading">🎓 Scholarship / Discount</h3>
         <label class="toggle-label">
           <input type="checkbox" [(ngModel)]="isScholar" class="toggle-check" (change)="onScholarshipChange()" (ngModelChange)="onScholarshipChange()">
@@ -660,8 +797,8 @@
 
       </ng-container>
 
-      <!-- ══ NON-TRANSFEREE: Fee Assessment + Payment Plan + Method ══ -->
-      <ng-container *ngIf="!isTransfereeEnrolling">
+      <!-- ══ NON-TRANSFEREE: Fee Assessment + Payment Plan + Method (College only) ══ -->
+      <ng-container *ngIf="!isTransfereeEnrolling && isCollege">
 
       <!-- ══ FEE ASSESSMENT BREAKDOWN ══ -->
       <div class="form-section fee-assessment-section">
@@ -674,10 +811,13 @@
 
         <div class="fee-error" *ngIf="feePreviewError && !isFeePreviewLoading">
           ⚠️ {{ feePreviewError }}
+          <button class="btn-retry" (click)="loadFeePreview()" style="margin-left:10px;padding:3px 12px;font-size:12px;cursor:pointer;border:1px solid #f59e0b;background:#fffbeb;border-radius:5px;color:#92400e;">🔄 Retry</button>
         </div>
 
         <div class="fee-breakdown-card" *ngIf="feePreview && !isFeePreviewLoading">
-          <div class="fee-breakdown-header">Assessment for the Current Semester — {{ selectedProgramName }}</div>
+          <div class="fee-breakdown-header">Assessment for the Current Semester — {{ selectedProgramName }}
+            <span *ngIf="feePreview.units === 18" style="font-size:10px;font-weight:400;color:#92400e;margin-left:8px;">⚠️ Estimated (18 units) — Accounting will confirm exact amount</span>
+          </div>
           <div class="fee-breakdown-table">
             <div class="fb-row"><span>No. of Units</span><span>{{ feePreview.units }}</span></div>
             <div class="fb-row"><span>Tuition Fee ({{ feePreview.units }} units × ₱650)</span><span>₱{{ feePreview.tuitionFee | number:'1.2-2' }}</span></div>
@@ -781,9 +921,11 @@
 
       <div class="wiz-actions">
         <button class="btn-back" (click)="enrollStep='info'; enrollError=''">← Back</button>
-        <button class="btn-next" (click)="proceedFromDocuments()">
+        <button class="btn-next" *ngIf="isCollege" (click)="proceedFromDocuments()">
           {{ isTransfereeEnrolling ? 'Send TOR to Registrar →' : 'Next: Create Account →' }}
         </button>
+        <button class="btn-next" *ngIf="isSHS"  (click)="proceedFromDocumentsSHS()">Next: Create Account →</button>
+        <button class="btn-next" *ngIf="isTVET" (click)="proceedFromDocumentsTVET()">Next: Create Account →</button>
       </div>
     </div>
 
@@ -1100,32 +1242,80 @@
         <div class="summary-row"><label>Program:</label><p>{{ selectedProgramName }}</p></div>
         <div class="summary-row"><label>Type:</label><p>{{ regForm.studentType }}</p></div>
         <ng-container *ngIf="!isTransfereeEnrolling">
-          <div class="summary-row"><label>Payment:</label><p>{{ paymentMethod==='GCash' ? '📱 GCash' : '💵 Cash (walk-in)' }}</p></div>
-          <div class="summary-row"><label>Plan:</label><p>{{ paymentPlan === 'full' ? '💰 Full Payment' : '📆 Installment (DP + Prelim + Midterm + Finals)' }}</p></div>
-          <div class="summary-row" *ngIf="feePreview"><label>Total Assessment:</label><p><strong>₱{{ feePreview.totalAssessment | number:'1.2-2' }}</strong></p></div>
-          <div class="summary-row" *ngIf="paymentPlan==='installment' && feePreview"><label>1st Payment (DP):</label><p>₱{{ dpAmount | number:'1.2-2' }}</p></div>
+          <!-- College: show full fee breakdown -->
+          <ng-container *ngIf="isCollege">
+            <div class="summary-row"><label>Payment:</label><p>{{ paymentMethod==='GCash' ? '📱 GCash' : '💵 Cash (walk-in)' }}</p></div>
+            <div class="summary-row"><label>Plan:</label><p>{{ paymentPlan === 'full' ? '💰 Full Payment' : '📆 Installment (DP + Prelim + Midterm + Finals)' }}</p></div>
+            <div class="summary-row" *ngIf="feePreview"><label>Total Assessment:</label><p><strong>₱{{ feePreview.totalAssessment | number:'1.2-2' }}</strong></p></div>
+            <div class="summary-row" *ngIf="paymentPlan==='installment' && feePreview"><label>1st Payment (DP):</label><p>₱{{ dpAmount | number:'1.2-2' }}</p></div>
+          </ng-container>
+          <!-- SHS New/Old: free -->
+          <ng-container *ngIf="isSHS">
+            <div class="summary-row"><label>Tuition Fee:</label><p class="text-green">🎓 FREE — SHS Voucher Program</p></div>
+            <div class="summary-row"><label>Payment:</label><p>No payment required</p></div>
+          </ng-container>
+          <!-- TVET: free for New/Old, ₱20k for Transferee -->
+          <ng-container *ngIf="isTVET && !isTransfereeEnrolling">
+            <div class="summary-row"><label>Tuition Fee:</label><p class="text-green">🛠️ FREE — TESDA PRISAA Subsidy</p></div>
+            <div class="summary-row"><label>Payment:</label><p>No payment required</p></div>
+          </ng-container>
+          <ng-container *ngIf="isTVET && isTransfereeEnrolling">
+            <div class="summary-row"><label>Total Fee:</label><p><strong>₱{{ tvetFeeResult ? (tvetFeeResult.fees.totalAssessment | number:'1.2-2') : '20,000.00' }}</strong></p></div>
+            <div class="summary-row"><label>Payment:</label><p>{{ paymentMethod==='GCash' ? '📱 GCash' : '💵 Cash (walk-in)' }}</p></div>
+            <div class="summary-row"><label>Plan:</label><p>{{ paymentPlan === 'full' ? '💰 Full Payment' : '📆 Installment' }}</p></div>
+          </ng-container>
         </ng-container>
-        <ng-container *ngIf="isTransfereeEnrolling">
+        <!-- SHS Transferee: show 20k fee -->
+        <ng-container *ngIf="isTransfereeEnrolling && isSHS">
+          <div class="summary-row"><label>Total Fee:</label><p><strong>₱20,000.00</strong></p></div>
+          <div class="summary-row"><label>Payment:</label><p>{{ paymentMethod==='GCash' ? '📱 GCash' : '💵 Cash (walk-in)' }}</p></div>
+          <div class="summary-row"><label>Plan:</label><p>{{ paymentPlan === 'full' ? '💰 Full Payment' : '📆 Installment' }}</p></div>
+        </ng-container>
+        <ng-container *ngIf="isTransfereeEnrolling && isCollege">
           <div class="summary-row"><label>TOR Status:</label><p>⏳ Pending Registrar evaluation</p></div>
           <div class="summary-row"><label>Fee:</label><p style="color:#92400e;">Will be computed after TOR evaluation</p></div>
         </ng-container>
         <div class="summary-row" *ngIf="isScholar"><label>Scholarship:</label><p class="text-green">🎓 {{ scholarType }}</p></div>
       </div>
 
-      <div class="account-info-box" *ngIf="!isTransfereeEnrolling && paymentMethod==='GCash'">
+      <div class="account-info-box" *ngIf="isCollege && !isTransfereeEnrolling && paymentMethod==='GCash'">
         📱 After creating your account you'll be automatically logged in and directed to submit your <strong>GCash payment</strong>.
       </div>
-      <div class="account-info-box cash-box" *ngIf="!isTransfereeEnrolling && paymentMethod==='Cash'">
+      <div class="account-info-box cash-box" *ngIf="isCollege && !isTransfereeEnrolling && paymentMethod==='Cash'">
         💵 After creating your account, proceed to the <strong>Accounting Office</strong> to complete your cash payment.
       </div>
-      <div class="account-info-box transferee-box" *ngIf="isTransfereeEnrolling">
+      <div class="account-info-box" style="background:#f0fdf4;border-color:#86efac;color:#15803d;" *ngIf="isSHS && !isTransfereeEnrolling">
+        🎓 No payment needed! After creating your account you'll be logged in directly to the Student Portal. Your SHS Voucher covers your tuition.
+      </div>
+      <div class="account-info-box" *ngIf="isSHS && isTransfereeEnrolling && paymentMethod==='GCash'">
+        📱 After creating your account you'll be directed to submit your <strong>GCash payment of ₱20,000</strong>.
+      </div>
+      <div class="account-info-box cash-box" *ngIf="isSHS && isTransfereeEnrolling && paymentMethod==='Cash'">
+        💵 After creating your account, proceed to the <strong>Accounting Office</strong> to pay ₱20,000 in person.
+      </div>
+      <div class="account-info-box" style="background:#fff7ed;border-color:#fed7aa;color:#9a3412;" *ngIf="isTVET && !isTransfereeEnrolling">
+        🛠️ No payment needed! After creating your account you'll be logged in directly to the Student Portal. Your TVET program is funded by TESDA PRISAA.
+      </div>
+      <div class="account-info-box" *ngIf="isTVET && isTransfereeEnrolling && paymentMethod==='GCash'">
+        📱 After creating your account you'll be directed to submit your <strong>GCash payment of ₱20,000</strong>.
+      </div>
+      <div class="account-info-box cash-box" *ngIf="isTVET && isTransfereeEnrolling && paymentMethod==='Cash'">
+        💵 After creating your account, proceed to the <strong>Accounting Office</strong> to pay ₱20,000 in person.
+      </div>
+      <div class="account-info-box transferee-box" *ngIf="isTransfereeEnrolling && isCollege">
         📄 After creating your account, you'll be directed to a waiting screen while the <strong>Registrar evaluates your TOR</strong>. Payment and subject enrollment will follow after evaluation.
       </div>
 
       <div class="wiz-actions">
         <button class="btn-back" (click)="enrollStep='documents'; enrollError=''" [disabled]="isSubmitting">← Back</button>
-        <button class="btn-submit" (click)="submitEnrollment()" [disabled]="isSubmitting">
+        <button class="btn-submit" *ngIf="isCollege" (click)="submitEnrollment()" [disabled]="isSubmitting">
           {{ isSubmitting ? '⏳ Creating Account...' : '✓ Create Account & Continue →' }}
+        </button>
+        <button class="btn-submit" *ngIf="isSHS" (click)="submitEnrollmentSHS()" [disabled]="isSubmitting">
+          {{ isSubmitting ? '⏳ Creating Account...' : '✓ Create Account & Enroll →' }}
+        </button>
+        <button class="btn-submit" *ngIf="isTVET" (click)="submitEnrollmentTVET()" [disabled]="isSubmitting">
+          {{ isSubmitting ? '⏳ Creating Account...' : '✓ Create Account & Enroll →' }}
         </button>
       </div>
     </div>
@@ -1133,195 +1323,3 @@
   </div><!-- /wizard-wrapper -->
 </div><!-- /enrollment-page -->
 <!-- Fee Assessment & Payment Plan Styles -->
-<style>
-.fee-assessment-section { background:#f8fafc; border-radius:12px; padding:1rem 1.2rem; margin-bottom:0; }
-.fee-loading { display:flex; align-items:center; gap:0.5rem; color:#6b7280; font-size:0.9rem; padding:0.75rem 0; }
-.fee-spinner { font-size:1.2rem; animation:spin 1s linear infinite; }
-@keyframes spin { to { transform:rotate(360deg); } }
-.fee-error { color:#dc2626; font-size:0.875rem; padding:0.5rem; background:#fef2f2; border-radius:6px; }
-.fee-breakdown-card { border:1px solid #e2e8f0; border-radius:10px; overflow:hidden; background:#fff; }
-.fee-breakdown-header { background:#1e3a5f; color:#fff; padding:0.6rem 1rem; font-weight:700; font-size:0.88rem; text-align:center; }
-.fee-breakdown-table { padding:0.5rem 0; }
-.fb-row { display:flex; justify-content:space-between; padding:5px 1rem; font-size:0.86rem; color:#374151; }
-.fb-row:nth-child(odd) { background:#f9fafb; }
-.fb-subtotal { border-top:2px solid #cbd5e1; font-weight:600; margin-top:4px; }
-.fb-discount { color:#16a34a; font-weight:600; }
-.fb-installment { color:#9333ea; }
-.fb-total { border-top:2px solid #1e3a5f; margin-top:4px; font-size:0.95rem; color:#1e3a5f; padding-top:8px; padding-bottom:8px; }
-
-/* Payment Plan toggle */
-.plan-toggle { display:flex; gap:0.75rem; margin-bottom:1rem; flex-wrap:wrap; }
-.plan-btn { flex:1; min-width:140px; display:flex; flex-direction:column; align-items:center; gap:3px; padding:0.9rem 1rem; border:2px solid #e2e8f0; border-radius:12px; background:#fff; cursor:pointer; transition:all .2s; text-align:center; }
-.plan-btn:hover { border-color:#3b82f6; background:#eff6ff; }
-.plan-btn.selected { border-color:#1e3a5f; background:#eff6ff; }
-.plan-icon { font-size:1.5rem; }
-.plan-label { font-weight:700; font-size:0.9rem; color:#1e3a5f; }
-.plan-sub { font-size:0.75rem; color:#6b7280; }
-
-/* Installment schedule */
-.installment-schedule { margin-top:0.75rem; background:#fff; border:1px solid #e2e8f0; border-radius:10px; overflow:hidden; }
-.inst-sched-title { background:#7c3aed; color:#fff; padding:0.5rem 1rem; font-weight:700; font-size:0.875rem; }
-.inst-sched-table { padding:0; }
-.is-header { display:grid; grid-template-columns:2fr 1.2fr 1.5fr; padding:6px 12px; background:#f8f4ff; font-size:0.78rem; font-weight:700; color:#6b7280; }
-.is-row { display:grid; grid-template-columns:2fr 1.2fr 1.5fr; padding:8px 12px; border-bottom:1px solid #f3f4f6; font-size:0.855rem; align-items:center; }
-.is-row.dp      { background:#fdf4ff; }
-.is-row.prelim  { background:#f0f9ff; }
-.is-row.midterm { background:#f0fdf4; }
-.is-row.finals  { background:#fff7ed; }
-.is-amount { font-weight:700; color:#1d4ed8; }
-.is-badge { font-size:0.72rem; background:#eff6ff; color:#1d4ed8; padding:2px 7px; border-radius:99px; white-space:nowrap; }
-.is-total { display:grid; grid-template-columns:2fr 1.2fr 1.5fr; padding:8px 12px; background:#f8f4ff; font-weight:800; font-size:0.9rem; color:#7c3aed; border-top:2px solid #ddd6fe; }
-.inst-note { font-size:0.78rem; color:#6b7280; padding:6px 12px 8px; }
-
-/* Full payment summary */
-.full-pay-summary { margin-top:0.75rem; background:#f0fdf4; border:1.5px solid #86efac; border-radius:10px; padding:0.75rem 1rem; }
-.fps-row { display:flex; justify-content:space-between; font-size:0.95rem; color:#1e3a5f; font-weight:700; margin-bottom:4px; }
-.fps-note { font-size:0.78rem; color:#6b7280; }
-
-.text-green { color:#16a34a !important; }
-
-/* ── Transferee TOR pending notice in enrollment wizard ── */
-.tor-pending-enrollment-notice {
-  background: #fffbeb; border: 2px solid #f59e0b; border-radius: 14px; padding: 1.2rem 1.4rem;
-}
-.tpen-header { display:flex; gap:0.85rem; align-items:flex-start; margin-bottom:0.9rem; }
-.tpen-icon { font-size:2rem; flex-shrink:0; }
-.tpen-title { font-weight:800; font-size:1rem; color:#92400e; margin-bottom:2px; }
-.tpen-sub { font-size:0.82rem; color:#78350f; }
-.tpen-steps { display:flex; flex-direction:column; gap:0.55rem; margin-bottom:0.9rem; }
-.tpen-step { display:flex; gap:0.6rem; align-items:flex-start; font-size:0.84rem; color:#78350f; }
-.tpen-num {
-  min-width:20px; height:20px; border-radius:50%; background:#f59e0b; color:#fff;
-  font-weight:800; font-size:0.72rem; display:flex; align-items:center; justify-content:center;
-  flex-shrink:0; margin-top:1px;
-}
-.tpen-highlight {
-  background:#fef3c7; border-radius:8px; padding:8px 12px;
-  font-size:0.83rem; color:#92400e; font-weight:600;
-}
-
-/* ── Program course preview (for transferees) ── */
-.prog-course-note { font-size:0.85rem; color:#4b5563; margin-bottom:0.75rem; line-height:1.6; }
-.prog-courses-loading, .prog-courses-empty { text-align:center; padding:1rem; color:#6b7280; font-size:0.875rem; }
-.prog-courses-summary { display:flex; gap:0.5rem; align-items:center; font-size:0.8rem; color:#6b7280; font-weight:600; margin-bottom:0.75rem; }
-.pcy-header { background:#1e3a5f; color:#fff; padding:6px 12px; font-weight:700; font-size:0.85rem; border-radius:6px; margin-top:0.75rem; margin-bottom:2px; }
-.pcs-header { background:#e2e8f0; color:#374151; padding:4px 10px; font-size:0.78rem; font-weight:700; margin-bottom:2px; }
-.pc-table { border:1px solid #e2e8f0; border-radius:6px; overflow:hidden; margin-bottom:0.35rem; }
-.pc-table-head { display:grid; grid-template-columns:110px 1fr 70px; padding:5px 10px; background:#f8fafc; font-size:0.75rem; font-weight:700; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; }
-.pc-row { display:grid; grid-template-columns:110px 1fr 70px; padding:6px 10px; border-top:1px solid #f1f5f9; font-size:0.845rem; align-items:center; }
-.pc-row:hover { background:#f8fafc; }
-.pct-code { }
-.pct-name { color:#374151; }
-.pct-units { }
-.pc-code-tag { background:#dbeafe; color:#1e40af; padding:2px 7px; border-radius:4px; font-size:0.78rem; font-weight:700; }
-.pc-units-badge { background:#d1fae5; color:#065f46; padding:2px 8px; border-radius:12px; font-size:0.78rem; font-weight:700; }
-
-/* Transferee account info box */
-.transferee-box { background:#fffbeb !important; border-color:#f59e0b !important; color:#92400e !important; }
-
-/* TOR upload for transferees */
-.upload-item-transferee .upload-box { border-color:#f59e0b; background:#fffbeb; }
-.upload-item-transferee .upload-box.has-file { border-color:#16a34a; background:#f0fdf4; }
-.transferee-tag { background:#f59e0b; color:#fff; border-radius:4px; padding:1px 7px; font-size:0.72rem; font-weight:700; margin-left:6px; }
-.tor-upload-cta { margin-top:0.6rem; background:#f0fdf4; border:1.5px solid #86efac; border-radius:10px; padding:0.8rem 1rem; }
-.tuc-row { display:flex; gap:0.75rem; align-items:flex-start; }
-.tuc-icon { font-size:1.3rem; margin-top:2px; }
-.tuc-body strong { display:block; color:#15803d; font-size:0.9rem; margin-bottom:3px; }
-.tuc-body p { margin:0; font-size:0.82rem; color:#374151; line-height:1.5; }
-.tor-upload-notice { margin-top:0.5rem; font-size:0.82rem; color:#92400e; background:#fef3c7; border-radius:6px; padding:6px 10px; }
-</style>
-<style>
-/* Transferee Notice */
-.transferee-notice {
-  display: flex; gap: 0.9rem; align-items: flex-start;
-  background: #fffbeb; border: 1.5px solid #fde68a; border-radius: 12px;
-  padding: 1rem 1.1rem; margin-top: 0.6rem; grid-column: 1/-1;
-  animation: fadeInDown .25s ease;
-}
-@keyframes fadeInDown { from{opacity:0;transform:translateY(-8px)} to{opacity:1;transform:translateY(0)} }
-.tnotice-icon { font-size: 1.8rem; flex-shrink: 0; margin-top: 2px; }
-.tnotice-body { flex: 1; }
-.tnotice-title { font-weight: 800; font-size: 0.92rem; color: #92400e; margin-bottom: 0.6rem; }
-.tnotice-steps { display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 0.75rem; }
-.tnotice-step { display: flex; gap: 0.6rem; align-items: flex-start; font-size: 0.83rem; color: #78350f; }
-.tnotice-num {
-  min-width: 20px; height: 20px; border-radius: 50%; background: #f59e0b;
-  color: #fff; font-weight: 800; font-size: 0.72rem;
-  display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 1px;
-}
-.tnotice-highlight {
-  background: #fef3c7; border-radius: 7px; padding: 7px 10px;
-  font-size: 0.82rem; color: #92400e; font-style: italic;
-}
-
-/* ══ TOR REVIEW STEP ═══════════════════════════════════════════════════════ */
-.tor-review-card { max-width: 860px; }
-
-/* Error */
-.tor-review-error { margin-top: 10px; padding: 8px 12px; background: #fef2f2; border: 1px solid #fca5a5; border-radius: 7px; color: #dc2626; font-size: 0.85rem; }
-
-/* Send box */
-.tor-send-box { background: #f0fdf4; border: 2px solid #86efac; border-radius: 14px; padding: 1.2rem 1.4rem; margin-bottom: 1.2rem; display: flex; flex-direction: column; gap: 0.75rem; }
-.tsb-file { display: flex; align-items: center; gap: 0.5rem; font-size: 0.875rem; color: #374151; font-weight: 600; }
-.tsb-file-icon { font-size: 1.1rem; }
-.tsb-nofile { color: #b45309; background: #fffbeb; padding: 4px 10px; border-radius: 6px; }
-.btn-send-tor { background: linear-gradient(135deg, #1e3a5f, #2563eb); color: #fff; border: none; border-radius: 10px; padding: 14px 28px; font-size: 1rem; font-weight: 700; cursor: pointer; transition: opacity .2s; align-self: flex-start; }
-.btn-send-tor:hover { opacity: 0.9; }
-.tsb-hint { font-size: 0.8rem; color: #4b5563; margin: 0; line-height: 1.5; }
-
-/* Loading panel */
-.tor-loading-panel { text-align: center; padding: 3rem 1rem; }
-.tlp-spinner { font-size: 2.5rem; animation: spin 1s linear infinite; margin-bottom: 1rem; }
-.tlp-title { font-size: 1.05rem; font-weight: 700; color: #1e3a5f; margin-bottom: 0.4rem; }
-.tlp-sub { font-size: 0.875rem; color: #6b7280; }
-
-/* Wait steps */
-.tor-wait-steps { display: flex; flex-direction: column; gap: 0.65rem; margin: 1.2rem 0; }
-.tw-step { display: flex; align-items: flex-start; gap: 0.75rem; font-size: 0.875rem; color: #4b5563; }
-.tw-step.tw-done   { color: #15803d; }
-.tw-step.tw-active { color: #1d4ed8; font-weight: 700; }
-.tw-step.tw-pending{ color: #9ca3af; }
-.tw-dot { font-size: 1.1rem; flex-shrink: 0; width: 24px; text-align: center; }
-.spin-slow { display: inline-block; animation: spin 1.5s linear infinite; }
-.tor-wait-info { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 0.8rem 1rem; margin: 1rem 0; display: flex; flex-direction: column; gap: 0.35rem; }
-.twi-row { display: flex; gap: 0.5rem; font-size: 0.855rem; }
-.twi-row label { color: #6b7280; font-weight: 700; min-width: 100px; }
-.tw-poll-note { font-size: 0.8rem; color: #6b7280; margin: 0 0 1.2rem; }
-
-/* Result banner */
-.tor-result-banner { display: flex; gap: 1rem; align-items: flex-start; border-radius: 14px; padding: 1.1rem 1.3rem; margin-bottom: 1.2rem; }
-.banner-success { background: #f0fdf4; border: 2px solid #86efac; }
-.banner-reject  { background: #fffbeb; border: 2px solid #fde68a; }
-.trb-icon { font-size: 2.2rem; flex-shrink: 0; }
-.trb-title { font-weight: 800; font-size: 1rem; color: #15803d; margin-bottom: 0.4rem; }
-.banner-reject .trb-title { color: #92400e; }
-.trb-pills { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.4rem; }
-.trb-pill { padding: 3px 10px; border-radius: 20px; font-size: 0.8rem; font-weight: 700; }
-.trb-pill.green { background: #dcfce7; color: #15803d; }
-.trb-pill.blue  { background: #dbeafe; color: #1d4ed8; }
-.trb-sub { font-size: 0.85rem; color: #78350f; }
-.trb-notes { font-size: 0.83rem; color: #374151; margin-top: 4px; }
-
-/* Legend */
-.tor-legend { display: flex; gap: 1rem; margin-bottom: 0.6rem; font-size: 0.82rem; font-weight: 700; }
-.leg-green { color: #15803d; }
-.leg-white { color: #6b7280; }
-.sum-credited { color: #15803d; font-weight: 700; }
-
-/* Credited row highlight */
-.pc-table-head-4 { grid-template-columns: 110px 1fr 70px 100px !important; }
-.pc-row-4        { grid-template-columns: 110px 1fr 70px 100px !important; }
-.pc-row-credited { background: #f0fdf4 !important; }
-.pc-row-credited:hover { background: #dcfce7 !important; }
-.pc-code-tag-credited  { background: #dcfce7 !important; color: #15803d !important; }
-.pc-units-badge-credited { background: #bbf7d0 !important; color: #065f46 !important; }
-
-/* Status column */
-.pct-status-h { color: #6b7280; }
-.pct-status { }
-.status-tag { font-size: 0.75rem; font-weight: 700; padding: 2px 8px; border-radius: 20px; white-space: nowrap; }
-.status-credited { background: #dcfce7; color: #15803d; }
-.status-enroll   { background: #eff6ff; color: #1d4ed8; }
-
-</style>
-<style>.prev-schools-list{display:flex;flex-direction:column;gap:8px}.prev-school-row{display:grid;grid-template-columns:150px 1fr 130px 32px;gap:8px;align-items:center}.btn-remove-school{background:none;border:1.5px solid #fca5a5;color:#ef4444;border-radius:6px;width:32px;height:36px;cursor:pointer}.btn-add-school{margin-top:4px;background:none;border:1.5px dashed #6366f1;color:#6366f1;border-radius:8px;padding:6px 14px;font-size:.85rem;cursor:pointer}.field-hint{display:block;margin-top:4px;color:#6366f1;font-size:.8rem;font-style:italic}</style>

@@ -48,6 +48,13 @@ export class Rooms implements OnInit {
     'Main Building', 'Admin Building', 'Engineering Building', 'Gymnasium'
   ];
 
+  
+  /** Returns HTTP headers with the auth token. Call this in every API request. */
+  private getHeaders() {
+    const token = sessionStorage.getItem('token') ?? '';
+    return { headers: { Authorization: `Bearer ${token}` } };
+  }
+
   constructor(private http: HttpClient, private cdr: ChangeDetectorRef) {}
 
   ngOnInit(): void { this.loadRooms(); }
@@ -58,7 +65,7 @@ export class Rooms implements OnInit {
 
   loadRooms(): void {
     this.isLoading = true;
-    this.http.get<any>(`${this.api}?action=get_rooms`).subscribe({
+    this.http.get<any>(`${this.api}?action=get_rooms`, this.getHeaders()).subscribe({
       next: (res) => {
         this.isLoading = false;
         if (res.success) { this.roomList = res.rooms; this.applyFilter(); }
@@ -106,7 +113,7 @@ export class Rooms implements OnInit {
     if (!this.form.room_name) { this.showToast('error', 'Room name is required.'); return; }
     this.isSaving = true;
     const action = this.isEditing ? 'update_room' : 'create_room';
-    this.http.post<any>(`${this.api}?action=${action}`, this.form).subscribe({
+    this.http.post<any>(`${this.api}?action=${action}`, this.form, this.getHeaders()).subscribe({
       next: (res) => {
         this.isSaving = false;
         if (res.success) {
@@ -132,7 +139,7 @@ export class Rooms implements OnInit {
   doDelete(): void {
     if (!this.deleteTarget) return;
     this.isDeleting = true;
-    this.http.post<any>(`${this.api}?action=delete_room`, { id: this.deleteTarget.id }).subscribe({
+    this.http.post<any>(`${this.api}?action=delete_room`, { id: this.deleteTarget.id }, this.getHeaders()).subscribe({
       next: (res) => {
         this.isDeleting = false;
         if (res.success) { this.showToast('success', 'Room deleted.'); this.loadRooms(); }
@@ -163,5 +170,6 @@ export class Rooms implements OnInit {
   get availableCount():    number { return this.roomList.filter(r => r.status === 'Available').length; }
   get occupiedCount():     number { return this.roomList.filter(r => r.status === 'Occupied').length; }
   get maintenanceCount():  number { return this.roomList.filter(r => r.status === 'Under Maintenance').length; }
+  get laboratoryCount():   number { return this.roomList.filter(r => r.room_type === 'Laboratory').length; }
   get totalCapacity():     number { return this.roomList.reduce((s, r) => s + (r.capacity || 0), 0); }
 }

@@ -105,17 +105,34 @@
       <div class="fee-preview-card" *ngIf="feePreview && !isFeePreviewLoading">
         <div class="fee-preview-title">📋 Assessment for the Current Semester</div>
         <div class="fee-preview-rows">
-          <div class="fp-row"><span>No. of Units</span><span>{{ feePreview.units }}</span></div>
-          <div class="fp-row"><span>Tuition Fee ({{ feePreview.units }} × ₱650)</span><span>₱{{ feePreview.tuitionFee | number:'1.2-2' }}</span></div>
-          <div class="fp-row"><span>Miscellaneous Fee</span><span>₱{{ feePreview.miscellaneousFee | number:'1.2-2' }}</span></div>
-          <div class="fp-row"><span>Registration Fee</span><span>₱{{ feePreview.registrationFee | number:'1.2-2' }}</span></div>
-          <div class="fp-row"><span>Laboratory Fee (lab subjects × ₱1,900)</span><span>₱{{ feePreview.laboratoryFee | number:'1.2-2' }}</span></div>
-          <div class="fp-row"><span>Energy Fee ({{ feePreview.units }} × ₱21 × 3)</span><span>₱{{ feePreview.energyFee | number:'1.2-2' }}</span></div>
-          <div class="fp-row fp-subtotal"><span>Subtotal</span><span>₱{{ feePreview.subtotal | number:'1.2-2' }}</span></div>
-          <div class="fp-row fp-discount" *ngIf="feePreview.discount > 0">
-            <span>🎓 Scholarship Discount</span><span class="text-green">– ₱{{ feePreview.discount | number:'1.2-2' }}</span>
-          </div>
-          <div class="fp-row fp-total"><span><strong>TOTAL ASSESSMENT</strong></span><span><strong>₱{{ feePreview.totalAssessment | number:'1.2-2' }}</strong></span></div>
+
+          <!-- SHS / TVET Transferee — flat rate only -->
+          <ng-container *ngIf="isSHS || isTVET; else collegeFeeRows">
+            <div class="fp-row"><span>{{ isSHS ? 'SHS' : 'TVET' }} Flat Rate</span><span>₱{{ feePreview.tuitionFee | number:'1.2-2' }}</span></div>
+            <div class="fp-row fp-discount" *ngIf="feePreview.discount > 0">
+              <span>🎓 Scholarship Discount</span><span class="text-green">– ₱{{ feePreview.discount | number:'1.2-2' }}</span>
+            </div>
+            <div class="fp-row fp-installment" *ngIf="paymentPlan === 'installment'">
+              <span>Installment Fee</span><span>₱750.00</span>
+            </div>
+            <div class="fp-row fp-total"><span><strong>TOTAL ASSESSMENT</strong></span><span><strong>₱{{ feePreview.totalAssessment | number:'1.2-2' }}</strong></span></div>
+          </ng-container>
+
+          <!-- College — full breakdown -->
+          <ng-template #collegeFeeRows>
+            <div class="fp-row"><span>No. of Units</span><span>{{ feePreview.units }}</span></div>
+            <div class="fp-row"><span>Tuition Fee ({{ feePreview.units }} × ₱650)</span><span>₱{{ feePreview.tuitionFee | number:'1.2-2' }}</span></div>
+            <div class="fp-row"><span>Miscellaneous Fee</span><span>₱{{ feePreview.miscellaneousFee | number:'1.2-2' }}</span></div>
+            <div class="fp-row"><span>Registration Fee</span><span>₱{{ feePreview.registrationFee | number:'1.2-2' }}</span></div>
+            <div class="fp-row"><span>Laboratory Fee (lab subjects × ₱1,900)</span><span>₱{{ feePreview.laboratoryFee | number:'1.2-2' }}</span></div>
+            <div class="fp-row"><span>Energy Fee ({{ feePreview.units }} × ₱21 × 3)</span><span>₱{{ feePreview.energyFee | number:'1.2-2' }}</span></div>
+            <div class="fp-row fp-subtotal"><span>Subtotal</span><span>₱{{ feePreview.subtotal | number:'1.2-2' }}</span></div>
+            <div class="fp-row fp-discount" *ngIf="feePreview.discount > 0">
+              <span>🎓 Scholarship Discount</span><span class="text-green">– ₱{{ feePreview.discount | number:'1.2-2' }}</span>
+            </div>
+            <div class="fp-row fp-total"><span><strong>TOTAL ASSESSMENT</strong></span><span><strong>₱{{ feePreview.totalAssessment | number:'1.2-2' }}</strong></span></div>
+          </ng-template>
+
         </div>
       </div>
 
@@ -195,20 +212,37 @@
       <div class="fee-preview-card" *ngIf="feePreview && !isFeePreviewLoading">
         <div class="fee-preview-title">📋 Assessment for the Current Semester</div>
         <div class="fee-preview-rows">
-          <div class="fp-row"><span>No. of Units</span><span>{{ feePreview.units }}</span></div>
-          <div class="fp-row"><span>Tuition Fee ({{ feePreview.units }} × ₱650)</span><span>₱{{ feePreview.tuitionFee | number:'1.2-2' }}</span></div>
-          <div class="fp-row"><span>Miscellaneous Fee</span><span>₱{{ feePreview.miscellaneousFee | number:'1.2-2' }}</span></div>
-          <div class="fp-row"><span>Registration Fee</span><span>₱{{ feePreview.registrationFee | number:'1.2-2' }}</span></div>
-          <div class="fp-row"><span>Laboratory Fee</span><span>₱{{ feePreview.laboratoryFee | number:'1.2-2' }}</span></div>
-          <div class="fp-row"><span>Energy Fee ({{ feePreview.units }} × ₱21 × 3)</span><span>₱{{ feePreview.energyFee | number:'1.2-2' }}</span></div>
-          <div class="fp-row fp-subtotal"><span>Subtotal</span><span>₱{{ feePreview.subtotal | number:'1.2-2' }}</span></div>
-          <div class="fp-row fp-discount" *ngIf="feePreview.discount > 0">
-            <span>🎓 Scholarship Discount</span><span class="text-green">– ₱{{ feePreview.discount | number:'1.2-2' }}</span>
-          </div>
-          <div class="fp-row fp-installment" *ngIf="paymentPlan === 'installment'">
-            <span>Installment Fee</span><span>₱750.00</span>
-          </div>
-          <div class="fp-row fp-total"><span><strong>TOTAL ASSESSMENT</strong></span><span><strong>₱{{ feePreview.totalAssessment | number:'1.2-2' }}</strong></span></div>
+
+          <!-- SHS / TVET Transferee — flat rate only -->
+          <ng-container *ngIf="isSHS || isTVET; else collegeFeeRowsCash">
+            <div class="fp-row"><span>{{ isSHS ? 'SHS' : 'TVET' }} Flat Rate</span><span>₱{{ feePreview.tuitionFee | number:'1.2-2' }}</span></div>
+            <div class="fp-row fp-discount" *ngIf="feePreview.discount > 0">
+              <span>🎓 Scholarship Discount</span><span class="text-green">– ₱{{ feePreview.discount | number:'1.2-2' }}</span>
+            </div>
+            <div class="fp-row fp-installment" *ngIf="paymentPlan === 'installment'">
+              <span>Installment Fee</span><span>₱750.00</span>
+            </div>
+            <div class="fp-row fp-total"><span><strong>TOTAL ASSESSMENT</strong></span><span><strong>₱{{ feePreview.totalAssessment | number:'1.2-2' }}</strong></span></div>
+          </ng-container>
+
+          <!-- College — full breakdown -->
+          <ng-template #collegeFeeRowsCash>
+            <div class="fp-row"><span>No. of Units</span><span>{{ feePreview.units }}</span></div>
+            <div class="fp-row"><span>Tuition Fee ({{ feePreview.units }} × ₱650)</span><span>₱{{ feePreview.tuitionFee | number:'1.2-2' }}</span></div>
+            <div class="fp-row"><span>Miscellaneous Fee</span><span>₱{{ feePreview.miscellaneousFee | number:'1.2-2' }}</span></div>
+            <div class="fp-row"><span>Registration Fee</span><span>₱{{ feePreview.registrationFee | number:'1.2-2' }}</span></div>
+            <div class="fp-row"><span>Laboratory Fee</span><span>₱{{ feePreview.laboratoryFee | number:'1.2-2' }}</span></div>
+            <div class="fp-row"><span>Energy Fee ({{ feePreview.units }} × ₱21 × 3)</span><span>₱{{ feePreview.energyFee | number:'1.2-2' }}</span></div>
+            <div class="fp-row fp-subtotal"><span>Subtotal</span><span>₱{{ feePreview.subtotal | number:'1.2-2' }}</span></div>
+            <div class="fp-row fp-discount" *ngIf="feePreview.discount > 0">
+              <span>🎓 Scholarship Discount</span><span class="text-green">– ₱{{ feePreview.discount | number:'1.2-2' }}</span>
+            </div>
+            <div class="fp-row fp-installment" *ngIf="paymentPlan === 'installment'">
+              <span>Installment Fee</span><span>₱750.00</span>
+            </div>
+            <div class="fp-row fp-total"><span><strong>TOTAL ASSESSMENT</strong></span><span><strong>₱{{ feePreview.totalAssessment | number:'1.2-2' }}</strong></span></div>
+          </ng-template>
+
         </div>
 
         <!-- Installment Schedule -->
@@ -325,7 +359,7 @@
         <div class="data-column">
           <h3>Academic</h3>
           <div class="data-item"><label>Program:</label><p>{{ student.program }}</p></div>
-          <div class="data-item"><label>Year Level:</label><p>{{ student.yearLevel }}</p></div>
+          <div class="data-item"><label>Year Level:</label><p>{{ (isSHS && student.yearLevel === '1st Year') ? 'Grade 11' : (isSHS && student.yearLevel === '2nd Year') ? 'Grade 12' : student.yearLevel }}</p></div>
           <div class="data-item"><label>GPA:</label><p class="gpa-value">{{ student.gpa | number:'1.2-2' }}</p></div>
           <div class="data-item"><label>Status:</label><p><span class="badge" [class]="'badge-' + student.enrollmentStatus?.toLowerCase()">{{ student.enrollmentStatus }}</span></p></div>
         </div>
@@ -401,7 +435,7 @@
               <span class="stat-num">{{ enrollmentSummary.totalCourses }}</span>
               <span class="stat-label">Subjects</span>
             </div>
-            <div class="stat-pill stat-pill-accent">
+            <div class="stat-pill stat-pill-accent" *ngIf="isCollege">
               <span class="stat-num">{{ enrollmentSummary.totalCredits }}</span>
               <span class="stat-label">Units</span>
             </div>
@@ -431,8 +465,8 @@
             <span class="sgt-col sgt-room">{{ c.room }}</span>
             <span class="sgt-col sgt-status"><span class="enrolled-dot">✓ Enrolled</span></span>
           </div>
-          <!-- Total Row -->
-          <div class="sgt-total">
+          <!-- Total Row (College only) -->
+          <div class="sgt-total" *ngIf="isCollege">
             <span class="sgt-col sgt-num"></span>
             <span class="sgt-col sgt-code"></span>
             <span class="sgt-col sgt-name" style="text-align:right; font-weight:700; color:#6b7280;">Total Units:</span>
@@ -444,104 +478,174 @@
         </div>
       </div>
 
-      <!-- Fee Assessment Breakdown -->
-      <div class="fees-section" *ngIf="feeBreakdown">
-        <div class="section-header">
-          <h2>🧾 Statement of Account</h2>
+      <!-- Statement of Account — SOA Layout -->
+      <div class="fees-section soa-section" *ngIf="feeBreakdown && (isCollege || isTransferee)">
+        <!-- SOA Header -->
+        <div class="soa-header-bar">
+          <div class="soa-school-logo">ST.<br>BENILDE</div>
+          <div class="soa-school-info">
+            <div class="soa-school-name">ST. BENILDE CENTER FOR GLOBAL COMPETENCE, INC.</div>
+            <div class="soa-school-addr">2647 Rizal Avenue, West Bajac-Bajac, Olongapo City &nbsp;|&nbsp; Telefax: (047) 223 - 9031</div>
+          </div>
+          <div class="soa-badges">
+            <span class="soa-badge">CHED</span>
+            <span class="soa-badge">DepEd</span>
+            <span class="soa-badge">TESDA</span>
+          </div>
+        </div>
+        <div class="soa-title-bar">
+          STATEMENT OF ACCOUNT &nbsp; {{ enrollmentSummary.semester || currentSemester }}
+        </div>
+        <!-- Student Info Bar -->
+        <div class="soa-info-bar">
+          <div class="soa-info-cell">
+            <div class="soa-info-label">Name:</div>
+            <div class="soa-info-val">{{ (student.lastName || '') | uppercase }}, {{ (student.firstName || '') | uppercase }}</div>
+          </div>
+          <div class="soa-info-cell">
+            <div class="soa-info-label">Course:</div>
+            <div class="soa-info-val">{{ student.program }}</div>
+          </div>
+          <div class="soa-info-cell">
+            <div class="soa-info-label">Department:</div>
+            <div class="soa-info-val">ICTD</div>
+          </div>
+        </div>
+        <div class="soa-info-bar soa-info-bar2">
+          <div class="soa-info-cell">
+            <div class="soa-info-label">Examination Covered:</div>
+            <div class="soa-info-val">PRELIM</div>
+          </div>
+          <div class="soa-info-cell">
+            <div class="soa-info-label">Semester:</div>
+            <div class="soa-info-val">{{ enrollmentSummary.semester || currentSemester }}</div>
+          </div>
+          <div class="soa-info-cell">
+            <div class="soa-info-label">Student No.:</div>
+            <div class="soa-info-val">{{ student.studentNumber || student.student_number }}</div>
+          </div>
+        </div>
+        <!-- SOA Two-Column Body -->
+        <div class="soa-body">
+          <!-- LEFT: Assessment -->
+          <div class="soa-left">
+            <div class="soa-assess-title">ASSESSMENT FOR THE CURRENT SEMESTER</div>
+            <table class="soa-assess-table">
+              <tr><td>No. of Units</td><td>{{ feeBreakdown.units }}</td></tr>
+              <tr><td>Tuition Fee</td><td>{{ feeBreakdown.tuitionFee | number:'1.2-2' }}</td></tr>
+              <tr><td>Miscellaneous Fee</td><td>{{ feeBreakdown.miscellaneousFee | number:'1.2-2' }}</td></tr>
+              <tr><td>Registration Fee</td><td>{{ feeBreakdown.registrationFee | number:'1.2-2' }}</td></tr>
+              <tr><td>NSTP Fee</td><td></td></tr>
+              <tr><td>ENERGY FEE</td><td>{{ feeBreakdown.energyFee | number:'1.2-2' }}</td></tr>
+              <tr><td>Supervision Fee</td><td></td></tr>
+              <tr><td class="soa-indent"># of laboratory</td><td></td></tr>
+              <tr><td>Laboratory Fees:</td><td>{{ feeBreakdown.laboratoryFee | number:'1.2-2' }}</td></tr>
+              <tr><td class="soa-indent">Computer Lab.</td><td></td></tr>
+              <tr><td class="soa-indent">Kitchen Lab.</td><td></td></tr>
+              <tr><td class="soa-indent">Bartending Lab.</td><td></td></tr>
+              <tr><td class="soa-indent">F&amp;B Lab.</td><td></td></tr>
+              <tr><td class="soa-indent">Housekeeping Lab.</td><td></td></tr>
+              <tr><td>Penalty Late Payment</td><td></td></tr>
+              <tr><td>&nbsp;</td><td></td></tr>
+              <tr class="soa-subtotal"><td>Subtotal</td><td>{{ feeBreakdown.subtotal | number:'1.2-2' }}</td></tr>
+              <tr><td>Discount of TF</td><td>{{ feeBreakdown.discount > 0 ? (feeBreakdown.discount | number:'1.2-2') : '- -' }}</td></tr>
+              <tr *ngIf="paymentPlan === 'installment'"><td>Installment Fee</td><td>{{ feeBreakdown.installmentFee | number:'1.2-2' }}</td></tr>
+              <tr class="soa-total-row"><td>TOTAL ASSESSMENT</td><td>{{ feeBreakdown.totalAssessment | number:'1.2-2' }}</td></tr>
+            </table>
+            <div class="soa-final-row">
+              <span>FINAL ASSESSMENT</span>
+              <span>{{ feeBreakdown.totalAssessment | number:'1.2-2' }}</span>
+            </div>
+          </div>
+
+          <!-- RIGHT: Schedule of Payment -->
+          <div class="soa-right">
+            <table class="soa-sched-table">
+              <thead>
+                <tr>
+                  <th>SCHEDULE OF PAYMENT</th>
+                  <th>DATE OF PAYMENTS</th>
+                  <th>PAYMENTS</th>
+                  <th>O.R./A.R. NO.</th>
+                </tr>
+              </thead>
+              <tbody>
+                <ng-container *ngFor="let t of installmentSchedule">
+                  <tr>
+                    <td class="soa-period-label">{{ t.label.split('—')[1]?.trim() || t.term }}</td>
+                    <td class="soa-due-date" [class.soa-red]="!t.paid && t.term === 'Prelim'">
+                      {{ t.paid ? (t.paymentDate | date:'MM-dd-yy') : '' }}
+                    </td>
+                    <td class="soa-paid-amt" [class.soa-paid-green]="t.paid">
+                      {{ t.paid ? (t.amountPaid | number:'1.2-2') : '' }}
+                    </td>
+                    <td class="soa-or-num">{{ t.paid ? t.orNo : '' }}</td>
+                  </tr>
+                  <tr class="soa-spacer"><td colspan="4"></td></tr>
+                </ng-container>
+                <!-- Full payment row -->
+                <ng-container *ngIf="paymentPlan === 'full'">
+                  <tr>
+                    <td>Full Payment</td>
+                    <td></td>
+                    <td [class.soa-paid-green]="feeBreakdown.totalPaid > 0">
+                      {{ feeBreakdown.totalPaid > 0 ? (feeBreakdown.totalPaid | number:'1.2-2') : '' }}
+                    </td>
+                    <td>{{ paymentReceipts[0]?.orArNumber || '' }}</td>
+                  </tr>
+                </ng-container>
+              </tbody>
+            </table>
+
+            <div class="soa-total-balance">
+              <span class="soa-tb-label">Total Balance</span>
+              <span class="soa-tb-amt" [class.soa-fully-paid]="feeBreakdown.balance === 0">
+                {{ feeBreakdown.balance | number:'1.2-2' }}
+                <small *ngIf="feeBreakdown.balance === 0"> — Fully Paid</small>
+              </span>
+            </div>
+
+            <!-- Installment breakdown table -->
+            <table class="soa-install-table" *ngIf="paymentPlan === 'installment'">
+              <thead>
+                <tr>
+                  <th>INSTALLMENT PAYMENT</th>
+                  <th>DUE DATES</th>
+                  <th>AMOUNT</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td>Downpayment :</td><td></td><td>{{ dpAmount | number:'1.2-2' }}</td></tr>
+                <tr class="soa-red-row"><td>Prelim :</td><td>JANUARY 10-16, 2026</td><td>{{ prelimAmount | number:'1.2-2' }}</td></tr>
+                <tr><td>Midterm:</td><td>FEBRUARY 9 - 14, 2026</td><td>{{ midtermAmount | number:'1.2-2' }}</td></tr>
+                <tr><td>Final:</td><td>MARCH 30 - APRIL 4, 2026</td><td>{{ finalsAmount | number:'1.2-2' }}</td></tr>
+              </tbody>
+            </table>
+            <div class="soa-total-to-pay" *ngIf="paymentPlan === 'installment'">
+              Total amount to be paid: &nbsp;
+              <span class="soa-total-to-pay-amt">{{ feeBreakdown.totalAssessment | number:'1.2-2' }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Print Button -->
+        <div class="soa-print-bar">
+          <button class="btn-view-soa" (click)="viewSOA()">🖨️ Print SOA</button>
           <span class="pay-status-badge" [class]="getPayStatusClass(feeBreakdown.paymentStatus === 'Fully Paid' ? 'Paid' : feeBreakdown.paymentStatus)">
             {{ feeBreakdown.paymentStatus === 'Fully Paid' ? '✅ Fully Paid' : feeBreakdown.paymentStatus === 'Partially Paid' ? '🔶 Partially Paid' : '❌ Unpaid' }}
           </span>
         </div>
-        <div class="fees-grid">
-          <div class="fee-card">
-            <div class="fee-breakdown-title">Assessment for the Current Semester</div>
-            <div class="fee-rows">
-              <div class="fee-row"><span class="fee-label">No. of Units</span><span class="fee-amount">{{ feeBreakdown.units }}</span></div>
-              <div class="fee-row"><span class="fee-label">Tuition Fee ({{ feeBreakdown.units }} units × ₱650)</span><span class="fee-amount">₱{{ feeBreakdown.tuitionFee | number:'1.2-2' }}</span></div>
-              <div class="fee-row"><span class="fee-label">Miscellaneous Fee</span><span class="fee-amount">₱{{ feeBreakdown.miscellaneousFee | number:'1.2-2' }}</span></div>
-              <div class="fee-row"><span class="fee-label">Registration Fee</span><span class="fee-amount">₱{{ feeBreakdown.registrationFee | number:'1.2-2' }}</span></div>
-              <div class="fee-row"><span class="fee-label">Laboratory Fee</span><span class="fee-amount">₱{{ feeBreakdown.laboratoryFee | number:'1.2-2' }}</span></div>
-              <div class="fee-row"><span class="fee-label">Energy Fee ({{ feeBreakdown.units }} × ₱21 × 3)</span><span class="fee-amount">₱{{ feeBreakdown.energyFee | number:'1.2-2' }}</span></div>
-              <div class="fee-row subtotal"><span class="fee-label">Subtotal</span><span class="fee-amount">₱{{ feeBreakdown.subtotal | number:'1.2-2' }}</span></div>
-              <div class="fee-row discount" *ngIf="feeBreakdown.discount > 0">
-                <span class="fee-label">🎓 Scholarship Discount</span>
-                <span class="fee-amount text-green">– ₱{{ feeBreakdown.discount | number:'1.2-2' }}</span>
-              </div>
-              <div class="fee-row" *ngIf="feeBreakdown.installmentFee > 0">
-                <span class="fee-label">Installment Fee</span>
-                <span class="fee-amount">₱{{ feeBreakdown.installmentFee | number:'1.2-2' }}</span>
-              </div>
-              <div class="fee-row total"><span class="fee-label" style="font-weight:800;">TOTAL ASSESSMENT</span><span class="fee-amount" style="font-weight:800;">₱{{ feeBreakdown.totalAssessment | number:'1.2-2' }}</span></div>
-
-              <!-- FULL PAYMENT: show amount paid only after payment is confirmed -->
-              <ng-container *ngIf="paymentPlan === 'full' && feeBreakdown.totalPaid > 0">
-                <div class="fee-row paid">
-                  <span class="fee-label">✅ Amount Paid (Full Payment)</span>
-                  <span class="fee-amount text-green">₱{{ feeBreakdown.totalPaid | number:'1.2-2' }}</span>
-                </div>
-              </ng-container>
-              <ng-container *ngIf="paymentPlan === 'full' && feeBreakdown.totalPaid === 0">
-                <div class="fee-row" style="color:#6b7280;">
-                  <span class="fee-label">Amount Paid</span>
-                  <span class="fee-amount">₱0.00 — awaiting Accounting confirmation</span>
-                </div>
-              </ng-container>
-
-              <!-- INSTALLMENT: per-term payment schedule -->
-              <ng-container *ngIf="paymentPlan === 'installment'">
-                <div class="fee-row installment-header">
-                  <span class="fee-label" style="font-weight:700;color:#1d4ed8;">💳 Installment Payment Schedule</span>
-                  <span class="fee-amount" style="color:#6b7280;font-size:0.8rem;">4 equal terms</span>
-                </div>
-                <!-- If only DP is paid, show note that this is the initial payment -->
-                <div class="inst-initial-note" *ngIf="installmentSchedule | slice:0:1 as first; else nothing">
-                  <ng-container *ngIf="first[0]?.paid && !installmentSchedule[1]?.paid">
-                    <span style="font-size:0.8rem;color:#92400e;background:#fef9c3;padding:3px 10px;border-radius:6px;display:inline-block;margin-bottom:6px;">
-                      ⬇️ Initial payment (Downpayment) recorded. Remaining 3 terms payable before each exam.
-                    </span>
-                  </ng-container>
-                </div>
-                <ng-template #nothing></ng-template>
-                <ng-container *ngFor="let t of installmentSchedule">
-                  <!-- PAID term -->
-                  <div class="fee-row paid" *ngIf="t.paid" style="background:#f0fdf4;border-left:3px solid #16a34a;padding-left:8px;">
-                    <span class="fee-label">
-                      ✅ <strong>{{ t.label }}</strong>
-                      <small style="color:#6b7280;margin-left:6px;">{{ t.orNo }}</small>
-                      <small *ngIf="t.paymentDate" style="color:#9ca3af;margin-left:6px;">{{ t.paymentDate }}</small>
-                    </span>
-                    <span class="fee-amount text-green" style="font-weight:700;">₱{{ t.amountPaid | number:'1.2-2' }}</span>
-                  </div>
-                  <!-- UNPAID term -->
-                  <div class="fee-row" *ngIf="!t.paid" style="background:#fafafa;border-left:3px solid #e5e7eb;padding-left:8px;">
-                    <span class="fee-label" style="color:#6b7280;">
-                      ⏳ <strong>{{ t.label }}</strong>
-                    </span>
-                    <span class="fee-amount" style="color:#9ca3af;">₱{{ t.amount | number:'1.2-2' }} — pending</span>
-                  </div>
-                </ng-container>
-                <div class="fee-row subtotal" style="border-top:2px solid #e5e7eb;margin-top:6px;padding-top:6px;">
-                  <span class="fee-label" style="font-weight:700;">Total Paid So Far</span>
-                  <span class="fee-amount text-green" style="font-weight:700;">₱{{ feeBreakdown.totalPaid | number:'1.2-2' }}</span>
-                </div>
-              </ng-container>
-
-              <div class="fee-row balance" *ngIf="feeBreakdown.balance > 0">
-                <span class="fee-label" style="color:#dc2626;font-weight:700;">Remaining Balance</span>
-                <span class="fee-amount" style="color:#dc2626;font-weight:800;">₱{{ feeBreakdown.balance | number:'1.2-2' }}</span>
-              </div>
-              <div class="fee-row" *ngIf="feeBreakdown.balance === 0">
-                <span class="fee-label" style="color:#16a34a;font-weight:700;">Balance</span>
-                <span class="fee-amount" style="color:#16a34a;font-weight:800;">₱0.00 — Fully Paid</span>
-              </div>
-            </div>
-          </div>
-        </div>
       </div>
 
       <!-- OR/AR Payment Receipt History -->
-      <div class="term-payments-section" *ngIf="paymentReceipts.length > 0">
-        <div class="section-header">
+      <div class="term-payments-section" *ngIf="paymentReceipts.length > 0 && (isCollege || isTransferee)">
+        <div style="margin-bottom:14px;" *ngIf="fees">
+        <button class="btn-view-soa" (click)="viewSOA()">
+          📄 View / Print Statement of Account (SOA)
+        </button>
+      </div>
+
+      <div class="section-header">
           <h2>🧾 Payment Receipts (OR / AR)</h2>
           <p class="section-sub">Official and Acknowledgement Receipts issued by Accounting</p>
         </div>
@@ -592,8 +696,26 @@
         </div>
       </div>
 
-      <div class="term-payments-section" *ngIf="paymentReceipts.length === 0 && !isFeeLoading">
+      <div class="term-payments-section" *ngIf="paymentReceipts.length === 0 && !isFeeLoading && (isCollege || isTransferee)">
         <div class="no-data"><p>Payment receipts will appear once Accounting records your payment.</p></div>
+      </div>
+
+      <!-- SHS — free tuition notice -->
+      <div class="term-payments-section" *ngIf="isSHS && !isTransferee">
+        <div style="text-align:center;padding:2rem;background:linear-gradient(135deg,#f0fdf4,#dcfce7);border:1.5px solid #86efac;border-radius:12px;">
+          <div style="font-size:2.5rem;margin-bottom:0.5rem">🎓</div>
+          <h3 style="color:#15803d;margin:0 0 0.5rem">No Tuition Fee Required</h3>
+          <p style="color:#16a34a;margin:0">Your enrollment is fully covered by the <strong>Senior High School Voucher Program (SHS VP)</strong>. No payment required.</p>
+        </div>
+      </div>
+
+      <!-- TVET — free tuition notice -->
+      <div class="term-payments-section" *ngIf="isTVET && !isTransferee">
+        <div style="text-align:center;padding:2rem;background:linear-gradient(135deg,#fff7ed,#ffedd5);border:1.5px solid #fed7aa;border-radius:12px;">
+          <div style="font-size:2.5rem;margin-bottom:0.5rem">🛠️</div>
+          <h3 style="color:#9a3412;margin:0 0 0.5rem">No Tuition Fee Required</h3>
+          <p style="color:#c2410c;margin:0">Your TVET program is fully funded by <strong>TESDA PRISAA</strong>. No payment required.</p>
+        </div>
       </div>
 
     </div>
@@ -701,4 +823,54 @@
 .fp-title { font-weight:800; font-size:1.1rem; color:#15803d; }
 .fp-sub { font-size:0.875rem; color:#374151; margin-top:2px; }
 .fee-breakdown-title { font-weight:700; color:#1e3a5f; margin-bottom:0.75rem; font-size:0.95rem; text-align:center; }
+
+/* ── SOA Styles ─────────────────────────────────────── */
+.soa-section { background:#fff; border:1px solid #ddd; border-radius:10px; overflow:hidden; margin-bottom:20px; }
+.soa-header-bar { display:flex; align-items:center; gap:12px; padding:12px 16px; background:#f8f9fa; border-bottom:2px solid #1a1a6e; }
+.soa-school-logo { width:52px; height:52px; border:2px solid #1a1a6e; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:8px; text-align:center; font-weight:900; color:#1a1a6e; flex-shrink:0; }
+.soa-school-info { flex:1; }
+.soa-school-name { font-size:13px; font-weight:900; text-transform:uppercase; color:#1a1a6e; letter-spacing:0.5px; }
+.soa-school-addr { font-size:9px; color:#555; margin-top:2px; }
+.soa-badges { display:flex; gap:6px; }
+.soa-badge { font-size:8px; border:1px solid #1a1a6e; color:#1a1a6e; padding:2px 6px; border-radius:4px; font-weight:700; }
+.soa-title-bar { text-align:center; font-size:12px; font-weight:900; text-transform:uppercase; background:#1a1a6e; color:#fff; padding:5px; letter-spacing:1px; }
+.soa-info-bar { display:grid; grid-template-columns:1fr 1fr 1fr; border-bottom:1px solid #ddd; }
+.soa-info-bar2 { background:#f8f9fa; }
+.soa-info-cell { padding:6px 12px; border-right:1px solid #ddd; }
+.soa-info-cell:last-child { border-right:none; }
+.soa-info-label { font-size:9px; color:#888; text-transform:uppercase; }
+.soa-info-val { font-size:12px; font-weight:700; color:#1a1a6e; }
+.soa-body { display:grid; grid-template-columns:280px 1fr; gap:0; border-bottom:1px solid #ddd; }
+.soa-left { border-right:1px solid #ddd; padding:10px 12px; }
+.soa-assess-title { text-align:center; font-size:9.5px; font-weight:700; background:#e8e8e8; border:1px solid #ccc; padding:3px; margin-bottom:4px; }
+.soa-assess-table { width:100%; border-collapse:collapse; font-size:10px; }
+.soa-assess-table td { padding:1.5px 4px; border-bottom:1px dotted #e5e7eb; }
+.soa-assess-table td:last-child { text-align:right; min-width:80px; font-family:monospace; }
+.soa-indent { padding-left:14px !important; color:#666; }
+.soa-subtotal td { font-weight:700; border-top:1.5px solid #000 !important; padding-top:4px !important; }
+.soa-total-row td { font-weight:900; background:#d0d0d0; padding:3px 4px !important; }
+.soa-final-row { display:flex; justify-content:space-between; background:#1a1a6e; color:#fff; font-weight:900; font-size:12px; padding:5px 8px; margin-top:2px; }
+.soa-right { padding:10px 12px; }
+.soa-sched-table { width:100%; border-collapse:collapse; font-size:10px; margin-bottom:8px; }
+.soa-sched-table th { background:#1a1a6e; color:#fff; padding:4px 8px; font-size:9.5px; text-align:left; }
+.soa-sched-table td { border:1px solid #ddd; padding:3px 8px; height:22px; }
+.soa-spacer td { height:4px; border:none; padding:0; }
+.soa-period-label { font-weight:600; }
+.soa-red { color:#c00; font-weight:700; }
+.soa-paid-amt { text-align:right; font-family:monospace; }
+.soa-paid-green { color:#16a34a; font-weight:700; }
+.soa-or-num { text-align:center; font-size:9px; color:#1d4ed8; font-weight:700; }
+.soa-total-balance { border:2px solid #1a1a6e; padding:6px 12px; display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
+.soa-tb-label { font-size:12px; font-weight:700; }
+.soa-tb-amt { font-size:18px; font-weight:900; color:#c00; font-family:monospace; }
+.soa-fully-paid { color:#16a34a !important; font-size:14px !important; }
+.soa-install-table { width:100%; border-collapse:collapse; font-size:10px; }
+.soa-install-table th { background:#f0c040; color:#000; font-weight:700; padding:3px 8px; border:1px solid #999; }
+.soa-install-table td { border:1px solid #ddd; padding:3px 8px; }
+.soa-red-row td { color:#c00; font-weight:700; }
+.soa-total-to-pay { text-align:right; font-size:11px; font-weight:700; margin-top:6px; }
+.soa-total-to-pay-amt { background:#add8e6; padding:2px 10px; border-radius:4px; }
+.soa-print-bar { display:flex; justify-content:space-between; align-items:center; padding:10px 16px; background:#f8f9fa; border-top:1px solid #ddd; }
+.btn-view-soa { background:#1a1a6e; color:#fff; border:none; padding:8px 20px; font-size:12px; font-weight:700; border-radius:7px; cursor:pointer; }
+.btn-view-soa:hover { background:#2d2d9e; }
 </style>

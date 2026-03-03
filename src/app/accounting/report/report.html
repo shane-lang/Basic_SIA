@@ -1,1 +1,315 @@
-<p>report works!</p>
+<!-- Page Header -->
+<div class="page-header">
+  <div class="page-header-left">
+    <span class="hdr-icon">💰</span>
+    <div>
+      <h1>Income Report</h1>
+      <p class="hdr-sub">Tuition payment income — weekly, monthly, and yearly</p>
+    </div>
+  </div>
+
+  <!-- Period Toggle -->
+  <div class="period-toggle">
+    <button class="pt-btn" [class.pt-active]="activePeriod==='weekly'"  (click)="onPeriodChange('weekly')">Weekly</button>
+    <button class="pt-btn" [class.pt-active]="activePeriod==='monthly'" (click)="onPeriodChange('monthly')">Monthly</button>
+    <button class="pt-btn" [class.pt-active]="activePeriod==='yearly'"  (click)="onPeriodChange('yearly')">Yearly</button>
+  </div>
+</div>
+
+<!-- Date Navigator -->
+<div class="date-nav">
+  <ng-container *ngIf="activePeriod==='weekly'">
+    <button class="nav-btn" (click)="prevWeek()">‹</button>
+    <span class="nav-label">Week of {{ selectedWeekStart | date:'MMM d' }} – {{ getWeekEnd() | date:'MMM d, y' }}</span>
+    <button class="nav-btn" (click)="nextWeek()">›</button>
+  </ng-container>
+  <ng-container *ngIf="activePeriod==='monthly'">
+    <button class="nav-btn" (click)="prevMonth()">‹</button>
+    <span class="nav-label">{{ getMonthLabel() }} {{ selectedYear }}</span>
+    <button class="nav-btn" (click)="nextMonth()">›</button>
+    <select class="nav-select" [(ngModel)]="selectedYear" (change)="onDateChange()">
+      <option *ngFor="let y of years" [value]="y">{{ y }}</option>
+    </select>
+  </ng-container>
+  <ng-container *ngIf="activePeriod==='yearly'">
+    <button class="nav-btn" (click)="selectedYear=selectedYear-1; onDateChange()">‹</button>
+    <span class="nav-label">{{ selectedYear }}</span>
+    <button class="nav-btn" (click)="selectedYear=selectedYear+1; onDateChange()">›</button>
+  </ng-container>
+</div>
+
+<!-- ─── KPI Cards ─────────────────────────────────────────── -->
+<div class="kpi-grid" *ngIf="summary">
+  <div class="kpi-card">
+    <div class="kpi-icon">📅</div>
+    <div class="kpi-val">{{ fmtShort(summary.today) }}</div>
+    <div class="kpi-label">Today</div>
+  </div>
+  <div class="kpi-card kpi-week">
+    <div class="kpi-icon">📆</div>
+    <div class="kpi-val">{{ fmtShort(summary.thisWeek) }}</div>
+    <div class="kpi-label">This Week</div>
+  </div>
+  <div class="kpi-card kpi-month">
+    <div class="kpi-icon">🗓️</div>
+    <div class="kpi-val">{{ fmtShort(summary.thisMonth) }}</div>
+    <div class="kpi-label">This Month</div>
+  </div>
+  <div class="kpi-card kpi-year">
+    <div class="kpi-icon">📈</div>
+    <div class="kpi-val">{{ fmtShort(summary.thisYear) }}</div>
+    <div class="kpi-label">This Year</div>
+    <div class="kpi-yoy" *ngIf="summary.yoyChange !== null"
+      [class.yoy-up]="summary.yoyChange >= 0" [class.yoy-dn]="summary.yoyChange < 0">
+      {{ summary.yoyChange >= 0 ? '▲' : '▼' }} {{ summary.yoyChange | number:'1.1-1' }}% vs last year
+    </div>
+  </div>
+  <div class="kpi-card kpi-outstanding">
+    <div class="kpi-icon">⚠️</div>
+    <div class="kpi-val kpi-red">{{ fmtShort(summary.outstanding) }}</div>
+    <div class="kpi-label">Outstanding Balance</div>
+    <div class="kpi-sub">{{ summary.enrolledCount }} enrolled students</div>
+  </div>
+</div>
+
+<!-- ─── Monthly Trend Sparkline ───────────────────────────── -->
+<div class="trend-card" *ngIf="summary?.monthlyTrend?.length">
+  <div class="tc-header">
+    <span class="tc-title">Monthly Income Trend — {{ selectedYear }}</span>
+  </div>
+  <div class="sparkline">
+    <div class="sp-col" *ngFor="let t of summary!.monthlyTrend">
+      <div class="sp-bar-wrap">
+        <div class="sp-bar" [style.height.%]="(t.total / maxTrend()) * 100"
+          [title]="t.label + ': ' + fmt(t.total)"></div>
+      </div>
+      <span class="sp-label">{{ t.label.slice(0,3) }}</span>
+    </div>
+  </div>
+</div>
+
+<!-- ─── Tabs ─────────────────────────────────────────────── -->
+<div class="content-tabs">
+  <button class="ct-btn" [class.ct-active]="activeTab==='overview'"  (click)="activeTab='overview'">📊 Overview</button>
+  <button class="ct-btn" [class.ct-active]="activeTab==='breakdown'" (click)="activeTab='breakdown'">📋 Period Breakdown</button>
+  <button class="ct-btn" [class.ct-active]="activeTab==='programs'"  (click)="activeTab='programs'">🎓 By Program</button>
+  <button class="ct-btn" [class.ct-active]="activeTab==='top'"       (click)="activeTab='top'">🏆 Top Students</button>
+</div>
+
+<!-- Loading -->
+<div class="loading-state" *ngIf="isLoadingReport">
+  <div class="spinner"></div><p>Generating report…</p>
+</div>
+
+<!-- ═══ TAB: OVERVIEW ════════════════════════════════════════ -->
+<ng-container *ngIf="!isLoadingReport && report && activeTab==='overview'">
+  <div class="overview-grid">
+
+    <!-- Grand Total -->
+    <div class="ov-total">
+      <div class="ov-t-label">Total Income</div>
+      <div class="ov-t-val">{{ fmt(report.grandTotal) }}</div>
+      <div class="ov-t-sub">{{ report.grandCount }} transactions · {{ report.dateFrom | date:'MMM d' }} – {{ report.dateTo | date:'MMM d, y' }}</div>
+    </div>
+
+    <!-- By Payment Method -->
+    <div class="ov-card">
+      <div class="ov-card-title">Payment Methods</div>
+      <div class="method-list">
+        <div class="ml-row" *ngFor="let m of report.byMethod">
+          <div class="ml-dot" [style.background]="methodColor(m.method)"></div>
+          <span class="ml-method">{{ m.method }}</span>
+          <div class="ml-bar-wrap">
+            <div class="ml-bar" [style.width.%]="report.grandTotal ? (m.total / report.grandTotal * 100) : 0"
+              [style.background]="methodColor(m.method)"></div>
+          </div>
+          <span class="ml-pct">{{ report.grandTotal ? (m.total / report.grandTotal * 100 | number:'1.0-0') : 0 }}%</span>
+          <span class="ml-amt">{{ fmtShort(m.total) }}</span>
+        </div>
+        <div class="ml-empty" *ngIf="!report.byMethod.length">No payment data</div>
+      </div>
+    </div>
+
+    <!-- By Exam Period -->
+    <div class="ov-card">
+      <div class="ov-card-title">By Exam Period</div>
+      <div class="exam-list">
+        <div class="el-row" *ngFor="let e of report.byExamPeriod">
+          <span class="el-period">{{ e.period }}</span>
+          <div class="el-bar-wrap">
+            <div class="el-bar" [style.width.%]="report.grandTotal ? (e.total / report.grandTotal * 100) : 0"></div>
+          </div>
+          <span class="el-amt">{{ fmtShort(e.total) }}</span>
+        </div>
+        <div class="ml-empty" *ngIf="!report.byExamPeriod.length">No data</div>
+      </div>
+    </div>
+  </div>
+</ng-container>
+
+<!-- ═══ TAB: PERIOD BREAKDOWN ════════════════════════════════ -->
+<ng-container *ngIf="!isLoadingReport && report && activeTab==='breakdown'">
+  <div class="breakdown-section">
+    <div class="bs-header">
+      <span class="bs-title">Income by {{ activePeriod === 'weekly' ? 'Day' : activePeriod === 'monthly' ? 'Week' : 'Month' }}</span>
+      <span class="bs-total">Total: <strong>{{ fmt(report.grandTotal) }}</strong></span>
+    </div>
+
+    <!-- Bar Chart -->
+    <div class="bar-chart" *ngIf="report.breakdown.length > 0">
+      <div class="bc-col" *ngFor="let b of report.breakdown">
+        <div class="bc-bar-wrap">
+          <span class="bc-val">{{ fmtShort(b.totalAmount) }}</span>
+          <div class="bc-bar" [style.height.%]="(b.totalAmount / maxBreakdown()) * 100"></div>
+        </div>
+        <span class="bc-label">{{ b.periodLabel }}</span>
+      </div>
+      <div class="bc-empty" *ngIf="report.breakdown.length === 0">No income data for this period.</div>
+    </div>
+
+    <!-- Breakdown Table -->
+    <div class="table-container" *ngIf="report.breakdown.length > 0">
+      <table class="report-table">
+        <thead>
+          <tr>
+            <th>Period</th>
+            <th class="tr">Transactions</th>
+            <th class="tr">Students</th>
+            <th class="tr">Cash</th>
+            <th class="tr">GCash</th>
+            <th class="tr">Check</th>
+            <th class="tr">Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr *ngFor="let b of report.breakdown">
+            <td>{{ b.periodLabel }}</td>
+            <td class="tr">{{ b.transactionCount }}</td>
+            <td class="tr">{{ b.studentCount }}</td>
+            <td class="tr muted">{{ fmt(b.cashAmount) }}</td>
+            <td class="tr muted">{{ fmt(b.gcashAmount) }}</td>
+            <td class="tr muted">{{ fmt(b.checkAmount) }}</td>
+            <td class="tr strong-col">{{ fmt(b.totalAmount) }}</td>
+          </tr>
+        </tbody>
+        <tfoot>
+          <tr class="totals-row">
+            <td><strong>TOTAL</strong></td>
+            <td class="tr"><strong>{{ report.grandCount }}</strong></td>
+            <td class="tr">—</td>
+            <td class="tr"><strong>{{ fmt(report.byMethod | methodFilter:'Cash') }}</strong></td>
+            <td class="tr"><strong>{{ fmt(report.byMethod | methodFilter:'GCash') }}</strong></td>
+            <td class="tr"><strong>{{ fmt(report.byMethod | methodFilter:'Check') }}</strong></td>
+            <td class="tr strong-col"><strong>{{ fmt(report.grandTotal) }}</strong></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+
+    <div class="empty-state" *ngIf="report.breakdown.length === 0">
+      <div class="es-icon">📊</div>
+      <p>No income records found for this period.</p>
+    </div>
+  </div>
+</ng-container>
+
+<!-- ═══ TAB: BY PROGRAM ══════════════════════════════════════ -->
+<ng-container *ngIf="activeTab==='programs'">
+  <div class="loading-state" *ngIf="isLoadingProgram">
+    <div class="spinner"></div><p>Loading program data…</p>
+  </div>
+
+  <div class="program-section" *ngIf="!isLoadingProgram && programData.length > 0">
+    <div class="program-chart">
+      <div class="prog-row" *ngFor="let p of programData; let i=index">
+        <div class="pr-label">{{ p.program }}</div>
+        <div class="pr-bar-wrap">
+          <div class="pr-bar" [style.width.%]="p.percentage"
+            [style.background]="programColorByIndex(i)"></div>
+          <span class="pr-pct">{{ p.percentage | number:'1.0-1' }}%</span>
+        </div>
+        <div class="pr-amt">{{ fmt(p.totalAmount) }}</div>
+        <div class="pr-stu">{{ p.studentCount }} students</div>
+      </div>
+    </div>
+
+    <!-- Program Table -->
+    <div class="table-container mt-16">
+      <table class="report-table">
+        <thead>
+          <tr>
+            <th>Program</th>
+            <th class="tr">Students</th>
+            <th class="tr">Transactions</th>
+            <th class="tr">Total Income</th>
+            <th class="tr">Share</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr *ngFor="let p of programData; let i=index">
+            <td>
+              <div class="prog-cell">
+                <div class="prog-dot" [style.background]="programColorByIndex(i)"></div>
+                {{ p.program }}
+              </div>
+            </td>
+            <td class="tr">{{ p.studentCount }}</td>
+            <td class="tr">{{ p.txnCount }}</td>
+            <td class="tr strong-col">{{ fmt(p.totalAmount) }}</td>
+            <td class="tr">
+              <div class="share-bar">
+                <div class="share-fill" [style.width.%]="p.percentage" [style.background]="programColorByIndex(i)"></div>
+              </div>
+              {{ p.percentage | number:'1.0-1' }}%
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="empty-state" *ngIf="!isLoadingProgram && programData.length === 0">
+    <div class="es-icon">🎓</div><p>No income data by program for this period.</p>
+  </div>
+</ng-container>
+
+<!-- ═══ TAB: TOP STUDENTS ════════════════════════════════════ -->
+<ng-container *ngIf="!isLoadingReport && report && activeTab==='top'">
+  <div class="top-students-section">
+    <div class="table-container">
+      <table class="report-table">
+        <thead>
+          <tr>
+            <th class="tc">#</th>
+            <th>Student</th>
+            <th>Student No.</th>
+            <th>Program</th>
+            <th class="tr">Transactions</th>
+            <th class="tr">Total Paid</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr *ngFor="let s of report.topStudents; let i=index">
+            <td class="tc rank-cell">
+              <span class="rank" [class.rank-1]="i===0" [class.rank-2]="i===1" [class.rank-3]="i===2">{{ i + 1 }}</span>
+            </td>
+            <td>
+              <div class="student-cell">
+                <div class="stu-avatar">{{ getNameInitials(s.name) }}</div>
+                <span class="stu-name">{{ s.name }}</span>
+              </div>
+            </td>
+            <td class="mono">{{ s.studentNumber }}</td>
+            <td>{{ s.program }}</td>
+            <td class="tr">{{ s.txnCount }}</td>
+            <td class="tr strong-col">{{ fmt(s.totalPaid) }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="empty-state mt-16" *ngIf="!report.topStudents.length">
+      <div class="es-icon">🏆</div><p>No student payment data for this period.</p>
+    </div>
+  </div>
+</ng-container>

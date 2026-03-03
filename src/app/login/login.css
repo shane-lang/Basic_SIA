@@ -888,3 +888,274 @@ mat-card-content { padding: 0; }
 
 /* ── optional-tag inline ── */
 span.optional-tag { font-size: 11px; background: #e2e8f0; padding: 1px 7px; border-radius: 6px; color: #718096; margin-left: 6px; font-weight: 600; vertical-align: middle; }
+
+/* ── Sub-selection (dept / grade / tvet type) ───────── */
+.sub-select-section { margin-top: 0; padding-top: 0; }
+.sub-cards {
+  display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 16px;
+}
+.sub-card {
+  position: relative; flex: 1; min-width: 140px; max-width: 200px;
+  border: 2px solid #e5e7eb; border-radius: 12px; padding: 14px 16px;
+  cursor: pointer; text-align: center; background: #fff;
+  transition: border-color .18s, background .18s, box-shadow .18s;
+}
+.sub-card:hover { border-color: #6366f1; background: #f5f3ff; }
+.sub-card.selected {
+  border-color: #6366f1; background: #eef2ff;
+  box-shadow: 0 0 0 3px rgba(99,102,241,.2);
+}
+.sub-card-icon { font-size: 1.6rem; margin-bottom: 4px; }
+.sub-card-name { font-size: 14px; font-weight: 700; color: #1e1b4b; }
+.sub-card-desc { font-size: 11px; color: #6b7280; margin-top: 3px; }
+.sub-check {
+  position: absolute; top: 8px; right: 8px;
+  background: #6366f1; color: #fff; border-radius: 50%;
+  width: 18px; height: 18px; font-size: 11px;
+  display: flex; align-items: center; justify-content: center; font-weight: 700;
+}
+
+/* Course cards after dept/grade/type selection */
+.program-select-wrap { margin-top: 4px; }
+.sub-section-label {
+  font-size: 13px; font-weight: 600; color: #374151;
+  margin-bottom: 10px; padding-bottom: 6px;
+  border-bottom: 1px solid #e5e7eb;
+}
+.sub-section-label em { color: #6366f1; font-style: normal; }
+.fee-assessment-section { background:#f8fafc; border-radius:12px; padding:1rem 1.2rem; margin-bottom:0; }
+.fee-loading { display:flex; align-items:center; gap:0.5rem; color:#6b7280; font-size:0.9rem; padding:0.75rem 0; }
+.fee-spinner { font-size:1.2rem; animation:spin 1s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }
+.fee-error { color:#dc2626; font-size:0.875rem; padding:0.5rem; background:#fef2f2; border-radius:6px; }
+.fee-breakdown-card { border:1px solid #e2e8f0; border-radius:10px; overflow:hidden; background:#fff; }
+.fee-breakdown-header { background:#1e3a5f; color:#fff; padding:0.6rem 1rem; font-weight:700; font-size:0.88rem; text-align:center; }
+.fee-breakdown-table { padding:0.5rem 0; }
+.fb-row { display:flex; justify-content:space-between; padding:5px 1rem; font-size:0.86rem; color:#374151; }
+.fb-row:nth-child(odd) { background:#f9fafb; }
+.fb-subtotal { border-top:2px solid #cbd5e1; font-weight:600; margin-top:4px; }
+.fb-discount { color:#16a34a; font-weight:600; }
+.fb-installment { color:#9333ea; }
+.fb-total { border-top:2px solid #1e3a5f; margin-top:4px; font-size:0.95rem; color:#1e3a5f; padding-top:8px; padding-bottom:8px; }
+
+/* Payment Plan toggle */
+.plan-toggle { display:flex; gap:0.75rem; margin-bottom:1rem; flex-wrap:wrap; }
+.plan-btn { flex:1; min-width:140px; display:flex; flex-direction:column; align-items:center; gap:3px; padding:0.9rem 1rem; border:2px solid #e2e8f0; border-radius:12px; background:#fff; cursor:pointer; transition:all .2s; text-align:center; }
+.plan-btn:hover { border-color:#3b82f6; background:#eff6ff; }
+.plan-btn.selected { border-color:#1e3a5f; background:#eff6ff; }
+.plan-icon { font-size:1.5rem; }
+.plan-label { font-weight:700; font-size:0.9rem; color:#1e3a5f; }
+.plan-sub { font-size:0.75rem; color:#6b7280; }
+
+/* Installment schedule */
+.installment-schedule { margin-top:0.75rem; background:#fff; border:1px solid #e2e8f0; border-radius:10px; overflow:hidden; }
+.inst-sched-title { background:#7c3aed; color:#fff; padding:0.5rem 1rem; font-weight:700; font-size:0.875rem; }
+.inst-sched-table { padding:0; }
+.is-header { display:grid; grid-template-columns:2fr 1.2fr 1.5fr; padding:6px 12px; background:#f8f4ff; font-size:0.78rem; font-weight:700; color:#6b7280; }
+.is-row { display:grid; grid-template-columns:2fr 1.2fr 1.5fr; padding:8px 12px; border-bottom:1px solid #f3f4f6; font-size:0.855rem; align-items:center; }
+.is-row.dp      { background:#fdf4ff; }
+.is-row.prelim  { background:#f0f9ff; }
+.is-row.midterm { background:#f0fdf4; }
+.is-row.finals  { background:#fff7ed; }
+.is-amount { font-weight:700; color:#1d4ed8; }
+.is-badge { font-size:0.72rem; background:#eff6ff; color:#1d4ed8; padding:2px 7px; border-radius:99px; white-space:nowrap; }
+.is-total { display:grid; grid-template-columns:2fr 1.2fr 1.5fr; padding:8px 12px; background:#f8f4ff; font-weight:800; font-size:0.9rem; color:#7c3aed; border-top:2px solid #ddd6fe; }
+.inst-note { font-size:0.78rem; color:#6b7280; padding:6px 12px 8px; }
+
+/* Full payment summary */
+.full-pay-summary { margin-top:0.75rem; background:#f0fdf4; border:1.5px solid #86efac; border-radius:10px; padding:0.75rem 1rem; }
+.fps-row { display:flex; justify-content:space-between; font-size:0.95rem; color:#1e3a5f; font-weight:700; margin-bottom:4px; }
+.fps-note { font-size:0.78rem; color:#6b7280; }
+
+.text-green { color:#16a34a !important; }
+
+/* ── Transferee TOR pending notice in enrollment wizard ── */
+.tor-pending-enrollment-notice {
+  background: #fffbeb; border: 2px solid #f59e0b; border-radius: 14px; padding: 1.2rem 1.4rem;
+}
+.tpen-header { display:flex; gap:0.85rem; align-items:flex-start; margin-bottom:0.9rem; }
+.tpen-icon { font-size:2rem; flex-shrink:0; }
+.tpen-title { font-weight:800; font-size:1rem; color:#92400e; margin-bottom:2px; }
+.tpen-sub { font-size:0.82rem; color:#78350f; }
+.tpen-steps { display:flex; flex-direction:column; gap:0.55rem; margin-bottom:0.9rem; }
+.tpen-step { display:flex; gap:0.6rem; align-items:flex-start; font-size:0.84rem; color:#78350f; }
+.tpen-num {
+  min-width:20px; height:20px; border-radius:50%; background:#f59e0b; color:#fff;
+  font-weight:800; font-size:0.72rem; display:flex; align-items:center; justify-content:center;
+  flex-shrink:0; margin-top:1px;
+}
+.tpen-highlight {
+  background:#fef3c7; border-radius:8px; padding:8px 12px;
+  font-size:0.83rem; color:#92400e; font-weight:600;
+}
+
+/* ── Program course preview (for transferees) ── */
+.prog-course-note { font-size:0.85rem; color:#4b5563; margin-bottom:0.75rem; line-height:1.6; }
+.prog-courses-loading, .prog-courses-empty { text-align:center; padding:1rem; color:#6b7280; font-size:0.875rem; }
+.prog-courses-summary { display:flex; gap:0.5rem; align-items:center; font-size:0.8rem; color:#6b7280; font-weight:600; margin-bottom:0.75rem; }
+.pcy-header { background:#1e3a5f; color:#fff; padding:6px 12px; font-weight:700; font-size:0.85rem; border-radius:6px; margin-top:0.75rem; margin-bottom:2px; }
+.pcs-header { background:#e2e8f0; color:#374151; padding:4px 10px; font-size:0.78rem; font-weight:700; margin-bottom:2px; }
+.pc-table { border:1px solid #e2e8f0; border-radius:6px; overflow:hidden; margin-bottom:0.35rem; }
+.pc-table-head { display:grid; grid-template-columns:110px 1fr 70px; padding:5px 10px; background:#f8fafc; font-size:0.75rem; font-weight:700; color:#6b7280; text-transform:uppercase; letter-spacing:.4px; }
+.pc-row { display:grid; grid-template-columns:110px 1fr 70px; padding:6px 10px; border-top:1px solid #f1f5f9; font-size:0.845rem; align-items:center; }
+.pc-row:hover { background:#f8fafc; }
+.pct-code { }
+.pct-name { color:#374151; }
+.pct-units { }
+.pc-code-tag { background:#dbeafe; color:#1e40af; padding:2px 7px; border-radius:4px; font-size:0.78rem; font-weight:700; }
+.pc-units-badge { background:#d1fae5; color:#065f46; padding:2px 8px; border-radius:12px; font-size:0.78rem; font-weight:700; }
+
+/* Transferee account info box */
+.transferee-box { background:#fffbeb !important; border-color:#f59e0b !important; color:#92400e !important; }
+
+/* TOR upload for transferees */
+.upload-item-transferee .upload-box { border-color:#f59e0b; background:#fffbeb; }
+.upload-item-transferee .upload-box.has-file { border-color:#16a34a; background:#f0fdf4; }
+.transferee-tag { background:#f59e0b; color:#fff; border-radius:4px; padding:1px 7px; font-size:0.72rem; font-weight:700; margin-left:6px; }
+.tor-upload-cta { margin-top:0.6rem; background:#f0fdf4; border:1.5px solid #86efac; border-radius:10px; padding:0.8rem 1rem; }
+.tuc-row { display:flex; gap:0.75rem; align-items:flex-start; }
+.tuc-icon { font-size:1.3rem; margin-top:2px; }
+.tuc-body strong { display:block; color:#15803d; font-size:0.9rem; margin-bottom:3px; }
+.tuc-body p { margin:0; font-size:0.82rem; color:#374151; line-height:1.5; }
+.tor-upload-notice { margin-top:0.5rem; font-size:0.82rem; color:#92400e; background:#fef3c7; border-radius:6px; padding:6px 10px; }
+
+/* Transferee Notice */
+.transferee-notice {
+  display: flex; gap: 0.9rem; align-items: flex-start;
+  background: #fffbeb; border: 1.5px solid #fde68a; border-radius: 12px;
+  padding: 1rem 1.1rem; margin-top: 0.6rem; grid-column: 1/-1;
+  animation: fadeInDown .25s ease;
+}
+@keyframes fadeInDown { from{opacity:0;transform:translateY(-8px)} to{opacity:1;transform:translateY(0)} }
+.tnotice-icon { font-size: 1.8rem; flex-shrink: 0; margin-top: 2px; }
+.tnotice-body { flex: 1; }
+.tnotice-title { font-weight: 800; font-size: 0.92rem; color: #92400e; margin-bottom: 0.6rem; }
+.tnotice-steps { display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 0.75rem; }
+.tnotice-step { display: flex; gap: 0.6rem; align-items: flex-start; font-size: 0.83rem; color: #78350f; }
+.tnotice-num {
+  min-width: 20px; height: 20px; border-radius: 50%; background: #f59e0b;
+  color: #fff; font-weight: 800; font-size: 0.72rem;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 1px;
+}
+.tnotice-highlight {
+  background: #fef3c7; border-radius: 7px; padding: 7px 10px;
+  font-size: 0.82rem; color: #92400e; font-style: italic;
+}
+
+/* ══ TOR REVIEW STEP ═══════════════════════════════════════════════════════ */
+.tor-review-card { max-width: 860px; }
+
+/* Error */
+.tor-review-error { margin-top: 10px; padding: 8px 12px; background: #fef2f2; border: 1px solid #fca5a5; border-radius: 7px; color: #dc2626; font-size: 0.85rem; }
+
+/* Send box */
+.tor-send-box { background: #f0fdf4; border: 2px solid #86efac; border-radius: 14px; padding: 1.2rem 1.4rem; margin-bottom: 1.2rem; display: flex; flex-direction: column; gap: 0.75rem; }
+.tsb-file { display: flex; align-items: center; gap: 0.5rem; font-size: 0.875rem; color: #374151; font-weight: 600; }
+.tsb-file-icon { font-size: 1.1rem; }
+.tsb-nofile { color: #b45309; background: #fffbeb; padding: 4px 10px; border-radius: 6px; }
+.btn-send-tor { background: linear-gradient(135deg, #1e3a5f, #2563eb); color: #fff; border: none; border-radius: 10px; padding: 14px 28px; font-size: 1rem; font-weight: 700; cursor: pointer; transition: opacity .2s; align-self: flex-start; }
+.btn-send-tor:hover { opacity: 0.9; }
+.tsb-hint { font-size: 0.8rem; color: #4b5563; margin: 0; line-height: 1.5; }
+
+/* Loading panel */
+.tor-loading-panel { text-align: center; padding: 3rem 1rem; }
+.tlp-spinner { font-size: 2.5rem; animation: spin 1s linear infinite; margin-bottom: 1rem; }
+.tlp-title { font-size: 1.05rem; font-weight: 700; color: #1e3a5f; margin-bottom: 0.4rem; }
+.tlp-sub { font-size: 0.875rem; color: #6b7280; }
+
+/* Wait steps */
+.tor-wait-steps { display: flex; flex-direction: column; gap: 0.65rem; margin: 1.2rem 0; }
+.tw-step { display: flex; align-items: flex-start; gap: 0.75rem; font-size: 0.875rem; color: #4b5563; }
+.tw-step.tw-done   { color: #15803d; }
+.tw-step.tw-active { color: #1d4ed8; font-weight: 700; }
+.tw-step.tw-pending{ color: #9ca3af; }
+.tw-dot { font-size: 1.1rem; flex-shrink: 0; width: 24px; text-align: center; }
+.spin-slow { display: inline-block; animation: spin 1.5s linear infinite; }
+.tor-wait-info { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 0.8rem 1rem; margin: 1rem 0; display: flex; flex-direction: column; gap: 0.35rem; }
+.twi-row { display: flex; gap: 0.5rem; font-size: 0.855rem; }
+.twi-row label { color: #6b7280; font-weight: 700; min-width: 100px; }
+.tw-poll-note { font-size: 0.8rem; color: #6b7280; margin: 0 0 1.2rem; }
+
+/* Result banner */
+.tor-result-banner { display: flex; gap: 1rem; align-items: flex-start; border-radius: 14px; padding: 1.1rem 1.3rem; margin-bottom: 1.2rem; }
+.banner-success { background: #f0fdf4; border: 2px solid #86efac; }
+.banner-reject  { background: #fffbeb; border: 2px solid #fde68a; }
+.trb-icon { font-size: 2.2rem; flex-shrink: 0; }
+.trb-title { font-weight: 800; font-size: 1rem; color: #15803d; margin-bottom: 0.4rem; }
+.banner-reject .trb-title { color: #92400e; }
+.trb-pills { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.4rem; }
+.trb-pill { padding: 3px 10px; border-radius: 20px; font-size: 0.8rem; font-weight: 700; }
+.trb-pill.green { background: #dcfce7; color: #15803d; }
+.trb-pill.blue  { background: #dbeafe; color: #1d4ed8; }
+.trb-sub { font-size: 0.85rem; color: #78350f; }
+.trb-notes { font-size: 0.83rem; color: #374151; margin-top: 4px; }
+
+/* Legend */
+.tor-legend { display: flex; gap: 1rem; margin-bottom: 0.6rem; font-size: 0.82rem; font-weight: 700; }
+.leg-green { color: #15803d; }
+.leg-white { color: #6b7280; }
+.sum-credited { color: #15803d; font-weight: 700; }
+
+/* Credited row highlight */
+.pc-table-head-4 { grid-template-columns: 110px 1fr 70px 100px !important; }
+.pc-row-4        { grid-template-columns: 110px 1fr 70px 100px !important; }
+.pc-row-credited { background: #f0fdf4 !important; }
+.pc-row-credited:hover { background: #dcfce7 !important; }
+.pc-code-tag-credited  { background: #dcfce7 !important; color: #15803d !important; }
+.pc-units-badge-credited { background: #bbf7d0 !important; color: #065f46 !important; }
+
+/* Status column */
+.pct-status-h { color: #6b7280; }
+.pct-status { }
+.status-tag { font-size: 0.75rem; font-weight: 700; padding: 2px 8px; border-radius: 20px; white-space: nowrap; }
+.status-credited { background: #dcfce7; color: #15803d; }
+.status-enroll   { background: #eff6ff; color: #1d4ed8; }
+
+.prev-schools-list{display:flex;flex-direction:column;gap:8px}.prev-school-row{display:grid;grid-template-columns:150px 1fr 130px 32px;gap:8px;align-items:center}.btn-remove-school{background:none;border:1.5px solid #fca5a5;color:#ef4444;border-radius:6px;width:32px;height:36px;cursor:pointer}.btn-add-school{margin-top:4px;background:none;border:1.5px dashed #6366f1;color:#6366f1;border-radius:8px;padding:6px 14px;font-size:.85rem;cursor:pointer}.field-hint{display:block;margin-top:4px;color:#6366f1;font-size:.8rem;font-style:italic}
+/* ── Selected Strand Summary (Step 2) ── */
+.selected-strand-summary { display:flex; align-items:center; gap:0.6rem; background:#ecfdf5; border:1.5px solid #86efac; border-radius:10px; padding:0.65rem 1rem; font-size:0.9rem; }
+.ss-label { color:#6b7280; font-weight:600; }
+.ss-value { font-weight:800; color:#065f46; }
+
+/* ── SHS Strand Cards ── */
+.strand-cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:0.65rem; margin-top:0.5rem; }
+.strand-card { border:2px solid #e5e7eb; border-radius:12px; padding:0.85rem 1rem; cursor:pointer; transition:all .2s; position:relative; background:#fff; }
+.strand-card:hover { border-color:#10b981; background:#f0fdf4; }
+.strand-card.selected { border-color:#10b981; background:#ecfdf5; }
+.strand-card-name { font-weight:700; font-size:0.88rem; color:#1f2937; margin-bottom:4px; line-height:1.3; }
+.strand-card-dept { font-size:0.75rem; color:#6b7280; }
+.strand-card .prog-check { position:absolute; top:8px; right:10px; background:#10b981; color:#fff; border-radius:50%; width:20px; height:20px; display:flex; align-items:center; justify-content:center; font-size:0.72rem; font-weight:800; }
+
+/* ── TVET req banner ── */
+.tvet-banner { background:#fff7ed; border:1.5px solid #fed7aa; border-radius:10px; padding:0.85rem 1.1rem; margin-bottom:1rem; }
+.tvet-banner strong { color:#9a3412; }
+.tvet-banner ul { margin:0.5rem 0 0 1.2rem; color:#78350f; font-size:0.85rem; }
+
+
+/* ── Free / Fee Level Banners (SHS & TVET Step 3) ── */
+.level-free-banner {
+  display:flex; gap:1rem; align-items:flex-start;
+  background:#f0fdf4; border:2px solid #86efac; border-radius:14px;
+  padding:1.1rem 1.3rem; margin-bottom:1rem;
+}
+.level-free-banner.tvet-free-banner { background:#fff7ed; border-color:#fed7aa; }
+.level-fee-banner {
+  display:flex; gap:1rem; align-items:flex-start;
+  background:#fffbeb; border:2px solid #fde68a; border-radius:14px;
+  padding:1.1rem 1.3rem; margin-bottom:1rem;
+}
+.lfb-icon { font-size:2rem; flex-shrink:0; }
+.lfb-title { font-weight:800; font-size:1rem; color:#15803d; margin-bottom:4px; }
+.level-fee-banner .lfb-title { color:#92400e; }
+.tvet-free-banner .lfb-title { color:#9a3412; }
+.lfb-sub { font-size:0.85rem; color:#374151; line-height:1.55; }
+
+/* ── Documents Notice Banner ── */
+.docs-notice-banner {
+  background:#f8fafc; border:1.5px solid #cbd5e1; border-radius:12px;
+  padding:1rem 1.2rem; margin-top:1rem;
+}
+.dnb-title { font-weight:800; font-size:0.92rem; color:#1e3a5f; margin-bottom:0.6rem; }
+.dnb-list { margin:0 0 0.75rem 1.2rem; display:flex; flex-direction:column; gap:0.3rem; }
+.dnb-list li { font-size:0.85rem; color:#374151; }
+.dnb-note { font-size:0.8rem; color:#6b7280; background:#eff6ff; border-radius:7px; padding:6px 10px; font-style:italic; }

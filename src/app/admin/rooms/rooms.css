@@ -50,6 +50,7 @@
 .stat-item.stat-red    { border-top-color: #f87171; }
 .stat-item.stat-yellow { border-top-color: #fbbf24; }
 .stat-item.stat-blue   { border-top-color: #38bdf8; }
+.stat-item.stat-purple { border-top-color: #a78bfa; }
 .stat-val { display: block; font-size: 2rem; font-weight: 800; color: #1a1a2e; line-height: 1; }
 .stat-lbl { display: block; font-size: 0.75rem; color: #9ca3af; font-weight: 600; text-transform: uppercase; letter-spacing: 0.6px; margin-top: 4px; }
 

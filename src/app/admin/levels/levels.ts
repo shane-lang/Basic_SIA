@@ -51,6 +51,13 @@ export class Levels implements OnInit {
 
   toast: { show: boolean; type: 'success' | 'error'; message: string } = { show: false, type: 'success', message: '' };
 
+  
+  /** Returns HTTP headers with the auth token. Call this in every API request. */
+  private getHeaders() {
+    const token = sessionStorage.getItem('token') ?? '';
+    return { headers: { Authorization: `Bearer ${token}` } };
+  }
+
   constructor(private http: HttpClient, private cdr: ChangeDetectorRef) {}
 
   ngOnInit(): void { this.loadAll(); }
@@ -62,10 +69,10 @@ export class Levels implements OnInit {
   loadAll(): void {
     this.isLoading = true;
     // Load programs and courses in parallel
-    this.http.get<any>(`${this.api}?action=get_courses`).subscribe({
+    this.http.get<any>(`${this.api}?action=get_courses`, this.getHeaders()).subscribe({
       next: (res) => { if (res.success) this.allCourses = res.courses; this.cdr.detectChanges(); }
     });
-    this.http.get<any>(`${this.api}?action=get_programs`).subscribe({
+    this.http.get<any>(`${this.api}?action=get_programs`, this.getHeaders()).subscribe({
       next: (res) => {
         this.isLoading = false;
         if (res.success) this.programs = res.programs;
@@ -137,7 +144,7 @@ export class Levels implements OnInit {
     }
     this.isSaving = true;
     const action = this.isEditing ? 'update_program' : 'create_program';
-    this.http.post<any>(`${this.api}?action=${action}`, this.form).subscribe({
+    this.http.post<any>(`${this.api}?action=${action}`, this.form, this.getHeaders()).subscribe({
       next: (res) => {
         this.isSaving = false;
         if (res.success) {
@@ -163,7 +170,7 @@ export class Levels implements OnInit {
   doDelete(): void {
     if (!this.deleteTarget) return;
     this.isDeleting = true;
-    this.http.post<any>(`${this.api}?action=delete_program`, { id: this.deleteTarget.id }).subscribe({
+    this.http.post<any>(`${this.api}?action=delete_program`, { id: this.deleteTarget.id }, this.getHeaders()).subscribe({
       next: (res) => {
         this.isDeleting = false;
         if (res.success) { this.showToast('success', 'Program deleted.'); this.loadAll(); }

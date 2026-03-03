@@ -72,6 +72,13 @@ interface YearGroup {
 export class TorEvaluation implements OnInit {
   private registrarApi = 'http://localhost/sia-api/registrar.php';
 
+  
+  /** Returns HTTP headers with the auth token. Call this in every API request. */
+  private getHeaders() {
+    const token = sessionStorage.getItem('token') ?? '';
+    return { headers: { Authorization: `Bearer ${token}` } };
+  }
+
   constructor(private http: HttpClient, private router: Router, private cdr: ChangeDetectorRef) {}
 
   pendingTors:    PendingTOR[] = [];
@@ -263,7 +270,7 @@ export class TorEvaluation implements OnInit {
       code: s.code, name: s.name, credits: s.credits,
       creditedFrom: this.selectedTor!.lastSchoolAttended || 'Previous School',
     }));
-    this.safePost(`${this.registrarApi}?action=evaluate_tor`, {
+    this.safePost(`${this.registrarApi}?action=evaluate_tor&eval_id=${this.selectedTor.evalId}&student_id=${this.selectedTor.studentId}`, {
       eval_id: this.selectedTor.evalId, student_id: this.selectedTor.studentId,
       registrar_user_id: user.id || 0, credited_subjects: creditedSubjects,
       registrar_notes: this.registrarNotes, manual: true,
@@ -369,7 +376,7 @@ export class TorEvaluation implements OnInit {
       courseId: c.courseId, code: c.code, name: c.name, credits: c.credits,
       creditedFrom: this.selectedTor!.lastSchoolAttended || 'Previous School',
     }));
-    this.safePost(`${this.registrarApi}?action=evaluate_tor`, {
+    this.safePost(`${this.registrarApi}?action=evaluate_tor&eval_id=${this.selectedTor.evalId}&student_id=${this.selectedTor.studentId}`, {
       eval_id: this.selectedTor.evalId, student_id: this.selectedTor.studentId,
       registrar_user_id: user.id || 0, credited_subjects: creditedSubjects, registrar_notes: this.registrarNotes,
     }).subscribe(res => {
@@ -388,7 +395,7 @@ export class TorEvaluation implements OnInit {
     if (!this.registrarNotes.trim()) { this.errorMessage = 'Please provide a reason for rejection.'; this.cdr.detectChanges(); return; }
     this.isSubmitting = true; this.errorMessage = '';
     const user = JSON.parse(sessionStorage.getItem('currentUser') || '{}');
-    this.safePost(`${this.registrarApi}?action=reject_tor`, {
+    this.safePost(`${this.registrarApi}?action=reject_tor&eval_id=${this.selectedTor.evalId}&student_id=${this.selectedTor.studentId}`, {
       eval_id: this.selectedTor.evalId, student_id: this.selectedTor.studentId,
       registrar_user_id: user.id || 0, registrar_notes: this.registrarNotes,
     }).subscribe(res => {

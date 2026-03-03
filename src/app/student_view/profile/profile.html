@@ -47,7 +47,7 @@
         <div class="card">
           <h2>🎓 Academic Information</h2>
           <div class="info-group"><label>Program</label><p>{{ student.program || '—' }}</p></div>
-          <div class="info-group"><label>Level / Category</label><p>{{ student.studentCategory }} — {{ student.yearLevel }}</p></div>
+          <div class="info-group"><label>Level / Category</label><p>{{ student.studentCategory }} — {{ displayYearLevel }}</p></div>
           <div class="info-group" *ngIf="student.strand"><label>Strand</label><p>{{ student.strand }}</p></div>
           <div class="info-group" *ngIf="student.lastSchoolAttended"><label>Last School Attended</label><p>{{ student.lastSchoolAttended }}</p></div>
           <div class="info-group"><label>Student Type</label><p>{{ student.studentType }}</p></div>

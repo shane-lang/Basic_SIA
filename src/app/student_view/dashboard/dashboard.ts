@@ -62,13 +62,19 @@ interface CalendarCell {
 export class StudentDashboard implements OnInit {
   private apiUrl = 'http://localhost/sia-api/dashboard.php';
 
+  
+  /** Returns HTTP headers with the auth token. Call this in every API request. */
+  private getHeaders() {
+    const token = sessionStorage.getItem('token') ?? '';
+    return { headers: { Authorization: `Bearer ${token}` } };
+  }
+
   constructor(private http: HttpClient, private cdr: ChangeDetectorRef) {}
 
   // ── spec.ts requires dashboardCards.length === 4 ────────────
   dashboardCards = [
     { title: 'Courses',  value: '0',  icon: '📖', color: '#667eea' },
     { title: 'Credits',  value: '0',  icon: '⏰', color: '#48bb78' },
-    { title: 'Balance',  value: '₱0', icon: '💳', color: '#e53e3e' },
   ];
 
   // ── Original props (keep for spec.ts / template compat) ─────
@@ -85,6 +91,9 @@ export class StudentDashboard implements OnInit {
   isLoading         = true;
   error             = '';
   program           = '';
+  studentCategory   = '';   // 'SHS' | 'TVET' | '' (College)
+  isIrregular       = false;
+  studentType       = '';   // 'New' | 'Old' | 'Transferee'
   yearLevel         = '';
   academicYear      = '2024–2025';
   semester          = '1st Semester';
@@ -120,6 +129,22 @@ export class StudentDashboard implements OnInit {
                      'July','August','September','October','November','December'];
   readonly DOW    = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
+  // ── Category helpers (used in template to hide college-only sections) ─
+  get isSHS():         boolean { return this.studentCategory === 'SHS'; }
+  get isTVET():        boolean { return this.studentCategory === 'TVET'; }
+  get isCollege():     boolean { return !this.isSHS && !this.isTVET; }
+  get isTransferee():  boolean { return this.studentType === 'Transferee'; }
+  get isFreeStudent(): boolean { return (this.isSHS || this.isTVET) && !this.isTransferee; }
+  // For SHS: show 'Grade 11' / 'Grade 12' instead of '1st Year' / '2nd Year'
+  get displayYearLevel(): string {
+    if (this.isSHS) {
+      if (this.yearLevel === '1st Year' || this.yearLevel === 'Grade 11') return 'Grade 11';
+      if (this.yearLevel === '2nd Year' || this.yearLevel === 'Grade 12') return 'Grade 12';
+      return this.yearLevel || '—';
+    }
+    return this.yearLevel || '—';
+  }
+
   // ── Lifecycle ────────────────────────────────────────────────
   ngOnInit(): void {
     const stored = sessionStorage.getItem('currentUser');
@@ -138,7 +163,7 @@ export class StudentDashboard implements OnInit {
   }
 
   loadDashboard(param: string): void {
-    this.http.get<any>(`${this.apiUrl}?action=get_dashboard&${param}`).subscribe({
+    this.http.get<any>(`${this.apiUrl}?action=get_dashboard&${param}`, this.getHeaders()).subscribe({
       next: (res) => {
         this.isLoading = false;
         if (res.success) {
@@ -148,6 +173,9 @@ export class StudentDashboard implements OnInit {
           this.studentName     = `${s.firstName} ${s.lastName}`;
           this.studentId       = s.id;
           this.program         = s.program;
+          this.studentCategory = (s.studentCategory ?? '').toUpperCase();
+          this.studentType     = s.studentType ?? '';
+          this.isIrregular     = s.isIrregular ?? (this.academicStatus === 'Irregular');
           this.yearLevel       = a.yearLevel;
           this.gpa             = a.gpa > 0 ? Number(a.gpa).toFixed(2) : '—';
           this.totalCredits    = a.totalCredits;
@@ -174,8 +202,6 @@ export class StudentDashboard implements OnInit {
           this.dashboardCards = [
             { title: 'Courses', value: String(this.enrolledCourses.length), icon: '📖', color: '#667eea' },
             { title: 'Credits', value: String(this.totalCredits),            icon: '⏰', color: '#48bb78' },
-       
-            { title: 'Balance', value: this.fmt(this.fees.remainingBal),     icon: '💳', color: '#e53e3e' },
           ];
 
           sessionStorage.setItem('studentDbId', String(s.dbId));
@@ -193,7 +219,7 @@ export class StudentDashboard implements OnInit {
   }
 
   loadAnnouncements(): void {
-    this.http.get<any>(`${this.apiUrl}?action=get_announcements`).subscribe({
+    this.http.get<any>(`${this.apiUrl}?action=get_announcements`, this.getHeaders()).subscribe({
       next: (res) => {
         if (res.success) {
           this.announcements = (res.announcements ?? []).map((a: any) => ({
@@ -206,7 +232,7 @@ export class StudentDashboard implements OnInit {
   }
 
   loadEvents(): void {
-    this.http.get<any>(`${this.apiUrl}?action=get_events`).subscribe({
+    this.http.get<any>(`${this.apiUrl}?action=get_events`, this.getHeaders()).subscribe({
       next: (res) => {
         if (res.success) {
           this.events = res.events ?? [];

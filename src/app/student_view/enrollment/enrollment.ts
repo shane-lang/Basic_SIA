@@ -43,6 +43,13 @@ export class Enrollment implements OnInit {
   private accountingApi = 'http://localhost/sia-api/accounting.php';
   private registrarApi  = 'http://localhost/sia-api/registrar.php';
 
+  
+  /** Returns HTTP headers with the auth token. Call this in every API request. */
+  private getHeaders() {
+    const token = sessionStorage.getItem('token') ?? '';
+    return { headers: { Authorization: `Bearer ${token}` } };
+  }
+
   constructor(private http: HttpClient, private router: Router, private cdr: ChangeDetectorRef) {}
 
   workflowStep: 'payment' | 'cash-pending' | 'approval' | 'dashboard' | 'tor-pending' = 'payment';
@@ -79,6 +86,13 @@ export class Enrollment implements OnInit {
   private torPollInterval: any = null;
 
   currentSemester = '';
+  studentCategory = '';   // 'SHS' | 'TVET' | '' (College)
+  get isSHS():        boolean { return this.studentCategory === 'SHS'; }
+  get isTVET():       boolean { return this.studentCategory === 'TVET'; }
+  get isCollege():    boolean { return !this.isSHS && !this.isTVET; }
+  get isTransferee(): boolean { return (this.student?.studentType ?? '') === 'Transferee'; }
+  // Free only for SHS/TVET New & Old students
+  get isFreeStudent(): boolean { return (this.isSHS || this.isTVET) && !this.isTransferee; }
   enrolledCourses: StudentCourse[] = [];
   isAutoEnrolling = false;
 
@@ -106,7 +120,7 @@ export class Enrollment implements OnInit {
 
   loadContext(): void {
     this.isFeeLoading = true;
-    this.http.get<any>(`${this.apiUrl}?action=get_student_context&user_id=${this.userId}`).subscribe({
+    this.http.get<any>(`${this.apiUrl}?action=get_student_context&user_id=${this.userId}`, this.getHeaders()).subscribe({
       next: (res) => {
         this.isFeeLoading = false;
         if (!res.success) { this.router.navigate(['/login']); return; }
@@ -114,6 +128,14 @@ export class Enrollment implements OnInit {
         this.student         = res.student;
         this.studentDbId     = res.student.dbId;
         this.currentSemester = res.student.semester ?? '';
+        this.studentCategory = (res.student.studentCategory ?? '').toUpperCase();
+        // Fallback: infer from student number if DB category is still blank
+        if (!this.studentCategory) {
+          const sNum: string = res.student.id ?? '';
+          if (sNum.startsWith('SHS-'))  this.studentCategory = 'SHS';
+          else if (sNum.startsWith('TVET-')) this.studentCategory = 'TVET';
+        }
+        sessionStorage.setItem('studentCategory', this.studentCategory);
         this.paymentMethod   = res.student.paymentMethod === 'Cash' ? 'Cash' : 'GCash';
         this.paymentPlan     = res.student.paymentPlan  === 'installment' ? 'installment' : 'full';
         this.fees            = res.fees ?? null;
@@ -140,6 +162,8 @@ export class Enrollment implements OnInit {
 
         // ── ROUTING ─────────────────────────────────────────────
         const s        = res.student;
+        const cat      = (s.studentCategory ?? '').toUpperCase();
+        const isFree   = (cat === 'SHS' || cat === 'TVET');
         const approved    = s.approvalStatus === 'Approved';
         const torPending  = s.torEvalStatus  === 'Pending';
         const torDone     = s.torEvalStatus  === 'Evaluated';
@@ -147,7 +171,16 @@ export class Enrollment implements OnInit {
         const paid        = s.paymentStatus  === 'Paid';
         const isCash      = this.paymentMethod === 'Cash';
 
-        if (approved) {
+        // SHS/TVET New/Old are free — go straight to dashboard if approved
+        // Transferees must pay ₱20,000 — follow normal payment flow
+        const isTransferee = (s.studentType ?? '') === 'Transferee';
+        if (isFree && !isTransferee && approved) {
+          sessionStorage.removeItem('pendingPaymentMethod');
+          sessionStorage.removeItem('pendingPaymentPlan');
+          this.route('dashboard');
+          this.ensureEnrolledThenLoad();
+
+        } else if (approved) {
           sessionStorage.removeItem('pendingPaymentMethod');
           sessionStorage.removeItem('pendingPaymentPlan');
           this.route('dashboard');
@@ -200,7 +233,7 @@ export class Enrollment implements OnInit {
   ensureEnrolledThenLoad(): void {
     this.http.post<any>(`${this.apiUrl}?action=auto_enroll_all`, {
       student_id: this.studentDbId, semester: this.currentSemester,
-    }).subscribe({
+    }, this.getHeaders()).subscribe({
       next:  () => this.loadDashboard(),
       error: () => this.loadDashboard(),
     });
@@ -209,7 +242,7 @@ export class Enrollment implements OnInit {
   loadDashboard(): void {
     this.loadEnrolledCourses();
     this.loadEnrollmentSummary();
-    this.http.get<any>(`${this.apiUrl}?action=get_student_context&user_id=${this.userId}`).subscribe({
+    this.http.get<any>(`${this.apiUrl}?action=get_student_context&user_id=${this.userId}`, this.getHeaders()).subscribe({
       next: (res) => {
         if (res.success) {
           this.fees            = res.fees ?? null;
@@ -231,7 +264,7 @@ export class Enrollment implements OnInit {
       student_id: this.studentDbId, gcash_reference: this.gcashReference.trim(),
       gcash_amount: this.gcashAmount, gcash_date: this.gcashDate,
       transaction_id: txnId, semester: this.currentSemester
-    }).subscribe({
+    }, this.getHeaders()).subscribe({
       next: (res) => {
         this.isProcessingPayment = false;
         if (res.success) {
@@ -256,7 +289,7 @@ export class Enrollment implements OnInit {
 
   checkApprovalStatus(): void {
     if (!this.userId) return;
-    this.http.get<any>(`${this.apiUrl}?action=get_payment_status&user_id=${this.userId}`).subscribe({
+    this.http.get<any>(`${this.apiUrl}?action=get_payment_status&user_id=${this.userId}`, this.getHeaders()).subscribe({
       next: (res) => {
         if (res.success && res.approvalStatus === 'Approved') {
           clearInterval(this.pollInterval);
@@ -277,7 +310,7 @@ export class Enrollment implements OnInit {
     this.isAutoEnrolling = true; this.cdr.detectChanges();
     this.http.post<any>(`${this.apiUrl}?action=auto_enroll_all`, {
       student_id: this.studentDbId, semester: this.currentSemester,
-    }).subscribe({
+    }, this.getHeaders()).subscribe({
       next: (res) => {
         this.isAutoEnrolling = false;
         if (res.success && res.enrolled > 0)
@@ -299,7 +332,7 @@ export class Enrollment implements OnInit {
   loadTorEvaluation(): void {
     if (!this.studentDbId) return;
     this.isTorLoading = true;
-    this.http.get<any>(`${this.registrarApi}?action=get_tor_evaluation&student_id=${this.studentDbId}`).subscribe({
+    this.http.get<any>(`${this.registrarApi}?action=get_tor_evaluation&student_id=${this.studentDbId}`, this.getHeaders()).subscribe({
       next: (res) => {
         this.isTorLoading = false;
         if (res.success && res.evaluation) {
@@ -323,13 +356,13 @@ export class Enrollment implements OnInit {
   }
 
   loadEnrolledCourses(): void {
-    this.http.get<any>(`${this.apiUrl}?action=get_enrollments&user_id=${this.userId}`).subscribe({
+    this.http.get<any>(`${this.apiUrl}?action=get_enrollments&user_id=${this.userId}`, this.getHeaders()).subscribe({
       next: (res) => { if (res.success) { this.enrolledCourses = res.enrollments; this.cdr.detectChanges(); } }
     });
   }
 
   loadEnrollmentSummary(): void {
-    this.http.get<any>(`${this.apiUrl}?action=get_enrollment_summary&user_id=${this.userId}`).subscribe({
+    this.http.get<any>(`${this.apiUrl}?action=get_enrollment_summary&user_id=${this.userId}`, this.getHeaders()).subscribe({
       next: (res) => {
         if (res.success) {
           this.enrollmentSummary = {
@@ -369,7 +402,7 @@ export class Enrollment implements OnInit {
       student_id: this.studentDbId, phone: this.editForm.phone, address: this.editForm.address,
       emergencyContact: this.editForm.emergencyContact, emergencyPhone: this.editForm.emergencyPhone,
       dateOfBirth: this.editForm.dateOfBirth,
-    }).subscribe({
+    }, this.getHeaders()).subscribe({
       next: (res) => {
         if (res.success) { Object.assign(this.student, this.editForm); this.addNotification('success', 'Profile updated!'); this.closeEditModal(); }
         else { this.addNotification('error', res.message || 'Update failed.'); }
@@ -397,12 +430,40 @@ export class Enrollment implements OnInit {
     const total = this.fees?.totalAssessment ?? 0;
     return total > 0 ? Math.ceil(total / 4) : 0;
   }
-  get dpAmount(): number      { return this.installmentTermAmount; }
-  get prelimAmount(): number  { return this.installmentTermAmount; }
-  get midtermAmount(): number { return this.installmentTermAmount; }
-  get finalsAmount(): number  {
+
+  // Actual amount paid as Downpayment (from payment records)
+  get dpPaid(): number {
+    const dp = this.termBreakdown.find(t => t.period === 'Downpayment');
+    return dp ? (dp.amountPaid ?? 0) : 0;
+  }
+
+  // DP shown in the installment table:
+  // If student already paid DP → show actual amount paid
+  // Otherwise → show scheduled DP amount (total/4)
+  get dpAmount(): number {
+    const paid = this.dpPaid;
+    return paid > 0 ? paid : this.installmentTermAmount;
+  }
+
+  // Remaining balance after DP credit
+  get remainingAfterDP(): number {
     const total = this.fees?.totalAssessment ?? 0;
-    return total > 0 ? total - (this.installmentTermAmount * 3) : 0;
+    const dp    = this.dpPaid > 0 ? this.dpPaid : this.installmentTermAmount;
+    return Math.max(0, total - dp);
+  }
+
+  // Each of the 3 remaining periods gets equal share of what's still owed
+  get prelimAmount(): number {
+    const rem = this.remainingAfterDP;
+    return rem > 0 ? Math.ceil(rem / 3) : 0;
+  }
+  get midtermAmount(): number {
+    return this.prelimAmount;
+  }
+  get finalsAmount(): number {
+    const rem = this.remainingAfterDP;
+    const p   = this.prelimAmount;
+    return rem > 0 ? Math.max(0, rem - p * 2) : 0;
   }
 
   get installmentSchedule(): { term: string; label: string; amount: number; paid: boolean; amountPaid: number; orNo: string; paymentDate: string }[] {
@@ -460,162 +521,179 @@ export class Enrollment implements OnInit {
 
   // ── Print OR (Official Receipt) — for Full Payment ───────────────────────
   viewOR(receipt: any): void {
-    const s = this.student;
-    const name = `${s.lastName || s.last_name || ''}, ${s.firstName || s.first_name || ''}`;
+    const name = `${receipt.lastName || receipt.last_name || ''}, ${receipt.firstName || receipt.first_name || ''}`;
     const amount = receipt.amount || 0;
     const amtWords = this.amountToWords(amount);
     const fmt = (n: number) => n.toLocaleString('en-PH', { minimumFractionDigits: 2 });
-    const courses = (this.enrolledCourses || []);
-
-    const subjectRows = courses.length > 0
-      ? courses.map((c: any) => `<tr><td>${c.code}</td><td>${c.name}</td><td>${c.credits || ''}</td></tr>`).join('')
-      : '<tr><td colspan="3">&nbsp;</td></tr><tr><td colspan="3">&nbsp;</td></tr>';
+    const period = receipt.period || 'Full';
+    const isCashPay = receipt.method === 'Cash';
+    const payDate = receipt.paymentDate || '';
 
     const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
-<title>Official Receipt ${receipt.orArNumber}</title>
+<title>Official Receipt ${receipt.orArNumber || ''}</title>
 <style>
   *{box-sizing:border-box;margin:0;padding:0;}
-  body{font-family:Arial,sans-serif;font-size:11px;padding:20px 24px;color:#000;}
-  .header{display:flex;align-items:flex-start;gap:12px;border-bottom:2px solid #000;padding-bottom:8px;margin-bottom:6px;}
-  .logo{width:60px;height:60px;border:2px solid #000;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:8px;text-align:center;flex-shrink:0;}
-  .school-name{font-size:15px;font-weight:900;text-transform:uppercase;}
-  .school-sub{font-size:9px;}
-  .school-addr{font-size:9px;margin-top:2px;}
-  .badges{font-size:8px;text-align:right;margin-left:auto;}
-  .receipt-title{text-align:center;font-size:14px;font-weight:900;letter-spacing:1px;border:2px solid #000;padding:4px;margin:6px 0;}
-  .receipt-no{text-align:right;font-size:13px;font-weight:900;color:#c00;margin-bottom:4px;}
-  .body-section{border:1px solid #000;padding:8px 10px;margin:6px 0;font-size:11px;}
-  .field-line{display:flex;align-items:flex-end;gap:6px;margin-bottom:5px;}
-  .field-label{white-space:nowrap;font-size:10px;}
-  .field-val{border-bottom:1px solid #000;flex:1;min-width:80px;font-weight:700;padding-bottom:1px;}
-  .amount-words{font-style:italic;font-size:11px;}
-  .two-col{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:6px 0;}
-  .particulars-table{width:100%;border-collapse:collapse;font-size:10px;}
-  .particulars-table th,.particulars-table td{border:1px solid #000;padding:3px 5px;}
-  .particulars-table th{background:#eee;text-align:left;}
-  .subjects-table{width:100%;border-collapse:collapse;font-size:10px;}
-  .subjects-table th,.subjects-table td{border:1px solid #000;padding:3px 5px;}
-  .subjects-table th{background:#eee;}
-  .payment-section{display:flex;gap:16px;align-items:center;margin:4px 0;}
-  .pay-label{font-size:10px;}
-  .pay-box{border:1px solid #000;padding:2px 8px;font-size:10px;margin-right:4px;}
-  .checked{font-weight:900;}
-  .sig-area{display:flex;justify-content:space-between;margin-top:20px;}
-  .sig-block{text-align:center;min-width:160px;}
-  .sig-line{border-top:1.5px solid #000;padding-top:3px;font-size:9px;}
-  .footer-text{font-size:8px;color:#555;margin-top:8px;border-top:1px solid #ccc;padding-top:4px;}
-  @media print{body{padding:10px 14px;}@page{margin:8mm;} .no-print{display:none!important;}}
+  body{font-family:Arial,sans-serif;font-size:10.5px;padding:14px 18px;color:#000;background:#fff;width:720px;}
+  .outer{display:grid;grid-template-columns:220px 1fr;gap:0;border:1.5px solid #000;}
+  /* LEFT PANEL */
+  .left-panel{border-right:1.5px solid #000;display:flex;flex-direction:column;}
+  .part-header{background:#000;color:#fff;text-align:center;font-size:9px;font-weight:700;padding:3px;}
+  .part-table{width:100%;border-collapse:collapse;font-size:9.5px;}
+  .part-table td{border:1px solid #000;padding:2px 4px;height:18px;}
+  .part-table td:last-child{width:70px;text-align:right;}
+  .part-table .total-row td{font-weight:700;background:#f5f5f5;}
+  .subj-area{border-top:1.5px solid #000;padding:4px;font-size:9px;}
+  .subj-row{display:grid;grid-template-columns:55px 1fr 25px;border-bottom:1px solid #ddd;padding:1px 0;}
+  /* RIGHT PANEL */
+  .right-panel{display:flex;flex-direction:column;}
+  .school-header{display:flex;align-items:flex-start;gap:8px;padding:6px 8px;border-bottom:1.5px solid #000;}
+  .logo-circle{width:52px;height:52px;border:2px solid #000;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:7.5px;text-align:center;flex-shrink:0;font-weight:700;}
+  .school-info{flex:1;}
+  .school-name{font-size:13px;font-weight:900;text-transform:uppercase;letter-spacing:0.5px;}
+  .school-sub{font-size:8px;color:#333;margin-top:1px;}
+  .deped-badge{font-size:8px;border:1px solid #999;padding:2px 5px;border-radius:3px;margin-left:auto;white-space:nowrap;align-self:flex-start;}
+  .receipt-bar{text-align:center;background:#fff;border-bottom:1.5px solid #000;padding:4px;}
+  .receipt-bar-title{font-size:13px;font-weight:900;letter-spacing:1.5px;}
+  .receipt-bar-sub{font-size:8.5px;color:#444;}
+  .body-pad{padding:6px 10px;}
+  .field-row{display:flex;align-items:flex-end;gap:5px;margin-bottom:4px;}
+  .flabel{font-size:9px;white-space:nowrap;}
+  .fval{border-bottom:1px solid #000;flex:1;font-weight:700;font-size:10px;padding-bottom:1px;min-width:40px;}
+  .sum-words{font-style:italic;}
+  .pay-method{display:flex;align-items:center;gap:6px;margin-top:5px;flex-wrap:wrap;}
+  .cb{display:inline-flex;align-items:center;gap:3px;font-size:9px;}
+  .cb-sq{width:11px;height:11px;border:1px solid #000;display:inline-flex;align-items:center;justify-content:center;font-size:9px;}
+  .receipt-no-bar{display:flex;justify-content:flex-end;padding:4px 10px;border-top:1px solid #ccc;}
+  .receipt-no{font-size:16px;font-weight:900;color:#c00;}
+  .sig-row{display:flex;justify-content:space-between;align-items:flex-end;padding:6px 10px 4px;border-top:1px solid #ccc;}
+  .sig-block{text-align:center;}
+  .sig-line{border-top:1px solid #000;padding-top:3px;font-size:8.5px;margin-top:20px;}
+  .footer{font-size:7.5px;color:#444;padding:4px 8px;border-top:1px dashed #aaa;}
+  @media print{
+    body{padding:6px 10px;}
+    @page{margin:6mm;size:A4 landscape;}
+    .no-print{display:none!important;}
+  }
 </style></head><body>
 
-<div class="header">
-  <div class="logo">ST.<br>BENILDE</div>
-  <div>
-    <div class="school-name">St. Benilde Center for Global Competence, Inc.</div>
-    <div class="school-sub">NON-VAT Reg. TIN: 006-722-355-00000</div>
-    <div class="school-addr">2647 Rizal Avenue, West Bajac-Bajac, Olongapo City &nbsp;|&nbsp; Tel/Fax: (047) 223-3031</div>
-  </div>
-  <div class="badges">Registered with:<br>CHED · TESDA<br>DepEd</div>
-</div>
-
-<div class="receipt-title">OFFICIAL RECEIPT (EXEMPT)</div>
-<div class="receipt-no">No. &nbsp; ${receipt.orArNumber}</div>
-
-<div class="body-section">
-  <div class="field-line">
-    <span class="field-label">RECEIVED from</span>
-    <span class="field-val">${name}</span>
-    <span class="field-label">with TIN</span>
-    <span class="field-val" style="max-width:120px;"></span>
-  </div>
-  <div class="field-line">
-    <span class="field-label">business style of</span>
-    <span class="field-val"></span>
-    <span class="field-label">and address at</span>
-    <span class="field-val">Olongapo City</span>
-  </div>
-  <div class="field-line">
-    <span class="field-label">in partial/full payment for</span>
-    <span class="field-val">${receipt.period || 'Full Payment'} — ${s.program || ''} ${s.semester || ''}</span>
-  </div>
-  <div class="field-line">
-    <span class="field-label">the sum of</span>
-    <span class="field-val amount-words">( P &nbsp;${fmt(amount)} ) &nbsp; ${amtWords}</span>
-    <span class="field-label">pesos</span>
-  </div>
-
-  <div class="payment-section" style="margin-top:8px;">
-    <span class="field-label">Form of Payment:</span>
-    <span class="pay-box ${receipt.method === 'Cash' ? 'checked' : ''}">
-      ${receipt.method === 'Cash' ? '☑' : '☐'} Cash
-    </span>
-    <span class="pay-box ${receipt.method !== 'Cash' ? 'checked' : ''}">
-      ${receipt.method !== 'Cash' ? '☑' : '☐'} Check
-    </span>
-    <span class="field-label" style="margin-left:12px;">Bank</span>
-    <span class="field-val" style="max-width:120px;">${receipt.method !== 'Cash' ? (receipt.gcashReference || '') : ''}</span>
-    <span class="field-label">Check No.</span>
-    <span class="field-val" style="max-width:100px;"></span>
-    <span class="field-label">Date</span>
-    <span class="field-val" style="max-width:100px;">${receipt.paymentDate || ''}</span>
-  </div>
-</div>
-
-<div class="two-col">
-  <div>
-    <table class="particulars-table">
-      <thead><tr><th colspan="2">In settlement of the following:</th></tr>
-        <tr><th>Particulars</th><th>Amount</th></tr>
-      </thead>
-      <tbody>
-        <tr><td>Downpayment</td><td style="text-align:right;">${receipt.period==='Downpayment' ? 'P '+fmt(amount) : ''}</td></tr>
-        <tr><td>1st Payment</td><td style="text-align:right;">${receipt.period==='Prelim' ? 'P '+fmt(amount) : ''}</td></tr>
-        <tr><td>2nd Payment</td><td style="text-align:right;">${receipt.period==='Midterm' ? 'P '+fmt(amount) : ''}</td></tr>
-        <tr><td>3rd Payment</td><td style="text-align:right;">${receipt.period==='Finals' ? 'P '+fmt(amount) : ''}</td></tr>
-        <tr><td>4th Payment</td><td style="text-align:right;"></td></tr>
-        <tr><td>Others</td><td style="text-align:right;"></td></tr>
-        <tr><td><strong>Total Due</strong></td><td style="text-align:right;"><strong>P ${fmt(amount)}</strong></td></tr>
-        <tr><td>Less: Withholding Tax</td><td></td></tr>
-        <tr><td><strong>Payment Due</strong></td><td style="text-align:right;"><strong>P ${fmt(amount)}</strong></td></tr>
-      </tbody>
+<div class="outer">
+  <!-- LEFT: Particulars + Subjects -->
+  <div class="left-panel">
+    <div class="part-header">In settlement of the following:</div>
+    <table class="part-table">
+      <tr><td>Particulars</td><td><strong>Amount</strong></td></tr>
+      <tr><td>Downpayment</td><td>${period==='Downpayment' ? fmt(amount) : ''}</td></tr>
+      <tr><td>1st Payment</td><td>${period==='Prelim' ? fmt(amount) : ''}</td></tr>
+      <tr><td>2nd Payment</td><td>${period==='Midterm' ? fmt(amount) : ''}</td></tr>
+      <tr><td>3rd Payment</td><td>${period==='Finals' ? fmt(amount) : ''}</td></tr>
+      <tr><td>4th Payment</td><td></td></tr>
+      <tr><td>5th Payment</td><td></td></tr>
+      <tr><td>6th Payment</td><td></td></tr>
+      <tr><td>Others</td><td></td></tr>
+      <tr class="total-row"><td>Total Due</td><td>${period==='Full' ? fmt(amount) : fmt(amount)}</td></tr>
+      <tr><td>Less: Withholding Tax</td><td></td></tr>
+      <tr class="total-row"><td>Payment Due</td><td>${fmt(amount)}</td></tr>
     </table>
-  </div>
-  <div>
-    <table class="subjects-table">
-      <thead><tr><th>Code</th><th>Subject</th><th>Units</th></tr></thead>
-      <tbody>${subjectRows}</tbody>
-    </table>
-  </div>
-</div>
-
-<div class="sig-area">
-  <div class="sig-block">
-    <div style="height:30px;"></div>
-    <div class="sig-line">Cashier / Authorized Representative</div>
-  </div>
-  <div style="font-size:9px;text-align:right;color:#555;">
-    Date: ${receipt.paymentDate || new Date().toLocaleDateString('en-PH')}<br>
-    <em>THIS DOCUMENT IS NOT VALID FOR CLAIM OF INPUT TAXES</em>
-  </div>
-</div>
-
-<div class="footer-text">
-  Printer's Accreditation No.: 018MP2019000000000001 &nbsp;|&nbsp; Date Issued: 01-09-2019<br>
-  BIR Authority to Print No.: OCN: 018AU20220000004994
-</div>
-
-<div class="no-print" style="text-align:center;margin-top:16px;padding:12px;background:#f8fafc;border-top:1px solid #e2e8f0;">
-      <button onclick="window.print()" style="background:#1d4ed8;color:white;border:none;padding:10px 32px;font-size:14px;font-weight:700;border-radius:7px;cursor:pointer;margin-right:10px;">🖨️ Print</button>
-      <button onclick="window.close()" style="background:#64748b;color:white;border:none;padding:10px 24px;font-size:14px;font-weight:700;border-radius:7px;cursor:pointer;">✕ Close</button>
+    <div class="subj-area">
+      <div class="subj-row" style="font-weight:700;font-size:9px;border-bottom:1px solid #000;">
+        <span>Code</span><span>Subject</span><span>Units</span>
+      </div>
+      <div class="subj-row"><span>${receipt.program || ''}</span><span>${receipt.semester || ''}</span><span></span></div>
+      <div class="subj-row"><span></span><span></span><span></span></div>
+      <div class="subj-row"><span></span><span></span><span></span></div>
+      <div class="subj-row"><span></span><span></span><span></span></div>
+      <div class="subj-row"><span></span><span></span><span></span></div>
     </div>
-</body></html>`;
+  </div>
 
-    const win = window.open('', '_blank', 'width=820,height=900');
+  <!-- RIGHT: Header + Receipt Body -->
+  <div class="right-panel">
+    <div class="school-header">
+      <div class="logo-circle">ST.<br>BENILDE</div>
+      <div class="school-info">
+        <div class="school-name">ST. BENILDE</div>
+        <div class="school-sub">CENTER FOR GLOBAL COMPETENCE, INC.</div>
+        <div class="school-sub">Email: stbenilde_olongapo@yahoo.com &nbsp;|&nbsp; Telefax: (047) 223-3031</div>
+        <div class="school-sub">Olongapo City, Zambales, Philippines</div>
+        <div class="school-sub">NON-VAT Reg. TIN: 006-722-355-00000</div>
+      </div>
+      <div class="deped-badge">Registered with:<br>CHED · TESDA · DepEd</div>
+    </div>
+
+    <div class="receipt-bar">
+      <div class="receipt-bar-title">OFFICIAL RECEIPT (EXEMPT)</div>
+    </div>
+
+    <div class="body-pad">
+      <div class="field-row">
+        <span class="flabel">RECEIVED from</span>
+        <span class="fval">${name}</span>
+        <span class="flabel">with TIN</span>
+        <span class="fval" style="max-width:90px;"></span>
+      </div>
+      <div class="field-row">
+        <span class="flabel">business style of</span>
+        <span class="fval"></span>
+        <span class="flabel">and address at</span>
+        <span class="fval">Olongapo City</span>
+      </div>
+      <div class="field-row">
+        <span class="flabel">in partial/full payment for</span>
+        <span class="fval">${receipt.program || ''} — ${receipt.semester || ''}</span>
+      </div>
+      <div class="field-row">
+        <span class="flabel">the sum of</span>
+        <span class="fval sum-words">( P ${fmt(amount)} ) &nbsp; ${amtWords}</span>
+        <span class="flabel">pesos</span>
+      </div>
+
+      <div class="pay-method">
+        <span class="flabel">Form of Payment:</span>
+        <span class="cb"><span class="cb-sq">${isCashPay ? '✓' : ''}</span> Cash</span>
+        <span class="cb"><span class="cb-sq">${!isCashPay ? '✓' : ''}</span> Check</span>
+        <span class="flabel" style="margin-left:8px;">Bank</span>
+        <span class="fval" style="max-width:90px;">${!isCashPay ? (receipt.gcashReference || "" || '') : ''}</span>
+        <span class="flabel">Check No.</span>
+        <span class="fval" style="max-width:70px;"></span>
+        <span class="flabel">Date</span>
+        <span class="fval" style="max-width:80px;">${payDate}</span>
+      </div>
+    </div>
+
+    <div class="receipt-no-bar">
+      <span style="font-size:9px;margin-right:8px;">No.</span>
+      <span class="receipt-no">${receipt.orArNumber || '—'}</span>
+    </div>
+
+    <div class="sig-row">
+      <div>
+        <div style="font-size:8px;color:#555;"><em>THIS DOCUMENT IS NOT VALID FOR CLAIM OF INPUT TAXES</em></div>
+      </div>
+      <div class="sig-block">
+        <div style="height:24px;font-size:10px;"></div>
+        <div class="sig-line">Cashier/Authorized Representative</div>
+      </div>
+    </div>
+
+    <div class="footer">
+      200-Elitre 1503 42501-52500 &nbsp;|&nbsp; BIR Authority to Print No.: OCN: 018AU20220000004994<br>
+      Printer's Accreditation No.: 018MP2019000000000001 &nbsp;|&nbsp; Date Issued: 01-09-2019<br>
+      Dinamika Printing Intl. Corp. &nbsp;|&nbsp; 75m St. Tapinac, Olongapo City &nbsp;|&nbsp; TIN: 215-213-220-00000 - VAT
+    </div>
+  </div>
+</div>
+
+<div class="no-print" style="text-align:center;margin-top:14px;">
+  <button onclick="window.print()" style="background:#1d4ed8;color:white;border:none;padding:10px 32px;font-size:14px;font-weight:700;border-radius:7px;cursor:pointer;margin-right:10px;">🖨️ Print</button>
+  <button onclick="window.close()" style="background:#64748b;color:white;border:none;padding:10px 24px;font-size:14px;font-weight:700;border-radius:7px;cursor:pointer;">✕ Close</button>
+</div>
+
+</body></html>`;
+    const win = window.open('', '_blank', 'width=800,height=700');
     if (!win) return;
-    win.document.write(html);
-    win.document.close();
+    win.document.write(html); win.document.close();
   }
 
-  // ── Print AR (Acknowledgement Receipt) — for Installment Payments ────────
   viewAR(receipt: any): void {
     const s = this.student;
     const name = `${s.lastName || s.last_name || ''}, ${s.firstName || s.first_name || ''}`;
@@ -745,5 +823,268 @@ export class Enrollment implements OnInit {
     if (!win) return;
     win.document.write(html);
     win.document.close();
+  }
+
+  // ── View Statement of Account ─────────────────────────────────────────────
+  viewSOA(): void {
+    const s    = this.student;
+    const f    = this.fees;
+    if (!f) return;
+    const name = `${(s.lastName || s.last_name || '').toUpperCase()}, ${(s.firstName || s.first_name || '').toUpperCase()} ${(s.middleName || s.middle_name || '').toUpperCase()}`.trim();
+    const fmt  = (n: number) => (+n || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 });
+    const isInstallment = this.paymentPlan === 'installment';
+    const td   = this.termBreakdown;
+    const getTerm = (p: string) => td.find(t => t.period === p);
+    const dp  = getTerm('Downpayment');
+    const pr  = getTerm('Prelim');
+    const mid = getTerm('Midterm');
+    const fin = getTerm('Finals');
+    const dpAmt  = this.dpAmount;
+    const prAmt  = this.prelimAmount;
+    const midAmt = this.midtermAmount;
+    const finAmt = this.finalsAmount;
+    const totalAmountToBePaid = this.fees?.totalAssessment ?? 0;
+
+    // Due dates (hardcoded like actual SOA — can be made dynamic later)
+    const dueDates: any = {
+      Downpayment: '', Prelim: 'JANUARY 10-16, 2026',
+      Midterm: 'FEBRUARY 9 - 14, 2026', Finals: 'MARCH 30 - APRIL 4, 2026'
+    };
+
+    const scheduleRow = (label: string, period: string, amount: number, paid: any) => {
+      const highlight = !paid && period === 'Prelim' ? 'style="color:#c00;font-weight:700;"' : '';
+      return `<tr>
+        <td style="padding:3px 6px;">${label}</td>
+        <td style="padding:3px 6px;" ${highlight}>${dueDates[period] || ''}</td>
+        <td style="padding:3px 6px;text-align:right;">${paid ? fmt(paid.amountPaid) : ''}</td>
+        <td style="padding:3px 6px;text-align:center;">${paid ? (paid.orArNumber || '') : ''}</td>
+      </tr>`;
+    };
+
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>Statement of Account — ${name}</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:Arial,sans-serif;font-size:10px;padding:18px 22px;color:#000;width:780px;}
+  /* Header */
+  .top-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;}
+  .logo-area{display:flex;align-items:center;gap:10px;}
+  .logo-circle{width:70px;height:70px;border:2px solid #000;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;text-align:center;font-weight:900;}
+  .school-info-center{text-align:center;flex:1;}
+  .school-name-big{font-size:18px;font-weight:900;text-transform:uppercase;letter-spacing:1px;color:#1a1a6e;}
+  .school-name-sub{font-size:9px;text-transform:uppercase;letter-spacing:0.5px;}
+  .school-addr{font-size:8.5px;color:#444;margin-top:1px;}
+  .badges-right{display:flex;gap:8px;align-items:center;}
+  .badge-img{width:45px;height:45px;border:1px solid #ccc;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:7px;text-align:center;}
+  /* SOA Title */
+  .soa-title{text-align:center;font-size:11px;font-weight:900;text-transform:uppercase;border-top:2px solid #000;border-bottom:1px solid #000;padding:3px;margin:6px 0;}
+  /* Student Info Bar */
+  .info-bar{display:grid;grid-template-columns:1fr auto auto;gap:0;border:1px solid #000;margin-bottom:4px;}
+  .info-cell{padding:3px 8px;border-right:1px solid #000;font-size:10px;}
+  .info-cell:last-child{border-right:none;}
+  .info-label{font-size:8.5px;color:#555;}
+  .info-val{font-weight:700;font-size:11px;}
+  .info-bar2{display:grid;grid-template-columns:1fr 1fr 1fr;border:1px solid #000;border-top:none;margin-bottom:8px;}
+  /* Two column layout */
+  .main-grid{display:grid;grid-template-columns:300px 1fr;gap:16px;}
+  /* Assessment table */
+  .assess-table{width:100%;border-collapse:collapse;font-size:10px;}
+  .assess-table td{padding:2px 4px;border-bottom:1px dotted #ddd;}
+  .assess-table td:last-child{text-align:right;min-width:70px;}
+  .assess-section-title{text-align:center;font-size:10px;font-weight:700;background:#f0f0f0;border:1px solid #ccc;padding:3px;margin-bottom:2px;}
+  .subtotal-row td{font-weight:700;border-top:1px solid #000;padding-top:3px;}
+  .total-row td{font-weight:900;font-size:11px;background:#d0d0d0;padding:3px 4px;}
+  .final-row td{font-weight:900;font-size:12px;background:#4040a0;color:#fff;padding:4px;}
+  /* Schedule table */
+  .sched-table{width:100%;border-collapse:collapse;font-size:10px;}
+  .sched-table th{background:#4040a0;color:#fff;padding:3px 6px;text-align:left;font-size:9.5px;}
+  .sched-table td{border:1px solid #ccc;padding:2px 6px;}
+  .total-balance-box{border:2px solid #000;padding:5px 10px;text-align:center;margin:10px 0;}
+  .total-balance-label{font-size:11px;font-weight:700;}
+  .total-balance-amt{font-size:16px;font-weight:900;color:#c00;}
+  /* Installment schedule */
+  .install-table{width:100%;border-collapse:collapse;font-size:10px;margin-top:8px;}
+  .install-table th{background:#f0c040;color:#000;font-weight:700;padding:3px 6px;border:1px solid #999;}
+  .install-table td{border:1px solid #ccc;padding:3px 6px;}
+  /* Withdrawal policies */
+  .policies{font-size:8px;margin-top:10px;color:#333;}
+  .policies p{margin-bottom:2px;}
+  /* Signature */
+  .sig-area{display:grid;grid-template-columns:1fr 1fr;gap:30px;margin-top:16px;}
+  .sig-block{text-align:center;}
+  .sig-name{font-size:11px;font-weight:900;border-bottom:1.5px solid #000;padding-bottom:2px;margin-bottom:2px;}
+  .sig-title{font-size:9px;}
+  .sig-date{font-size:9px;margin-top:8px;}
+  @media print{body{padding:8px 12px;}@page{margin:8mm;size:A4;} .no-print{display:none!important;}}
+</style></head><body>
+
+<!-- HEADER -->
+<div class="top-header">
+  <div class="logo-area">
+    <div class="logo-circle">ST.<br>BENILDE</div>
+  </div>
+  <div class="school-info-center">
+    <div class="school-name-big">ST. BENILDE</div>
+    <div class="school-name-sub">Center for Global Competence, Inc.</div>
+    <div class="school-addr">2647 RIZAL AVENUE, WEST BAJAC-BAJAC, OLONGAPO CITY &nbsp;|&nbsp; TELEFAX: (047) 223 - 9031</div>
+  </div>
+  <div class="badges-right">
+    <div class="badge-img">CHED<br>Reg.</div>
+    <div class="badge-img">DepEd<br>Reg.</div>
+    <div class="badge-img">TESDA<br>Reg.</div>
+  </div>
+</div>
+
+<div class="soa-title">STATEMENT OF ACCOUNT &nbsp; ${s.semester || ''}</div>
+
+<!-- Student Info -->
+<div class="info-bar">
+  <div class="info-cell">
+    <div class="info-label">Name:</div>
+    <div class="info-val">${name}</div>
+  </div>
+  <div class="info-cell">
+    <div class="info-label">Course:</div>
+    <div class="info-val">${s.program || ''}</div>
+  </div>
+  <div class="info-cell">
+    <div class="info-label">Department:</div>
+    <div class="info-val">${s.department || 'ICTD'}</div>
+  </div>
+</div>
+<div class="info-bar2">
+  <div class="info-cell">
+    <div class="info-label">EXAMINATION COVERED</div>
+    <div class="info-val">PRELIM</div>
+  </div>
+  <div class="info-cell">
+    <div class="info-label">Semester:</div>
+    <div class="info-val">${s.semester || ''}</div>
+  </div>
+  <div class="info-cell">
+    <div class="info-label">Student No.:</div>
+    <div class="info-val">${s.studentNumber || s.student_number || ''}</div>
+  </div>
+</div>
+
+<!-- Main 2-col layout -->
+<div class="main-grid">
+
+  <!-- LEFT: Assessment -->
+  <div>
+    <div class="assess-section-title">ASSESSMENT FOR THE CURRENT SEMESTER</div>
+    <table class="assess-table">
+      <tr><td>No. of Units</td><td>${f.units || ''}</td></tr>
+      <tr><td>Tuition Fee</td><td>${fmt(f.tuitionFee)}</td></tr>
+      <tr><td>Miscellaneous Fee</td><td>${fmt(f.miscellaneousFee)}</td></tr>
+      <tr><td>Registration Fee</td><td>${fmt(f.registrationFee)}</td></tr>
+      <tr><td>NSTP Fee</td><td></td></tr>
+      <tr><td>ENERGY FEE</td><td>${f.energyFee ? fmt(f.energyFee) : ''}</td></tr>
+      <tr><td>Supervision Fee</td><td></td></tr>
+      <tr><td style="padding-top:4px;"># of laboratory</td><td></td></tr>
+      <tr><td>Laboratory Fees:</td><td>${f.laboratoryFee ? fmt(f.laboratoryFee) : ''}</td></tr>
+      <tr><td style="padding-left:12px;">Computer Lab.</td><td></td></tr>
+      <tr><td style="padding-left:12px;">Kitchen Lab.</td><td></td></tr>
+      <tr><td style="padding-left:12px;">Bartending Lab.</td><td></td></tr>
+      <tr><td style="padding-left:12px;">F&amp;B Lab.</td><td></td></tr>
+      <tr><td style="padding-left:12px;">Housekeeping Lab.</td><td></td></tr>
+      <tr><td>Penalty Late Payment</td><td></td></tr>
+      <tr><td>&nbsp;</td><td></td></tr>
+      <tr class="subtotal-row"><td>Subtotal</td><td>${fmt(f.subtotal || (f.tuitionFee + f.miscellaneousFee + f.registrationFee + f.laboratoryFee + f.energyFee))}</td></tr>
+      <tr><td>Discount of TF</td><td>${f.discount ? fmt(f.discount) : '- -'}</td></tr>
+      <tr><td>Installment Fee</td><td>${isInstallment ? fmt(f.installmentFee || 0) : ''}</td></tr>
+      <tr class="total-row"><td>TOTAL ASSESSMENT</td><td>${fmt(f.totalAssessment)}</td></tr>
+    </table>
+    <table class="assess-table" style="margin-top:4px;">
+      <tr class="final-row"><td>FINAL ASSESSMENT</td><td>${fmt(f.totalAssessment)}</td></tr>
+    </table>
+  </div>
+
+  <!-- RIGHT: Schedule of Payment -->
+  <div>
+    <table class="sched-table">
+      <thead>
+        <tr>
+          <th>SCHEDULE OF PAYMENT</th>
+          <th>DATE OF PAYMENTS</th>
+          <th style="text-align:right;">PAYMENTS</th>
+          <th style="text-align:center;">O.R. NUMBER</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${scheduleRow('Downpayment', 'Downpayment', dpAmt, dp)}
+        <tr><td colspan="4" style="padding:1px;"></td></tr>
+        ${scheduleRow('PRELIM', 'Prelim', prAmt, pr)}
+        <tr><td colspan="4" style="padding:1px;"></td></tr>
+        ${scheduleRow('MIDTERM', 'Midterm', midAmt, mid)}
+        <tr><td colspan="4" style="padding:1px;"></td></tr>
+        ${scheduleRow('PREFINAL', 'Prefinal', 0, null)}
+        <tr><td colspan="4" style="padding:1px;"></td></tr>
+        ${scheduleRow('FINAL', 'Finals', finAmt, fin)}
+      </tbody>
+    </table>
+
+    <div class="total-balance-box">
+      <span class="total-balance-label">Total Balance &nbsp;&nbsp;</span>
+      <span class="total-balance-amt">${fmt(f.balance ?? f.totalAssessment - f.totalPaid)}</span>
+    </div>
+
+    <!-- Installment breakdown -->
+    <table class="install-table">
+      <thead>
+        <tr>
+          <th>INSTALLMENT PAYMENT</th>
+          <th>DUE DATES</th>
+          <th style="text-align:right;">AMOUNT</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>Downpayment :</td><td></td><td style="text-align:right;">${fmt(dpAmt)}</td></tr>
+        <tr><td style="color:#c00;font-weight:700;">Prelim :</td><td style="color:#c00;font-weight:700;">${dueDates['Prelim']}</td><td style="text-align:right;">${fmt(prAmt)}</td></tr>
+        <tr><td>Midterm:</td><td>${dueDates['Midterm']}</td><td style="text-align:right;">${fmt(midAmt)}</td></tr>
+        <tr><td>Final:</td><td>${dueDates['Finals']}</td><td style="text-align:right;">${fmt(finAmt)}</td></tr>
+      </tbody>
+    </table>
+    <div style="text-align:right;font-size:11px;font-weight:700;margin-top:6px;padding-right:4px;">
+      Total amount to be paid: &nbsp; <span style="background:#add8e6;padding:2px 8px;">${fmt(totalAmountToBePaid)}</span>
+    </div>
+  </div>
+</div>
+
+<!-- Withdrawal Policies -->
+<div class="policies">
+  <strong>Withdrawal Policies</strong>
+  <p>1. In case of withdrawal of enrollment, the amount of Php7,388.00 (Registration and Miscellaneous fees) shall be retained at all times.</p>
+  <p>2. In case withdrawal is filed during the first week of classes, 50% of other fees shall be paid in addition to Php7,388.00.</p>
+  <p>3. In case withdrawal is filed during the second week of classes, 50% of other fees shall be paid in addition to Php7,388.00.</p>
+  <p>4. In case withdrawal is filed during the third week of classes, 100% of the total assessment shall be paid.</p>
+  <p>5. No document shall be released to any withdrawing student without complete payment of financial obligation.</p>
+</div>
+
+<!-- Signatures -->
+<div class="sig-area">
+  <div class="sig-block">
+    <div class="sig-name">Jhomer M. Onoya</div>
+    <div class="sig-title">Account Management Officer</div>
+    <div class="sig-date">DATE &nbsp;&nbsp;&nbsp;&nbsp; ${new Date().toLocaleDateString('en-US', {weekday:'long', year:'numeric', month:'long', day:'numeric'})}</div>
+  </div>
+  <div class="sig-block">
+    <div class="sig-name">${name}</div>
+    <div class="sig-title">Signature Over Printed Name</div>
+    <div style="margin-top:8px;">
+      <span style="font-size:9px;">Acknowledged by:</span>
+    </div>
+  </div>
+</div>
+
+<div class="no-print" style="text-align:center;margin-top:16px;">
+  <button onclick="window.print()" style="background:#1a1a6e;color:white;border:none;padding:10px 32px;font-size:14px;font-weight:700;border-radius:7px;cursor:pointer;margin-right:10px;">🖨️ Print SOA</button>
+  <button onclick="window.close()" style="background:#64748b;color:white;border:none;padding:10px 24px;font-size:14px;font-weight:700;border-radius:7px;cursor:pointer;">✕ Close</button>
+</div>
+
+</body></html>`;
+    const win = window.open('', '_blank', 'width=860,height=900');
+    if (!win) return;
+    win.document.write(html); win.document.close();
   }
 }

@@ -95,7 +95,9 @@
 
         <div class="card-body">
           <div class="info-row"><span class="info-label">Program</span><span class="info-value">{{ p.program }}</span></div>
-          <div class="info-row"><span class="info-label">Year Level</span><span class="info-value">{{ p.yearLevel }}</span></div>
+          <div class="info-row" *ngIf="p.department"><span class="info-label">Department</span><span class="info-value">{{ p.department }}</span></div>
+          <div class="info-row" *ngIf="p.studentCategory"><span class="info-label">Level</span><span class="info-value"><span class="badge" [class.badge-gcash]="p.studentCategory==='College'" [class.badge-cash]="p.studentCategory==='SHS'||p.studentCategory==='TVET'">{{ p.studentCategory }}</span></span></div>
+          <div class="info-row"><span class="info-label">Year Level</span><span class="info-value">{{ (p.studentCategory === 'SHS' && p.yearLevel === '1st Year') ? 'Grade 11' : (p.studentCategory === 'SHS' && p.yearLevel === '2nd Year') ? 'Grade 12' : p.yearLevel }}</span></div>
           <div class="info-row"><span class="info-label">Semester</span><span class="info-value">{{ p.semester }}</span></div>
 
           <!-- Term payment indicator (Prelim/Midterm/Finals) -->
@@ -264,6 +266,8 @@
         </div>
         <div class="card-body">
           <div class="info-row"><span class="info-label">Program</span><span class="info-value">{{ h.program }}</span></div>
+          <div class="info-row" *ngIf="h.department"><span class="info-label">Department</span><span class="info-value">{{ h.department }}</span></div>
+          <div class="info-row" *ngIf="h.studentCategory"><span class="info-label">Level</span><span class="info-value"><span class="badge" [class.badge-gcash]="h.studentCategory==='College'" [class.badge-cash]="h.studentCategory==='SHS'||h.studentCategory==='TVET'">{{ h.studentCategory }}</span></span></div>
           <div class="info-row"><span class="info-label">Amount</span><span class="info-value amount">₱{{ formatAmount(h.gcashAmount) }}</span></div>
           <div class="info-row" *ngIf="isGCash(h)"><span class="info-label">Reference</span><span class="info-value mono">{{ h.gcashReference }}</span></div>
           <div class="info-row"><span class="info-label">Verified By</span><span class="info-value">{{ h.verifiedByName }}</span></div>
@@ -271,9 +275,10 @@
           <div class="info-row" *ngIf="h.notes"><span class="info-label">Notes</span><span class="info-value">{{ h.notes }}</span></div>
           <div class="info-row" *ngIf="h.orArNumber"><span class="info-label">Receipt No.</span><span class="info-value"><strong>{{ h.orArNumber }}</strong></span></div>
         </div>
-        <div class="card-footer" style="padding:8px 12px;border-top:1px solid #f1f5f9;display:flex;gap:8px;" *ngIf="h.status==='Verified' && h.orArNumber">
+        <div class="card-footer" style="padding:8px 12px;border-top:1px solid #f1f5f9;display:flex;gap:8px;" *ngIf="h.status==='Verified'">
           <button *ngIf="h.orArType==='OR'" class="btn-print-receipt" (click)="viewOR(h)">👁️ View OR</button>
           <button *ngIf="h.orArType==='AR'" class="btn-print-receipt btn-print-ar" (click)="viewAR(h)">👁️ View AR</button>
+          <button class="btn-edit" style="font-size:0.78rem;padding:4px 10px;margin-left:auto;" (click)="openEditHistory(h)">✏️ Edit</button>
         </div>
       </div>
     </div>
@@ -283,7 +288,7 @@
       <table class="history-table">
         <thead>
           <tr>
-            <th>Student</th><th>Program</th><th>Method</th><th>Reference / Details</th>
+            <th>Student</th><th>Program</th><th>Dept / Level</th><th>Method</th><th>Reference / Details</th>
             <th>Amount</th><th>Period</th><th>Receipt No.</th><th>Payment Date</th><th>Status</th><th>Verified By</th><th>Print</th>
           </tr>
         </thead>
@@ -296,6 +301,7 @@
               </div>
             </td>
             <td>{{ h.program }}</td>
+            <td><div *ngIf="h.department" style="font-size:0.8rem;color:#374151;">{{ h.department }}</div><span *ngIf="h.studentCategory" class="badge" [class.badge-gcash]="h.studentCategory==='College'" [class.badge-cash]="h.studentCategory==='SHS'||h.studentCategory==='TVET'">{{ h.studentCategory }}</span></td>
             <td><span class="badge" [class.badge-gcash]="isGCash(h)" [class.badge-cash]="isCash(h)">{{ isCash(h) ? '💵 Cash' : '📱 GCash' }}</span></td>
             <td><span class="mono" *ngIf="isGCash(h)">{{ h.gcashReference }}</span><span class="muted" *ngIf="isCash(h)">Walk-in Cash</span></td>
             <td><strong class="amount">₱{{ formatAmount(h.gcashAmount) }}</strong></td>
@@ -307,7 +313,8 @@
             <td style="white-space:nowrap;">
               <button *ngIf="h.status==='Verified' && h.orArType==='OR'" class="btn-print-receipt" (click)="viewOR(h)">👁️ View</button>
               <button *ngIf="h.status==='Verified' && h.orArType==='AR'" class="btn-print-receipt btn-print-ar" (click)="viewAR(h)">👁️ View</button>
-              <span *ngIf="!h.orArNumber" class="muted">—</span>
+              <button *ngIf="h.status==='Verified'" class="btn-edit-sm" (click)="openEditHistory(h)" title="Correct payment details">✏️</button>
+              <span *ngIf="!h.orArNumber && h.status!=='Verified'" class="muted">—</span>
             </td>
           </tr>
         </tbody>
@@ -321,60 +328,131 @@
   <div class="modal-content" (click)="$event.stopPropagation()">
 
     <!-- Approve Modal -->
-    <div *ngIf="modalMode === 'approve'">
-      <div class="modal-header approve-header">
-        <h2>✓ {{ isCash(selectedPayment) ? 'Confirm Cash Payment' : 'Approve GCash Payment' }}</h2>
-        <button class="modal-close" (click)="closeModal()">✕</button>
+    <div *ngIf="modalMode === 'approve'" class="approve-modal-wrap">
+
+      <!-- Header -->
+      <div class="am-header" [class.am-header-cash]="isCash(selectedPayment)" [class.am-header-gcash]="isGCash(selectedPayment)">
+        <div class="am-header-icon">{{ isCash(selectedPayment) ? '💵' : '📱' }}</div>
+        <div class="am-header-text">
+          <div class="am-header-title">{{ isCash(selectedPayment) ? 'Confirm Cash Payment' : 'Approve GCash Payment' }}</div>
+          <div class="am-header-sub">{{ selectedPayment?.program }} — {{ selectedPayment?.semester }}</div>
+        </div>
+        <button class="am-close" (click)="closeModal()">✕</button>
       </div>
-      <div class="modal-body" *ngIf="selectedPayment">
-        <div class="confirm-summary">
-          <div class="sum-row"><label>Student:</label><p><strong>{{ selectedPayment.firstName }} {{ selectedPayment.lastName }}</strong></p></div>
-          <div class="sum-row"><label>Student No.:</label><p>{{ selectedPayment.studentNumber }}</p></div>
-          <div class="sum-row"><label>Program:</label><p>{{ selectedPayment.program }}</p></div>
-          <div class="sum-row"><label>Semester:</label><p>{{ selectedPayment.semester }}</p></div>
 
-          <!-- GCash Details (read-only) -->
-          <div *ngIf="isGCash(selectedPayment)">
-            <div class="sum-row"><label>GCash Ref:</label><p class="mono">{{ selectedPayment.gcashReference }}</p></div>
-            <div class="sum-row"><label>Amount Paid:</label><p class="amount">₱{{ formatAmount(selectedPayment.gcashAmount) }}</p></div>
-            <div class="sum-row"><label>Payment Date:</label><p>{{ formatDate(selectedPayment.gcashDate) }}</p></div>
+      <div class="am-body" *ngIf="selectedPayment">
+
+        <!-- Student chip -->
+        <div class="am-student-chip">
+          <div class="am-avatar">{{ getInitials(selectedPayment) }}</div>
+          <div class="am-student-info">
+            <strong>{{ selectedPayment.firstName }} {{ selectedPayment.lastName }}</strong>
+            <span>{{ selectedPayment.studentNumber }}</span>
           </div>
+          <span class="am-plan-badge" [class.am-plan-inst]="selectedPayment.paymentPlan === 'installment'" [class.am-plan-full]="selectedPayment.paymentPlan !== 'installment'">
+            {{ selectedPayment.paymentPlan === 'installment' ? '📅 Installment' : '✔️ Full Payment' }}
+          </span>
+        </div>
 
-          <div *ngIf="selectedPayment.isScholar" class="scholar-confirm-box">
-            <p>🎓 <strong>Scholar: {{ selectedPayment.scholarType }}</strong> — Discount ₱{{ formatAmount(selectedPayment.scholarshipAmount || 0) }}</p>
-            <p class="warning-text">⚠️ Make sure scholarship documents have been verified before approving discount.</p>
+        <!-- INSTALLMENT SCHEDULE -->
+        <div *ngIf="selectedPayment.paymentPlan === 'installment' && selectedPayment.scheduleAmounts" class="am-sched-box">
+          <div class="am-sched-header">
+            <span class="am-sched-title">📋 Installment Schedule</span>
+            <span class="am-sched-total">Total: ₱{{ formatAmount(selectedPayment.scheduleAmounts!.total) }}</span>
+          </div>
+          <div class="am-sched-grid">
+            <div class="am-sched-term" [class.am-sched-active]="(selectedPayment.examPeriod || 'Downpayment') === 'Downpayment'">
+              <span class="am-term-label">Downpayment</span>
+              <span class="am-term-amt">₱{{ formatAmount(selectedPayment.scheduleAmounts!.downpayment) }}</span>
+            </div>
+            <div class="am-sched-term" [class.am-sched-active]="selectedPayment.examPeriod === 'Prelim'">
+              <span class="am-term-label">Prelim</span>
+              <span class="am-term-amt">₱{{ formatAmount(selectedPayment.scheduleAmounts!.prelim) }}</span>
+            </div>
+            <div class="am-sched-term" [class.am-sched-active]="selectedPayment.examPeriod === 'Midterm'">
+              <span class="am-term-label">Midterm</span>
+              <span class="am-term-amt">₱{{ formatAmount(selectedPayment.scheduleAmounts!.midterm) }}</span>
+            </div>
+            <div class="am-sched-term" [class.am-sched-active]="selectedPayment.examPeriod === 'Finals'">
+              <span class="am-term-label">Finals</span>
+              <span class="am-term-amt">₱{{ formatAmount(selectedPayment.scheduleAmounts!.finals) }}</span>
+            </div>
+          </div>
+          <div class="am-current-pay">
+            <div class="am-cp-left">
+              <div class="am-cp-label">Paying Now — {{ selectedPayment.examPeriod || 'Downpayment' }}</div>
+              <div class="am-cp-sub">Already paid: ₱{{ formatAmount(selectedPayment.totalPaid) }}</div>
+            </div>
+            <div class="am-cp-amount">₱{{ formatAmount(selectedPayment.gcashAmount || cashAmount) }}</div>
+          </div>
+          <div class="am-balance-row">
+            <span>Remaining balance after this payment:</span>
+            <span class="am-balance-val">₱{{ formatAmount(selectedPayment.scheduleAmounts!.total - selectedPayment.totalPaid - (selectedPayment.gcashAmount || cashAmount || 0)) }}</span>
           </div>
         </div>
 
-        <!-- Cash-specific fields: accounting enters amount and date -->
-        <div *ngIf="isCash(selectedPayment)" class="cash-entry-box">
-          <div class="cash-entry-title">💵 Enter Payment Details Received at Cashier</div>
-          <div class="form-grid two-col">
+        <!-- FULL PAYMENT summary -->
+        <div *ngIf="selectedPayment.paymentPlan !== 'installment'" class="am-full-box">
+          <div class="am-full-label">Total Assessment</div>
+          <div class="am-full-amount">₱{{ formatAmount(selectedPayment.totalAssessment) }}</div>
+        </div>
+
+        <!-- GCash details -->
+        <div *ngIf="isGCash(selectedPayment)" class="am-gcash-box">
+          <div class="am-gcash-row"><span>📞 GCash Ref</span><strong class="mono">{{ selectedPayment.gcashReference }}</strong></div>
+          <div class="am-gcash-row"><span>💰 Amount</span><strong>₱{{ formatAmount(selectedPayment.gcashAmount) }}</strong></div>
+          <div class="am-gcash-row"><span>📅 Date</span><strong>{{ formatDate(selectedPayment.gcashDate) }}</strong></div>
+        </div>
+
+        <!-- Cash entry -->
+        <div *ngIf="isCash(selectedPayment)" class="am-cash-box">
+          <div class="am-cash-title">💵 Enter Amount Received at Cashier</div>
+          <div *ngIf="selectedPayment.paymentPlan === 'installment'" class="am-cash-due">
+            Due for <strong>{{ selectedPayment.examPeriod || 'Downpayment' }}</strong>:
+            <strong class="am-cash-due-amt">₱{{ formatAmount(
+              selectedPayment.examPeriod === 'Prelim'  ? (selectedPayment.scheduleAmounts?.prelim   ?? 0) :
+              selectedPayment.examPeriod === 'Midterm' ? (selectedPayment.scheduleAmounts?.midterm  ?? 0) :
+              selectedPayment.examPeriod === 'Finals'  ? (selectedPayment.scheduleAmounts?.finals   ?? 0) :
+              (selectedPayment.scheduleAmounts?.downpayment ?? 0)
+            ) }}</strong>
+          </div>
+          <div class="am-cash-fields">
             <div class="form-group">
-              <label>Amount Received (₱) <span style="color:red">*</span></label>
-              <input type="number" class="form-control" [(ngModel)]="cashAmount" min="1" placeholder="e.g. 25000">
+              <label>Amount Received (₱) <span style="color:#ef4444">*</span></label>
+              <input type="number" class="form-control" [(ngModel)]="cashAmount" min="1"
+                [style.border-color]="cashAmountError ? '#ef4444' : ''"
+                (ngModelChange)="cashAmountError = ''">
+              <div *ngIf="cashAmountError" class="am-err">⚠️ {{ cashAmountError }}</div>
             </div>
             <div class="form-group">
-              <label>Payment Date <span style="color:red">*</span></label>
+              <label>Payment Date <span style="color:#ef4444">*</span></label>
               <input type="date" class="form-control" [(ngModel)]="cashDate">
             </div>
           </div>
         </div>
 
-        <div class="form-group">
-          <label>Notes (optional):</label>
-          <input type="text" class="form-control" [(ngModel)]="modalNotes" placeholder="Any notes for this approval...">
+        <!-- Scholar notice -->
+        <div *ngIf="selectedPayment.isScholar" class="am-scholar-box">
+          🎓 <strong>{{ selectedPayment.scholarType }}</strong> scholarship — Discount ₱{{ formatAmount(selectedPayment.scholarshipAmount || 0) }}
         </div>
+
+        <!-- Notes -->
+        <div class="form-group" style="margin-top:14px;">
+          <label>Notes (optional)</label>
+          <input type="text" class="form-control" [(ngModel)]="modalNotes" placeholder="Any remarks for this transaction...">
+        </div>
+
       </div>
-      <div class="modal-footer">
-        <button class="btn-cancel" (click)="closeModal()">Cancel</button>
-        <button class="btn-confirm-approve" (click)="confirmAction()"
-          [disabled]="isProcessing || (isCash(selectedPayment) && (!cashAmount || cashAmount <= 0))">
-          {{ isProcessing ? '⏳ Processing...' : (isCash(selectedPayment) ? '✓ Confirm Cash Received' : '✓ Approve Payment') }}
+
+      <div class="am-footer">
+        <button class="am-btn-cancel" (click)="closeModal()">Cancel</button>
+        <button class="am-btn-confirm" (click)="confirmAction()"
+          [disabled]="isProcessing || (isCash(selectedPayment) && (!cashAmount || cashAmount <= 0)) || !!cashAmountError">
+          <span *ngIf="!isProcessing">✓ {{ isCash(selectedPayment) ? 'Confirm Cash Received' : 'Approve Payment' }}</span>
+          <span *ngIf="isProcessing">⏳ Processing...</span>
         </button>
       </div>
     </div>
-
     <!-- Reject Modal -->
     <div *ngIf="modalMode === 'reject'">
       <div class="modal-header reject-header">
@@ -402,7 +480,42 @@
       </div>
     </div>
 
-    <!-- Edit Modal -->
+    <!-- Correct Verified Payment Modal -->
+    <div *ngIf="modalMode === 'editHistory'">
+      <div class="modal-header edit-header">
+        <h2>✏️ Correct Verified Payment</h2>
+        <button class="modal-close" (click)="closeModal()">✕</button>
+      </div>
+      <div class="modal-body" *ngIf="selectedPayment">
+        <p class="edit-note" style="background:#fef3c7;border:1px solid #f59e0b;padding:8px 12px;border-radius:6px;font-size:0.85rem;">
+          ⚠️ Use only to correct data entry errors. This will update the payment record and receipt.
+        </p>
+        <div class="sum-row" style="margin:10px 0;"><label>Student:</label><p><strong>{{ selectedPayment.firstName }} {{ selectedPayment.lastName }}</strong></p></div>
+        <div class="sum-row" style="margin-bottom:6px;"><label>Program:</label><p>{{ selectedPayment.program }}</p></div>
+        <div class="sum-row" *ngIf="selectedPayment.department" style="margin-bottom:6px;"><label>Department:</label><p>{{ selectedPayment.department }}</p></div>
+        <div class="sum-row" style="margin-bottom:10px;"><label>Total Assessment:</label><p class="amount" style="font-weight:700;color:#1e40af;">₱{{ formatAmount(selectedPayment.totalAssessment) }}</p></div>
+        <div *ngIf="isCash(selectedPayment)">
+          <div class="form-group">
+            <label>Corrected Amount Received (₱) <span style="color:red">*</span></label>
+            <input type="number" class="form-control" [(ngModel)]="editForm.cashAmount" min="1" [placeholder]="'e.g. ' + selectedPayment.totalAssessment">
+            <small style="color:#6b7280;">Current recorded: ₱{{ formatAmount(selectedPayment.gcashAmount || 0) }}</small>
+          </div>
+          <div class="form-group"><label>Payment Date</label><input type="date" class="form-control" [(ngModel)]="editForm.cashDate"></div>
+        </div>
+        <div *ngIf="isGCash(selectedPayment)">
+          <div class="form-group"><label>GCash Reference</label><input type="text" class="form-control" [(ngModel)]="editForm.gcashReference"></div>
+          <div class="form-group"><label>Amount (₱)</label><input type="number" class="form-control" [(ngModel)]="editForm.gcashAmount"></div>
+          <div class="form-group"><label>Payment Date</label><input type="date" class="form-control" [(ngModel)]="editForm.gcashDate"></div>
+        </div>
+        <div class="form-group"><label>Notes (reason for correction)</label><input type="text" class="form-control" [(ngModel)]="editForm.notes" placeholder="e.g. Wrong amount entered..."></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-cancel" (click)="closeModal()">Cancel</button>
+        <button class="btn-confirm-edit" (click)="confirmAction()" [disabled]="isProcessing">{{ isProcessing ? '⏳ Saving...' : '💾 Save Correction' }}</button>
+      </div>
+    </div>
+
+    <!-- Edit Pending Payment Modal -->
     <div *ngIf="modalMode === 'edit'">
       <div class="modal-header edit-header">
         <h2>✏️ Edit Payment Details</h2>
@@ -454,7 +567,7 @@
           <div class="inst-avatar">{{ getInitials(p) }}</div>
           <div>
             <strong>{{ p.lastName }}, {{ p.firstName }}</strong>
-            <div style="color:#6b7280;font-size:0.85rem;">{{ p.studentNumber }} · {{ p.program }} {{ p.yearLevel }}</div>
+            <div style="color:#6b7280;font-size:0.85rem;">{{ p.studentNumber }} · {{ p.program }} {{ (p.studentCategory === 'SHS' && p.yearLevel === '1st Year') ? 'Grade 11' : (p.studentCategory === 'SHS' && p.yearLevel === '2nd Year') ? 'Grade 12' : p.yearLevel }}</div>
             <span class="inst-method-badge" [class.inst-badge-cash]="isCash(p)" [class.inst-badge-gcash]="isGCash(p)">
               {{ isCash(p) ? '💵 Cash' : '📱 GCash' }}
             </span>
@@ -490,7 +603,7 @@
           <div class="inst-avatar" style="background:#1d4ed8;">{{ getInitials(p) }}</div>
           <div>
             <strong>{{ p.lastName }}, {{ p.firstName }}</strong>
-            <div style="color:#6b7280;font-size:0.85rem;">{{ p.studentNumber }} · {{ p.program }} {{ p.yearLevel }}</div>
+            <div style="color:#6b7280;font-size:0.85rem;">{{ p.studentNumber }} · {{ p.program }} {{ (p.studentCategory === 'SHS' && p.yearLevel === '1st Year') ? 'Grade 11' : (p.studentCategory === 'SHS' && p.yearLevel === '2nd Year') ? 'Grade 12' : p.yearLevel }}</div>
             <span class="inst-method-badge" [class.inst-badge-cash]="isCash(p)" [class.inst-badge-gcash]="isGCash(p)">
               {{ isCash(p) ? '💵 Cash' : '📱 GCash' }}
             </span>
@@ -701,4 +814,4 @@
 .inst-method-badge { font-size:0.72rem; padding:2px 7px; border-radius:4px; display:inline-block; margin-top:3px; }
 .inst-badge-cash { background:#fef3c7; color:#92400e; }
 .inst-badge-gcash { background:#eff6ff; color:#1d4ed8; }
-</style>s
+</style>
