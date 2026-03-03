@@ -3,7 +3,21 @@
 error_reporting(0);
 ini_set('display_errors', 0);
 
-header("Access-Control-Allow-Origin: *");
+// FIX A-02: Restrict CORS to trusted origins only
+$allowedOrigin = $_SERVER['HTTP_ORIGIN'] ?? '';
+$trustedOrigins = [
+    'http://localhost:4200',
+    'http://localhost',
+    'http://127.0.0.1:4200',
+    'http://127.0.0.1',
+];
+if (in_array($allowedOrigin, $trustedOrigins, true)) {
+    header("Access-Control-Allow-Origin: $allowedOrigin");
+    header('Access-Control-Allow-Credentials: true');
+} else {
+    header('Access-Control-Allow-Origin: http://localhost:4200');
+}
+
 header("Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS");
 header("Access-Control-Allow-Headers: Content-Type, Authorization");
 header("Content-Type: application/json");
@@ -23,16 +37,21 @@ if ($conn->connect_error) {
 }
 $conn->set_charset("utf8mb4");
 
-ob_start();
+require_once __DIR__ . '/auth_middleware.php';
+// Actions that happen BEFORE login (enrollment wizard) — no token exists yet
+$publicActions = [
+    'register_student', 'register_student_shs', 'register_student_tvet', 'register_transferee',
+];
+$authUser = in_array($action, $publicActions) ? null : requireAuth($conn);
+
 
 error_reporting(0);
 ini_set('display_errors', 0);
 mysqli_report(MYSQLI_REPORT_OFF);
 
-// Ensure payment_method column exists
-$conn->query("ALTER TABLE students ADD COLUMN IF NOT EXISTS payment_method VARCHAR(20) NOT NULL DEFAULT 'GCash' AFTER approval_status");
+// Schema managed by migrate.php — no ALTER TABLE at request time
 
-$action = $_GET['action'] ?? '';
+// (action already defined above)
 
 switch ($method) {
     case 'GET':
@@ -40,6 +59,11 @@ switch ($method) {
             case 'get_profile':             getProfile($conn);                  break;
             case 'get_schedule':            getSchedule($conn);                 break;
             case 'get_courses':             getAvailableCourses($conn);         break;
+            case 'search_students':          searchStudents($conn);               break;
+            case 'get_student_enrollments':  getStudentEnrollments($conn);        break;
+            case 'get_add_drop_requests':    getAddDropRequests($conn);           break;
+            case 'get_my_add_drop':          getMyAddDrop($conn);                 break;
+            case 'get_add_drop_window':      getAddDropWindow($conn);             break;
             case 'get_enrollments':         getEnrollments($conn);              break;
             case 'get_payment_status':      getPaymentStatus($conn);            break;
             case 'get_enrollment_summary':  getEnrollmentSummary($conn);        break;
@@ -57,9 +81,16 @@ switch ($method) {
         switch ($action) {
             // ── Registration ──────────────────────────────────────────
             case 'register_student':        registerStudent($conn, $data);          break;
+            case 'register_student_shs':    registerStudentSHS($conn, $data);       break;
+            case 'register_student_tvet':   registerStudentTVET($conn, $data);      break;
             case 'register_transferee':     registerTransferee($conn, $data);       break;
             // ── Enrollment ────────────────────────────────────────────
             case 'enroll_course':           enrollCourse($conn, $data);             break;
+            case 'registrar_add_subject':   registrarAddSubject($conn, $data);      break;
+            case 'registrar_drop_subject':  registrarDropSubject($conn, $data);     break;
+            case 'submit_add_drop':          submitAddDropRequest($conn, $data);     break;
+            case 'process_add_drop':         processAddDropRequest($conn, $data);    break;
+            case 'set_add_drop_window':      setAddDropWindow($conn, $data);         break;
             case 'auto_enroll_new':         autoEnrollNew($conn, $data);            break;  // NEW/regular students
             case 'auto_enroll_transferee':  autoEnrollTransfereeAction($conn, $data); break; // Transferee students
             case 'auto_enroll_all':         autoEnrollAll($conn, $data);            break;  // legacy router (kept for compatibility)
@@ -83,18 +114,7 @@ switch ($method) {
         echo json_encode(['success' => false, 'message' => 'Method not allowed']);
 }
 
-$buffered = ob_get_clean();
-$lastBrace = strrpos($buffered, '}');
-if ($lastBrace !== false) {
-    $depth = 0; $start = 0;
-    for ($i = $lastBrace; $i >= 0; $i--) {
-        if ($buffered[$i] === '}') $depth++;
-        elseif ($buffered[$i] === '{') { $depth--; if ($depth === 0) { $start = $i; break; } }
-    }
-    echo substr($buffered, $start, $lastBrace - $start + 1);
-} else {
-    echo $buffered;
-}
+
 $conn->close();
 
 function getStudentIdFromRequest($conn) {
@@ -436,7 +456,9 @@ function getEnrollments($conn) {
             }
         }
     }
-    $excludeSql = !empty($creditedIds) ? 'AND c.id NOT IN (' . implode(',', $creditedIds) . ')' : '';
+    // FIX E-02: Validate all credited IDs are integers before interpolating
+    $safeIds    = array_filter(array_map('intval', $creditedIds), fn($v) => $v > 0);
+    $excludeSql = !empty($safeIds) ? 'AND c.id NOT IN (' . implode(',', $safeIds) . ')' : '';
 
     $stmt = $conn->prepare("
         SELECT
@@ -574,23 +596,26 @@ function registerTransferee($conn, $data) {
     $exRes = $ex->get_result();
     if ($exRes->num_rows > 0) {
         $existing = $exRes->fetch_assoc();
+        // FIX E-04: Return success:true (idempotent) so enrollment wizard can retry
         echo json_encode([
-            'success'        => false,
-            'message'        => 'Student record already exists.',
+            'success'        => true,
+            'message'        => 'Student record already exists. Continuing enrollment.',
             'student_id'     => (int)$existing['id'],
             'student_number' => $existing['student_number'],
+            'already_existed'=> true,
         ]);
         return;
     }
 
-    // Generate student number
-    $year    = date('Y');
-    $prefix  = "STU-$year-";
+    // FIX E-05: Atomic student number — use transaction + FOR UPDATE
+    $year   = date('Y');
+    $prefix = "STU-$year-";
+    $conn->begin_transaction();
+    $like    = $prefix . '%';
     $maxStmt = $conn->prepare(
         "SELECT MAX(CAST(SUBSTRING_INDEX(student_number, '-', -1) AS UNSIGNED)) AS maxNum
-          FROM students WHERE student_number LIKE ?"
+          FROM students WHERE student_number LIKE ? FOR UPDATE"
     );
-    $like = $prefix . '%';
     $maxStmt->bind_param("s", $like);
     $maxStmt->execute();
     $maxNum        = (int)($maxStmt->get_result()->fetch_assoc()['maxNum'] ?? 0);
@@ -598,45 +623,7 @@ function registerTransferee($conn, $data) {
 
     $dobBind = (!empty($dateOfBirth)) ? $dateOfBirth : '';
 
-    // Ensure all extended columns exist
-    $conn->query("ALTER TABLE students MODIFY COLUMN student_type ENUM('New','Old','Continuing','Returning','Transferee') DEFAULT 'New'");
-    $extraCols = [
-        "middle_name VARCHAR(100) DEFAULT ''",
-        "suffix VARCHAR(20) DEFAULT ''",
-        "lrn_no VARCHAR(50) DEFAULT ''",
-        "sex ENUM('Male','Female','') DEFAULT ''",
-        "religion VARCHAR(100) DEFAULT ''",
-        "age VARCHAR(10) DEFAULT ''",
-        "place_of_birth VARCHAR(255) DEFAULT ''",
-        "citizenship VARCHAR(100) DEFAULT ''",
-        "mother_tongue VARCHAR(100) DEFAULT ''",
-        "is_indigenous TINYINT(1) DEFAULT 0",
-        "psa_birth_cert_no VARCHAR(100) DEFAULT ''",
-        "has_special_needs TINYINT(1) DEFAULT 0",
-        "special_needs_details VARCHAR(255) DEFAULT ''",
-        "has_assistive_tech TINYINT(1) DEFAULT 0",
-        "assistive_tech_details VARCHAR(255) DEFAULT ''",
-        "last_school_attended VARCHAR(255) DEFAULT ''",
-        "guardian_name VARCHAR(255) DEFAULT ''",
-        "guardian_address VARCHAR(255) DEFAULT ''",
-        "guardian_contact VARCHAR(50) DEFAULT ''",
-        "student_category VARCHAR(50) DEFAULT ''",
-        "is_scholar TINYINT(1) DEFAULT 0",
-        "scholar_type VARCHAR(100) DEFAULT ''",
-        "scholar_grantor VARCHAR(255) DEFAULT ''",
-        "scholarship_amount DECIMAL(10,2) DEFAULT 0",
-        "payment_method VARCHAR(20) NOT NULL DEFAULT 'GCash'",
-        "payment_plan ENUM('full','installment') NOT NULL DEFAULT 'full'",
-        "semester VARCHAR(100) DEFAULT ''",
-        "tor_eval_status ENUM('NotRequired','Pending','Evaluated','Rejected') DEFAULT 'Pending'",
-    ];
-    foreach ($extraCols as $col) {
-        $colName = explode(' ', $col)[0];
-        $conn->query("ALTER TABLE students ADD COLUMN IF NOT EXISTS $col");
-    }
-
-    // Ensure tor_evaluations table exists (should already exist from registrar.php)
-    // Skip table creation to avoid potential conflicts
+    // Schema managed by migrate.php
 
     // INSERT student record
     $ins = $conn->prepare("
@@ -703,6 +690,7 @@ function registerTransferee($conn, $data) {
     }
 
     if ($ins->affected_rows > 0) {
+        $conn->commit(); // FIX E-05: commit the student number transaction
         $newStudentId = $ins->insert_id;
         
         // Create pending TOR evaluation record for transferee
@@ -736,8 +724,50 @@ function registerTransferee($conn, $data) {
             'instructions'    => 'As a transferee, you need to submit your TOR for evaluation by the Registrar before proceeding to payment and enrollment.'
         ]);
     } else {
+        $conn->rollback(); // FIX E-05
         echo json_encode(['success' => false, 'message' => 'Insert failed: ' . $conn->error]);
     }
+}
+
+// ─────────────────────────────────────────────────────────────
+// REGISTER STUDENT — SHS (Grade 11 / 12)
+// Wrapper: forces studentCategory='SHS', maps gradeLevel to yearLevel
+// ─────────────────────────────────────────────────────────────
+function registerStudentSHS($conn, $data) {
+    // Force category
+    $data['studentCategory'] = 'SHS';
+
+    // Map gradeLevel to yearLevel (Grade 11 → Year 1, Grade 12 → Year 2)
+    if (!empty($data['gradeLevel'])) {
+        $gl = trim($data['gradeLevel']);
+        if (stripos($gl, '11') !== false) {
+            $data['yearLevel'] = 'Grade 11';
+        } elseif (stripos($gl, '12') !== false) {
+            $data['yearLevel'] = 'Grade 12';
+        } else {
+            $data['yearLevel'] = $gl;
+        }
+    } elseif (empty($data['yearLevel'])) {
+        $data['yearLevel'] = 'Grade 11';
+    }
+
+    registerStudent($conn, $data);
+}
+
+// ─────────────────────────────────────────────────────────────
+// REGISTER STUDENT — TVET
+// Wrapper: forces studentCategory='TVET', stores tvetType
+// ─────────────────────────────────────────────────────────────
+function registerStudentTVET($conn, $data) {
+    // Force category
+    $data['studentCategory'] = 'TVET';
+
+    // Store tvetType in the data (registerStudent already handles tvet_type via extraCols)
+    if (!empty($data['tvetType']) && empty($data['tvet_type'])) {
+        $data['tvet_type'] = $data['tvetType'];
+    }
+
+    registerStudent($conn, $data);
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -827,11 +857,13 @@ function registerStudent($conn, $data) {
     $exRes = $ex->get_result();
     if ($exRes->num_rows > 0) {
         $existing = $exRes->fetch_assoc();
+        // FIX E-04: Return success:true (idempotent) so enrollment wizard can retry
         echo json_encode([
-            'success'        => false,
-            'message'        => 'Student record already exists.',
+            'success'        => true,
+            'message'        => 'Student record already exists. Continuing enrollment.',
             'student_id'     => (int)$existing['id'],
             'student_number' => $existing['student_number'],
+            'already_existed'=> true,
         ]);
         return;
     }
@@ -851,43 +883,7 @@ function registerStudent($conn, $data) {
 
     $dobBind = (!empty($dateOfBirth)) ? $dateOfBirth : '';
 
-    // Ensure all extended columns exist
-    $conn->query("ALTER TABLE students MODIFY COLUMN student_type ENUM('New','Old','Continuing','Returning','Transferee') DEFAULT 'New'");
-    $extraCols = [
-        "middle_name VARCHAR(100) DEFAULT ''",
-        "suffix VARCHAR(20) DEFAULT ''",
-        "lrn_no VARCHAR(50) DEFAULT ''",
-        "sex ENUM('Male','Female','') DEFAULT ''",
-        "religion VARCHAR(100) DEFAULT ''",
-        "age VARCHAR(10) DEFAULT ''",
-        "place_of_birth VARCHAR(255) DEFAULT ''",
-        "citizenship VARCHAR(100) DEFAULT ''",
-        "mother_tongue VARCHAR(100) DEFAULT ''",
-        "is_indigenous TINYINT(1) DEFAULT 0",
-        "psa_birth_cert_no VARCHAR(100) DEFAULT ''",
-        "has_special_needs TINYINT(1) DEFAULT 0",
-        "special_needs_details VARCHAR(255) DEFAULT ''",
-        "has_assistive_tech TINYINT(1) DEFAULT 0",
-        "assistive_tech_details VARCHAR(255) DEFAULT ''",
-        "strand VARCHAR(100) DEFAULT ''",
-        "learning_delivery VARCHAR(100) DEFAULT ''",
-        "last_school_attended VARCHAR(255) DEFAULT ''",
-        "guardian_name VARCHAR(255) DEFAULT ''",
-        "guardian_address VARCHAR(255) DEFAULT ''",
-        "guardian_contact VARCHAR(50) DEFAULT ''",
-        "student_category VARCHAR(50) DEFAULT ''",
-        "is_scholar TINYINT(1) DEFAULT 0",
-        "scholar_type VARCHAR(100) DEFAULT ''",
-        "scholar_grantor VARCHAR(255) DEFAULT ''",
-        "scholarship_amount DECIMAL(10,2) DEFAULT 0",
-        "payment_method VARCHAR(20) NOT NULL DEFAULT 'GCash'",
-        "payment_plan ENUM('full','installment') NOT NULL DEFAULT 'full'",
-        "semester VARCHAR(100) DEFAULT ''",
-    ];
-    foreach ($extraCols as $col) {
-        $colName = explode(' ', $col)[0];
-        $conn->query("ALTER TABLE students ADD COLUMN IF NOT EXISTS $col");
-    }
+    // Schema managed by migrate.php
 
     // INSERT using actual DB column names
     $ins = $conn->prepare("
@@ -953,6 +949,7 @@ function registerStudent($conn, $data) {
     }
 
     if ($ins->affected_rows > 0) {
+        $conn->commit(); // FIX E-05: commit the student number transaction
         $newStudentId = $ins->insert_id;
         if ($paymentMethod === 'Cash') {
             $semester = '1st Semester, AY ' . date('Y') . '-' . (date('Y') + 1);
@@ -971,6 +968,7 @@ function registerStudent($conn, $data) {
             'payment_method' => $paymentMethod,
         ]);
     } else {
+        $conn->rollback(); // FIX E-05
         echo json_encode(['success' => false, 'message' => 'Insert failed: ' . $conn->error]);
     }
 }
@@ -1195,15 +1193,31 @@ function getEnrollmentSummary($conn) {
     }
 
     // 4. Real fees from tuition_fees table (set by Accounting)
-    $tfRes = $conn->query("SELECT * FROM tuition_fees WHERE student_id = $student_id LIMIT 1");
-    $tf    = $tfRes ? $tfRes->fetch_assoc() : null;
+    $tfStmt = $conn->prepare("SELECT * FROM tuition_fees WHERE student_id = ? LIMIT 1");
+    $tfStmt->bind_param("i", $student_id);
+    $tfStmt->execute();
+    $tf = $tfStmt->get_result()->fetch_assoc();
 
-    // 5. Real amount paid from installment_payments
-    $paidRes   = $conn->query("SELECT COALESCE(SUM(amount),0) AS total_paid FROM installment_payments WHERE student_id = $student_id");
-    $totalPaid = (float)(($paidRes ? $paidRes->fetch_assoc()['total_paid'] : 0) ?? 0);
-    // Add verified payment_logs not yet posted to installment_payments
-    $plRes     = $conn->query("SELECT COALESCE(SUM(pl.gcash_amount),0) AS pl_paid FROM payment_logs pl WHERE pl.student_id = $student_id AND pl.status = 'Verified' AND pl.id NOT IN (SELECT COALESCE(payment_log_id,0) FROM installment_payments WHERE student_id = $student_id AND payment_log_id IS NOT NULL)");
-    $totalPaid += (float)(($plRes ? $plRes->fetch_assoc()['pl_paid'] : 0) ?? 0);
+    // 5. Real amount paid from installment_payments (FIX E-06: use prepared statements)
+    $paidStmt = $conn->prepare("SELECT COALESCE(SUM(amount),0) AS total_paid FROM installment_payments WHERE student_id = ?");
+    $paidStmt->bind_param("i", $student_id);
+    $paidStmt->execute();
+    $totalPaid = (float)($paidStmt->get_result()->fetch_assoc()['total_paid'] ?? 0);
+    // FIX E-07: Add verified GCash payments not yet in installment_payments
+    // Use NOT EXISTS instead of NOT IN with COALESCE to avoid null-matching bug
+    $plStmt = $conn->prepare("
+        SELECT COALESCE(SUM(pl.gcash_amount),0) AS pl_paid
+        FROM payment_logs pl
+        WHERE pl.student_id = ?
+          AND pl.status = 'Verified'
+          AND NOT EXISTS (
+              SELECT 1 FROM installment_payments ip
+              WHERE ip.payment_log_id = pl.id AND ip.student_id = ?
+          )
+    ");
+    $plStmt->bind_param("ii", $student_id, $student_id);
+    $plStmt->execute();
+    $totalPaid += (float)($plStmt->get_result()->fetch_assoc()['pl_paid'] ?? 0);
 
     if ($tf) {
         $totalAssessment = (float)$tf['total_assessment'];
@@ -1526,7 +1540,22 @@ function collectProgramCourses($conn, $programName, $semesterTerm, $yearLevel, $
     // in 2nd, 3rd, or 4th year subjects.
     $ylClause = ($yl_esc !== '') ? "AND c.year_level = '$yl_esc'" : '';
 
-    // Source 1: program_courses junction table
+    // ── Resolve program code from programs table ──────────────
+    // students.program stores the FULL NAME (e.g. "Bachelor of Science in Information Technology")
+    // but courses.program stores the SHORT CODE (e.g. "BSIT").
+    // We resolve both so we can match either way.
+    $programCode = $programName; // fallback: use as-is
+    $pRow = $conn->query("
+        SELECT code FROM programs
+        WHERE name = '$pn_esc' OR code = '$pn_esc'
+        LIMIT 1
+    ");
+    if ($pRow && $pRow->num_rows > 0) {
+        $programCode = $pRow->fetch_assoc()['code'];
+    }
+    $pc_esc = $conn->real_escape_string($programCode);
+
+    // Source 1: program_courses junction table (most reliable)
     $hasPCTable = $conn->query("SHOW TABLES LIKE 'program_courses'")->num_rows > 0;
     $hasPTable  = $conn->query("SHOW TABLES LIKE 'programs'")->num_rows > 0;
 
@@ -1536,7 +1565,7 @@ function collectProgramCourses($conn, $programName, $semesterTerm, $yearLevel, $
             FROM program_courses pc
             JOIN programs p ON pc.program_id = p.id
             JOIN courses  c ON pc.course_id  = c.id
-            WHERE (p.name = '$pn_esc' OR p.code = '$pn_esc')
+            WHERE (p.name = '$pn_esc' OR p.code = '$pn_esc' OR p.code = '$pc_esc')
               AND c.id NOT IN ($alreadyEnrolledSub)
               $ylClause
               $semClause
@@ -1550,11 +1579,14 @@ function collectProgramCourses($conn, $programName, $semesterTerm, $yearLevel, $
         }
     }
 
-    // Source 2: courses.program direct column (catches courses not in program_courses)
+    // Source 2: courses.program direct column — match by RESOLVED CODE first,
+    // then fall back to full name. This handles both storage conventions.
+    // We search by code (primary) so that AEC courses wrongly tagged with the
+    // full BSIT name do NOT contaminate a CIMT/BSIT student's enrollment.
     $res = $conn->query("
         SELECT id, name, semester, year_level
         FROM courses
-        WHERE program = '$pn_esc'
+        WHERE program = '$pc_esc'
           AND id NOT IN ($alreadyEnrolledSub)
           $ylClause
           $semClause
@@ -1564,6 +1596,25 @@ function collectProgramCourses($conn, $programName, $semesterTerm, $yearLevel, $
     if ($res) {
         foreach ($res->fetch_all(MYSQLI_ASSOC) as $c) {
             $allCourses[$c['id']] = $c;
+        }
+    }
+
+    // Source 3: if still empty, try by full name (legacy data compatibility)
+    if (empty($allCourses) && $pc_esc !== $pn_esc) {
+        $res = $conn->query("
+            SELECT id, name, semester, year_level
+            FROM courses
+            WHERE program = '$pn_esc'
+              AND id NOT IN ($alreadyEnrolledSub)
+              $ylClause
+              $semClause
+              $excludeClause
+            LIMIT 40
+        ");
+        if ($res) {
+            foreach ($res->fetch_all(MYSQLI_ASSOC) as $c) {
+                $allCourses[$c['id']] = $c;
+            }
         }
     }
 
@@ -1786,26 +1837,34 @@ function _buildFees($conn, $student_id, $programName, $semester, $yearLevel, $un
     $pn_esc = $conn->real_escape_string($programName);
     $yl_esc = $conn->real_escape_string($yearLevel);
 
-    // Lab count: lab courses for this program, semester term, AND year level only.
-    // Filtering by year_level prevents lab fees from other year levels inflating the SOA.
-    $labSemFilter = '';
-    if ($semester !== '') {
-        preg_match('/^(1st Semester|2nd Semester|Summer)/i', $semester, $lsm);
-        $labSemTerm   = $conn->real_escape_string($lsm[1] ?? $semester);
-        $labSemFilter = "AND c.semester LIKE '$labSemTerm%'";
-    }
-    $labYlFilter = ($yl_esc !== '') ? "AND c.year_level = '$yl_esc'" : '';
-    $lab_res = $conn->query("
-        SELECT COUNT(DISTINCT c.id) AS cnt FROM courses c
-        WHERE c.room LIKE '%Lab%'
-          $labSemFilter
-          $labYlFilter
-          AND (c.program = '$pn_esc'
-            OR c.id IN (SELECT pc.course_id FROM program_courses pc
-                        JOIN programs p ON pc.program_id=p.id
-                        WHERE p.name='$pn_esc' OR p.code='$pn_esc'))
+    // ── If student has approved add/drop requests, use ACTUAL enrolled units ──
+    // This overrides the program-curriculum unit count so dropped subjects
+    // reduce the SOA and added subjects increase it.
+    $adRes = $conn->query("
+        SELECT COUNT(*) AS cnt FROM add_drop_requests
+        WHERE student_id = $student_id AND status = 'Approved'
+        LIMIT 1
     ");
-    $lab_cnt = (int)(($lab_res ? $lab_res->fetch_assoc()['cnt'] : 0) ?? 0);
+    $hasAddDrop = $adRes && (int)$adRes->fetch_assoc()['cnt'] > 0;
+
+    if ($hasAddDrop) {
+        $actualUnitsRes = $conn->query("
+            SELECT COALESCE(SUM(c.credits), 0) AS total_units
+            FROM enrollments e
+            JOIN courses c ON e.course_id = c.id
+            WHERE e.student_id = $student_id AND e.status IN ('Enrolled','Pending')
+        ");
+        $actualUnits = (int)(($actualUnitsRes ? $actualUnitsRes->fetch_assoc()['total_units'] : 0) ?: 0);
+        if ($actualUnits > 0) {
+            $units = $actualUnits;
+        }
+    }
+
+    // Lab fee: based on total number of Laboratory rooms in the rooms table
+    // (not per-student enrollment — all students pay the same lab count × ₱1,900)
+    $conn->query("ALTER TABLE courses ADD COLUMN IF NOT EXISTS is_lab TINYINT(1) DEFAULT 0");
+    $labRoomRes = $conn->query("SELECT COUNT(*) AS cnt FROM rooms WHERE room_type = 'Laboratory'");
+    $lab_cnt    = (int)(($labRoomRes ? $labRoomRes->fetch_assoc()['cnt'] : 0) ?? 0);
 
     $tuition_fee = $units * 650;
     $misc_fee    = 6688.00;
@@ -1912,8 +1971,21 @@ function getStudentContext($conn) {
     // ── 4. Compute fees — route by student type ────────────────
     $discount = (float)($s['scholarship_amount'] ?? 0);
 
+    $studentCategory = strtoupper(trim($s['student_category'] ?? ''));
+    $isSHSTVET = ($studentCategory === 'SHS' || $studentCategory === 'TVET');
+
     if ($studentType === 'Transferee') {
         $fees = computeFeesTransferee($conn, $student_id, $programName, $semester, $yearLevel, $paymentPlan, $discount);
+    } elseif ($isSHSTVET) {
+        // SHS/TVET New & Old — FREE (K-12 Voucher / TESDA PRISAA)
+        // Return zero fees and clear any stale tuition_fees record
+        $conn->query("DELETE FROM tuition_fees WHERE student_id = $student_id");
+        $fees = [
+            'units' => 0, 'tuitionFee' => 0, 'miscellaneousFee' => 0,
+            'registrationFee' => 0, 'laboratoryFee' => 0, 'energyFee' => 0,
+            'subtotal' => 0, 'discount' => 0, 'installmentFee' => 0,
+            'totalAssessment' => 0,
+        ];
     } else {
         $fees = computeFeesNew($conn, $student_id, $programName, $semester, $yearLevel, $paymentPlan, $discount);
     }
@@ -1952,7 +2024,10 @@ function getStudentContext($conn) {
         while ($r = $pl_res->fetch_assoc()) {
             $amt    = (float)$r['gcash_amount'];
             if ($amt <= 0) $amt = $total;
-            $plChk  = $conn->query("SELECT id FROM installment_payments WHERE payment_log_id = {$r['id']} LIMIT 1");
+            $plChkS = $conn->prepare("SELECT id FROM installment_payments WHERE payment_log_id = ? LIMIT 1");
+                $plChkS->bind_param("i", $r['id']);
+                $plChkS->execute();
+                $plChk  = $plChkS->get_result();
             if ($plChk && $plChk->num_rows === 0) {
                 $period = ($paymentPlan === 'installment') ? 'Downpayment' : 'Full';
                 if (!isset($termBreakdown[$period])) {
@@ -1998,6 +2073,7 @@ function getStudentContext($conn) {
             'program'          => $programName,
             'yearLevel'        => $s['year_level']       ?? '1st Year',
             'studentType'      => $studentType,
+            'studentCategory'  => strtoupper(trim($s['student_category'] ?? '')),
             'semester'         => $semester,
             'gpa'              => (float)($s['gpa']      ?? 0),
             'enrollmentStatus' => $enrollStatus,
@@ -2038,4 +2114,570 @@ function getStudentContext($conn) {
         'balance'       => $balance,
         'isFullyPaid'   => $is_fully_paid,
     ]);
+}
+
+// ----------------------------------------------------------------
+// SEARCH STUDENTS (Registrar: Add/Drop)
+// GET ?action=search_students&q=juan&limit=10
+// ----------------------------------------------------------------
+function searchStudents($conn) {
+    $q     = trim($_GET['q']     ?? '');
+    $limit = min((int)($_GET['limit'] ?? 15), 50);
+    if (strlen($q) < 2) {
+        echo json_encode(['success' => true, 'students' => []]);
+        return;
+    }
+    $like = '%' . $conn->real_escape_string($q) . '%';
+    $res  = $conn->query("
+        SELECT s.id, s.student_number, s.first_name, s.last_name,
+               s.program, s.year_level, s.semester, s.student_category,
+               s.enrollment_status, s.approval_status, u.email
+        FROM students s
+        JOIN users u ON s.user_id = u.id
+        WHERE s.student_number LIKE '$like'
+           OR s.first_name     LIKE '$like'
+           OR s.last_name      LIKE '$like'
+           OR CONCAT(s.first_name,' ',s.last_name) LIKE '$like'
+        ORDER BY s.last_name, s.first_name
+        LIMIT $limit
+    ");
+    $students = [];
+    while ($r = $res->fetch_assoc()) {
+        $students[] = [
+            'id'               => (int)$r['id'],
+            'studentNumber'    => $r['student_number'],
+            'firstName'        => $r['first_name'],
+            'lastName'         => $r['last_name'],
+            'fullName'         => trim($r['first_name'] . ' ' . $r['last_name']),
+            'program'          => $r['program'],
+            'yearLevel'        => $r['year_level'],
+            'semester'         => $r['semester'],
+            'studentCategory'  => $r['student_category'],
+            'enrollmentStatus' => $r['enrollment_status'],
+            'approvalStatus'   => $r['approval_status'],
+            'email'            => $r['email'],
+        ];
+    }
+    echo json_encode(['success' => true, 'students' => $students]);
+}
+
+// ----------------------------------------------------------------
+// GET STUDENT ENROLLMENTS (for Add/Drop view)
+// GET ?action=get_student_enrollments&student_id=X
+// ----------------------------------------------------------------
+function getStudentEnrollments($conn) {
+    $sid = (int)($_GET['student_id'] ?? 0);
+    // Also accept user_id and resolve to students.id
+    if (!$sid) {
+        $uid = (int)($_GET['user_id'] ?? 0);
+        if ($uid) {
+            $rs = $conn->prepare("SELECT id FROM students WHERE user_id = ? LIMIT 1");
+            $rs->bind_param("i", $uid);
+            $rs->execute();
+            $rr = $rs->get_result()->fetch_assoc();
+            $rs->close();
+            $sid = $rr ? (int)$rr['id'] : 0;
+        }
+    }
+    if (!$sid) { echo json_encode(['success' => false, 'message' => 'student_id required']); return; }
+
+    // Current enrollments
+    $res = $conn->query("
+        SELECT e.id AS enrollment_id, e.status, e.enrollment_date,
+               c.id AS course_id, c.code, c.name, c.credits,
+               c.instructor, c.day, c.time, c.room, c.semester
+        FROM enrollments e
+        JOIN courses c ON e.course_id = c.id
+        WHERE e.student_id = $sid AND e.status IN ('Enrolled','Pending')
+        ORDER BY c.code
+    ");
+    $enrolled = [];
+    while ($r = $res->fetch_assoc()) { $enrolled[] = $r; }
+
+    // Available courses (not already enrolled)
+    // Get student program so we can prioritize relevant courses
+    $stuRes = $conn->query("SELECT semester, program FROM students WHERE id=$sid LIMIT 1");
+    $stuRow = $stuRes ? $stuRes->fetch_assoc() : [];
+    $stuProg = $conn->real_escape_string($stuRow['program'] ?? '');
+
+    $avRes = $conn->query("
+        SELECT c.id, c.code, c.name, c.credits, c.instructor,
+               c.day, c.time, c.room, c.semester,
+               COALESCE(c.capacity,50) AS capacity,
+               COUNT(e2.id) AS enrolled_count
+        FROM courses c
+        LEFT JOIN enrollments e2 ON e2.course_id = c.id AND e2.status IN ('Enrolled','Pending')
+        WHERE c.id NOT IN (
+            SELECT course_id FROM enrollments
+            WHERE student_id=$sid AND status IN ('Enrolled','Pending')
+        )
+        GROUP BY c.id
+        ORDER BY c.code
+    ");
+    $available = [];
+    while ($r = $avRes->fetch_assoc()) {
+        $r['available_seats'] = max(0, (int)$r['capacity'] - (int)$r['enrolled_count']);
+        $available[] = $r;
+    }
+
+    echo json_encode(['success' => true, 'student_id' => $sid, 'enrolled' => $enrolled, 'available' => $available]);
+}
+
+// ----------------------------------------------------------------
+// REGISTRAR: ADD SUBJECT to student
+// POST { student_id, course_id, reason }
+// ----------------------------------------------------------------
+function registrarAddSubject($conn, $data) {
+    $sid = (int)($data['student_id'] ?? 0);
+    $cid = (int)($data['course_id']  ?? 0);
+    if (!$sid || !$cid) { echo json_encode(['success' => false, 'message' => 'student_id and course_id required']); return; }
+
+    // Duplicate check
+    $dup = $conn->prepare("SELECT id FROM enrollments WHERE student_id=? AND course_id=? AND status IN ('Enrolled','Pending') LIMIT 1");
+    $dup->bind_param("ii", $sid, $cid);
+    $dup->execute();
+    if ($dup->get_result()->num_rows > 0) {
+        echo json_encode(['success' => false, 'message' => 'Student is already enrolled in this subject']); return;
+    }
+
+    // Capacity check
+    $cap = $conn->query("SELECT COALESCE(capacity,50) AS cap, COUNT(e.id) AS cnt
+        FROM courses c LEFT JOIN enrollments e ON e.course_id=c.id AND e.status IN ('Enrolled','Pending')
+        WHERE c.id=$cid GROUP BY c.id LIMIT 1")->fetch_assoc();
+    if ($cap && (int)$cap['cnt'] >= (int)$cap['cap']) {
+        echo json_encode(['success' => false, 'message' => 'Subject is full']); return;
+    }
+
+    $reason = $conn->real_escape_string(trim($data['reason'] ?? 'Add/Drop by Registrar'));
+    $date   = date('Y-m-d');
+    $conn->query("INSERT INTO enrollments (student_id,course_id,enrollment_date,status,notes)
+                  VALUES ($sid,$cid,'$date','Enrolled','$reason')");
+    if ($conn->affected_rows > 0) {
+        $conn->query("UPDATE courses SET enrolled_count=enrolled_count+1 WHERE id=$cid");
+        // Log it
+        $conn->query("INSERT INTO audit_logs (action,description,performed_by,created_at)
+                      VALUES ('add_subject','Registrar added subject (course $cid) for student $sid: $reason','registrar',NOW())");
+        echo json_encode(['success' => true, 'message' => 'Subject added successfully']);
+    } else {
+        echo json_encode(['success' => false, 'message' => 'Failed to add subject: ' . $conn->error]);
+    }
+}
+
+// ----------------------------------------------------------------
+// REGISTRAR: DROP SUBJECT from student
+// POST { student_id, enrollment_id, reason }
+// ----------------------------------------------------------------
+function registrarDropSubject($conn, $data) {
+    $sid = (int)($data['student_id']    ?? 0);
+    $eid = (int)($data['enrollment_id'] ?? 0);
+    if (!$sid || !$eid) { echo json_encode(['success' => false, 'message' => 'student_id and enrollment_id required']); return; }
+
+    $row = $conn->query("SELECT course_id FROM enrollments WHERE id=$eid AND student_id=$sid AND status IN ('Enrolled','Pending') LIMIT 1")->fetch_assoc();
+    if (!$row) { echo json_encode(['success' => false, 'message' => 'Enrollment not found']); return; }
+    $cid    = (int)$row['course_id'];
+    $reason = $conn->real_escape_string(trim($data['reason'] ?? 'Dropped by Registrar'));
+
+    $conn->query("UPDATE enrollments SET status='Dropped', notes=CONCAT(COALESCE(notes,''),' | Drop reason: $reason') WHERE id=$eid AND student_id=$sid");
+    if ($conn->affected_rows > 0) {
+        $conn->query("UPDATE courses SET enrolled_count=GREATEST(enrolled_count-1,0) WHERE id=$cid");
+        $conn->query("INSERT INTO audit_logs (action,description,performed_by,created_at)
+                      VALUES ('drop_subject','Registrar dropped subject (course $cid) for student $sid: $reason','registrar',NOW())");
+        echo json_encode(['success' => true, 'message' => 'Subject dropped successfully']);
+    } else {
+        echo json_encode(['success' => false, 'message' => 'Drop failed: ' . $conn->error]);
+    }
+}
+
+// ----------------------------------------------------------------
+// AUTO-CREATE add_drop_requests table if missing
+// Called lazily on first use
+// ----------------------------------------------------------------
+function ensureAddDropTable($conn) {
+    $conn->query("CREATE TABLE IF NOT EXISTS add_drop_requests (
+        id            INT AUTO_INCREMENT PRIMARY KEY,
+        student_id    INT NOT NULL,
+        request_type  ENUM('Add','Drop') NOT NULL,
+        course_id     INT NOT NULL,
+        enrollment_id INT DEFAULT NULL,
+        reason        TEXT,
+        status        ENUM('Pending','Approved','Rejected') DEFAULT 'Pending',
+        remarks       TEXT,
+        processed_by  INT DEFAULT NULL,
+        processed_at  DATETIME DEFAULT NULL,
+        created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX (student_id),
+        INDEX (status)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+}
+
+// ----------------------------------------------------------------
+// STUDENT: Submit Add or Drop request
+// POST { student_id, request_type:'Add'|'Drop', course_id, enrollment_id?, reason }
+// ----------------------------------------------------------------
+function submitAddDropRequest($conn, $data) {
+    ensureAddDropTable($conn);
+    ensureAddDropWindowTable($conn);
+    $sid  = (int)($data['student_id']    ?? 0);
+    // Resolve user_id → students.id if needed
+    if (!$sid) {
+        $uid = (int)($data['user_id'] ?? 0);
+        if ($uid) {
+            $rs = $conn->prepare("SELECT id FROM students WHERE user_id = ? LIMIT 1");
+            $rs->bind_param("i", $uid);
+            $rs->execute();
+            $rr = $rs->get_result()->fetch_assoc();
+            $rs->close();
+            $sid = $rr ? (int)$rr['id'] : 0;
+        }
+    }
+    $type = trim($data['request_type']   ?? '');
+    $cid  = (int)($data['course_id']     ?? 0);
+    $eid  = (int)($data['enrollment_id'] ?? 0);
+    $reason = trim($data['reason']       ?? '');
+
+    if (!$sid || !$type || !$cid) {
+        echo json_encode(['success'=>false,'message'=>'student_id, request_type, course_id required']); return;
+    }
+    if (!in_array($type, ['Add','Drop'])) {
+        echo json_encode(['success'=>false,'message'=>'request_type must be Add or Drop']); return;
+    }
+
+    // Check if Add/Drop window is open
+    $winRes = $conn->query("SELECT * FROM add_drop_window WHERE is_active=1 ORDER BY id DESC LIMIT 1");
+    $win = $winRes ? $winRes->fetch_assoc() : null;
+    $now = date('Y-m-d H:i:s');
+    if (!$win || $now < $win['start_date'] || $now > $win['end_date']) {
+        $msg = $win
+            ? 'Add/Drop period is closed. Window: ' . date('M d, Y h:i A', strtotime($win['start_date'])) . ' – ' . date('M d, Y h:i A', strtotime($win['end_date']))
+            : 'Add/Drop is not currently open. Please wait for the Registrar to set the schedule.';
+        echo json_encode(['success'=>false,'message'=>$msg,'window_closed'=>true]); return;
+    }
+
+    // Prevent duplicate pending requests
+    $dup = $conn->query("SELECT id FROM add_drop_requests WHERE student_id=$sid AND course_id=$cid AND request_type='$type' AND status='Pending' LIMIT 1");
+    if ($dup && $dup->num_rows > 0) {
+        echo json_encode(['success'=>false,'message'=>'You already have a pending '.$type.' request for this subject']); return;
+    }
+
+    $eidVal = $eid > 0 ? $eid : null;
+    $stmt = $conn->prepare("INSERT INTO add_drop_requests (student_id,request_type,course_id,enrollment_id,reason) VALUES (?,?,?,?,?)");
+    if (!$stmt) {
+        echo json_encode(['success'=>false,'message'=>'DB prepare error: '.$conn->error]); return;
+    }
+    $stmt->bind_param("issis", $sid, $type, $cid, $eidVal, $reason);
+    $stmt->execute();
+    $insertId = $conn->insert_id;
+    $affected = $stmt->affected_rows;
+    $stmtErr  = $stmt->error;
+    $stmt->close();
+    if ($affected > 0) {
+        echo json_encode(['success'=>true,'message'=>ucfirst(strtolower($type)).' request submitted. Awaiting registrar approval.','id'=>$insertId]);
+    } else {
+        echo json_encode(['success'=>false,'message'=>'Failed to submit request: '.$stmtErr]);
+    }
+}
+
+// ----------------------------------------------------------------
+// STUDENT: Get own add/drop requests
+// GET ?action=get_my_add_drop&student_id=X
+// ----------------------------------------------------------------
+function getMyAddDrop($conn) {
+    ensureAddDropTable($conn);
+    $sid = (int)($_GET['student_id'] ?? 0);
+    // Also accept user_id
+    if (!$sid) {
+        $uid = (int)($_GET['user_id'] ?? 0);
+        if ($uid) {
+            $rs = $conn->prepare("SELECT id FROM students WHERE user_id = ? LIMIT 1");
+            $rs->bind_param("i", $uid);
+            $rs->execute();
+            $rr = $rs->get_result()->fetch_assoc();
+            $rs->close();
+            $sid = $rr ? (int)$rr['id'] : 0;
+        }
+    }
+    if (!$sid) { echo json_encode(['success'=>false,'message'=>'student_id required']); return; }
+
+    $res = $conn->query("
+        SELECT r.*, c.code, c.name AS course_name, c.credits, c.instructor, c.day, c.time, c.room
+        FROM add_drop_requests r
+        JOIN courses c ON r.course_id = c.id
+        WHERE r.student_id = $sid
+        ORDER BY r.created_at DESC
+    ");
+    $rows = [];
+    while ($r = $res->fetch_assoc()) $rows[] = $r;
+    echo json_encode(['success'=>true,'requests'=>$rows]);
+}
+
+// ----------------------------------------------------------------
+// REGISTRAR: Get all pending add/drop requests (or filter by status)
+// GET ?action=get_add_drop_requests&status=Pending
+// ----------------------------------------------------------------
+function getAddDropRequests($conn) {
+    ensureAddDropTable($conn);
+    $status = trim($_GET['status'] ?? '');
+    $where  = $status ? "WHERE r.status='".($conn->real_escape_string($status))."'" : "";
+
+    $res = $conn->query("
+        SELECT r.*,
+               c.code, c.name AS course_name, c.credits, c.instructor, c.day, c.time, c.room,
+               s.first_name, s.last_name, s.student_number, s.program, s.year_level, s.student_category
+        FROM add_drop_requests r
+        JOIN courses  c ON r.course_id  = c.id
+        JOIN students s ON r.student_id = s.id
+        $where
+        ORDER BY r.created_at DESC
+    ");
+    $rows = [];
+    while ($r = $res->fetch_assoc()) $rows[] = $r;
+    echo json_encode(['success'=>true,'requests'=>$rows]);
+}
+
+// ----------------------------------------------------------------
+// REGISTRAR: Approve or Reject an add/drop request
+// POST { request_id, action:'Approved'|'Rejected', remarks, processed_by }
+// ----------------------------------------------------------------
+function processAddDropRequest($conn, $data) {
+    ensureAddDropTable($conn);
+    $rid    = (int)($data['request_id']   ?? 0);
+    $action = trim($data['action']        ?? '');
+    $remarks= trim($data['remarks']       ?? '');
+    $pby    = (int)($data['processed_by'] ?? 0);
+
+    if (!$rid || !in_array($action, ['Approved','Rejected'])) {
+        echo json_encode(['success'=>false,'message'=>'request_id and action (Approved|Rejected) required']); return;
+    }
+
+    $req = $conn->query("SELECT * FROM add_drop_requests WHERE id=$rid AND status='Pending' LIMIT 1")->fetch_assoc();
+    if (!$req) { echo json_encode(['success'=>false,'message'=>'Request not found or already processed']); return; }
+
+    $sid  = (int)$req['student_id'];
+    $cid  = (int)$req['course_id'];
+    $eid  = (int)$req['enrollment_id'];
+    $type = $req['request_type'];
+    $remarksEsc = $conn->real_escape_string($remarks);
+
+    // Update request status
+    $conn->query("UPDATE add_drop_requests SET status='$action',remarks='$remarksEsc',processed_by=$pby,processed_at=NOW() WHERE id=$rid");
+
+    if ($action === 'Approved') {
+        if ($type === 'Add') {
+            // Duplicate check
+            $dup = $conn->query("SELECT id FROM enrollments WHERE student_id=$sid AND course_id=$cid AND status IN ('Enrolled','Pending') LIMIT 1");
+            if ($dup && $dup->num_rows > 0) {
+                echo json_encode(['success'=>true,'message'=>'Request approved (student already enrolled in this subject)']); return;
+            }
+            $date = date('Y-m-d');
+            $conn->query("INSERT INTO enrollments (student_id,course_id,enrollment_date,status,notes) VALUES ($sid,$cid,'$date','Enrolled','Add/Drop Request #$rid approved by Registrar')");
+            $conn->query("UPDATE courses SET enrolled_count=enrolled_count+1 WHERE id=$cid");
+        } else {
+            // Drop
+            $target = $eid > 0 ? "id=$eid" : "student_id=$sid AND course_id=$cid";
+            $conn->query("UPDATE enrollments SET status='Dropped',notes=CONCAT(COALESCE(notes,''),' | Add/Drop Request #$rid approved') WHERE $target AND status IN ('Enrolled','Pending') LIMIT 1");
+            $conn->query("UPDATE courses SET enrolled_count=GREATEST(enrolled_count-1,0) WHERE id=$cid");
+        }
+    }
+
+    $conn->query("INSERT INTO audit_logs (action,description,performed_by,created_at) VALUES ('add_drop_processed','Request #$rid ($type $cid for student $sid) $action by registrar','registrar',NOW())");
+
+    // ── Recalculate SOA (tuition_fees) if Approved ──────────────────────────
+    if ($action === 'Approved') {
+        recalcTuitionAfterAddDrop($conn, $sid);
+    }
+
+    echo json_encode(['success'=>true,'message'=>'Request '.$action.' successfully']);
+}
+// ----------------------------------------------------------------
+// RECALCULATE TUITION FEES after Add/Drop approval
+// Uses actual enrolled credits from enrollments table
+// ----------------------------------------------------------------
+function recalcTuitionAfterAddDrop($conn, $sid) {
+    if (!$sid) return;
+
+    // Get student info
+    $stRes = $conn->query("SELECT program, payment_plan, scholarship_amount FROM students WHERE id=$sid LIMIT 1");
+    $stRow = $stRes ? $stRes->fetch_assoc() : null;
+    if (!$stRow) return;
+
+    $discount        = (float)($stRow['scholarship_amount'] ?? 0);
+    $has_installment = (strtolower($stRow['payment_plan'] ?? '') === 'installment');
+
+    // Sum ACTUAL enrolled credits from enrollments table
+    $unitsRes = $conn->query("
+        SELECT COALESCE(SUM(c.credits), 0) AS total_units
+        FROM enrollments e
+        JOIN courses c ON e.course_id = c.id
+        WHERE e.student_id = $sid AND e.status IN ('Enrolled','Pending')
+    ");
+    $units = (int)(($unitsRes ? $unitsRes->fetch_assoc()['total_units'] : 0) ?: 0);
+    if ($units <= 0) $units = 18;
+
+    // Lab fee: based on total number of Laboratory rooms (same for all students)
+    $labRoomRes2 = $conn->query("SELECT COUNT(*) AS cnt FROM rooms WHERE room_type = 'Laboratory'");
+    $lab_count   = (int)(($labRoomRes2 ? $labRoomRes2->fetch_assoc()['cnt'] : 0) ?? 0);
+
+    $tuition_fee     = $units * 650;
+    $miscellaneous   = 6688.00;
+    $registration    = 700.00;
+    $laboratory_fee  = $lab_count * 1900;
+    $energy_fee      = $units * 21 * 3;
+    $subtotal        = $tuition_fee + $miscellaneous + $registration + $laboratory_fee + $energy_fee;
+    $installment_fee = $has_installment ? 750.00 : 0.00;
+    $total           = $subtotal - $discount + $installment_fee;
+
+    // ── FORCE update tuition_fees (no conditional guards) ───────────────────
+    $stmt = $conn->prepare("
+        INSERT INTO tuition_fees
+            (student_id, units, tuition_fee, miscellaneous_fee, registration_fee,
+             laboratory_fee, energy_fee, subtotal, discount, installment_fee, total_assessment)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE
+            units             = VALUES(units),
+            tuition_fee       = VALUES(tuition_fee),
+            miscellaneous_fee = VALUES(miscellaneous_fee),
+            registration_fee  = VALUES(registration_fee),
+            laboratory_fee    = VALUES(laboratory_fee),
+            energy_fee        = VALUES(energy_fee),
+            subtotal          = VALUES(subtotal),
+            discount          = VALUES(discount),
+            installment_fee   = VALUES(installment_fee),
+            total_assessment  = VALUES(total_assessment)
+    ");
+    if ($stmt) {
+        $stmt->bind_param("iiddddddddd",
+            $sid, $units, $tuition_fee, $miscellaneous, $registration,
+            $laboratory_fee, $energy_fee, $subtotal, $discount, $installment_fee, $total
+        );
+        $stmt->execute();
+        $stmt->close();
+    }
+
+    // ── Update payment_schedules — recalculate installment amounts ───────────
+    $ptype = $has_installment ? 'installment' : 'full';
+
+    if ($has_installment) {
+        // ── Read actual paid amounts per period ─────────────────────────────
+        $paidRes = $conn->query("SELECT exam_period, COALESCE(SUM(amount),0) AS paid FROM installment_payments WHERE student_id=$sid GROUP BY exam_period");
+        $paidMap = [];
+        if ($paidRes) { while ($r = $paidRes->fetch_assoc()) $paidMap[$r['exam_period']] = (float)$r['paid']; }
+
+        $dp_paid = $paidMap['Downpayment'] ?? 0;
+        $p_paid  = $paidMap['Prelim']      ?? 0;
+        $m_paid  = $paidMap['Midterm']     ?? 0;
+        $f_paid  = $paidMap['Finals']      ?? 0;
+
+        // DP scheduled = total/4; if student already paid more, use actual paid as DP credit
+        $dp_scheduled = round($total / 4, 2);
+        $dp_credit    = $dp_paid > 0 ? $dp_paid : $dp_scheduled;
+
+        // Remaining balance after DP
+        $remaining = max(0, $total - $dp_credit);
+        $pd = ceil($remaining / 3 * 100) / 100;  // prelim due
+        $md = $pd;                                 // midterm due
+        $fd = round($remaining - $pd * 2, 2);     // finals gets remainder
+
+        $p_status = $p_paid <= 0 ? 'unpaid'  : ($p_paid >= $pd ? 'paid' : 'partial');
+        $m_status = $m_paid <= 0 ? 'locked'  : ($m_paid >= $md ? 'paid' : 'partial');
+        $f_status = $f_paid <= 0 ? 'locked'  : ($f_paid >= $fd ? 'paid' : 'partial');
+
+        $conn->query("
+            INSERT INTO payment_schedules
+                (student_id, payment_type, total_assessment,
+                 prelim_due,  prelim_paid,  prelim_status,
+                 midterm_due, midterm_paid, midterm_status,
+                 finals_due,  finals_paid,  finals_status)
+            VALUES ($sid,'$ptype',$total,
+                    $pd,$p_paid,'$p_status',
+                    $md,$m_paid,'$m_status',
+                    $fd,$f_paid,'$f_status')
+            ON DUPLICATE KEY UPDATE
+                payment_type     = '$ptype',
+                total_assessment = $total,
+                prelim_due       = $pd,
+                prelim_paid      = $p_paid,
+                prelim_status    = '$p_status',
+                midterm_due      = $md,
+                midterm_paid     = $m_paid,
+                midterm_status   = '$m_status',
+                finals_due       = $fd,
+                finals_paid      = $f_paid,
+                finals_status    = '$f_status'
+        ");
+    } else {
+        // Full payment — just update total_assessment
+        $conn->query("
+            INSERT INTO payment_schedules (student_id, payment_type, total_assessment)
+            VALUES ($sid, 'full', $total)
+            ON DUPLICATE KEY UPDATE
+                payment_type     = 'full',
+                total_assessment = $total
+        ");
+    }
+}
+
+// ----------------------------------------------------------------
+// ADD/DROP WINDOW MANAGEMENT
+// ----------------------------------------------------------------
+function ensureAddDropWindowTable($conn) {
+    $conn->query("
+        CREATE TABLE IF NOT EXISTS add_drop_window (
+            id         INT AUTO_INCREMENT PRIMARY KEY,
+            start_date DATETIME NOT NULL,
+            end_date   DATETIME NOT NULL,
+            label      VARCHAR(150) DEFAULT '',
+            is_active  TINYINT(1) DEFAULT 1,
+            created_by INT DEFAULT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+}
+
+// GET ?action=get_add_drop_window
+function getAddDropWindow($conn) {
+    ensureAddDropWindowTable($conn);
+    $res = $conn->query("SELECT * FROM add_drop_window WHERE is_active=1 ORDER BY id DESC LIMIT 1");
+    $window = $res ? $res->fetch_assoc() : null;
+    $now = date('Y-m-d H:i:s');
+    $isOpen = false;
+    if ($window) {
+        $isOpen = ($now >= $window['start_date'] && $now <= $window['end_date']);
+    }
+    echo json_encode([
+        'success'  => true,
+        'window'   => $window,
+        'is_open'  => $isOpen,
+        'now'      => $now,
+    ]);
+}
+
+// POST ?action=set_add_drop_window
+// Body: { start_date, end_date, label }
+function setAddDropWindow($conn, $data) {
+    ensureAddDropWindowTable($conn);
+    $start = trim($data['start_date'] ?? '');
+    $end   = trim($data['end_date']   ?? '');
+    $label = $conn->real_escape_string(trim($data['label'] ?? ''));
+
+    if (!$start || !$end) {
+        echo json_encode(['success' => false, 'message' => 'start_date and end_date are required']);
+        return;
+    }
+    if (strtotime($end) <= strtotime($start)) {
+        echo json_encode(['success' => false, 'message' => 'end_date must be after start_date']);
+        return;
+    }
+
+    // Deactivate all previous windows
+    $conn->query("UPDATE add_drop_window SET is_active=0");
+
+    $startEsc = $conn->real_escape_string($start);
+    $endEsc   = $conn->real_escape_string($end);
+    $conn->query("INSERT INTO add_drop_window (start_date, end_date, label, is_active) VALUES ('$startEsc','$endEsc','$label',1)");
+
+    if ($conn->affected_rows > 0) {
+        echo json_encode(['success' => true, 'message' => 'Add/Drop window updated successfully']);
+    } else {
+        echo json_encode(['success' => false, 'message' => 'Failed to save window']);
+    }
 }

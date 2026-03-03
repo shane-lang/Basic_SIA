@@ -3,88 +3,329 @@ error_reporting(0);
 ini_set('display_errors', 0);
 mysqli_report(MYSQLI_REPORT_OFF);
 
-header('Access-Control-Allow-Origin: *');
+// FIX A-02: Restrict CORS to trusted origins only
+$allowedOrigin = $_SERVER['HTTP_ORIGIN'] ?? '';
+$trustedOrigins = [
+    'http://localhost:4200',
+    'http://localhost',
+    'http://127.0.0.1:4200',
+    'http://127.0.0.1',
+];
+if (in_array($allowedOrigin, $trustedOrigins, true)) {
+    header("Access-Control-Allow-Origin: $allowedOrigin");
+    header('Access-Control-Allow-Credentials: true');
+} else {
+    header('Access-Control-Allow-Origin: http://localhost:4200');
+}
+
 header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type, Authorization');
 header('Content-Type: application/json');
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { http_response_code(200); exit(); }
 
-ob_start();
-
 $conn = new mysqli('localhost', 'root', '', 'sia_db');
 if ($conn->connect_error) {
-    ob_end_clean();
     echo json_encode(['success' => false, 'message' => 'DB connection failed: ' . $conn->connect_error]);
     exit();
 }
 $conn->set_charset("utf8mb4");
 
+$action = $_GET['action'] ?? '';
+
+require_once __DIR__ . '/auth_middleware.php';
+$publicActions = ['get_programs'];
+$authUser = in_array($action, $publicActions) ? null : requireAuth($conn, 'admin');
+
 // ================================================================
-//  AUTO-CREATE MISSING TABLES (safe — only creates if not exists)
+//  AUTO-CREATE AUDIT LOG TABLE
 // ================================================================
-$conn->query("CREATE TABLE IF NOT EXISTS `faculty` (
-    `id`         INT AUTO_INCREMENT PRIMARY KEY,
-    `faculty_id` VARCHAR(20) NOT NULL UNIQUE,
-    `first_name` VARCHAR(100) NOT NULL,
-    `last_name`  VARCHAR(100) NOT NULL,
-    `email`      VARCHAR(150) NOT NULL UNIQUE,
-    `department` VARCHAR(100) DEFAULT '',
-    `specialty`  VARCHAR(100) DEFAULT '',
-    `subjects`   JSON,
-    `status`     ENUM('Active','Inactive','On Leave') DEFAULT 'Active',
-    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+$conn->query("CREATE TABLE IF NOT EXISTS audit_logs (
+    id           INT AUTO_INCREMENT PRIMARY KEY,
+    user_id      INT DEFAULT NULL,
+    user_email   VARCHAR(150) DEFAULT NULL,
+    user_role    VARCHAR(30)  DEFAULT NULL,
+    action       VARCHAR(100) NOT NULL,
+    target_type  VARCHAR(50)  DEFAULT NULL,
+    target_id    INT          DEFAULT NULL,
+    description  TEXT         DEFAULT NULL,
+    old_values   JSON         DEFAULT NULL,
+    new_values   JSON         DEFAULT NULL,
+    ip_address   VARCHAR(45)  DEFAULT NULL,
+    user_agent   VARCHAR(255) DEFAULT NULL,
+    created_at   TIMESTAMP    DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_user    (user_id),
+    INDEX idx_action  (action),
+    INDEX idx_created (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
-$conn->query("CREATE TABLE IF NOT EXISTS `programs` (
-    `id`          INT AUTO_INCREMENT PRIMARY KEY,
-    `name`        VARCHAR(150) NOT NULL,
-    `code`        VARCHAR(20)  NOT NULL UNIQUE,
-    `level_type`  ENUM('College','SHS','TVET') DEFAULT 'College',
-    `duration`    INT DEFAULT 4,
-    `description` TEXT,
-    `department`  VARCHAR(100) DEFAULT '',
-    `created_at`  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-
-$conn->query("CREATE TABLE IF NOT EXISTS `program_courses` (
-    `id`         INT AUTO_INCREMENT PRIMARY KEY,
-    `program_id` INT NOT NULL,
-    `course_id`  INT NOT NULL,
-    UNIQUE KEY `uq_pc` (`program_id`,`course_id`),
-    FOREIGN KEY (`program_id`) REFERENCES `programs`(`id`) ON DELETE CASCADE,
-    FOREIGN KEY (`course_id`)  REFERENCES `courses`(`id`)  ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-
-$conn->query("CREATE TABLE IF NOT EXISTS `rooms` (
-    `id`        INT AUTO_INCREMENT PRIMARY KEY,
-    `room_name` VARCHAR(100) NOT NULL,
-    `building`  VARCHAR(100) DEFAULT '',
-    `capacity`  INT DEFAULT 40,
-    `room_type` ENUM('Classroom','Laboratory','Lecture Hall') DEFAULT 'Classroom',
-    `status`    ENUM('Available','Occupied','Under Maintenance') DEFAULT 'Available',
-    `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-
-// Add faculty_id FK column to courses if not yet there
-$conn->query("ALTER TABLE courses ADD COLUMN IF NOT EXISTS faculty_id INT NULL DEFAULT NULL");
-
-// ── One-time seed: build programs/program_courses from existing courses.program column
-$seedCount = (int)($conn->query("SELECT COUNT(*) AS c FROM programs")->fetch_assoc()['c'] ?? 0);
-if ($seedCount === 0) {
-    $conn->query("INSERT IGNORE INTO programs (name, code, level_type, department)
-        SELECT DISTINCT program,
-            UPPER(TRIM(REPLACE(REPLACE(REPLACE(program,'Bachelor of Science in ','BS '),' ',''),'.', ''))) AS code,
-            'College', COALESCE(department,'')
-        FROM courses WHERE program IS NOT NULL AND program <> ''");
-    $conn->query("INSERT IGNORE INTO program_courses (program_id, course_id)
-        SELECT p.id, c.id FROM courses c
-        JOIN programs p ON p.name = c.program
-        WHERE c.program IS NOT NULL AND c.program <> ''");
+$conn->query("CREATE TABLE IF NOT EXISTS seed_flags (name VARCHAR(100) PRIMARY KEY)");
+$_sfRes = $conn->query("SELECT 1 FROM seed_flags WHERE name='program_courses' LIMIT 1");
+if (!$_sfRes || $_sfRes->num_rows === 0) {
+    $pcSeedCount = (int)($conn->query("SELECT COUNT(*) AS c FROM program_courses")->fetch_assoc()['c'] ?? 0);
+    if ($pcSeedCount === 0) {
+        $progSeedCount = (int)($conn->query("SELECT COUNT(*) AS c FROM programs")->fetch_assoc()['c'] ?? 0);
+        if ($progSeedCount === 0) {
+            $conn->query("INSERT IGNORE INTO programs (name, code, level_type, department)
+                SELECT DISTINCT program, program, 'College', COALESCE(department,'')
+                FROM courses WHERE program IS NOT NULL AND program <> ''");
+        }
+        $conn->query("INSERT IGNORE INTO program_courses (program_id, course_id)
+            SELECT p.id, c.id FROM courses c
+            JOIN programs p ON p.code = c.program
+            WHERE c.program IS NOT NULL AND c.program <> ''");
+        $conn->query("INSERT IGNORE INTO program_courses (program_id, course_id)
+            SELECT p.id, c.id FROM courses c
+            JOIN programs p ON p.name = c.program
+            WHERE c.program IS NOT NULL AND c.program <> ''");
+    }
+    $conn->query("INSERT IGNORE INTO seed_flags (name) VALUES ('program_courses')");
 }
 
-$action = $_GET['action'] ?? '';
-$input  = json_decode(file_get_contents('php://input'), true) ?? [];
+$input = json_decode(file_get_contents('php://input'), true) ?? [];
+
+// ================================================================
+//  AUDIT LOG HELPER
+// ================================================================
+function logAudit(mysqli $conn, array $authUser = null, string $action, string $targetType = '', int $targetId = 0, string $description = '', $oldValues = null, $newValues = null): void {
+    $userId    = $authUser ? (int)($authUser['user_id'] ?? 0) : null;
+    $userEmail = $authUser ? ($authUser['email'] ?? '') : '';
+    $userRole  = $authUser ? ($authUser['role']  ?? '') : '';
+    $ip        = $_SERVER['REMOTE_ADDR'] ?? '';
+    $ua        = substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 255);
+    $oldJson   = $oldValues !== null ? json_encode($oldValues) : null;
+    $newJson   = $newValues !== null ? json_encode($newValues) : null;
+
+    $st = $conn->prepare("INSERT INTO audit_logs (user_id, user_email, user_role, action, target_type, target_id, description, old_values, new_values, ip_address, user_agent) VALUES (?,?,?,?,?,?,?,?,?,?,?)");
+    $st->bind_param("issssisssss", $userId, $userEmail, $userRole, $action, $targetType, $targetId, $description, $oldJson, $newJson, $ip, $ua);
+    $st->execute();
+    $st->close();
+}
+
+// ================================================================
+//  AUDIT LOGS — READ
+// ================================================================
+if ($action === 'get_audit_logs') {
+    $page     = max(1, (int)($_GET['page']     ?? 1));
+    $limit    = min(100, max(10, (int)($_GET['limit'] ?? 25)));
+    $offset   = ($page - 1) * $limit;
+    $filterAction = trim($_GET['filter_action'] ?? '');
+    $filterRole   = trim($_GET['filter_role']   ?? '');
+    $filterUser   = trim($_GET['filter_user']   ?? '');
+    $dateFrom     = trim($_GET['date_from']     ?? '');
+    $dateTo       = trim($_GET['date_to']       ?? '');
+
+    $where = ['1=1'];
+    $params = [];
+    $types  = '';
+
+    if ($filterAction) { $where[] = 'action LIKE ?'; $params[] = "%$filterAction%"; $types .= 's'; }
+    if ($filterRole)   { $where[] = 'user_role = ?'; $params[] = $filterRole;       $types .= 's'; }
+    if ($filterUser)   { $where[] = '(user_email LIKE ? OR CAST(user_id AS CHAR) = ?)'; $params[] = "%$filterUser%"; $params[] = $filterUser; $types .= 'ss'; }
+    if ($dateFrom)     { $where[] = 'DATE(created_at) >= ?'; $params[] = $dateFrom; $types .= 's'; }
+    if ($dateTo)       { $where[] = 'DATE(created_at) <= ?'; $params[] = $dateTo;   $types .= 's'; }
+
+    $whereStr = implode(' AND ', $where);
+
+    // Count
+    $countSql = "SELECT COUNT(*) AS total FROM audit_logs WHERE $whereStr";
+    $countStmt = $conn->prepare($countSql);
+    if ($params) $countStmt->bind_param($types, ...$params);
+    $countStmt->execute();
+    $total = (int)$countStmt->get_result()->fetch_assoc()['total'];
+    $countStmt->close();
+
+    // Data
+    $dataSql = "SELECT * FROM audit_logs WHERE $whereStr ORDER BY created_at DESC LIMIT ? OFFSET ?";
+    $dataStmt = $conn->prepare($dataSql);
+    $allParams  = array_merge($params, [$limit, $offset]);
+    $allTypes   = $types . 'ii';
+    $dataStmt->bind_param($allTypes, ...$allParams);
+    $dataStmt->execute();
+    $res  = $dataStmt->get_result();
+    $logs = [];
+    while ($r = $res->fetch_assoc()) {
+        $r['old_values'] = $r['old_values'] ? json_decode($r['old_values'], true) : null;
+        $r['new_values'] = $r['new_values'] ? json_decode($r['new_values'], true) : null;
+        $logs[] = $r;
+    }
+    $dataStmt->close();
+
+    ob_end_clean();
+    echo json_encode([
+        'success'    => true,
+        'logs'       => $logs,
+        'total'      => $total,
+        'page'       => $page,
+        'limit'      => $limit,
+        'totalPages' => (int)ceil($total / $limit),
+    ]);
+    exit();
+}
+
+if ($action === 'get_audit_stats') {
+    $stats = [];
+
+    $res = $conn->query("SELECT action, COUNT(*) AS cnt FROM audit_logs WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY) GROUP BY action ORDER BY cnt DESC LIMIT 10");
+    $topActions = [];
+    while ($r = $res->fetch_assoc()) $topActions[] = $r;
+
+    $res2 = $conn->query("SELECT user_role, COUNT(*) AS cnt FROM audit_logs WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY) GROUP BY user_role");
+    $byRole = [];
+    while ($r = $res2->fetch_assoc()) $byRole[] = $r;
+
+    $res3 = $conn->query("SELECT DATE(created_at) AS day, COUNT(*) AS cnt FROM audit_logs WHERE created_at >= DATE_SUB(NOW(), INTERVAL 14 DAY) GROUP BY DATE(created_at) ORDER BY day ASC");
+    $daily = [];
+    while ($r = $res3->fetch_assoc()) $daily[] = $r;
+
+    $res4 = $conn->query("SELECT COUNT(*) AS total FROM audit_logs");
+    $totalAll = (int)$res4->fetch_assoc()['total'];
+
+    $res5 = $conn->query("SELECT COUNT(*) AS cnt FROM audit_logs WHERE DATE(created_at)=CURDATE()");
+    $today = (int)$res5->fetch_assoc()['cnt'];
+
+    ob_end_clean();
+    echo json_encode([
+        'success'    => true,
+        'totalAll'   => $totalAll,
+        'today'      => $today,
+        'topActions' => $topActions,
+        'byRole'     => $byRole,
+        'daily'      => $daily,
+    ]);
+    exit();
+}
+
+// ================================================================
+//  STUDENTS — VIEW ONLY (admin cannot edit)
+// ================================================================
+if ($action === 'get_students') {
+    $page    = max(1, (int)($_GET['page']   ?? 1));
+    $limit   = min(100, max(10, (int)($_GET['limit']  ?? 25)));
+    $offset  = ($page - 1) * $limit;
+    $search  = trim($_GET['q']      ?? '');
+    $program = trim($_GET['program'] ?? '');
+    $status  = trim($_GET['status']  ?? '');
+    $yl      = trim($_GET['year_level'] ?? '');
+
+    $where  = ['1=1'];
+    $params = [];
+    $types  = '';
+
+    if ($search) {
+        $where[]  = "(s.student_number LIKE ? OR s.first_name LIKE ? OR s.last_name LIKE ? OR CONCAT(s.first_name,' ',s.last_name) LIKE ? OR s.email LIKE ?)";
+        $sq = "%$search%";
+        $params   = array_merge($params, [$sq,$sq,$sq,$sq,$sq]);
+        $types   .= 'sssss';
+    }
+    if ($program) { $where[] = 's.program = ?'; $params[] = $program; $types .= 's'; }
+    if ($status)  { $where[] = 's.enrollment_status = ?'; $params[] = $status; $types .= 's'; }
+    if ($yl)      { $where[] = 's.year_level = ?'; $params[] = $yl; $types .= 's'; }
+
+    $whereStr = implode(' AND ', $where);
+
+    $countStmt = $conn->prepare("SELECT COUNT(*) AS total FROM students s WHERE $whereStr");
+    if ($params) $countStmt->bind_param($types, ...$params);
+    $countStmt->execute();
+    $total = (int)$countStmt->get_result()->fetch_assoc()['total'];
+    $countStmt->close();
+
+    $dataStmt = $conn->prepare("
+        SELECT s.id, s.student_number, s.first_name, s.last_name, s.email,
+               s.program, s.year_level, s.semester, s.student_type,
+               s.enrollment_status, s.phone AS contact_number, s.address,
+               s.created_at, s.created_at AS updated_at,
+               u.email AS user_email
+        FROM students s
+        LEFT JOIN users u ON u.id = s.user_id
+        WHERE $whereStr
+        ORDER BY s.last_name, s.first_name
+        LIMIT ? OFFSET ?
+    ");
+    $allP = array_merge($params, [$limit, $offset]);
+    $allT = $types . 'ii';
+    $dataStmt->bind_param($allT, ...$allP);
+    $dataStmt->execute();
+    $res      = $dataStmt->get_result();
+    $students = [];
+    while ($r = $res->fetch_assoc()) $students[] = $r;
+    $dataStmt->close();
+
+    ob_end_clean();
+    echo json_encode([
+        'success'    => true,
+        'students'   => $students,
+        'total'      => $total,
+        'page'       => $page,
+        'limit'      => $limit,
+        'totalPages' => (int)ceil($total / $limit),
+    ]);
+    exit();
+}
+
+if ($action === 'get_student_detail') {
+    $id = (int)($_GET['id'] ?? 0);
+    if (!$id) { ob_end_clean(); echo json_encode(['success'=>false,'message'=>'ID required']); exit(); }
+
+    $res = $conn->query("
+        SELECT s.*, u.email AS user_email, u.created_at AS account_created
+        FROM students s
+        LEFT JOIN users u ON u.id = s.user_id
+        WHERE s.id = $id LIMIT 1
+    ");
+    $student = $res ? $res->fetch_assoc() : null;
+    if (!$student) { ob_end_clean(); echo json_encode(['success'=>false,'message'=>'Student not found']); exit(); }
+
+    // Enrollments
+    $eRes = $conn->query("
+        SELECT e.*, c.code, c.name AS course_name, c.credits, c.instructor
+        FROM enrollments e
+        JOIN courses c ON c.id = e.course_id
+        WHERE e.student_id = $id
+        ORDER BY e.semester DESC, c.code ASC
+    ");
+    $enrollments = [];
+    while ($r = $eRes->fetch_assoc()) $enrollments[] = $r;
+
+    // Grades summary
+    $gRes = $conn->query("
+        SELECT c.code, c.name AS course_name,
+               MAX(CASE WHEN sg.term='Final' THEN sg.grade END) AS final_grade,
+               e.semester
+        FROM enrollments e
+        JOIN courses c ON c.id = e.course_id
+        LEFT JOIN student_grades sg ON sg.enrollment_id = e.id
+        WHERE e.student_id = $id
+        GROUP BY e.id, c.id
+    ");
+    $grades = [];
+    while ($r = $gRes->fetch_assoc()) $grades[] = $r;
+
+    logAudit($conn, $authUser, 'VIEW_STUDENT', 'student', $id, "Admin viewed student record: {$student['first_name']} {$student['last_name']}");
+
+    ob_end_clean();
+    echo json_encode(['success'=>true,'student'=>$student,'enrollments'=>$enrollments,'grades'=>$grades]);
+    exit();
+}
+
+if ($action === 'get_student_stats') {
+    $total      = (int)$conn->query("SELECT COUNT(*) AS c FROM students")->fetch_assoc()['c'];
+    $enrolled   = (int)$conn->query("SELECT COUNT(*) AS c FROM students WHERE enrollment_status='Enrolled'")->fetch_assoc()['c'];
+    $pending    = (int)$conn->query("SELECT COUNT(*) AS c FROM students WHERE enrollment_status='Pending'")->fetch_assoc()['c'];
+    $inactive   = (int)$conn->query("SELECT COUNT(*) AS c FROM students WHERE enrollment_status NOT IN ('Enrolled','Pending')")->fetch_assoc()['c'];
+
+    $byProgram = [];
+    $res = $conn->query("SELECT program, COUNT(*) AS cnt FROM students GROUP BY program ORDER BY cnt DESC LIMIT 10");
+    while ($r = $res->fetch_assoc()) $byProgram[] = $r;
+
+    $byYearLevel = [];
+    $res2 = $conn->query("SELECT year_level, COUNT(*) AS cnt FROM students GROUP BY year_level ORDER BY year_level");
+    while ($r = $res2->fetch_assoc()) $byYearLevel[] = $r;
+
+    ob_end_clean();
+    echo json_encode(['success'=>true,'total'=>$total,'enrolled'=>$enrolled,'pending'=>$pending,'inactive'=>$inactive,'byProgram'=>$byProgram,'byYearLevel'=>$byYearLevel]);
+    exit();
+}
 
 // ================================================================
 //  FACULTY
@@ -103,7 +344,6 @@ if ($action === 'get_faculty') {
 }
 
 if ($action === 'get_faculty_list') {
-    // lightweight for dropdowns
     $rows = [];
     $res  = $conn->query("SELECT id, faculty_id, first_name, last_name, department, specialty FROM faculty WHERE status='Active' ORDER BY last_name, first_name ASC");
     while ($r = $res->fetch_assoc()) { $r['full_name'] = $r['first_name'].' '.$r['last_name']; $rows[] = $r; }
@@ -127,7 +367,12 @@ if ($action === 'create_faculty') {
 
     $st  = $conn->prepare("INSERT INTO faculty (faculty_id,first_name,last_name,email,department,specialty,subjects,status) VALUES (?,?,?,?,?,?,?,?)");
     $st->bind_param("ssssssss",$fid,$fn,$ln,$em,$dept,$spec,$subj,$stat);
-    try { $st->execute(); ob_end_clean(); echo json_encode(['success'=>true,'id'=>$st->insert_id,'faculty_id'=>$fid]); }
+    try {
+        $st->execute();
+        $newId = $st->insert_id;
+        logAudit($conn, $authUser, 'CREATE_FACULTY', 'faculty', $newId, "Created faculty: $fn $ln", null, ['faculty_id'=>$fid,'name'=>"$fn $ln",'email'=>$em]);
+        ob_end_clean(); echo json_encode(['success'=>true,'id'=>$newId,'faculty_id'=>$fid]);
+    }
     catch (Exception $e) { ob_end_clean(); echo json_encode(['success'=>false,'message'=>'Email already exists']); }
     exit();
 }
@@ -143,13 +388,17 @@ if ($action === 'update_faculty') {
     $stat = trim($input['status']       ?? 'Active');
 
     if (!$id) { ob_end_clean(); echo json_encode(['success'=>false,'message'=>'Invalid ID']); exit(); }
+
+    $oldRes = $conn->query("SELECT * FROM faculty WHERE id=$id LIMIT 1");
+    $oldData = $oldRes ? $oldRes->fetch_assoc() : null;
+
     $st = $conn->prepare("UPDATE faculty SET first_name=?,last_name=?,email=?,department=?,specialty=?,subjects=?,status=? WHERE id=?");
     $st->bind_param("sssssssi",$fn,$ln,$em,$dept,$spec,$subj,$stat,$id);
     try {
         $st->execute();
-        // Sync instructor name in all courses linked to this faculty
         $full = $conn->real_escape_string("$fn $ln");
         $conn->query("UPDATE courses SET instructor='$full' WHERE faculty_id=$id");
+        logAudit($conn, $authUser, 'UPDATE_FACULTY', 'faculty', $id, "Updated faculty: $fn $ln", $oldData, ['name'=>"$fn $ln",'email'=>$em,'status'=>$stat]);
         ob_end_clean(); echo json_encode(['success'=>true]);
     } catch (Exception $e) { ob_end_clean(); echo json_encode(['success'=>false,'message'=>'Update failed']); }
     exit();
@@ -158,8 +407,11 @@ if ($action === 'update_faculty') {
 if ($action === 'delete_faculty') {
     $id = (int)($input['id'] ?? $_GET['id'] ?? 0);
     if (!$id) { ob_end_clean(); echo json_encode(['success'=>false,'message'=>'Invalid ID']); exit(); }
+    $oldRes  = $conn->query("SELECT * FROM faculty WHERE id=$id LIMIT 1");
+    $oldData = $oldRes ? $oldRes->fetch_assoc() : null;
     $conn->query("UPDATE courses SET faculty_id=NULL WHERE faculty_id=$id");
     $conn->query("DELETE FROM faculty WHERE id=$id");
+    logAudit($conn, $authUser, 'DELETE_FACULTY', 'faculty', $id, "Deleted faculty: ".($oldData ? $oldData['first_name'].' '.$oldData['last_name'] : $id), $oldData, null);
     ob_end_clean(); echo json_encode(['success'=>true]); exit();
 }
 
@@ -196,7 +448,6 @@ if ($action === 'create_course') {
     $fid   = !empty($input['faculty_id']) ? (int)$input['faculty_id'] : null;
     $instr = trim($input['instructor']  ?? '');
 
-    // Resolve instructor from faculty if faculty_id given
     if ($fid) {
         $fr = $conn->query("SELECT CONCAT(first_name,' ',last_name) fn FROM faculty WHERE id=$fid LIMIT 1")->fetch_assoc();
         if ($fr) $instr = $fr['fn'];
@@ -205,17 +456,19 @@ if ($action === 'create_course') {
     if (!$code||!$name) { ob_end_clean(); echo json_encode(['success'=>false,'message'=>'Code and name required']); exit(); }
 
     $fidVal = $fid ?: 'NULL';
+    $is_lab = (int)($input['is_lab'] ?? 0) ? 1 : 0;
     $esc = fn($s) => $conn->real_escape_string($s);
-    $sql = "INSERT INTO courses (code,name,description,credits,department,program,year_level,semester,instructor,day,time,room,capacity,faculty_id)
-            VALUES ('{$esc($code)}','{$esc($name)}','{$esc($desc)}',$cred,'{$esc($dept)}','{$esc($prog)}','{$esc($yl)}','{$esc($sem)}','{$esc($instr)}','{$esc($day)}','{$esc($time)}','{$esc($room)}',$cap,$fidVal)";
+    $conn->query("ALTER TABLE courses ADD COLUMN IF NOT EXISTS is_lab TINYINT(1) DEFAULT 0");
+    $sql = "INSERT INTO courses (code,name,description,credits,department,program,year_level,semester,instructor,day,time,room,capacity,faculty_id,is_lab)
+            VALUES ('{$esc($code)}','{$esc($name)}','{$esc($desc)}',$cred,'{$esc($dept)}','{$esc($prog)}','{$esc($yl)}','{$esc($sem)}','{$esc($instr)}','{$esc($day)}','{$esc($time)}','{$esc($room)}',$cap,$fidVal,$is_lab)";
 
     if ($conn->query($sql)) {
         $cid = $conn->insert_id;
-        // Link to program_courses
         if ($prog) {
             $pr = $conn->query("SELECT id FROM programs WHERE name='{$esc($prog)}' LIMIT 1")->fetch_assoc();
             if ($pr) $conn->query("INSERT IGNORE INTO program_courses (program_id,course_id) VALUES ({$pr['id']},$cid)");
         }
+        logAudit($conn, $authUser, 'CREATE_COURSE', 'course', $cid, "Created course: $code - $name", null, ['code'=>$code,'name'=>$name,'program'=>$prog]);
         ob_end_clean(); echo json_encode(['success'=>true,'course_id'=>$cid]);
     } else {
         ob_end_clean(); echo json_encode(['success'=>false,'message'=>'Course code already exists or DB error: '.$conn->error]);
@@ -246,20 +499,25 @@ if ($action === 'update_course') {
     }
     if (!$id) { ob_end_clean(); echo json_encode(['success'=>false,'message'=>'Invalid ID']); exit(); }
 
+    $oldRes  = $conn->query("SELECT * FROM courses WHERE id=$id LIMIT 1");
+    $oldData = $oldRes ? $oldRes->fetch_assoc() : null;
+
     $fidVal = $fid ?: 'NULL';
+    $is_lab = (int)($input['is_lab'] ?? 0) ? 1 : 0;
     $esc = fn($s) => $conn->real_escape_string($s);
+    $conn->query("ALTER TABLE courses ADD COLUMN IF NOT EXISTS is_lab TINYINT(1) DEFAULT 0");
     $sql = "UPDATE courses SET code='{$esc($code)}',name='{$esc($name)}',description='{$esc($desc)}',credits=$cred,
             department='{$esc($dept)}',program='{$esc($prog)}',year_level='{$esc($yl)}',semester='{$esc($sem)}',
             instructor='{$esc($instr)}',day='{$esc($day)}',time='{$esc($time)}',room='{$esc($room)}',
-            capacity=$cap,faculty_id=$fidVal WHERE id=$id";
+            capacity=$cap,faculty_id=$fidVal,is_lab=$is_lab WHERE id=$id";
 
     if ($conn->query($sql)) {
-        // Rebuild program_courses link
         $conn->query("DELETE FROM program_courses WHERE course_id=$id");
         if ($prog) {
             $pr = $conn->query("SELECT id FROM programs WHERE name='{$esc($prog)}' LIMIT 1")->fetch_assoc();
             if ($pr) $conn->query("INSERT IGNORE INTO program_courses (program_id,course_id) VALUES ({$pr['id']},$id)");
         }
+        logAudit($conn, $authUser, 'UPDATE_COURSE', 'course', $id, "Updated course: $code - $name", $oldData, ['code'=>$code,'name'=>$name,'program'=>$prog]);
         ob_end_clean(); echo json_encode(['success'=>true]);
     } else {
         ob_end_clean(); echo json_encode(['success'=>false,'message'=>'Update failed: '.$conn->error]);
@@ -270,8 +528,11 @@ if ($action === 'update_course') {
 if ($action === 'delete_course') {
     $id = (int)($input['id'] ?? $_GET['id'] ?? 0);
     if (!$id) { ob_end_clean(); echo json_encode(['success'=>false,'message'=>'Invalid ID']); exit(); }
+    $oldRes  = $conn->query("SELECT * FROM courses WHERE id=$id LIMIT 1");
+    $oldData = $oldRes ? $oldRes->fetch_assoc() : null;
     $conn->query("DELETE FROM program_courses WHERE course_id=$id");
     $conn->query("DELETE FROM courses WHERE id=$id");
+    logAudit($conn, $authUser, 'DELETE_COURSE', 'course', $id, "Deleted course: ".($oldData ? $oldData['code'].' - '.$oldData['name'] : $id), $oldData, null);
     ob_end_clean(); echo json_encode(['success'=>true]); exit();
 }
 
@@ -314,6 +575,7 @@ if ($action === 'create_program') {
                 $conn->query("UPDATE courses SET program='".$conn->real_escape_string($name)."' WHERE id=$cid");
             }
         }
+        logAudit($conn, $authUser, 'CREATE_PROGRAM', 'program', $pid, "Created program: $code - $name", null, ['name'=>$name,'code'=>$code,'level_type'=>$lt]);
         ob_end_clean(); echo json_encode(['success'=>true,'program_id'=>$pid]);
     } catch (Exception $e) { ob_end_clean(); echo json_encode(['success'=>false,'message'=>'Code already exists']); }
     exit();
@@ -330,6 +592,10 @@ if ($action === 'update_program') {
     $cids = $input['course_ids']       ?? [];
 
     if (!$id) { ob_end_clean(); echo json_encode(['success'=>false,'message'=>'Invalid ID']); exit(); }
+
+    $oldRes  = $conn->query("SELECT * FROM programs WHERE id=$id LIMIT 1");
+    $oldData = $oldRes ? $oldRes->fetch_assoc() : null;
+
     $st = $conn->prepare("UPDATE programs SET name=?,code=?,level_type=?,duration=?,description=?,department=? WHERE id=?");
     $st->bind_param("sssissi",$name,$code,$lt,$dur,$desc,$dept,$id);
     try {
@@ -342,6 +608,7 @@ if ($action === 'update_program') {
                 $conn->query("UPDATE courses SET program='".$conn->real_escape_string($name)."' WHERE id=$cid");
             }
         }
+        logAudit($conn, $authUser, 'UPDATE_PROGRAM', 'program', $id, "Updated program: $code - $name", $oldData, ['name'=>$name,'code'=>$code]);
         ob_end_clean(); echo json_encode(['success'=>true]);
     } catch (Exception $e) { ob_end_clean(); echo json_encode(['success'=>false,'message'=>'Update failed']); }
     exit();
@@ -350,8 +617,11 @@ if ($action === 'update_program') {
 if ($action === 'delete_program') {
     $id = (int)($input['id'] ?? $_GET['id'] ?? 0);
     if (!$id) { ob_end_clean(); echo json_encode(['success'=>false,'message'=>'Invalid ID']); exit(); }
+    $oldRes  = $conn->query("SELECT * FROM programs WHERE id=$id LIMIT 1");
+    $oldData = $oldRes ? $oldRes->fetch_assoc() : null;
     $conn->query("DELETE FROM program_courses WHERE program_id=$id");
     $conn->query("DELETE FROM programs WHERE id=$id");
+    logAudit($conn, $authUser, 'DELETE_PROGRAM', 'program', $id, "Deleted program: ".($oldData ? $oldData['code'] : $id), $oldData, null);
     ob_end_clean(); echo json_encode(['success'=>true]); exit();
 }
 
@@ -374,7 +644,12 @@ if ($action === 'create_room') {
     if (!$rn) { ob_end_clean(); echo json_encode(['success'=>false,'message'=>'Room name required']); exit(); }
     $st = $conn->prepare("INSERT INTO rooms (room_name,building,capacity,room_type,status) VALUES (?,?,?,?,?)");
     $st->bind_param("ssiss",$rn,$bld,$cap,$rt,$st2);
-    try { $st->execute(); ob_end_clean(); echo json_encode(['success'=>true,'room_id'=>$st->insert_id]); }
+    try {
+        $st->execute();
+        $newId = $st->insert_id;
+        logAudit($conn, $authUser, 'CREATE_ROOM', 'room', $newId, "Created room: $rn in $bld", null, ['room_name'=>$rn,'building'=>$bld]);
+        ob_end_clean(); echo json_encode(['success'=>true,'room_id'=>$newId]);
+    }
     catch (Exception $e) { ob_end_clean(); echo json_encode(['success'=>false,'message'=>'Room exists']); }
     exit();
 }
@@ -389,7 +664,11 @@ if ($action === 'update_room') {
     if (!$id) { ob_end_clean(); echo json_encode(['success'=>false,'message'=>'Invalid ID']); exit(); }
     $st = $conn->prepare("UPDATE rooms SET room_name=?,building=?,capacity=?,room_type=?,status=? WHERE id=?");
     $st->bind_param("ssissi",$rn,$bld,$cap,$rt,$st2,$id);
-    try { $st->execute(); ob_end_clean(); echo json_encode(['success'=>true]); }
+    try {
+        $st->execute();
+        logAudit($conn, $authUser, 'UPDATE_ROOM', 'room', $id, "Updated room: $rn", null, ['room_name'=>$rn,'building'=>$bld,'status'=>$st2]);
+        ob_end_clean(); echo json_encode(['success'=>true]);
+    }
     catch (Exception $e) { ob_end_clean(); echo json_encode(['success'=>false,'message'=>'Update failed']); }
     exit();
 }
@@ -397,11 +676,13 @@ if ($action === 'update_room') {
 if ($action === 'delete_room') {
     $id = (int)($input['id'] ?? $_GET['id'] ?? 0);
     if (!$id) { ob_end_clean(); echo json_encode(['success'=>false,'message'=>'Invalid ID']); exit(); }
+    $oldRes  = $conn->query("SELECT * FROM rooms WHERE id=$id LIMIT 1");
+    $oldData = $oldRes ? $oldRes->fetch_assoc() : null;
     $conn->query("DELETE FROM rooms WHERE id=$id");
+    logAudit($conn, $authUser, 'DELETE_ROOM', 'room', $id, "Deleted room: ".($oldData ? $oldData['room_name'] : $id), $oldData, null);
     ob_end_clean(); echo json_encode(['success'=>true]); exit();
 }
 
-ob_end_clean();
 echo json_encode(['success'=>false,'message'=>'Unknown action: '.$action]);
 $conn->close();
 ?>

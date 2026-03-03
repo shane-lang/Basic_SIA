@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1
--- Generation Time: Mar 02, 2026 at 07:24 PM
+-- Generation Time: Mar 03, 2026 at 07:27 PM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.2.12
 
@@ -20,6 +20,49 @@ SET time_zone = "+00:00";
 --
 -- Database: `sia_db`
 --
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `add_drop_requests`
+--
+
+CREATE TABLE `add_drop_requests` (
+  `id` int(11) NOT NULL,
+  `student_id` int(11) NOT NULL,
+  `request_type` enum('Add','Drop') NOT NULL,
+  `course_id` int(11) NOT NULL,
+  `enrollment_id` int(11) DEFAULT NULL,
+  `reason` text DEFAULT NULL,
+  `status` enum('Pending','Approved','Rejected') DEFAULT 'Pending',
+  `remarks` text DEFAULT NULL,
+  `processed_by` int(11) DEFAULT NULL,
+  `processed_at` datetime DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `add_drop_window`
+--
+
+CREATE TABLE `add_drop_window` (
+  `id` int(11) NOT NULL,
+  `start_date` datetime NOT NULL,
+  `end_date` datetime NOT NULL,
+  `label` varchar(150) DEFAULT '',
+  `is_active` tinyint(1) DEFAULT 1,
+  `created_by` int(11) DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Dumping data for table `add_drop_window`
+--
+
+INSERT INTO `add_drop_window` (`id`, `start_date`, `end_date`, `label`, `is_active`, `created_by`, `created_at`) VALUES
+(1, '2026-03-03 02:00:00', '2026-03-17 22:56:00', '1st sem ay 2026-2027', 1, NULL, '2026-03-03 14:56:59');
 
 -- --------------------------------------------------------
 
@@ -52,6 +95,35 @@ INSERT INTO `announcements` (`id`, `title`, `message`, `date`, `type`, `priority
 -- --------------------------------------------------------
 
 --
+-- Table structure for table `audit_logs`
+--
+
+CREATE TABLE `audit_logs` (
+  `id` int(11) NOT NULL,
+  `user_id` int(11) DEFAULT NULL,
+  `user_email` varchar(150) DEFAULT NULL,
+  `user_role` varchar(30) DEFAULT NULL,
+  `action` varchar(100) NOT NULL,
+  `target_type` varchar(50) DEFAULT NULL,
+  `target_id` int(11) DEFAULT NULL,
+  `description` text DEFAULT NULL,
+  `old_values` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`old_values`)),
+  `new_values` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`new_values`)),
+  `ip_address` varchar(45) DEFAULT NULL,
+  `user_agent` varchar(255) DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Dumping data for table `audit_logs`
+--
+
+INSERT INTO `audit_logs` (`id`, `user_id`, `user_email`, `user_role`, `action`, `target_type`, `target_id`, `description`, `old_values`, `new_values`, `ip_address`, `user_agent`, `created_at`) VALUES
+(1, 2, 'admin@example.com', 'admin', 'VIEW_STUDENT', 'student', 119, 'Admin viewed student record: shane binoya', NULL, NULL, '::1', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36', '2026-03-03 18:17:38');
+
+-- --------------------------------------------------------
+
+--
 -- Table structure for table `courses`
 --
 
@@ -73,29 +145,315 @@ CREATE TABLE `courses` (
   `department` varchar(100) DEFAULT NULL,
   `program` varchar(100) DEFAULT NULL,
   `year_level` varchar(20) DEFAULT '1st Year',
-  `created_at` timestamp NOT NULL DEFAULT current_timestamp()
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `is_lab` tinyint(1) DEFAULT 0
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
 -- Dumping data for table `courses`
 --
 
-INSERT INTO `courses` (`id`, `code`, `name`, `credits`, `instructor`, `faculty_id`, `schedule`, `day`, `time`, `room`, `capacity`, `enrolled_count`, `semester`, `description`, `department`, `program`, `year_level`, `created_at`) VALUES
-(1, 'CS111', 'Introduction to Programming', 3, 'Engr. Maria Santos', NULL, 'MWF 8:00 AM - 9:30 AM', 'Monday,Wednesday,Friday', '8:00 AM - 9:30 AM', 'Room 301 (Science Building)', 51, 45, '1st Semester, AY 2024-2025', 'Fundamentals of programming using Python', 'Information Technology', 'BS Computer Science', '1st Year', '2026-01-31 08:04:35'),
-(2, 'CS112', 'Web Development Basics', 3, 'Engr. Juan Reyes', NULL, 'TTh 10:00 AM - 11:30 AM', 'Tuesday,Thursday', '10:00 AM - 11:30 AM', 'Lab 202 (IT Building)', 35, 43, '1st Semester, AY 2024-2025', 'HTML, CSS, and JavaScript fundamentals', 'Information Technology', 'BS Computer Science', '1st Year', '2026-01-31 08:04:35'),
-(3, 'MATH101', 'Discrete Mathematics', 4, 'Engr. Anna Garcia', NULL, 'MWF 9:45 AM - 11:15 AM', 'Monday,Wednesday,Friday', '9:45 AM - 11:15 AM', 'Room 205 (Science Building)', 40, 30, '1st Semester, AY 2024-2025', 'Sets, logic, and mathematical proofs', 'Mathematics', 'BS Computer Science', '1st Year', '2026-01-31 08:04:35'),
-(5, 'ENG101', 'English Composition', 3, 'Prof. Sarah Kim', NULL, 'MWF 1:00 PM - 2:30 PM', 'Monday,Wednesday,Friday', '1:00 PM - 2:30 PM', 'Room 101 (Liberal Arts Building)', 45, 32, '1st Semester, AY 2024-2025', 'Academic writing and communication skills', 'English', 'BS Computer Science', '1st Year', '2026-01-31 08:04:35'),
-(18, 'IT101', 'Introduction to Computing', 3, 'Engr. Maria Santos', NULL, 'MWF 7:30 AM - 8:30 AM', 'Monday,Wednesday,Friday', '7:30 AM - 8:30 AM', 'Room 301 (IT Building)', 40, 9, '1st Semester, AY 2024-2025', 'Overview of computing concepts, history, and modern applications', 'Information Technology', 'BS Information Technology', '1st Year', '2026-01-31 13:46:28'),
-(19, 'IT102', 'Computer Programming 1', 3, 'Engr. Juan Reyes', NULL, 'TTh 7:30 AM - 9:00 AM', 'Tuesday,Thursday', '7:30 AM - 9:00 AM', 'Lab 101 (IT Building)', 35, 40, '1st Semester, AY 2024-2025', 'Fundamentals of programming using Python — logic, loops, functions', 'Information Technology', 'BS Computer Science', '1st Year', '2026-01-31 13:46:28'),
-(20, 'IT103', 'Computer Hardware Fundamentals', 3, 'Engr. Luis Rodriguez', NULL, 'MWF 9:00 AM - 10:00 AM', 'Monday,Wednesday,Friday', '9:00 AM - 10:00 AM', 'Lab 202 (IT Building)', 35, 40, '1st Semester, AY 2024-2025', 'Hardware components, assembly, troubleshooting, and maintenance', 'Information Technology', 'BS Computer Science', '1st Year', '2026-01-31 13:46:28'),
-(21, 'IT104', 'Web Development 1', 3, 'Engr. Anna Garcia', NULL, 'TTh 10:30 AM - 12:00 PM', 'Tuesday,Thursday', '10:30 AM - 12:00 PM', 'Lab 101 (IT Building)', 35, 19, '2nd Semester, AY 2024-2025', 'HTML5, CSS3, and responsive design fundamentals', 'Information Technology', 'BS Computer Science', '1st Year', '2026-01-31 13:46:28'),
-(22, 'MATH111', 'College Algebra', 3, 'Prof. Reyna Cruz', NULL, 'MWF 10:30 AM - 11:30 AM', 'Monday,Wednesday,Friday', '10:30 AM - 11:30 AM', 'Room 205 (Science Building)', 40, 5, '1st Semester, AY 2024-2025', 'Algebraic expressions, equations, functions, and graphing', 'Mathematics', 'BS Information Technology', '1st Year', '2026-01-31 13:46:28'),
-(23, 'MATH112', 'Discrete Mathematics', 3, 'Prof. Reyna Cruz', NULL, 'TTh 1:00 PM - 2:30 PM', 'Tuesday,Thursday', '1:00 PM - 2:30 PM', 'Room 205 (Science Building)', 40, 5, '1st Semester, AY 2024-2025', 'Sets, logic, relations, functions, and graph theory', 'Mathematics', 'BS Information Technology', '1st Year', '2026-01-31 13:46:28'),
-(24, 'GE101', 'Purposive Communication', 3, 'Prof. Sarah Kim', NULL, 'MWF 1:00 PM - 2:00 PM', 'Monday,Wednesday,Friday', '1:00 PM - 2:00 PM', 'Room 101 (Liberal Arts)', 45, 29, '1st Semester, AY 2024-2025', 'Academic and professional communication skills', 'English', 'BS Computer Science', '1st Year', '2026-01-31 13:46:28'),
-(25, 'GE102', 'Understanding the Self', 3, 'Prof. James Lim', NULL, 'TTh 3:00 PM - 4:30 PM', 'Tuesday,Thursday', '3:00 PM - 4:30 PM', 'Room 102 (Liberal Arts)', 45, 6, '1st Semester, AY 2024-2025', 'Self-development, identity, and human values', 'General Education', 'BS Information Technology', '1st Year', '2026-01-31 13:46:28'),
-(26, 'GE103', 'Readings in Philippine History', 3, 'Prof. Maria Reyes', NULL, 'MWF 2:30 PM - 3:30 PM', 'Monday,Wednesday,Friday', '2:30 PM - 3:30 PM', 'Room 103 (Liberal Arts)', 45, 5, '1st Semester, AY 2024-2025', 'Critical reading of primary sources in Philippine history', 'General Education', 'BS Information Technology', '1st Year', '2026-01-31 13:46:28'),
-(27, 'PE101', 'Physical Fitness and Wellness', 2, 'Coach Robert Lee', NULL, 'Saturday 8:00 AM - 10:00 AM', 'Saturday', '8:00 AM - 10:00 AM', 'Sports Complex', 60, 5, '1st Semester, AY 2024-2025', 'Physical fitness, health, and wellness activities', 'Physical Education', 'BS Information Technology', '1st Year', '2026-01-31 13:46:28'),
-(28, 'NSTP101', 'National Service Training Program 1', 3, 'Capt. Jose Dela Rosa', NULL, 'Saturday 1:00 PM - 4:00 PM', 'Saturday', '1:00 PM - 4:00 PM', 'Auditorium', 80, 6, '2nd Semester, AY 2024-2025', 'Civic welfare, literacy training, and reserve officers training', 'General Education', 'BS Information Technology', '2nd Year', '2026-01-31 13:46:28');
+INSERT INTO `courses` (`id`, `code`, `name`, `credits`, `instructor`, `faculty_id`, `schedule`, `day`, `time`, `room`, `capacity`, `enrolled_count`, `semester`, `description`, `department`, `program`, `year_level`, `created_at`, `is_lab`) VALUES
+(550, 'GE100', 'Conversational English and Personality Development', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSA', '1st Year', '2026-03-03 01:44:07', 0),
+(551, 'GE105', 'Mathematics in the Modern World', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSA', '1st Year', '2026-03-03 01:44:07', 0),
+(552, 'BME100', 'International Business and Trade', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSA', '1st Year', '2026-03-03 01:44:07', 0),
+(553, 'GE108', 'Ethics', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSA', '1st Year', '2026-03-03 01:44:07', 0),
+(554, 'AEC111', 'Financial Accounting and Reporting', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 3, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'Bachelor of Science in Information Technology', '1st Year', '2026-03-03 01:44:07', 0),
+(555, 'AEC109', 'Managerial Economics', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 2, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'Bachelor of Science in Information Technology', '1st Year', '2026-03-03 01:44:07', 0),
+(556, 'BSNA102', 'Organization and Management', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSA', '1st Year', '2026-03-03 01:44:07', 0),
+(557, 'PE1-BSA', 'Physical Education 1 (Aquatics)', 2, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSA', '1st Year', '2026-03-03 01:44:07', 0),
+(558, 'NSTP1-BSA', 'NSTP 1', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSA', '1st Year', '2026-03-03 01:44:07', 0),
+(559, 'AEC112', 'Conceptual Framework and Accounting Standards', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: AEC111', 'Business', '2-Yrs. Tourism, Hotel and Restaurant Operations', '1st Year', '2026-03-03 01:44:07', 0),
+(560, 'GE101', 'Purposive Communication', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSA', '1st Year', '2026-03-03 01:44:07', 0),
+(561, 'GE109', 'Understanding the Self', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSA', '1st Year', '2026-03-03 01:44:07', 0),
+(562, 'AEC120', 'Cost Accounting and Control', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: AEC111', 'Business', 'BSA', '1st Year', '2026-03-03 01:44:07', 0),
+(563, 'BSNA101', 'Fundamentals of Accountancy, Business and Management', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSA', '1st Year', '2026-03-03 01:44:07', 0),
+(564, 'AEC113', 'Intermediate Accounting 1', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: AEC111', 'Business', '2-Yrs. Tourism, Hotel and Restaurant Operations', '1st Year', '2026-03-03 01:44:07', 0),
+(565, 'BME101', 'Strategic Management', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: BME100', 'Business', 'BSA', '1st Year', '2026-03-03 01:44:07', 0),
+(566, 'PE2-BSA', 'Physical Education 2 (Outdoor Pursuits and Contemporary Activities)', 2, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSA', '1st Year', '2026-03-03 01:44:07', 0),
+(567, 'NSTP2-BSA', 'NSTP 2', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSA', '1st Year', '2026-03-03 01:44:07', 0),
+(568, 'BSNA103', 'Business Marketing', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: BSNA102', 'Business', 'BSA', '2nd Year', '2026-03-03 01:44:07', 0),
+(569, 'AEC121', 'Strategic Cost Management', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: AEC120', 'Business', 'BSA', '2nd Year', '2026-03-03 01:44:07', 0),
+(570, 'AEC108', 'Governance, Business Ethics, Risk Management and Internal Control', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: BSNA102', 'Business', 'BSA', '2nd Year', '2026-03-03 01:44:07', 0),
+(571, 'AEC116', 'Financial Markets', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSA', '2nd Year', '2026-03-03 01:44:07', 0),
+(572, 'BME103', 'Law on Obligations and Contracts', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSA', '2nd Year', '2026-03-03 01:44:07', 0),
+(573, 'AEC107', 'Statistical Analysis and Software Application', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', '2-Yrs. Tourism, Hotel and Restaurant Operations', '2nd Year', '2026-03-03 01:44:07', 0),
+(574, 'AEC105', 'Intermediate Accounting 2', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: AEC113', 'Business', '2-Yrs. Tourism, Hotel and Restaurant Operations', '2nd Year', '2026-03-03 01:44:07', 0),
+(575, 'AEC117', 'Financial Management', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: AEC109', 'Business', 'BSA', '2nd Year', '2026-03-03 01:44:07', 0),
+(576, 'PE3-BSA', 'Physical Education 3 (Exercises for Fitness)', 2, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSA', '2nd Year', '2026-03-03 01:44:07', 0),
+(577, 'GE103', 'Art Appreciation', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSA', '2nd Year', '2026-03-03 01:44:07', 0),
+(578, 'AEC101', 'Business Laws and Regulations', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: BME103', 'Business', 'Bachelor of Science in Information Technology', '2nd Year', '2026-03-03 01:44:07', 0),
+(579, 'AEC115', 'Intermediate Accounting 3', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: AEC105', 'Business', 'BSA', '2nd Year', '2026-03-03 01:44:07', 0),
+(580, 'AEC118', 'Accounting Information System', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: AEC112', 'Business', 'BSA', '2nd Year', '2026-03-03 01:44:07', 0),
+(581, 'AEC124', 'Income Taxation', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: AEC101', 'Business', 'BSA', '2nd Year', '2026-03-03 01:44:07', 0),
+(582, 'GE116', 'World Literature', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSA', '2nd Year', '2026-03-03 01:44:07', 0),
+(583, 'BSNA104', 'Business Finance', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: BSNA101', 'Business', 'BSA', '2nd Year', '2026-03-03 01:44:07', 0),
+(584, 'GE110', 'Rizal\'s Life and Works', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSA', '2nd Year', '2026-03-03 01:44:07', 0),
+(585, 'PE4-BSA', 'Physical Education 4 (Endurance Exercises through Dance)', 2, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSA', '2nd Year', '2026-03-03 01:44:07', 0),
+(586, 'GE104', 'Readings in the Philippine History', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSA', '3rd Year', '2026-03-03 01:44:07', 0),
+(587, 'AEC103', 'Management Science', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: BSNA102', 'Business', 'Bachelor of Science in Information Technology', '3rd Year', '2026-03-03 01:44:07', 0),
+(588, 'AEC119', 'IT Application Tools in Business', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: AEC118', 'Business', '2-Yrs. Tourism, Hotel and Restaurant Operations', '3rd Year', '2026-03-03 01:44:07', 0),
+(589, 'AEC122', 'Strategic Business Analysis', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: AEC117', 'Business', 'BSA', '3rd Year', '2026-03-03 01:44:07', 0),
+(590, 'AEC123', 'Business Tax', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: AEC101', 'Business', 'BSA', '3rd Year', '2026-03-03 01:44:07', 0),
+(591, 'AEC110', 'Economic Development', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: BSNA101', 'Business', '2-Yrs. Tourism, Hotel and Restaurant Operations', '3rd Year', '2026-03-03 01:44:07', 0),
+(592, 'AEC102', 'Regulatory Framework and Legal Issues in Business', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: AEC101', 'Business', 'Bachelor of Science in Information Technology', '3rd Year', '2026-03-03 01:44:07', 0),
+(593, 'GE115', 'Philippine Literature', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSA', '3rd Year', '2026-03-03 01:44:07', 0),
+(594, 'BME102', 'Operations Management and TQM', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: BME100', 'Business', 'BSA', '3rd Year', '2026-03-03 01:44:07', 0),
+(595, 'GE106', 'Science, Technology and Society', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSA', '3rd Year', '2026-03-03 01:44:07', 0),
+(596, 'GE107', 'The Contemporary World', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSA', '3rd Year', '2026-03-03 01:44:07', 0),
+(597, 'AEC104', 'Accounting Research Methods', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: 3rd Year Standing', 'Business', 'Bachelor of Science in Information Technology', '3rd Year', '2026-03-03 01:44:07', 0),
+(598, 'ELEC1-BSA', 'Updates in Financial Reporting and Standards (Elective 1)', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSA', '3rd Year', '2026-03-03 01:44:07', 0),
+(599, 'APE108', 'Accounting for Government and Non-profit Organizations', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: AEC108', 'Business', 'BSA', '3rd Year', '2026-03-03 01:44:07', 0),
+(600, 'APE107', 'Accounting for Business Combinations', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: All prior BME and AEC subjects', 'Business', 'BSA', '3rd Year', '2026-03-03 01:44:07', 0),
+(601, 'AEC114', 'Accounting Internship', 6, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, 'Summer, AY 2025-2026', 'Pre-requisite: All Prior Professional Subjects', 'Business', 'BSA', '3rd Year', '2026-03-03 01:44:07', 0),
+(602, 'APE101', 'Auditing and Assurance Principles', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: All Prior Professional Subjects', 'Business', 'BSA', '4th Year', '2026-03-03 01:44:07', 0),
+(603, 'APE102', 'Auditing and Assurance: Concepts and Applications 1', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: All Prior Professional Subjects', 'Business', 'BSA', '4th Year', '2026-03-03 01:44:07', 0),
+(604, 'APE103', 'Auditing and Assurance: Concepts and Applications 2', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: All Prior Professional Subjects', 'Business', 'BSA', '4th Year', '2026-03-03 01:44:07', 0),
+(605, 'AEC106', 'Accountancy Research', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: AEC104', 'Business', '2-Yrs. Tourism, Hotel and Restaurant Operations', '4th Year', '2026-03-03 01:44:07', 0),
+(606, 'APE106', 'Accounting for Special Transactions', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: All Prior Professional Subjects', 'Business', 'BSA', '4th Year', '2026-03-03 01:44:07', 0),
+(607, 'APE109', 'Financial Accounting and Reporting Integration', 6, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: All Prior Professional Subjects', 'Business', 'BSA', '4th Year', '2026-03-03 01:44:07', 0),
+(608, 'APE111', 'Taxation Integration', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: All Prior Professional Subjects', 'Business', 'BSA', '4th Year', '2026-03-03 01:44:07', 0),
+(609, 'APE112', 'Regulatory Framework for Business Transactions Integration', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: All Prior Professional Subjects', 'Business', 'BSA', '4th Year', '2026-03-03 01:44:07', 0),
+(610, 'APE113', 'Management Advisory Services Integration', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: All Prior Professional Subjects', 'Business', 'BSA', '4th Year', '2026-03-03 01:44:07', 0),
+(611, 'APE104', 'Auditing and Assurance: Specialized Industries', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: All Prior Professional Subjects', 'Business', 'BSA', '4th Year', '2026-03-03 01:44:07', 0),
+(612, 'APE105', 'Auditing in a CIS Environment', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: All Prior Professional Subjects', 'Business', 'BSA', '4th Year', '2026-03-03 01:44:07', 0),
+(613, 'GE100-CA', 'Conversational English and Personality Development', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSCA', '1st Year', '2026-03-03 01:44:07', 0),
+(614, 'GE105-CA', 'Mathematics in the Modern World', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSCA', '1st Year', '2026-03-03 01:44:07', 0),
+(615, 'GE108-CA', 'Ethics', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSCA', '1st Year', '2026-03-03 01:44:07', 0),
+(616, 'GE104-CA', 'Readings in the Philippine History', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSCA', '1st Year', '2026-03-03 01:44:07', 0),
+(617, 'SCP101', 'Introduction to Supply Chain Management', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSCA', '1st Year', '2026-03-03 01:44:07', 0),
+(618, 'BSNA102-CA', 'Organization and Management', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSCA', '1st Year', '2026-03-03 01:44:07', 0),
+(619, 'PE1-CA', 'PATHFit 1 (Movement Competency Training)', 2, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSCA', '1st Year', '2026-03-03 01:44:07', 0),
+(620, 'NSTP1-CA', 'NSTP 1', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSCA', '1st Year', '2026-03-03 01:44:07', 0),
+(621, 'GE103-CA', 'Art Appreciation', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSCA', '1st Year', '2026-03-03 01:44:07', 0),
+(622, 'GE101-CA', 'Purposive Communication', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSCA', '1st Year', '2026-03-03 01:44:07', 0),
+(623, 'GE109-CA', 'Understanding the Self', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSCA', '1st Year', '2026-03-03 01:44:07', 0),
+(624, 'TMC100', 'Fundamentals of Customs and Tariff System', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSCA', '1st Year', '2026-03-03 01:44:07', 0),
+(625, 'SCP102', 'Warehouse Operations Management', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: SCP101', 'Business', 'BSCA', '1st Year', '2026-03-03 01:44:07', 0),
+(626, 'BSNA101-CA', 'Fundamentals of Accounting, Business and Management', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSCA', '1st Year', '2026-03-03 01:44:07', 0),
+(627, 'PE2-CA', 'PATHFit 2 (Exercise-Based Fitness Activities)', 2, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSCA', '1st Year', '2026-03-03 01:44:07', 0),
+(628, 'NSTP2-CA', 'NSTP 2', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSCA', '1st Year', '2026-03-03 01:44:07', 0),
+(629, 'BLT100', 'Business Law (Obligations and Contracts, Negotiable Instruments Law, Intellectual Property Law and Insurance Law)', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: BSNA102', 'Business', 'BSCA', '2nd Year', '2026-03-03 01:44:07', 0),
+(630, 'CMC100', 'Border Control and Security', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: TMC100', 'Business', 'BSCA', '2nd Year', '2026-03-03 01:44:07', 0),
+(631, 'SCP103', 'Procurement and Inventory Management', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: SCP101', 'Business', 'BSCA', '2nd Year', '2026-03-03 01:44:07', 0),
+(632, 'CMC101', 'Customs Operations and Cargo Handling', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: TMC100', 'Business', 'BSCA', '2nd Year', '2026-03-03 01:44:07', 0),
+(633, 'TMC101', 'Commodity Classification System', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: TMC100', 'Business', 'BSCA', '2nd Year', '2026-03-03 01:44:07', 0),
+(634, 'TMC106', 'International Trade Organizations, Agreements and Rules of Origin', 5, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: TMC100', 'Business', 'BSCA', '2nd Year', '2026-03-03 01:44:07', 0),
+(635, 'BSNA103-CA', 'Business Marketing', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: BSNA102', 'Business', 'BSCA', '2nd Year', '2026-03-03 01:44:07', 0),
+(636, 'PE3-CA', 'PATHFit 3 (Group Exercise)', 2, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSCA', '2nd Year', '2026-03-03 01:44:07', 0),
+(637, 'BLT101', 'Taxation (Income and Business Taxation)', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: BSNA101', 'Business', 'BSCA', '2nd Year', '2026-03-03 01:44:07', 0),
+(638, 'GE116-CA', 'World Literature', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSCA', '2nd Year', '2026-03-03 01:44:07', 0),
+(639, 'GE107-CA', 'The Contemporary World', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSCA', '2nd Year', '2026-03-03 01:44:07', 0),
+(640, 'SCP104', 'Transportation Management', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: SCP101', 'Business', 'BSCA', '2nd Year', '2026-03-03 01:44:07', 0),
+(641, 'CMC102', 'Customs Warehousing', 5, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: CMC101', 'Business', 'BSCA', '2nd Year', '2026-03-03 01:44:07', 0),
+(642, 'TMC102', 'Customs Valuation System', 5, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: TMC106', 'Business', 'BSCA', '2nd Year', '2026-03-03 01:44:07', 0),
+(643, 'BSNA104-CA', 'Business Finance', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: BSNA101', 'Business', 'BSCA', '2nd Year', '2026-03-03 01:44:07', 0),
+(644, 'PE4-CA', 'PATHFit 4 (Dance)', 2, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSCA', '2nd Year', '2026-03-03 01:44:07', 0),
+(645, 'GE115-CA', 'Philippine Literature', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSCA', '3rd Year', '2026-03-03 01:44:07', 0),
+(646, 'GE110-CA', 'Rizal\'s Life and Works', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSCA', '3rd Year', '2026-03-03 01:44:07', 0),
+(647, 'CMC106', 'Ethics and Standards of the Customs Broker', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSCA', '3rd Year', '2026-03-03 01:44:07', 0),
+(648, 'CMC103', 'Customs Clearance', 5, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: All Prior CMC', 'Business', 'BSCA', '3rd Year', '2026-03-03 01:44:07', 0),
+(649, 'TMC103', 'Customs Appraisal and Assessment', 5, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: TMC102', 'Business', 'BSCA', '3rd Year', '2026-03-03 01:44:07', 0),
+(650, 'BME100-CA', 'Operations Management', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: All BSNA', 'Business', 'BSCA', '3rd Year', '2026-03-03 01:44:07', 0),
+(651, 'BME101-CA', 'Strategic Management', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: All BSNA', 'Business', 'BSCA', '3rd Year', '2026-03-03 01:44:07', 0),
+(652, 'GE106-CA', 'Science, Technology and Society', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSCA', '3rd Year', '2026-03-03 01:44:07', 0),
+(653, 'CMC105', 'Customs Post Clearance Audit and Fraud Detection', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: All Prior CMC', 'Business', 'BSCA', '3rd Year', '2026-03-03 01:44:07', 0),
+(654, 'CMC104', 'Customs Proceedings', 5, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: All Prior CMC', 'Business', 'BSCA', '3rd Year', '2026-03-03 01:44:07', 0),
+(655, 'TMC105', 'Special Duties and Trade Remedies', 5, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: All Prior TMC', 'Business', 'BSCA', '3rd Year', '2026-03-03 01:44:07', 0),
+(656, 'TMC104', 'Excise Taxes, Liquidation of Duty and Surcharges', 5, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: All Prior TMC', 'Business', 'BSCA', '3rd Year', '2026-03-03 01:44:07', 0),
+(657, 'CMC107', 'Competency Assessment in Customs Management', 5, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: All Prior CMC', 'Business', 'BSCA', '4th Year', '2026-03-03 01:44:07', 0),
+(658, 'TMC107', 'Competency Assessment in Tariff Management', 5, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: All Prior TMC', 'Business', 'BSCA', '4th Year', '2026-03-03 01:44:07', 0),
+(659, 'RSH100', 'Research 1', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: 4th Year Standing', 'Business', 'BSCA', '4th Year', '2026-03-03 01:44:07', 0),
+(660, 'RSH101', 'Research 2', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: RSH100', 'Business', 'BSCA', '4th Year', '2026-03-03 01:44:07', 0),
+(661, 'OJT100', 'Internship', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: 4th Year Standing', 'Business', 'BSCA', '4th Year', '2026-03-03 01:44:07', 0),
+(662, 'BME102-E', 'International Business and Trade', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSE', '1st Year', '2026-03-03 01:44:07', 0),
+(663, 'GE100-E', 'Conversational English and Personality Development', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSE', '1st Year', '2026-03-03 01:44:07', 0),
+(664, 'GE105-E', 'Mathematics in the Modern World', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSE', '1st Year', '2026-03-03 01:44:07', 0),
+(665, 'GE108-E', 'Ethics', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSE', '1st Year', '2026-03-03 01:44:07', 0),
+(666, 'ECS101', 'Entrepreneurial Behavior', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSE', '1st Year', '2026-03-03 01:44:07', 0),
+(667, 'BSNA102-E', 'Organization and Management', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSE', '1st Year', '2026-03-03 01:44:07', 0),
+(668, 'PE1-E', 'Physical Education 1 (Aquatics)', 2, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSE', '1st Year', '2026-03-03 01:44:07', 0),
+(669, 'NSTP1-E', 'NSTP 1', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSE', '1st Year', '2026-03-03 01:44:07', 0),
+(670, 'GE101-E', 'Purposive Communication', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSE', '1st Year', '2026-03-03 01:44:07', 0),
+(671, 'BSNA101-E', 'Fundamentals of Accounting, Business and Management', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSE', '1st Year', '2026-03-03 01:44:07', 0),
+(672, 'ECS102', 'Opportunity Seeking', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSE', '1st Year', '2026-03-03 01:44:07', 0),
+(673, 'GE109-E', 'Understanding the Self', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSE', '1st Year', '2026-03-03 01:44:07', 0),
+(674, 'ECS108', 'Microeconomics', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSE', '1st Year', '2026-03-03 01:44:07', 0),
+(675, 'PE2-E', 'Physical Education 2 (Outdoor Pursuits and Contemporary Activities)', 2, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSE', '1st Year', '2026-03-03 01:44:07', 0),
+(676, 'NSTP2-E', 'NSTP 2', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSE', '1st Year', '2026-03-03 01:44:07', 0),
+(677, 'BME103-E', 'Human Resource Management', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: BSNA102', 'Business', 'BSE', '2nd Year', '2026-03-03 01:44:07', 0),
+(678, 'ECS107', 'Market Research and Consumer Behavior', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: ECS102', 'Business', 'BSE', '2nd Year', '2026-03-03 01:44:07', 0),
+(679, 'ECS109', 'Business Law and Taxation', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: ECS102', 'Business', 'BSE', '2nd Year', '2026-03-03 01:44:07', 0),
+(680, 'ECS114', 'Programs and Policies on Enterprise Development', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: ECS102', 'Business', 'BSE', '2nd Year', '2026-03-03 01:44:07', 0),
+(681, 'BSNA103-E', 'Business Marketing', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: BSNA102', 'Business', 'BSE', '2nd Year', '2026-03-03 01:44:07', 0),
+(682, 'BME104', 'Basic Accounting', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: BSNA101', 'Business', 'BSE', '2nd Year', '2026-03-03 01:44:07', 0),
+(683, 'PE3-E', 'Physical Education 3 (Exercises for Fitness)', 2, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSE', '2nd Year', '2026-03-03 01:44:07', 0),
+(684, 'GE103-E', 'Art Appreciation', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSE', '2nd Year', '2026-03-03 01:44:07', 0),
+(685, 'GE116-E', 'World Literature', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSE', '2nd Year', '2026-03-03 01:44:07', 0),
+(686, 'ECS111', 'Pricing and Costing', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSE', '2nd Year', '2026-03-03 01:44:07', 0),
+(687, 'BSNA104-E', 'Business Finance', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: ECS109', 'Business', 'BSE', '2nd Year', '2026-03-03 01:44:07', 0),
+(688, 'PE4-E', 'Physical Education 4 (Endurance Exercises through Dance)', 2, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: BSNA101', 'Business', 'BSE', '2nd Year', '2026-03-03 01:44:07', 0),
+(689, 'GE104-E', 'Readings in the Philippine History', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSE', '3rd Year', '2026-03-03 01:44:07', 0),
+(690, 'GE110-E', 'Rizal\'s Life and Works', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSE', '3rd Year', '2026-03-03 01:44:07', 0),
+(691, 'BME100-E', 'Operations Management (Total Quality Management)', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: BSNA102', 'Business', 'BSE', '3rd Year', '2026-03-03 01:44:07', 0),
+(692, 'GE115-E', 'Philippine Literature', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSE', '3rd Year', '2026-03-03 01:44:07', 0),
+(693, 'EST101', 'Specialized Track 1', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: ECS114', 'Business', 'BSE', '3rd Year', '2026-03-03 01:44:07', 0),
+(694, 'EEC101', 'Elective 1 (Supply Chain Management)', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: ECS102', 'Business', 'BSE', '3rd Year', '2026-03-03 01:44:07', 0),
+(695, 'ECS112', 'Innovation and Management', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSE', '3rd Year', '2026-03-03 01:44:07', 0),
+(696, 'GE106-E', 'Science, Technology and Society', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSE', '3rd Year', '2026-03-03 01:44:07', 0),
+(697, 'GE107-E', 'The Contemporary World', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSE', '3rd Year', '2026-03-03 01:44:07', 0),
+(698, 'EST102', 'Specialized Track 2', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: EST101', 'Business', 'BSE', '3rd Year', '2026-03-03 01:44:07', 0),
+(699, 'EEC102', 'Elective 2 (E-Commerce)', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: ECS102', 'Business', 'BSE', '3rd Year', '2026-03-03 01:44:07', 0),
+(700, 'ECS103', 'Business Plan Preparation', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: 3rd Year Standing', 'Business', 'BSE', '3rd Year', '2026-03-03 01:44:07', 0),
+(701, 'ECS110', 'Financial Management and Analysis for Decision Making', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: BSNA104', 'Business', 'BSE', '3rd Year', '2026-03-03 01:44:07', 0),
+(702, 'ECS113', 'Social Entrepreneurship', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSE', '3rd Year', '2026-03-03 01:44:07', 0),
+(703, 'BME101-E', 'Strategic Management', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: BME100', 'Business', 'BSE', '4th Year', '2026-03-03 01:44:07', 0),
+(704, 'EST103', 'Specialized Track 3', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: EST102', 'Business', 'BSE', '4th Year', '2026-03-03 01:44:07', 0),
+(705, 'EEC103', 'Elective 3 (Hospitality Management)', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: ECS102', 'Business', 'BSE', '4th Year', '2026-03-03 01:44:07', 0),
+(706, 'ECS104', 'Business Plan Implementation 1 (Product Development and Market Analysis)', 5, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: 4th Year Standing', 'Business', 'BSE', '4th Year', '2026-03-03 01:44:07', 0),
+(707, 'EST104', 'Specialized Track 4', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: EST103', 'Business', 'BSE', '4th Year', '2026-03-03 01:44:07', 0),
+(708, 'EEC104', 'Elective 4 (Managing a Service Enterprise)', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: ECS102', 'Business', 'BSE', '4th Year', '2026-03-03 01:44:07', 0),
+(709, 'ECS105', 'Business Plan Implementation 2', 5, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: 4th Year Standing', 'Business', 'BSE', '4th Year', '2026-03-03 01:44:07', 0),
+(710, 'RE-FUN013', 'Fundamentals of Real Estate Management', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSREM', '1st Year', '2026-03-03 01:44:07', 0),
+(711, 'GE-ENG013', 'Conversational English Competency', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSREM', '1st Year', '2026-03-03 01:44:07', 0),
+(712, 'GE-FIL013', 'Komunikasyon Sa Akademikong Filipino', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSREM', '1st Year', '2026-03-03 01:44:07', 0),
+(713, 'GE-MAT013', 'College Algebra - Math 1', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSREM', '1st Year', '2026-03-03 01:44:07', 0),
+(714, 'RE-TAX013', 'Business and Real Estate Taxation', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSREM', '1st Year', '2026-03-03 01:44:07', 0),
+(715, 'AC-TAX013', 'Economics with Taxation and Land Reform', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSREM', '1st Year', '2026-03-03 01:44:07', 0),
+(716, 'GE-NSC013', 'Biological Science', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSREM', '1st Year', '2026-03-03 01:44:07', 0),
+(717, 'RE-HGP013', 'Human and Physical Geography', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSREM', '1st Year', '2026-03-03 01:44:07', 0),
+(718, 'GE-PHE012', 'Recreational Activities', 2, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSREM', '1st Year', '2026-03-03 01:44:07', 0),
+(719, 'GE-NST013', 'National Service Training Program 1', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSREM', '1st Year', '2026-03-03 01:44:07', 0),
+(720, 'BN-MGT013', 'Principles of Management', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSREM', '1st Year', '2026-03-03 01:44:07', 0),
+(721, 'RE-REC013', 'Fundamentals of Real Estate Consulting', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: RE-FUN013', 'Business', 'BSREM', '1st Year', '2026-03-03 01:44:07', 0),
+(722, 'LW-BSN013', 'Law on Obligations and Contracts with Real Properties', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSREM', '1st Year', '2026-03-03 01:44:07', 0),
+(723, 'GE-NSC023', 'Environment and Greenbuilding Technology', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: GE-NSC013', 'Business', 'BSREM', '1st Year', '2026-03-03 01:44:07', 0),
+(724, 'GE-ENG023', 'Grammar and Composition', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: GE-ENG013', 'Business', 'BSREM', '1st Year', '2026-03-03 01:44:07', 0),
+(725, 'RE-PAD013', 'Real Estate Planning and Development', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: RE-REA013', 'Business', 'BSREM', '1st Year', '2026-03-03 01:44:07', 0),
+(726, 'RE-REB013', 'Real Estate Brokerage', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSREM', '1st Year', '2026-03-03 01:44:07', 0),
+(727, 'GE-FIL023', 'Pagbasa at Pagsulat Tungo sa Pananaliksik', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: GE-FIL013', 'Business', 'BSREM', '1st Year', '2026-03-03 01:44:07', 0),
+(728, 'GE-PHE032', 'Individual and Team Sports', 2, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSREM', '1st Year', '2026-03-03 01:44:07', 0),
+(729, 'GE-NST023', 'National Service Training Program 2', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: GE-NST013', 'Business', 'BSREM', '1st Year', '2026-03-03 01:44:07', 0),
+(730, 'BN-MKT013', 'Principles of Marketing', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: BN-MGT013', 'Business', 'BSREM', '2nd Year', '2026-03-03 01:44:07', 0),
+(731, 'RE-LAR013', 'Legal Aspects of Real Estate', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: LW-BSN013', 'Business', 'BSREM', '2nd Year', '2026-03-03 01:44:07', 0),
+(732, 'GE-BAC013', 'Basic Accounting 1', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSREM', '2nd Year', '2026-03-03 01:44:07', 0),
+(733, 'RE-CSE013', 'Consulting for Specific Engagements', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: RE-REC013', 'Business', 'BSREM', '2nd Year', '2026-03-03 01:44:07', 0),
+(734, 'BN-ECO013', 'Macroeconomics and Microeconomics Theory and Practice', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSREM', '2nd Year', '2026-03-03 01:44:07', 0),
+(735, 'RE-REA013', 'Real Estate Appraisal and Property Management', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: RE-PAD013', 'Business', 'BSREM', '2nd Year', '2026-03-03 01:44:07', 0),
+(736, 'IT-CSA013', 'Computer Software Application', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSREM', '2nd Year', '2026-03-03 01:44:07', 0),
+(737, 'GE-ENG033', 'Business Correspondence and Technical Writing', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: GE-ENG023', 'Business', 'BSREM', '2nd Year', '2026-03-03 01:44:07', 0),
+(738, 'GE-PHE052', 'Rhythmic Activities', 2, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSREM', '2nd Year', '2026-03-03 01:44:07', 0),
+(739, 'BN-FIN013', 'Basic Finance', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSREM', '2nd Year', '2026-03-03 01:44:07', 0),
+(740, 'RE-MKB013', 'Real Estate Marketing and Brokerage', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: BN-MKT013', 'Business', 'BSREM', '2nd Year', '2026-03-03 01:44:07', 0),
+(741, 'RE-CIA013', 'Real Estate Consulting and Investments Analysis', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: RE-REC013', 'Business', 'BSREM', '2nd Year', '2026-03-03 01:44:07', 0),
+(742, 'RE-PVS013', 'Philippine Valuation Studies for Real Estate', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSREM', '2nd Year', '2026-03-03 01:44:07', 0),
+(743, 'GE-SCF013', 'Society and Culture with Family Planning', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSREM', '2nd Year', '2026-03-03 01:44:07', 0),
+(744, 'RE-POE013', 'Principles of Ecology', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: GE-NSC013', 'Business', 'BSREM', '2nd Year', '2026-03-03 01:44:07', 0),
+(745, 'GE-PSY013', 'General Psychology with Drug Education, SARS, HIV/AIDS', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSREM', '2nd Year', '2026-03-03 01:44:07', 0),
+(746, 'GE-BAC023', 'Basic Accounting 2', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: GE-BAC013', 'Business', 'BSREM', '2nd Year', '2026-03-03 01:44:07', 0),
+(747, 'GE-PHE062', 'Sports and Games', 2, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSREM', '2nd Year', '2026-03-03 01:44:07', 0),
+(748, 'IT-DBM013', 'Database Management System 1', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: IT-CSA013', 'Business', 'BSREM', '3rd Year', '2026-03-03 01:44:07', 0),
+(749, 'RE-PM013', 'Property Management System 1', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: BN-MGT013', 'Business', 'BSREM', '3rd Year', '2026-03-03 01:44:07', 0),
+(750, 'GE-GCR013', 'Good Governance and Corporate Responsibility', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: BN-MGT013', 'Business', 'BSREM', '3rd Year', '2026-03-03 01:44:07', 0),
+(751, 'RE-HSD013', 'Housing and Subdivision Development', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: RE-PMS013', 'Business', 'BSREM', '3rd Year', '2026-03-03 01:44:07', 0),
+(752, 'GE-MAT053', 'Business Statistics', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: GE-MAT013', 'Business', 'BSREM', '3rd Year', '2026-03-03 01:44:07', 0),
+(753, 'GE-LCT013', 'Logic and Critical Thinking', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSREM', '3rd Year', '2026-03-03 01:44:07', 0),
+(754, 'RE-AGS013', 'Appraisal/Assessment in Government Sector', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: BN-FIN013', 'Business', 'BSREM', '3rd Year', '2026-03-03 01:44:07', 0),
+(755, 'RE-REF013', 'Real Estate Finance', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: BN-FIN013', 'Business', 'BSREM', '3rd Year', '2026-03-03 01:44:07', 0),
+(756, 'GE-PHC013', 'Philippine History and Culture', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSREM', '3rd Year', '2026-03-03 01:44:07', 0),
+(757, 'RE-ARD013', 'Appraisal Report and Data Gathering', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: RE-PVS013', 'Business', 'BSREM', '3rd Year', '2026-03-03 01:44:07', 0),
+(758, 'RE-ESP013', 'Ethical Standards for Real Estate Practice', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: BN-HBO013', 'Business', 'BSREM', '3rd Year', '2026-03-03 01:44:07', 0),
+(759, 'RE-REE013', 'Real Estate Economics', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: BN-ECO013', 'Business', 'BSREM', '3rd Year', '2026-03-03 01:44:07', 0),
+(760, 'RE-CCD013', 'Condominium Concept and other Specialized Development', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: RE-PMS013', 'Business', 'BSREM', '3rd Year', '2026-03-03 01:44:07', 0),
+(761, 'BN-HRM013', 'Human Resource Management', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: BN-HBO013', 'Business', 'BSREM', '3rd Year', '2026-03-03 01:44:07', 0),
+(762, 'GE-APA013', 'Appreciation of Arts', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Business', 'BSREM', '3rd Year', '2026-03-03 01:44:07', 0),
+(763, 'GE-LWR013', 'Life and Works of Rizal', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: GE-PHC013', 'Business', 'BSREM', '3rd Year', '2026-03-03 01:44:07', 0),
+(764, 'BN-HBO013', 'Human Behavior in Organization', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: BN-MGT013', 'Business', 'BSREM', '3rd Year', '2026-03-03 01:44:07', 0),
+(765, 'GE-ENG053', 'Philippine Literature', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: GE-ENG023', 'Business', 'BSREM', '3rd Year', '2026-03-03 01:44:07', 0),
+(766, 'RE-INR015', 'Integration and Review for Real Estate', 5, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: All Prior Major Subjects', 'Business', 'BSREM', '4th Year', '2026-03-03 01:44:07', 0),
+(767, 'GE-OJT013', 'On-the-Job Training (600 hours)', 6, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: All Prior Major Subjects', 'Business', 'BSREM', '4th Year', '2026-03-03 01:44:07', 0),
+(768, 'CC100', 'Introduction to Computing', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Computer Information Multimedia Technology', '1st Year', '2026-03-03 01:44:07', 0),
+(769, 'CC101', 'Computer Programming 1', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Computer Information Multimedia Technology', '1st Year', '2026-03-03 01:44:07', 0),
+(770, 'IT-CMT015', 'Computer Organization and Maintenance', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Computer Information Multimedia Technology', '1st Year', '2026-03-03 01:44:07', 0),
+(771, 'GE105-CIMT', 'Mathematics in the Modern World', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Computer Information Multimedia Technology', '1st Year', '2026-03-03 01:44:07', 0),
+(772, 'GE100-CIMT', 'Conversational English and Personality Development', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Computer Information Multimedia Technology', '1st Year', '2026-03-03 01:44:07', 0),
+(773, 'GE112', 'Pilipino: Retorika', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Computer Information Multimedia Technology', '1st Year', '2026-03-03 01:44:07', 0),
+(774, 'PE1-CIMT', 'Physical Education 1 (Aquatic)', 2, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Computer Information Multimedia Technology', '1st Year', '2026-03-03 01:44:07', 0),
+(775, 'NSTP1-CIMT', 'National Service Training Program 1', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Computer Information Multimedia Technology', '1st Year', '2026-03-03 01:44:07', 0),
+(776, 'EMC200', 'Free Hand and Digital Drawing', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Computer Information Multimedia Technology', '1st Year', '2026-03-03 01:44:07', 0),
+(777, 'CC102', 'Computer Programming 2', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Computer Information Multimedia Technology', '1st Year', '2026-03-03 01:44:07', 0),
+(778, 'GE113', 'Pilipino: Pagsasalingwika', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Computer Information Multimedia Technology', '1st Year', '2026-03-03 01:44:07', 0),
+(779, 'GE101-CIMT', 'Purposive Communication', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Computer Information Multimedia Technology', '1st Year', '2026-03-03 01:44:07', 0);
+INSERT INTO `courses` (`id`, `code`, `name`, `credits`, `instructor`, `faculty_id`, `schedule`, `day`, `time`, `room`, `capacity`, `enrolled_count`, `semester`, `description`, `department`, `program`, `year_level`, `created_at`, `is_lab`) VALUES
+(780, 'GE116-CIMT', 'World Literature', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Computer Information Multimedia Technology', '1st Year', '2026-03-03 01:44:07', 0),
+(781, 'GE109-CIMT', 'Understanding the Self', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Computer Information Multimedia Technology', '1st Year', '2026-03-03 01:44:07', 0),
+(782, 'PE2-CIMT', 'Physical Education 2 (Outdoor Pursuits and Contemporary Activities)', 2, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Computer Information Multimedia Technology', '1st Year', '2026-03-03 01:44:07', 0),
+(783, 'NSTP2-CIMT', 'National Service Training Program 2', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Computer Information Multimedia Technology', '1st Year', '2026-03-03 01:44:07', 0),
+(784, 'CC103', 'Data Structures and Algorithms', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Computer Information Multimedia Technology', '2nd Year', '2026-03-03 01:44:07', 0),
+(785, 'CC105', 'Application Development and Emerging Technologies', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Computer Information Multimedia Technology', '2nd Year', '2026-03-03 01:44:07', 0),
+(786, 'IT105', 'Discrete Mathematics', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Computer Information Multimedia Technology', '2nd Year', '2026-03-03 01:44:07', 0),
+(787, 'GE108-CIMT', 'Ethics', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Computer Information Multimedia Technology', '2nd Year', '2026-03-03 01:44:07', 0),
+(788, 'ELEC400', 'Object Oriented Programming', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Computer Information Multimedia Technology', '2nd Year', '2026-03-03 01:44:07', 0),
+(789, 'GE110-CIMT', 'Rizal\'s Life and Works', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Computer Information Multimedia Technology', '2nd Year', '2026-03-03 01:44:07', 0),
+(790, 'CAP501', 'Capstone Project', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Computer Information Multimedia Technology', '2nd Year', '2026-03-03 01:44:07', 0),
+(791, 'EMC203', 'Usability, HCI, and User Interaction Design', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Computer Information Multimedia Technology', '2nd Year', '2026-03-03 01:44:07', 0),
+(792, 'PE3-CIMT', 'Physical Education 3 (Exercises for Fitness)', 2, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Computer Information Multimedia Technology', '2nd Year', '2026-03-03 01:44:07', 0),
+(793, 'CC104', 'Information Management', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Computer Information Multimedia Technology', '2nd Year', '2026-03-03 01:44:07', 0),
+(794, 'IT103', 'Fundamentals of Database Systems', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Computer Information Multimedia Technology', '2nd Year', '2026-03-03 01:44:07', 0),
+(795, 'IT107', 'Networking 1', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Computer Information Multimedia Technology', '2nd Year', '2026-03-03 01:44:07', 0),
+(796, 'EMC202', 'Computer Graphics Programming', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Computer Information Multimedia Technology', '2nd Year', '2026-03-03 01:44:07', 0),
+(797, 'GE114', 'Pilipino: Tula, Sanaysay, Nobela', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Computer Information Multimedia Technology', '2nd Year', '2026-03-03 01:44:07', 0),
+(798, 'GE103-CIMT', 'Art Appreciation', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Computer Information Multimedia Technology', '2nd Year', '2026-03-03 01:44:07', 0),
+(799, 'OJT-CIMT', 'Internship', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Computer Information Multimedia Technology', '2nd Year', '2026-03-03 01:44:07', 0),
+(800, 'EMC204', 'Principles of 2D Animation', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Computer Information Multimedia Technology', '2nd Year', '2026-03-03 01:44:07', 0),
+(801, 'PE4-CIMT', 'Physical Education 4 (Endurance Exercises through Dance)', 2, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Computer Information Multimedia Technology', '2nd Year', '2026-03-03 01:44:07', 0),
+(802, 'CC100-IT', 'Introduction to Computing', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 3, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Bachelor of Science in Information Technology', '1st Year', '2026-03-03 01:44:07', 0),
+(803, 'CC101-IT', 'Computer Programming 1', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 4, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Bachelor of Science in Information Technology', '1st Year', '2026-03-03 01:44:07', 0),
+(804, 'IT-CMT015-IT', 'Computer Organization and Maintenance', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 5, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Bachelor of Science in Information Technology', '1st Year', '2026-03-03 01:44:07', 0),
+(805, 'GE105-IT', 'Mathematics in the Modern World', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 4, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Bachelor of Science in Information Technology', '1st Year', '2026-03-03 01:44:07', 0),
+(806, 'GE100-IT', 'Conversational English and Personality Development', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 5, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Bachelor of Science in Information Technology', '1st Year', '2026-03-03 01:44:07', 0),
+(807, 'PE1-IT', 'Physical Education 1 (Aquatic)', 2, NULL, NULL, NULL, NULL, NULL, NULL, 40, 3, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Bachelor of Science in Information Technology', '1st Year', '2026-03-03 01:44:07', 0),
+(808, 'NSTP1-IT', 'National Service Training Program 1', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 3, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Bachelor of Science in Information Technology', '1st Year', '2026-03-03 01:44:07', 0),
+(809, 'IT100', 'Introduction to Human Computer Interaction', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Bachelor of Science in Information Technology', '1st Year', '2026-03-03 01:44:07', 0),
+(810, 'CC102-IT', 'Computer Programming 2', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Bachelor of Science in Information Technology', '1st Year', '2026-03-03 01:44:07', 0),
+(811, 'IS103', 'IT Infrastructure and Network Technologies', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Bachelor of Science in Information Technology', '1st Year', '2026-03-03 01:44:07', 0),
+(812, 'GE101-IT', 'Purposive Communication', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Bachelor of Science in Information Technology', '1st Year', '2026-03-03 01:44:07', 0),
+(813, 'GE109-IT', 'Understanding the Self', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Bachelor of Science in Information Technology', '1st Year', '2026-03-03 01:44:07', 0),
+(814, 'PE2-IT', 'Physical Education 2 (Outdoor Pursuits and Contemporary Activities)', 2, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Bachelor of Science in Information Technology', '1st Year', '2026-03-03 01:44:07', 0),
+(815, 'NSTP2-IT', 'National Service Training Program 2', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Bachelor of Science in Information Technology', '1st Year', '2026-03-03 01:44:07', 0),
+(816, 'CC103-IT', 'Data Structures and Algorithms', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Bachelor of Science in Information Technology', '2nd Year', '2026-03-03 01:44:07', 0),
+(817, 'CC105-IT', 'Application Development and Emerging Technologies', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Bachelor of Science in Information Technology', '2nd Year', '2026-03-03 01:44:07', 0),
+(818, 'IT105-IT', 'Discrete Mathematics', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Bachelor of Science in Information Technology', '2nd Year', '2026-03-03 01:44:07', 0),
+(819, 'GE108-IT', 'Ethics', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Bachelor of Science in Information Technology', '2nd Year', '2026-03-03 01:44:07', 0),
+(820, 'ELEC400-IT', 'Object-Oriented Programming', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Bachelor of Science in Information Technology', '2nd Year', '2026-03-03 01:44:07', 0),
+(821, 'GE110-IT', 'Rizal\'s Life and Works', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Bachelor of Science in Information Technology', '2nd Year', '2026-03-03 01:44:07', 0),
+(822, 'EMC203-IT', 'Usability, HCI, and User Interaction Design', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Bachelor of Science in Information Technology', '2nd Year', '2026-03-03 01:44:07', 0),
+(823, 'PE3-IT', 'Physical Education 3 (Exercises for Fitness)', 2, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Bachelor of Science in Information Technology', '2nd Year', '2026-03-03 01:44:07', 0),
+(824, 'CC104-IT', 'Information Management', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Bachelor of Science in Information Technology', '2nd Year', '2026-03-03 01:44:07', 0),
+(825, 'IT103-IT', 'Fundamentals of Database Systems', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Bachelor of Science in Information Technology', '2nd Year', '2026-03-03 01:44:07', 0),
+(826, 'IT107-IT', 'Networking 1', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Bachelor of Science in Information Technology', '2nd Year', '2026-03-03 01:44:07', 0),
+(827, 'GE103-IT', 'Art Appreciation', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Bachelor of Science in Information Technology', '2nd Year', '2026-03-03 01:44:07', 0),
+(828, 'GE116-IT', 'World Literature', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Bachelor of Science in Information Technology', '2nd Year', '2026-03-03 01:44:07', 0),
+(829, 'PE4-IT', 'Physical Education 4 (Endurance Exercises through Dance)', 2, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Bachelor of Science in Information Technology', '2nd Year', '2026-03-03 01:44:07', 0),
+(830, 'IT104', 'Integrative Programming and Technologies 1', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Bachelor of Science in Information Technology', '3rd Year', '2026-03-03 01:44:07', 0),
+(831, 'IT101', 'Information Assurance and Security 1', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Bachelor of Science in Information Technology', '3rd Year', '2026-03-03 01:44:07', 0),
+(832, 'IT108', 'Networking 2', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Bachelor of Science in Information Technology', '3rd Year', '2026-03-03 01:44:07', 0),
+(833, 'ELEC401', 'Multimedia Systems', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Bachelor of Science in Information Technology', '3rd Year', '2026-03-03 01:44:07', 0),
+(834, 'IT106', 'Quantitative Methods (including Modelling and Simulation)', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Bachelor of Science in Information Technology', '3rd Year', '2026-03-03 01:44:07', 0),
+(835, 'GE115-IT', 'Philippine Literature', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Bachelor of Science in Information Technology', '3rd Year', '2026-03-03 01:44:07', 0),
+(836, 'EMC207', 'Principles of 3D Animation', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Bachelor of Science in Information Technology', '3rd Year', '2026-03-03 01:44:07', 0),
+(837, 'GE111', 'Social and Professional Issues', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Bachelor of Science in Information Technology', '3rd Year', '2026-03-03 01:44:07', 0),
+(838, 'IT102', 'Information Assurance and Security 2', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Bachelor of Science in Information Technology', '3rd Year', '2026-03-03 01:44:07', 0),
+(839, 'IT110', 'System Integration and Architecture 1', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Bachelor of Science in Information Technology', '3rd Year', '2026-03-03 01:44:07', 0),
+(840, 'ELEC103', 'Platform Technologies', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Bachelor of Science in Information Technology', '3rd Year', '2026-03-03 01:44:07', 0),
+(841, 'GE104-IT', 'Readings in Philippine History', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Bachelor of Science in Information Technology', '3rd Year', '2026-03-03 01:44:07', 0),
+(842, 'GE106-IT', 'Science, Technology, and Society', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Bachelor of Science in Information Technology', '3rd Year', '2026-03-03 01:44:07', 0),
+(843, 'GE107-IT', 'The Contemporary World', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Bachelor of Science in Information Technology', '3rd Year', '2026-03-03 01:44:07', 0),
+(844, 'IT109', 'System Administration and Maintenance', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Bachelor of Science in Information Technology', '4th Year', '2026-03-03 01:44:07', 0),
+(845, 'DM101', 'Organization and Management Systems', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Bachelor of Science in Information Technology', '4th Year', '2026-03-03 01:44:07', 0),
+(846, 'ELEC403', 'Web Systems and Technology', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Bachelor of Science in Information Technology', '4th Year', '2026-03-03 01:44:07', 0),
+(847, 'CAP501-IT', 'Capstone Project', 6, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Bachelor of Science in Information Technology', '4th Year', '2026-03-03 01:44:07', 0),
+(848, 'OJT-BSIT', 'Internship (486 hours)', 9, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester, AY 2025-2026', 'Pre-requisite: None', 'Information Technology', 'Bachelor of Science in Information Technology', '4th Year', '2026-03-03 01:44:07', 0);
 
 -- --------------------------------------------------------
 
@@ -112,35 +470,13 @@ CREATE TABLE `enrollments` (
   `grade` varchar(5) DEFAULT NULL,
   `semester` varchar(50) DEFAULT NULL,
   `notes` varchar(255) DEFAULT NULL,
-  `created_at` timestamp NOT NULL DEFAULT current_timestamp()
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `prelim_grade` decimal(4,2) DEFAULT NULL,
+  `midterm_grade` decimal(4,2) DEFAULT NULL,
+  `final_grade` decimal(4,2) DEFAULT NULL,
+  `overall_grade` decimal(4,2) DEFAULT NULL,
+  `remarks` varchar(20) DEFAULT 'In Progress'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
---
--- Dumping data for table `enrollments`
---
-
-INSERT INTO `enrollments` (`id`, `student_id`, `course_id`, `enrollment_date`, `status`, `grade`, `semester`, `notes`, `created_at`) VALUES
-(383, 105, 1, '2026-03-02', 'Enrolled', NULL, '1st Semester, AY 2028-2029', 'Auto-enrolled', '2026-03-02 17:41:51'),
-(384, 105, 2, '2026-03-02', 'Enrolled', NULL, '1st Semester, AY 2028-2029', 'Auto-enrolled', '2026-03-02 17:41:51'),
-(385, 105, 3, '2026-03-02', 'Enrolled', NULL, '1st Semester, AY 2028-2029', 'Auto-enrolled', '2026-03-02 17:41:52'),
-(386, 105, 5, '2026-03-02', 'Enrolled', NULL, '1st Semester, AY 2028-2029', 'Auto-enrolled', '2026-03-02 17:41:52'),
-(387, 105, 19, '2026-03-02', 'Enrolled', NULL, '1st Semester, AY 2028-2029', 'Auto-enrolled', '2026-03-02 17:41:53'),
-(388, 105, 20, '2026-03-02', 'Enrolled', NULL, '1st Semester, AY 2028-2029', 'Auto-enrolled', '2026-03-02 17:41:53'),
-(389, 105, 24, '2026-03-02', 'Enrolled', NULL, '1st Semester, AY 2028-2029', 'Auto-enrolled', '2026-03-02 17:41:53'),
-(390, 106, 5, '2026-03-02', 'Dropped', NULL, 'TOR Credit', 'Credited via TOR evaluation — permanently excluded', '2026-03-02 18:05:57'),
-(391, 106, 24, '2026-03-02', 'Dropped', NULL, 'TOR Credit', 'Credited via TOR evaluation — permanently excluded', '2026-03-02 18:05:57'),
-(392, 106, 3, '2026-03-02', 'Dropped', NULL, 'TOR Credit', 'Credited via TOR evaluation — permanently excluded', '2026-03-02 18:05:57'),
-(393, 106, 1, '2026-03-02', 'Enrolled', NULL, '1st Semester, AY 2028-2029', 'Auto-enrolled (Transferee)', '2026-03-02 18:07:04'),
-(394, 106, 2, '2026-03-02', 'Enrolled', NULL, '1st Semester, AY 2028-2029', 'Auto-enrolled (Transferee)', '2026-03-02 18:07:04'),
-(395, 106, 19, '2026-03-02', 'Enrolled', NULL, '1st Semester, AY 2028-2029', 'Auto-enrolled (Transferee)', '2026-03-02 18:07:04'),
-(396, 106, 20, '2026-03-02', 'Enrolled', NULL, '1st Semester, AY 2028-2029', 'Auto-enrolled (Transferee)', '2026-03-02 18:07:04'),
-(397, 107, 5, '2026-03-02', 'Dropped', NULL, 'TOR Credit', 'Credited via TOR evaluation — permanently excluded', '2026-03-02 18:12:00'),
-(398, 107, 24, '2026-03-02', 'Dropped', NULL, 'TOR Credit', 'Credited via TOR evaluation — permanently excluded', '2026-03-02 18:12:00'),
-(399, 107, 3, '2026-03-02', 'Dropped', NULL, 'TOR Credit', 'Credited via TOR evaluation — permanently excluded', '2026-03-02 18:12:01'),
-(400, 107, 1, '2026-03-02', 'Enrolled', NULL, '1st Semester, AY 2026-2027', 'Auto-enrolled (Transferee)', '2026-03-02 18:12:52'),
-(401, 107, 2, '2026-03-02', 'Enrolled', NULL, '1st Semester, AY 2026-2027', 'Auto-enrolled (Transferee)', '2026-03-02 18:12:53'),
-(402, 107, 19, '2026-03-02', 'Enrolled', NULL, '1st Semester, AY 2026-2027', 'Auto-enrolled (Transferee)', '2026-03-02 18:12:53'),
-(403, 107, 20, '2026-03-02', 'Enrolled', NULL, '1st Semester, AY 2026-2027', 'Auto-enrolled (Transferee)', '2026-03-02 18:12:53');
 
 -- --------------------------------------------------------
 
@@ -160,13 +496,6 @@ CREATE TABLE `exam_permits` (
   `approved_by` int(11) DEFAULT NULL,
   `remarks` text DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
---
--- Dumping data for table `exam_permits`
---
-
-INSERT INTO `exam_permits` (`id`, `student_id`, `exam_period`, `school_year`, `semester`, `status`, `requested_at`, `approved_at`, `approved_by`, `remarks`) VALUES
-(2, 107, 'Prelim', '2026-2027', '1st Semester', 'approved', '2026-03-02 18:13:52', '2026-03-02 18:14:01', 3, '');
 
 -- --------------------------------------------------------
 
@@ -221,17 +550,36 @@ CREATE TABLE `installment_payments` (
   `created_at` timestamp NOT NULL DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
+-- --------------------------------------------------------
+
 --
--- Dumping data for table `installment_payments`
+-- Table structure for table `login_attempts`
 --
 
-INSERT INTO `installment_payments` (`id`, `student_id`, `payment_log_id`, `or_ar_number`, `or_ar_type`, `amount`, `payment_date`, `payment_method`, `gcash_reference`, `exam_period`, `notes`, `recorded_by`, `created_at`) VALUES
-(47, 105, 88, 'AR-20260001', 'AR', 7381.00, '2026-03-02', 'Cash', '', 'Downpayment', '', 3, '2026-03-02 17:41:44'),
-(48, 105, 89, 'AR-20260002', 'AR', 7381.00, '2026-03-02', 'Cash', '', 'Prelim', '[Prelim]', 3, '2026-03-02 17:42:42'),
-(49, 105, 90, 'AR-20260003', 'AR', 7381.00, '2026-03-02', 'GCash', '12345', 'Midterm', '[Midterm]', 3, '2026-03-02 17:44:12'),
-(50, 106, 91, 'OR-20260004', 'OR', 21644.00, '2026-03-02', 'GCash', '21644', 'Full', '', 3, '2026-03-02 18:06:55'),
-(51, 107, 92, 'AR-20260005', 'AR', 5599.00, '2026-03-02', 'Cash', '', 'Downpayment', '', 3, '2026-03-02 18:12:47'),
-(52, 107, 93, 'AR-20260006', 'AR', 5599.50, '2026-03-02', 'Cash', '', 'Prelim', '[Prelim] 5598.5', 3, '2026-03-02 18:13:49');
+CREATE TABLE `login_attempts` (
+  `id` int(11) NOT NULL,
+  `email` varchar(150) NOT NULL,
+  `ip` varchar(45) NOT NULL DEFAULT '',
+  `attempted_at` timestamp NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `or_ar_sequences`
+--
+
+CREATE TABLE `or_ar_sequences` (
+  `year` int(11) NOT NULL,
+  `last_seq` int(11) NOT NULL DEFAULT 0
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Dumping data for table `or_ar_sequences`
+--
+
+INSERT INTO `or_ar_sequences` (`year`, `last_seq`) VALUES
+(2026, 7);
 
 -- --------------------------------------------------------
 
@@ -259,18 +607,6 @@ CREATE TABLE `payment_logs` (
   `created_at` timestamp NOT NULL DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
---
--- Dumping data for table `payment_logs`
---
-
-INSERT INTO `payment_logs` (`id`, `student_id`, `payment_method`, `gcash_reference`, `gcash_amount`, `gcash_date`, `transaction_id`, `semester`, `status`, `verified_by`, `verified_at`, `notes`, `is_scholar`, `scholar_type`, `scholar_grantor`, `scholarship_amount`, `created_at`) VALUES
-(88, 105, 'Cash', '', 7381.00, '2026-03-02', NULL, '1st Semester, AY 2026-2027', 'Verified', 3, '2026-03-02 17:41:44', '', 0, NULL, NULL, 0.00, '2026-03-02 17:41:00'),
-(89, 105, 'Cash', 'PAY-20260002', 7381.00, '2026-03-02', NULL, NULL, 'Verified', 3, '2026-03-02 17:42:42', '', 0, NULL, NULL, 0.00, '2026-03-02 17:42:26'),
-(90, 105, 'GCash', '12345', 7381.00, '2026-03-02', NULL, NULL, 'Verified', 3, '2026-03-02 17:44:12', '', 0, NULL, NULL, 0.00, '2026-03-02 17:44:04'),
-(91, 106, 'GCash', '21644', 21644.00, '2026-03-02', 'TXN-1772474804181-FBBWF', '1st Semester, AY 2028-2029', 'Verified', 3, '2026-03-02 18:06:55', '', 0, NULL, NULL, 0.00, '2026-03-02 18:06:44'),
-(92, 107, 'Cash', '', 5599.00, '2026-03-02', NULL, '1st Semester, AY 2026-2027', 'Verified', 3, '2026-03-02 18:12:47', '', 0, NULL, NULL, 0.00, '2026-03-02 18:11:33'),
-(93, 107, 'Cash', 'PAY-20260006', 5599.50, '2026-03-02', NULL, NULL, 'Verified', 3, '2026-03-02 18:13:49', '', 0, NULL, NULL, 0.00, '2026-03-02 18:13:34');
-
 -- --------------------------------------------------------
 
 --
@@ -289,15 +625,6 @@ CREATE TABLE `payment_notices` (
   `is_read` tinyint(1) NOT NULL DEFAULT 0
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
---
--- Dumping data for table `payment_notices`
---
-
-INSERT INTO `payment_notices` (`id`, `student_id`, `exam_period`, `amount_due`, `due_date`, `message`, `sent_by`, `sent_at`, `is_read`) VALUES
-(3, 105, 'Prelim', 7381.00, NULL, 'Dear shane, your Prelim payment of ₱7,381.00 is now due. Please settle at the Accounting office.', 3, '2026-03-02 17:42:15', 0),
-(4, 105, 'Midterm', 7381.00, NULL, 'Dear shane, your Midterm payment of ₱7,381.00 is now due. Please settle at the Accounting office.', 3, '2026-03-02 17:43:01', 0),
-(5, 107, 'Prelim', 5598.50, NULL, 'Dear Dave, your Prelim payment of ₱5,598.50 is now due. Please settle at the Accounting office.', 3, '2026-03-02 18:13:15', 0);
-
 -- --------------------------------------------------------
 
 --
@@ -309,6 +636,7 @@ CREATE TABLE `payment_schedules` (
   `student_id` int(11) NOT NULL,
   `payment_type` enum('full','installment') NOT NULL DEFAULT 'installment',
   `total_assessment` decimal(10,2) NOT NULL DEFAULT 0.00,
+  `downpayment_due` decimal(10,2) NOT NULL DEFAULT 0.00,
   `prelim_due` decimal(10,2) NOT NULL DEFAULT 0.00,
   `midterm_due` decimal(10,2) NOT NULL DEFAULT 0.00,
   `finals_due` decimal(10,2) NOT NULL DEFAULT 0.00,
@@ -322,17 +650,11 @@ CREATE TABLE `payment_schedules` (
   `finals_status` enum('locked','unpaid','partial','paid') NOT NULL DEFAULT 'locked',
   `finals_unlocked_at` timestamp NULL DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
-  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  `downpayment_paid` decimal(10,2) NOT NULL DEFAULT 0.00,
+  `downpayment_status` enum('locked','unpaid','partial','paid') NOT NULL DEFAULT 'locked',
+  `downpayment_unlocked_at` timestamp NULL DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
---
--- Dumping data for table `payment_schedules`
---
-
-INSERT INTO `payment_schedules` (`id`, `student_id`, `payment_type`, `total_assessment`, `prelim_due`, `midterm_due`, `finals_due`, `prelim_paid`, `midterm_paid`, `finals_paid`, `prelim_status`, `prelim_unlocked_at`, `midterm_status`, `midterm_unlocked_at`, `finals_status`, `finals_unlocked_at`, `created_at`, `updated_at`) VALUES
-(139, 105, 'installment', 29524.00, 7381.00, 7381.00, 7381.00, 7381.00, 7381.00, 0.00, 'paid', '2026-03-02 17:42:15', 'paid', '2026-03-02 17:43:01', 'locked', NULL, '2026-03-02 17:42:01', '2026-03-02 17:44:12'),
-(150, 106, 'full', 21644.00, 5411.00, 5411.00, 5411.00, 0.00, 0.00, 0.00, 'paid', NULL, 'paid', NULL, 'paid', NULL, '2026-03-02 18:08:09', '2026-03-02 18:08:09'),
-(151, 107, 'installment', 22394.00, 5598.50, 5598.50, 5598.50, 5599.50, 0.00, 0.00, 'paid', '2026-03-02 18:13:15', 'locked', NULL, 'locked', NULL, '2026-03-02 18:13:01', '2026-03-02 18:13:49');
 
 -- --------------------------------------------------------
 
@@ -344,7 +666,7 @@ CREATE TABLE `programs` (
   `id` int(11) NOT NULL,
   `name` varchar(200) NOT NULL,
   `code` varchar(30) NOT NULL,
-  `level_type` enum('College','SHS') DEFAULT 'College',
+  `level_type` enum('College','SHS','TVET') DEFAULT 'College',
   `duration` int(2) DEFAULT 4 COMMENT 'Years (College) or 2 (SHS)',
   `description` text DEFAULT NULL,
   `department` varchar(150) DEFAULT NULL,
@@ -356,12 +678,37 @@ CREATE TABLE `programs` (
 --
 
 INSERT INTO `programs` (`id`, `name`, `code`, `level_type`, `duration`, `description`, `department`, `created_at`) VALUES
-(1, 'BS Information Technology', 'BSIT', 'College', 4, 'Bachelor of Science in Information Technology', 'Information and Communication Technology', '2026-02-01 00:03:41'),
-(2, 'BS Computer Science', 'BSCS', 'College', 4, 'Bachelor of Science in Computer Science', 'Information and Communication Technology', '2026-02-01 00:03:41'),
-(3, 'BS Information Systems', 'BSIS', 'College', 4, 'Bachelor of Science in Information Systems', 'Information and Communication Technology', '2026-02-01 00:03:41'),
-(4, 'STEM Strand', 'STEM', 'SHS', 2, 'Science, Technology, Engineering and Mathematics', 'Academic Track', '2026-02-01 00:03:41'),
-(5, 'ABM Strand', 'ABM', 'SHS', 2, 'Accountancy, Business and Management', 'Academic Track', '2026-02-01 00:03:41'),
-(6, 'HUMSS Strand', 'HUMSS', 'SHS', 2, 'Humanities and Social Sciences', 'Academic Track', '2026-02-01 00:03:41');
+(1, 'Bachelor of Science in Accountancy', 'BSA', 'College', 4, 'A professional program covering financial accounting, auditing, taxation, and management advisory services.', 'Business', '2026-03-03 01:44:06'),
+(2, 'Bachelor of Science in Customs Administration', 'BSCA', 'College', 4, 'A program focused on customs brokerage, tariff, trade, and border control management.', 'Business', '2026-03-03 01:44:06'),
+(3, 'Bachelor of Science in Entrepreneurship', 'BSE', 'College', 4, 'A program developing entrepreneurial skills, business planning, and enterprise management.', 'Business', '2026-03-03 01:44:06'),
+(4, 'Bachelor of Science in Real Estate Management', 'BSREM', 'College', 4, 'A program covering real estate appraisal, brokerage, property management, and real estate finance.', 'Business', '2026-03-03 01:44:06'),
+(5, 'Computer Information Multimedia Technology', 'CIMT', 'College', 2, 'A 2-year program in computing, multimedia, and digital arts technology.', 'ICTD', '2026-03-03 01:44:06'),
+(6, 'Bachelor of Science in Information Technology', 'BSIT', 'College', 4, 'A program in software development, networking, database systems, and information assurance.', 'ICTD', '2026-03-03 01:44:06'),
+(23, 'Accountancy, Business and Management', 'ABM', 'SHS', 2, 'SHS strand focusing on business, accounting, economics, and management principles.', 'Academic Track', '2026-03-03 01:48:50'),
+(24, 'General Academic Strand', 'GAS', 'SHS', 2, 'SHS strand offering a broad general academic curriculum for undecided learners.', 'Academic Track', '2026-03-03 01:48:50'),
+(25, 'Humanities and Social Sciences Strand', 'HUMSS', 'SHS', 2, 'SHS strand focusing on humanities, social sciences, and communication arts.', 'Academic Track', '2026-03-03 01:48:50'),
+(26, 'Information and Communication Technology', 'ICT', 'SHS', 2, 'SHS TVL strand focused on computer and information technology skills.', 'Technical-Vocational Livelihood Track (TVL)', '2026-03-03 01:48:50'),
+(27, 'Computer Systems Servicing NCII', 'CSS-NCII', 'SHS', 2, 'SHS TVL strand with TESDA National Certificate II in Computer Systems Servicing.', 'Technical-Vocational Livelihood Track (TVL)', '2026-03-03 01:48:50'),
+(28, 'Cookery NCII', 'COOKERY-NCII', 'SHS', 2, 'SHS Home Economics strand with TESDA National Certificate II in Cookery.', 'Home Economics', '2026-03-03 01:48:50'),
+(29, 'Bread and Pastry Production NCII', 'BPP-NCII', 'SHS', 2, 'SHS Home Economics strand with TESDA National Certificate II in Bread and Pastry Production.', 'Home Economics', '2026-03-03 01:48:50'),
+(30, 'Food and Beverages Services NCII', 'FBS-NCII-SHS', 'SHS', 2, 'SHS Home Economics strand with TESDA National Certificate II in Food and Beverages Services.', 'Home Economics', '2026-03-03 01:48:50'),
+(31, 'Diploma in Travel and Tourism Technology (Leading to BSTM)', 'DTTT', 'TVET', 2, 'A diploma program in travel and tourism technology that may lead to a BSTM degree.', 'TVET', '2026-03-03 01:48:50'),
+(32, '2-Yrs. Computer Information and Multimedia Technology', 'CIMT-TVET', 'TVET', 2, 'Two-year TVET program in computer information and multimedia technology.', 'TVET', '2026-03-03 01:48:50'),
+(33, '2-Yrs. Cruise Ship Management', 'CSM', 'TVET', 2, 'Two-year TVET program in cruise ship operations and hospitality management.', 'TVET', '2026-03-03 01:48:50'),
+(34, '2-Yrs. Tourism, Hotel and Restaurant Operations', 'THRO', 'TVET', 2, 'Two-year TVET program in tourism, hotel, and restaurant operations.', 'TVET', '2026-03-03 01:48:50'),
+(35, 'Housekeeping NCII', 'HK-NCII', 'TVET', 1, 'TESDA National Certificate II program in Housekeeping.', 'TVET', '2026-03-03 01:48:50'),
+(36, 'Bartending NCII', 'BART-NCII', 'TVET', 1, 'TESDA National Certificate II program in Bartending.', 'TVET', '2026-03-03 01:48:50'),
+(37, 'Food and Beverages Services NCII', 'FBS-NCII', 'TVET', 1, 'TESDA National Certificate II program in Food and Beverages Services.', 'TVET', '2026-03-03 01:48:50'),
+(38, 'Front Office NCII', 'FO-NCII', 'TVET', 1, 'TESDA National Certificate II program in Front Office services.', 'TVET', '2026-03-03 01:48:50'),
+(39, '3D Animation NCIII', '3DA-NCIII', 'TVET', 1, 'TESDA National Certificate III program in 3D Animation.', 'TVET', '2026-03-03 01:48:50'),
+(40, 'Game Programming NCIII', 'GP-NCIII', 'TVET', 1, 'TESDA National Certificate III program in Game Programming.', 'TVET', '2026-03-03 01:48:50'),
+(41, 'Computer Systems Servicing NCII', 'CSS-NCII-TVET', 'TVET', 1, 'TESDA National Certificate II program in Computer Systems Servicing.', 'TVET', '2026-03-03 01:48:50'),
+(42, 'Visual Graphic Design NCIII', 'VGD-NCIII', 'TVET', 1, 'TESDA National Certificate III program in Visual Graphic Design.', 'TVET', '2026-03-03 01:48:50'),
+(43, 'Travel Services NCII', 'TS-NCII', 'TVET', 1, 'TESDA National Certificate II program in Travel Services.', 'TVET', '2026-03-03 01:48:50'),
+(44, 'Tourism Promotion Services NCII', 'TPS-NCII', 'TVET', 1, 'TESDA National Certificate II program in Tourism Promotion Services.', 'TVET', '2026-03-03 01:48:50'),
+(45, 'Event Management Services NCIII', 'EMS-NCIII', 'TVET', 1, 'TESDA National Certificate III program in Event Management Services.', 'TVET', '2026-03-03 01:48:50'),
+(84, 'Information and Communication Technology', 'ICT-SHS', 'SHS', 2, 'SHS TVL strand focused on ICT skills.', 'Technical-Vocational Livelihood Track (TVL)', '2026-03-03 01:59:11'),
+(85, 'Computer Systems Servicing NCII', 'CSS-NCII-SHS', 'SHS', 2, 'SHS TVL strand with TESDA NCII in Computer Systems Servicing.', 'Technical-Vocational Livelihood Track (TVL)', '2026-03-03 01:59:11');
 
 -- --------------------------------------------------------
 
@@ -380,21 +727,312 @@ CREATE TABLE `program_courses` (
 --
 
 INSERT INTO `program_courses` (`id`, `program_id`, `course_id`) VALUES
-(1, 1, 1),
-(2, 1, 2),
-(6, 1, 3),
-(4, 1, 5),
-(5, 1, 18),
-(16, 1, 21),
-(15, 1, 28),
-(18, 2, 1),
-(17, 2, 2),
-(20, 2, 3),
-(19, 2, 5),
-(22, 2, 19),
-(23, 2, 20),
-(24, 2, 21),
-(21, 2, 24);
+(236, 1, 550),
+(237, 1, 551),
+(238, 1, 552),
+(239, 1, 553),
+(242, 1, 556),
+(243, 1, 557),
+(244, 1, 558),
+(245, 1, 559),
+(246, 1, 560),
+(247, 1, 561),
+(248, 1, 562),
+(249, 1, 563),
+(250, 1, 564),
+(251, 1, 565),
+(252, 1, 566),
+(253, 1, 567),
+(254, 1, 568),
+(255, 1, 569),
+(256, 1, 570),
+(257, 1, 571),
+(258, 1, 572),
+(259, 1, 573),
+(260, 1, 574),
+(261, 1, 575),
+(262, 1, 576),
+(263, 1, 577),
+(265, 1, 579),
+(266, 1, 580),
+(267, 1, 581),
+(268, 1, 582),
+(269, 1, 583),
+(270, 1, 584),
+(271, 1, 585),
+(272, 1, 586),
+(274, 1, 588),
+(275, 1, 589),
+(276, 1, 590),
+(277, 1, 591),
+(279, 1, 593),
+(280, 1, 594),
+(281, 1, 595),
+(282, 1, 596),
+(283, 1, 598),
+(284, 1, 599),
+(285, 1, 600),
+(286, 1, 601),
+(287, 1, 602),
+(288, 1, 603),
+(289, 1, 604),
+(290, 1, 605),
+(291, 1, 606),
+(292, 1, 607),
+(293, 1, 608),
+(294, 1, 609),
+(295, 1, 610),
+(296, 1, 611),
+(297, 1, 612),
+(298, 2, 613),
+(299, 2, 614),
+(300, 2, 615),
+(301, 2, 616),
+(302, 2, 617),
+(303, 2, 618),
+(304, 2, 619),
+(305, 2, 620),
+(306, 2, 621),
+(307, 2, 622),
+(308, 2, 623),
+(309, 2, 624),
+(310, 2, 625),
+(311, 2, 626),
+(312, 2, 627),
+(313, 2, 628),
+(314, 2, 629),
+(315, 2, 630),
+(316, 2, 631),
+(317, 2, 632),
+(318, 2, 633),
+(319, 2, 634),
+(320, 2, 635),
+(321, 2, 636),
+(322, 2, 637),
+(323, 2, 638),
+(324, 2, 639),
+(325, 2, 640),
+(326, 2, 641),
+(327, 2, 642),
+(328, 2, 643),
+(329, 2, 644),
+(330, 2, 645),
+(331, 2, 646),
+(332, 2, 647),
+(333, 2, 648),
+(334, 2, 649),
+(335, 2, 650),
+(336, 2, 651),
+(337, 2, 652),
+(338, 2, 653),
+(339, 2, 654),
+(340, 2, 655),
+(341, 2, 656),
+(342, 2, 657),
+(343, 2, 658),
+(344, 2, 659),
+(345, 2, 660),
+(346, 2, 661),
+(347, 3, 662),
+(348, 3, 663),
+(349, 3, 664),
+(350, 3, 665),
+(351, 3, 666),
+(352, 3, 667),
+(353, 3, 668),
+(354, 3, 669),
+(355, 3, 670),
+(356, 3, 671),
+(357, 3, 672),
+(358, 3, 673),
+(359, 3, 674),
+(360, 3, 675),
+(361, 3, 676),
+(362, 3, 677),
+(363, 3, 678),
+(364, 3, 679),
+(365, 3, 680),
+(366, 3, 681),
+(367, 3, 682),
+(368, 3, 683),
+(369, 3, 684),
+(370, 3, 685),
+(371, 3, 686),
+(372, 3, 687),
+(373, 3, 688),
+(374, 3, 689),
+(375, 3, 690),
+(376, 3, 691),
+(377, 3, 692),
+(378, 3, 693),
+(379, 3, 694),
+(380, 3, 695),
+(381, 3, 696),
+(382, 3, 697),
+(383, 3, 698),
+(384, 3, 699),
+(385, 3, 700),
+(386, 3, 701),
+(387, 3, 702),
+(388, 3, 703),
+(389, 3, 704),
+(390, 3, 705),
+(391, 3, 706),
+(392, 3, 707),
+(393, 3, 708),
+(394, 3, 709),
+(395, 4, 710),
+(396, 4, 711),
+(397, 4, 712),
+(398, 4, 713),
+(399, 4, 714),
+(400, 4, 715),
+(401, 4, 716),
+(402, 4, 717),
+(403, 4, 718),
+(404, 4, 719),
+(405, 4, 720),
+(406, 4, 721),
+(407, 4, 722),
+(408, 4, 723),
+(409, 4, 724),
+(410, 4, 725),
+(411, 4, 726),
+(412, 4, 727),
+(413, 4, 728),
+(414, 4, 729),
+(415, 4, 730),
+(416, 4, 731),
+(417, 4, 732),
+(418, 4, 733),
+(419, 4, 734),
+(420, 4, 735),
+(421, 4, 736),
+(422, 4, 737),
+(423, 4, 738),
+(424, 4, 739),
+(425, 4, 740),
+(426, 4, 741),
+(427, 4, 742),
+(428, 4, 743),
+(429, 4, 744),
+(430, 4, 745),
+(431, 4, 746),
+(432, 4, 747),
+(433, 4, 748),
+(434, 4, 749),
+(435, 4, 750),
+(436, 4, 751),
+(437, 4, 752),
+(438, 4, 753),
+(439, 4, 754),
+(440, 4, 755),
+(441, 4, 756),
+(442, 4, 757),
+(443, 4, 758),
+(444, 4, 759),
+(445, 4, 760),
+(446, 4, 761),
+(447, 4, 762),
+(448, 4, 763),
+(449, 4, 764),
+(450, 4, 765),
+(451, 4, 766),
+(452, 4, 767),
+(809, 5, 768),
+(810, 5, 769),
+(811, 5, 770),
+(812, 5, 771),
+(813, 5, 772),
+(814, 5, 773),
+(815, 5, 774),
+(816, 5, 775),
+(817, 5, 776),
+(818, 5, 777),
+(819, 5, 778),
+(820, 5, 779),
+(821, 5, 780),
+(822, 5, 781),
+(823, 5, 782),
+(824, 5, 783),
+(825, 5, 784),
+(826, 5, 785),
+(827, 5, 786),
+(828, 5, 787),
+(829, 5, 788),
+(830, 5, 789),
+(831, 5, 790),
+(832, 5, 791),
+(833, 5, 792),
+(834, 5, 793),
+(835, 5, 794),
+(836, 5, 795),
+(837, 5, 796),
+(838, 5, 797),
+(839, 5, 798),
+(840, 5, 799),
+(841, 5, 800),
+(842, 5, 801),
+(756, 6, 554),
+(757, 6, 555),
+(758, 6, 578),
+(759, 6, 587),
+(760, 6, 592),
+(761, 6, 597),
+(762, 6, 802),
+(763, 6, 803),
+(764, 6, 804),
+(765, 6, 805),
+(766, 6, 806),
+(767, 6, 807),
+(768, 6, 808),
+(769, 6, 809),
+(770, 6, 810),
+(771, 6, 811),
+(772, 6, 812),
+(773, 6, 813),
+(774, 6, 814),
+(775, 6, 815),
+(776, 6, 816),
+(777, 6, 817),
+(778, 6, 818),
+(779, 6, 819),
+(780, 6, 820),
+(781, 6, 821),
+(782, 6, 822),
+(783, 6, 823),
+(784, 6, 824),
+(785, 6, 825),
+(786, 6, 826),
+(787, 6, 827),
+(788, 6, 828),
+(789, 6, 829),
+(790, 6, 830),
+(791, 6, 831),
+(792, 6, 832),
+(793, 6, 833),
+(794, 6, 834),
+(795, 6, 835),
+(796, 6, 836),
+(797, 6, 837),
+(798, 6, 838),
+(799, 6, 839),
+(800, 6, 840),
+(801, 6, 841),
+(802, 6, 842),
+(803, 6, 843),
+(804, 6, 844),
+(805, 6, 845),
+(806, 6, 846),
+(807, 6, 847),
+(808, 6, 848),
+(753, 34, 559),
+(754, 34, 564),
+(751, 34, 573),
+(749, 34, 574),
+(755, 34, 588),
+(752, 34, 591),
+(750, 34, 605);
 
 -- --------------------------------------------------------
 
@@ -469,6 +1107,38 @@ INSERT INTO `school_events` (`id`, `title`, `event_date`, `type`, `description`,
 -- --------------------------------------------------------
 
 --
+-- Table structure for table `seed_flags`
+--
+
+CREATE TABLE `seed_flags` (
+  `name` varchar(100) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Dumping data for table `seed_flags`
+--
+
+INSERT INTO `seed_flags` (`name`) VALUES
+('program_courses');
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `sessions`
+--
+
+CREATE TABLE `sessions` (
+  `id` int(11) NOT NULL,
+  `user_id` int(11) NOT NULL,
+  `token` varchar(64) NOT NULL,
+  `role` varchar(30) NOT NULL DEFAULT 'student',
+  `expires_at` datetime NOT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Table structure for table `students`
 --
 
@@ -532,17 +1202,28 @@ CREATE TABLE `students` (
   `psa_file` varchar(255) DEFAULT NULL,
   `enrollment_date` date DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
-  `guardian_contact` varchar(50) DEFAULT ''
+  `guardian_contact` varchar(50) DEFAULT '',
+  `tvet_type` varchar(50) DEFAULT ''
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
+-- --------------------------------------------------------
+
 --
--- Dumping data for table `students`
+-- Table structure for table `student_grades`
 --
 
-INSERT INTO `students` (`id`, `user_id`, `student_number`, `first_name`, `last_name`, `middle_name`, `suffix`, `lrn_no`, `sex`, `religion`, `age`, `place_of_birth`, `citizenship`, `mother_tongue`, `is_indigenous`, `has_special_needs`, `special_needs_details`, `has_assistive_tech`, `assistive_tech_details`, `strand`, `learning_delivery`, `last_school_attended`, `psa_birth_cert_no`, `guardian_name`, `guardian_address`, `email`, `phone`, `date_of_birth`, `address`, `emergency_contact`, `emergency_phone`, `program`, `year_level`, `gpa`, `enrollment_status`, `student_type`, `tor_eval_status`, `student_category`, `payment_status`, `approval_status`, `payment_method`, `payment_plan`, `semester`, `is_scholar`, `scholar_type`, `scholar_grantor`, `scholarship_amount`, `gcash_reference`, `gcash_amount`, `gcash_date`, `gcash_transaction_id`, `accounting_approved_by`, `accounting_approved_at`, `accounting_notes`, `profile_picture`, `tor_file`, `psa_file`, `enrollment_date`, `created_at`, `guardian_contact`) VALUES
-(105, 99, 'STU-2026-0001', 'shane', 'binoya', 'carlo', '', '123456', 'Male', 'cathiolic', 19, 'Olongapo', 'Filipino', '0', 0, 0, '0', 0, '0', '', '', 'Elementary - OCES (2016-2021)', '', 'shane carlo binoya', 'New Cabalan', 'cashinstallment1', '09300987316', '2002-11-22', 'New Cabalan', 'shane carlo binoya', '09186637382', 'BS Computer Science', '1st Year', 0.00, 'Enrolled', 'New', 'NotRequired', 'College', 'Paid', 'Approved', 'Cash', 'installment', '1st Semester, AY 2028-2029', 0, '', '', 0.00, NULL, NULL, NULL, NULL, 3, '2026-03-02 17:41:44', '', NULL, NULL, NULL, '2026-03-02', '2026-03-02 17:41:00', '09186637382'),
-(106, 100, 'STU-2026-0002', 'Dave', 'Cuevas', 'zarene', '', '1234567', 'Male', 'Catholic', 23, 'Olongapo', 'Filipino', '0', 0, 0, '0', 0, '', NULL, NULL, '0', '123', 'jane zarene Cuevas', 'zambales', 'cashinstallmenttrans', '09300987316', '2002-11-22', 'New Cabalan', 'jane zarene Cuevas', '09300987316', 'BS Computer Science', '1st Year', 0.00, 'Enrolled', 'Transferee', 'Evaluated', 'College', 'Paid', 'Approved', 'GCash', 'full', '1st Semester, AY 2028-2029', 0, '', '', 0.00, '21644', 21644.00, '2026-03-02', 'TXN-1772474804181-FBBWF', 3, '2026-03-02 18:06:55', '', NULL, 'tor_106_1772474725.jpg', NULL, '2026-03-02', '2026-03-02 18:05:25', '09300987316'),
-(107, 101, 'STU-2026-0003', 'Dave', 'Cuevas', 'zarene', '', '123', 'Male', 'Catholic', 23, 'Olongapo', 'Filipino', '0', 0, 0, '0', 0, '', NULL, NULL, '0', '', 'Dave zarene Cuevas', 'sadsd', 'cashinstallmenttrans1', '0918787287', '2002-11-22', 'Olongapo', 'Dave zarene Cuevas', '3232332323', 'BS Computer Science', '1st Year', 0.00, 'Enrolled', 'Transferee', 'Evaluated', 'College', 'Paid', 'Approved', 'Cash', 'installment', '1st Semester, AY 2026-2027', 0, '', '', 0.00, NULL, NULL, NULL, NULL, 3, '2026-03-02 18:12:47', '', NULL, 'tor_107_1772475082.jpg', NULL, '2026-03-02', '2026-03-02 18:11:22', '3232332323');
+CREATE TABLE `student_grades` (
+  `id` int(11) NOT NULL,
+  `enrollment_id` int(11) NOT NULL,
+  `student_id` int(11) NOT NULL,
+  `course_id` int(11) NOT NULL,
+  `semester` varchar(100) DEFAULT '',
+  `term` enum('Prelim','Midterm','Final') NOT NULL,
+  `grade` decimal(4,2) DEFAULT NULL,
+  `submitted_by` int(11) DEFAULT NULL,
+  `submitted_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- --------------------------------------------------------
 
@@ -584,14 +1265,6 @@ CREATE TABLE `tor_evaluations` (
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
---
--- Dumping data for table `tor_evaluations`
---
-
-INSERT INTO `tor_evaluations` (`id`, `student_id`, `status`, `credited_units`, `approved_units`, `credited_subjects`, `credited_course_ids`, `registrar_notes`, `evaluated_by`, `evaluated_at`, `created_at`, `updated_at`) VALUES
-(32, 106, 'Evaluated', 10, 12, '[{\"courseId\":5,\"code\":\"ENG101\",\"name\":\"English Composition\",\"credits\":3,\"creditedFrom\":\"0\"},{\"courseId\":24,\"code\":\"GE101\",\"name\":\"Purposive Communication\",\"credits\":3,\"creditedFrom\":\"0\"},{\"courseId\":3,\"code\":\"MATH101\",\"name\":\"Discrete Mathematics\",\"credits\":4,\"creditedFrom\":\"0\"}]', '[5,24,3]', '', 4, '2026-03-02 18:05:56', '2026-03-02 18:05:25', '2026-03-02 18:05:56'),
-(34, 107, 'Evaluated', 10, 12, '[{\"courseId\":5,\"code\":\"ENG101\",\"name\":\"English Composition\",\"credits\":3,\"creditedFrom\":\"0\"},{\"courseId\":24,\"code\":\"GE101\",\"name\":\"Purposive Communication\",\"credits\":3,\"creditedFrom\":\"0\"},{\"courseId\":3,\"code\":\"MATH101\",\"name\":\"Discrete Mathematics\",\"credits\":4,\"creditedFrom\":\"0\"}]', '[5,24,3]', '', 4, '2026-03-02 18:12:00', '2026-03-02 18:11:22', '2026-03-02 18:12:00');
-
 -- --------------------------------------------------------
 
 --
@@ -615,15 +1288,6 @@ CREATE TABLE `tuition_fees` (
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
---
--- Dumping data for table `tuition_fees`
---
-
-INSERT INTO `tuition_fees` (`id`, `student_id`, `units`, `tuition_fee`, `miscellaneous_fee`, `registration_fee`, `laboratory_fee`, `energy_fee`, `subtotal`, `discount`, `installment_fee`, `total_assessment`, `created_at`, `updated_at`) VALUES
-(409, 105, 22, 14300.00, 6688.00, 700.00, 5700.00, 1386.00, 28774.00, 0.00, 750.00, 29524.00, '2026-03-02 17:41:00', '2026-03-02 17:50:29'),
-(422, 106, 12, 7800.00, 6688.00, 700.00, 5700.00, 756.00, 21644.00, 0.00, 0.00, 21644.00, '2026-03-02 18:05:57', '2026-03-02 18:07:20'),
-(429, 107, 12, 7800.00, 6688.00, 700.00, 5700.00, 756.00, 21644.00, 0.00, 750.00, 22394.00, '2026-03-02 18:12:00', '2026-03-02 18:16:18');
-
 -- --------------------------------------------------------
 
 --
@@ -646,22 +1310,42 @@ CREATE TABLE `users` (
 
 INSERT INTO `users` (`id`, `email`, `password`, `role`, `first_name`, `last_name`, `created_at`) VALUES
 (1, 'student@example.com', 'password123', 'student', 'Juan', 'Dela Cruz', '2026-01-29 07:51:13'),
-(2, 'admin@example.com', 'admin123', 'admin', 'Admin', 'User', '2026-01-29 07:51:13'),
-(3, 'accounting@example.com', 'acc123', 'accounting', 'Accounting', 'Staff', '2026-01-29 07:51:13'),
-(4, 'registrar@example.com', 'registrar123', 'registrar', 'Registrar', 'Admin', '2026-01-29 08:54:49'),
-(99, 'cashinstallment1', 'shane1', 'student', 'shane', 'binoya', '2026-03-02 17:40:59'),
-(100, 'cashinstallmenttrans', 'shane1', 'student', 'Dave', 'Cuevas', '2026-03-02 18:05:25'),
-(101, 'cashinstallmenttrans1', 'shane1', 'student', 'Dave', 'Cuevas', '2026-03-02 18:11:22');
+(2, 'admin@example.com', '$2y$12$XWLv0C3I3ZxY1s6AP/thoOddETmMXxL1lcuJJLDI4ZCEzsXBFSYS2', 'admin', 'Admin', 'User', '2026-01-29 07:51:13'),
+(3, 'accounting@example.com', '$2y$12$lqO2L/wO1gGW1G7iVlNL1eoNJEAwaUKKpymNTLc8/bDphJioiLzhu', 'accounting', 'Accounting', 'Staff', '2026-01-29 07:51:13'),
+(4, 'registrar@example.com', '$2y$12$mBRinZXeLFpyge/D499ceeBuVHsRqy6OiVNtDm.YuSdfAgVdFNrWG', 'registrar', 'Registrar', 'Admin', '2026-01-29 08:54:49');
 
 --
 -- Indexes for dumped tables
 --
 
 --
+-- Indexes for table `add_drop_requests`
+--
+ALTER TABLE `add_drop_requests`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `student_id` (`student_id`),
+  ADD KEY `status` (`status`);
+
+--
+-- Indexes for table `add_drop_window`
+--
+ALTER TABLE `add_drop_window`
+  ADD PRIMARY KEY (`id`);
+
+--
 -- Indexes for table `announcements`
 --
 ALTER TABLE `announcements`
   ADD PRIMARY KEY (`id`);
+
+--
+-- Indexes for table `audit_logs`
+--
+ALTER TABLE `audit_logs`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `idx_user` (`user_id`),
+  ADD KEY `idx_action` (`action`),
+  ADD KEY `idx_created` (`created_at`);
 
 --
 -- Indexes for table `courses`
@@ -701,6 +1385,19 @@ ALTER TABLE `installment_payments`
   ADD PRIMARY KEY (`id`),
   ADD KEY `student_id` (`student_id`),
   ADD KEY `payment_date` (`payment_date`);
+
+--
+-- Indexes for table `login_attempts`
+--
+ALTER TABLE `login_attempts`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `idx_email_time` (`email`,`attempted_at`);
+
+--
+-- Indexes for table `or_ar_sequences`
+--
+ALTER TABLE `or_ar_sequences`
+  ADD UNIQUE KEY `year` (`year`);
 
 --
 -- Indexes for table `payment_logs`
@@ -752,12 +1449,36 @@ ALTER TABLE `school_events`
   ADD PRIMARY KEY (`id`);
 
 --
+-- Indexes for table `seed_flags`
+--
+ALTER TABLE `seed_flags`
+  ADD PRIMARY KEY (`name`);
+
+--
+-- Indexes for table `sessions`
+--
+ALTER TABLE `sessions`
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `token` (`token`),
+  ADD KEY `idx_token` (`token`),
+  ADD KEY `idx_user` (`user_id`);
+
+--
 -- Indexes for table `students`
 --
 ALTER TABLE `students`
   ADD PRIMARY KEY (`id`),
   ADD UNIQUE KEY `student_number` (`student_number`),
   ADD KEY `user_id` (`user_id`);
+
+--
+-- Indexes for table `student_grades`
+--
+ALTER TABLE `student_grades`
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `uq_grade` (`enrollment_id`,`term`),
+  ADD KEY `idx_student` (`student_id`),
+  ADD KEY `idx_course` (`course_id`);
 
 --
 -- Indexes for table `term_payments`
@@ -792,28 +1513,46 @@ ALTER TABLE `users`
 --
 
 --
+-- AUTO_INCREMENT for table `add_drop_requests`
+--
+ALTER TABLE `add_drop_requests`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=7;
+
+--
+-- AUTO_INCREMENT for table `add_drop_window`
+--
+ALTER TABLE `add_drop_window`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=2;
+
+--
 -- AUTO_INCREMENT for table `announcements`
 --
 ALTER TABLE `announcements`
   MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=6;
 
 --
+-- AUTO_INCREMENT for table `audit_logs`
+--
+ALTER TABLE `audit_logs`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=2;
+
+--
 -- AUTO_INCREMENT for table `courses`
 --
 ALTER TABLE `courses`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=32;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=849;
 
 --
 -- AUTO_INCREMENT for table `enrollments`
 --
 ALTER TABLE `enrollments`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=404;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=531;
 
 --
 -- AUTO_INCREMENT for table `exam_permits`
 --
 ALTER TABLE `exam_permits`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=6;
 
 --
 -- AUTO_INCREMENT for table `faculty`
@@ -825,37 +1564,43 @@ ALTER TABLE `faculty`
 -- AUTO_INCREMENT for table `installment_payments`
 --
 ALTER TABLE `installment_payments`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=53;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=68;
+
+--
+-- AUTO_INCREMENT for table `login_attempts`
+--
+ALTER TABLE `login_attempts`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=36;
 
 --
 -- AUTO_INCREMENT for table `payment_logs`
 --
 ALTER TABLE `payment_logs`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=94;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=113;
 
 --
 -- AUTO_INCREMENT for table `payment_notices`
 --
 ALTER TABLE `payment_notices`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=6;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=9;
 
 --
 -- AUTO_INCREMENT for table `payment_schedules`
 --
 ALTER TABLE `payment_schedules`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=159;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=307;
 
 --
 -- AUTO_INCREMENT for table `programs`
 --
 ALTER TABLE `programs`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=17;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=87;
 
 --
 -- AUTO_INCREMENT for table `program_courses`
 --
 ALTER TABLE `program_courses`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=25;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=843;
 
 --
 -- AUTO_INCREMENT for table `rooms`
@@ -870,10 +1615,22 @@ ALTER TABLE `school_events`
   MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=16;
 
 --
+-- AUTO_INCREMENT for table `sessions`
+--
+ALTER TABLE `sessions`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=34;
+
+--
 -- AUTO_INCREMENT for table `students`
 --
 ALTER TABLE `students`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=108;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=128;
+
+--
+-- AUTO_INCREMENT for table `student_grades`
+--
+ALTER TABLE `student_grades`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=38;
 
 --
 -- AUTO_INCREMENT for table `term_payments`
@@ -885,19 +1642,19 @@ ALTER TABLE `term_payments`
 -- AUTO_INCREMENT for table `tor_evaluations`
 --
 ALTER TABLE `tor_evaluations`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=36;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=52;
 
 --
 -- AUTO_INCREMENT for table `tuition_fees`
 --
 ALTER TABLE `tuition_fees`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=441;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=928;
 
 --
 -- AUTO_INCREMENT for table `users`
 --
 ALTER TABLE `users`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=102;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=127;
 
 --
 -- Constraints for dumped tables
@@ -911,10 +1668,34 @@ ALTER TABLE `enrollments`
   ADD CONSTRAINT `enrollments_ibfk_2` FOREIGN KEY (`course_id`) REFERENCES `courses` (`id`) ON DELETE CASCADE;
 
 --
+-- Constraints for table `exam_permits`
+--
+ALTER TABLE `exam_permits`
+  ADD CONSTRAINT `exam_permits_ibfk_1` FOREIGN KEY (`student_id`) REFERENCES `students` (`id`) ON DELETE CASCADE;
+
+--
+-- Constraints for table `installment_payments`
+--
+ALTER TABLE `installment_payments`
+  ADD CONSTRAINT `installment_payments_ibfk_1` FOREIGN KEY (`student_id`) REFERENCES `students` (`id`) ON DELETE CASCADE;
+
+--
 -- Constraints for table `payment_logs`
 --
 ALTER TABLE `payment_logs`
   ADD CONSTRAINT `payment_logs_ibfk_1` FOREIGN KEY (`student_id`) REFERENCES `students` (`id`) ON DELETE CASCADE;
+
+--
+-- Constraints for table `payment_notices`
+--
+ALTER TABLE `payment_notices`
+  ADD CONSTRAINT `payment_notices_ibfk_1` FOREIGN KEY (`student_id`) REFERENCES `students` (`id`) ON DELETE CASCADE;
+
+--
+-- Constraints for table `payment_schedules`
+--
+ALTER TABLE `payment_schedules`
+  ADD CONSTRAINT `payment_schedules_ibfk_1` FOREIGN KEY (`student_id`) REFERENCES `students` (`id`) ON DELETE CASCADE;
 
 --
 -- Constraints for table `program_courses`
@@ -928,6 +1709,12 @@ ALTER TABLE `program_courses`
 --
 ALTER TABLE `students`
   ADD CONSTRAINT `students_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE;
+
+--
+-- Constraints for table `tuition_fees`
+--
+ALTER TABLE `tuition_fees`
+  ADD CONSTRAINT `tuition_fees_ibfk_1` FOREIGN KEY (`student_id`) REFERENCES `students` (`id`) ON DELETE CASCADE;
 COMMIT;
 
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;

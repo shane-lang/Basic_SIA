@@ -63,6 +63,7 @@ if ($action === 'get_dashboard') {
                 s.payment_status,
                 s.approval_status,
                 s.student_type,
+                s.student_category,
                 s.enrollment_date,
                 s.payment_method,
                 s.gcash_amount,
@@ -84,7 +85,31 @@ if ($action === 'get_dashboard') {
         exit();
     }
 
+    // ── AUTO-APPROVE SHS/TVET free students ──────────────────
+    // Resolve category: column value OR infer from student_number prefix
     $studentDbId = (int) $student['dbId'];
+    $cat = strtoupper(trim($student['student_category'] ?? ''));
+    if (empty($cat)) {
+        $sNum = $student['student_number'] ?? '';
+        if     (strpos($sNum, 'SHS-')  === 0) $cat = 'SHS';
+        elseif (strpos($sNum, 'TVET-') === 0) $cat = 'TVET';
+    }
+    $sType  = strtolower(trim($student['student_type'] ?? 'new'));
+    $isFree = ($cat === 'TVET') || ($cat === 'SHS' && $sType !== 'transferee');
+    if ($isFree) {
+        if (empty($student['student_category'])) {
+            $conn->query("UPDATE students SET student_category='$cat' WHERE id=$studentDbId");
+            $student['student_category'] = $cat;
+        }
+        if (($student['approval_status'] ?? '') !== 'Approved') {
+            $conn->query("UPDATE students
+                SET approval_status='Approved', enrollment_status='Enrolled', payment_status='Free'
+                WHERE id=$studentDbId");
+            $student['approval_status']   = 'Approved';
+            $student['enrollment_status'] = 'Enrolled';
+            $student['payment_status']    = 'Free';
+        }
+    }
 
     // ── 2. Enrolled courses (Enrolled + Pending statuses) ────
     $stmt = $conn->prepare(
@@ -258,12 +283,33 @@ if ($action === 'get_dashboard') {
     if (preg_match('/^([^,]+)/i', $rawSem, $m2))  { $semesterStr = trim($m2[1]); }
     if (preg_match('/AY\s*([\d]{4}[-][\d]{2,4})/i', $rawSem, $m)) { $academicYear = $m[1]; }
 
+    // ── Determine if student is Irregular ────────────────────
+    // Transferee with credited subjects from TOR = Irregular, everyone else = Regular
+    $enrollmentStatusDisplay = $student['enrollment_status'];
+    $isIrregular = false;
+    if (strtolower($student['student_type'] ?? '') === 'transferee') {
+        $torRow = $conn->query("
+            SELECT credited_units FROM tor_evaluations
+            WHERE student_id = {$student['dbId']} AND status = 'Evaluated'
+            ORDER BY id DESC LIMIT 1
+        ");
+        $tor = $torRow ? $torRow->fetch_assoc() : null;
+        if ($tor && (int)$tor['credited_units'] > 0) {
+            $enrollmentStatusDisplay = 'Irregular';
+            $isIrregular = true;
+        } else {
+            $enrollmentStatusDisplay = 'Regular';
+        }
+    } else {
+        $enrollmentStatusDisplay = 'Regular';
+    }
+
     $academic = [
         'yearLevel'    => $student['year_level'],
         'gpa'          => (float) $student['gpa'],
         'totalCredits' => $totalCredits,
         'courseCount'  => count($courses),
-        'status'       => $student['enrollment_status'],
+        'status'       => $enrollmentStatusDisplay,
         'semester'     => $semesterStr,
         'academicYear' => $academicYear,
     ];
@@ -283,7 +329,9 @@ if ($action === 'get_dashboard') {
             'paymentStatus'    => $student['payment_status'],
             'approvalStatus'   => $student['approval_status'],
             'studentType'      => $student['student_type'],
+            'studentCategory'  => strtoupper(trim($student['student_category'] ?? '')),
             'enrollmentDate'   => $student['enrollment_date'],
+            'isIrregular'      => $isIrregular,
         ],
         'academic'       => $academic,
         'courses'        => $courses,       // all enrolled courses (for schedule + course list)

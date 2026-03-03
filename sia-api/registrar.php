@@ -1,7 +1,28 @@
 <?php
-error_reporting(0);
+error_reporting(E_ALL);
 ini_set('display_errors', 0);
-header("Access-Control-Allow-Origin: *");
+// FIX R-01: Removed set_error_handler that threw exceptions on every PHP notice.
+// Use a safe exception handler only for truly unexpected exceptions.
+set_exception_handler(function($e) {
+    http_response_code(500);
+    echo json_encode(['success'=>false,'message'=>'Server error. Please try again.']);
+    exit();
+});
+// FIX A-02: Restrict CORS to trusted origins only
+$allowedOrigin = $_SERVER['HTTP_ORIGIN'] ?? '';
+$trustedOrigins = [
+    'http://localhost:4200',
+    'http://localhost',
+    'http://127.0.0.1:4200',
+    'http://127.0.0.1',
+];
+if (in_array($allowedOrigin, $trustedOrigins, true)) {
+    header("Access-Control-Allow-Origin: $allowedOrigin");
+    header('Access-Control-Allow-Credentials: true');
+} else {
+    header('Access-Control-Allow-Origin: http://localhost:4200');
+}
+
 header("Access-Control-Allow-Methods: GET, POST, PUT, OPTIONS");
 header("Access-Control-Allow-Headers: Content-Type, Authorization");
 header("Content-Type: application/json");
@@ -14,56 +35,385 @@ if ($conn->connect_error) {
 }
 $conn->set_charset("utf8mb4");
 
-// Ensure new columns exist
-$conn->query("
-  CREATE TABLE IF NOT EXISTS tor_evaluations (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    student_id INT NOT NULL,
-    status ENUM('Pending','Evaluated','Rejected') NOT NULL DEFAULT 'Pending',
-    credited_units INT NOT NULL DEFAULT 0,
-    approved_units INT NOT NULL DEFAULT 0,
-    credited_subjects TEXT DEFAULT NULL,
-    registrar_notes TEXT DEFAULT NULL,
-    evaluated_by INT DEFAULT NULL,
-    evaluated_at TIMESTAMP NULL DEFAULT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY student_id (student_id)
-  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-");
-$conn->query("ALTER TABLE students ADD COLUMN IF NOT EXISTS tor_eval_status ENUM('NotRequired','Pending','Evaluated','Rejected') NOT NULL DEFAULT 'NotRequired' AFTER student_type");
-$conn->query("ALTER TABLE students ADD COLUMN IF NOT EXISTS payment_plan ENUM('full','installment') NOT NULL DEFAULT 'full' AFTER payment_method");
-
-$method = $_SERVER['REQUEST_METHOD'];
 $action = $_GET['action'] ?? '';
 
-switch ($method) {
-    case 'GET':
-        switch ($action) {
-            case 'get_pending_tor':       getPendingTOR($conn);       break;
-            case 'get_evaluated_tor':     getEvaluatedTOR($conn);     break;
-            case 'get_tor_evaluation':    getTORForStudent($conn);     break;
-            case 'get_program_courses':   getProgramCourses($conn);    break;
-            case 'get_student_curriculum':getStudentCurriculum($conn); break;
-            default: echo json_encode(['success' => false, 'message' => 'Unknown action']);
-        }
-        break;
-    case 'POST':
-        // Handle file upload separately (multipart/form-data)
-        if ($action === 'upload_tor_file') { uploadTorFile($conn); break; }
-        $data = json_decode(file_get_contents('php://input'), true);
-        if (!$data) { echo json_encode(['success' => false, 'message' => 'Invalid JSON']); exit(); }
-        switch ($action) {
-            case 'submit_tor':      submitTOR($conn, $data);      break;
-            case 'evaluate_tor':    evaluateTOR($conn, $data);    break;
-            case 'reject_tor':      rejectTOR($conn, $data);      break;
-            default: echo json_encode(['success' => false, 'message' => 'Unknown action']);
-        }
-        break;
-    default:
-        echo json_encode(['success' => false, 'message' => 'Method not allowed']);
+require_once __DIR__ . '/auth_middleware.php';
+// Actions called during enrollment wizard (no token yet)
+$publicActions = [
+    'upload_tor_file', 'submit_tor', 'get_program_courses', 'get_tor_evaluation',
+];
+$authUser = in_array($action, $publicActions) ? null : requireAuth($conn);
+
+// Schema managed by migrate.php — no DDL at request time
+
+$method = $_SERVER['REQUEST_METHOD'];
+
+// Read request body — Angular sends JSON via http.post()
+$raw  = file_get_contents('php://input');
+$data = ($raw && $raw !== '') ? json_decode($raw, true) : null;
+// Fallback: form-encoded POST or GET params
+if (!is_array($data) || empty($data)) {
+    $merged = array_merge($_GET, $_POST);
+    unset($merged['action']);
+    $data = !empty($merged) ? $merged : [];
 }
+if (!is_array($data)) $data = [];
+// Accept action from body too
+if (!$action && isset($data['action'])) $action = $data['action'];
+
+// Handle file upload (multipart)
+if ($action === 'upload_tor_file')  { uploadTorFile($conn);    exit(); }
+if ($action === 'upload_document') { uploadDocument($conn);   exit(); }
+
+// Read-only actions (GET)
+switch ($action) {
+    case 'get_pending_tor':        getPendingTOR($conn);               exit();
+    case 'get_evaluated_tor':      getEvaluatedTOR($conn);             exit();
+    case 'get_tor_evaluation':     getTORForStudent($conn);            exit();
+    case 'get_program_courses':    getProgramCourses($conn);           exit();
+    case 'get_student_curriculum': getStudentCurriculum($conn);        exit();
+    case 'debug_tor':              debugTOR($conn);                    exit();
+    // ── Grade Submission Student Listing ──
+    case 'get_grade_students':     getGradeStudents($conn);            exit();
+    case 'get_grade_student_detail': getGradeStudentDetail($conn);     exit();
+    case 'get_grade_courses':      getGradeCourses($conn);             exit();
+    case 'get_course_students':    getCourseStudents($conn);           exit();
+}
+
+// Write actions (POST body required)
+switch ($action) {
+    case 'submit_tor':   submitTOR($conn, $data);    exit();
+    case 'evaluate_tor': evaluateTOR($conn, $data);  exit();
+    case 'reject_tor':   rejectTOR($conn, $data);    exit();
+}
+
+echo json_encode(['success' => false, 'message' => 'Unknown action: '.$method.'/'.$action]);
 $conn->close();
+
+// ================================================================
+// GRADE SUBMISSION — STUDENT THUMBNAIL/LIST VIEW
+// ================================================================
+
+/**
+ * GET ?action=get_grade_students
+ * Returns enrolled students with grade completion summary.
+ * Supports: q (search), program, year_level, semester, view_mode (thumbnail|list), page, limit
+ */
+function getGradeStudents($conn) {
+    $page      = max(1, (int)($_GET['page']       ?? 1));
+    $limit     = min(100, max(10, (int)($_GET['limit'] ?? 24)));
+    $offset    = ($page - 1) * $limit;
+    $search    = trim($_GET['q']          ?? '');
+    $program   = trim($_GET['program']    ?? '');
+    $yearLevel = trim($_GET['year_level'] ?? '');
+    $semester  = trim($_GET['semester']   ?? '');
+    $status    = trim($_GET['status']     ?? 'Enrolled');
+
+    $where  = ['s.enrollment_status IN ("Enrolled","Pending")'];
+    $params = [];
+    $types  = '';
+
+    if ($search) {
+        $sq = '%' . $conn->real_escape_string($search) . '%';
+        $where[] = "(s.student_number LIKE '$sq' OR s.first_name LIKE '$sq' OR s.last_name LIKE '$sq' OR CONCAT(s.first_name,' ',s.last_name) LIKE '$sq')";
+    }
+    if ($program)   { $where[] = 's.program = ?';    $params[] = $program;   $types .= 's'; }
+    if ($yearLevel) { $where[] = 's.year_level = ?'; $params[] = $yearLevel; $types .= 's'; }
+    if ($semester)  { $where[] = 's.semester = ?';   $params[] = $semester;  $types .= 's'; }
+
+    $whereStr = implode(' AND ', $where);
+
+    // Count
+    $countSql  = "SELECT COUNT(DISTINCT s.id) AS total FROM students s WHERE $whereStr";
+    $countStmt = $conn->prepare($countSql);
+    if ($params) $countStmt->bind_param($types, ...$params);
+    $countStmt->execute();
+    $total = (int)$countStmt->get_result()->fetch_assoc()['total'];
+    $countStmt->close();
+
+    // Data with grade completion stats — use prelim_grade/midterm_grade/final_grade directly from enrollments
+    $dataSql = "
+        SELECT s.id, s.student_number, s.first_name, s.last_name,
+               s.program, s.year_level, s.semester, s.enrollment_status,
+               s.phone,
+               COUNT(DISTINCT e.id) AS total_subjects,
+               SUM(CASE WHEN e.prelim_grade  IS NOT NULL THEN 1 ELSE 0 END) AS prelim_done,
+               SUM(CASE WHEN e.midterm_grade IS NOT NULL THEN 1 ELSE 0 END) AS midterm_done,
+               SUM(CASE WHEN e.final_grade   IS NOT NULL THEN 1 ELSE 0 END) AS final_done
+        FROM students s
+        LEFT JOIN enrollments e ON e.student_id = s.id AND e.status IN ('Enrolled','Pending')
+        WHERE $whereStr
+        GROUP BY s.id
+        ORDER BY s.last_name, s.first_name
+        LIMIT ? OFFSET ?
+    ";
+    $allP = array_merge($params, [$limit, $offset]);
+    $allT = $types . 'ii';
+    $dataStmt = $conn->prepare($dataSql);
+    $dataStmt->bind_param($allT, ...$allP);
+    $dataStmt->execute();
+    $res      = $dataStmt->get_result();
+    $students = [];
+    while ($r = $res->fetch_assoc()) {
+        $total_s  = (int)$r['total_subjects'];
+        $students[] = [
+            'id'              => (int)$r['id'],
+            'studentNumber'   => $r['student_number'],
+            'firstName'       => $r['first_name'],
+            'lastName'        => $r['last_name'],
+            'fullName'        => $r['first_name'] . ' ' . $r['last_name'],
+            'program'         => $r['program'],
+            'yearLevel'       => $r['year_level'],
+            'semester'        => $r['semester'],
+            'status'          => $r['enrollment_status'],
+            'contactNumber'   => $r['phone'] ?? '',
+            'totalSubjects'   => $total_s,
+            'prelimDone'      => (int)$r['prelim_done'],
+            'midtermDone'     => (int)$r['midterm_done'],
+            'finalDone'       => (int)$r['final_done'],
+            'gradeCompletion' => $total_s > 0 ? round(((int)$r['prelim_done'] + (int)$r['midterm_done'] + (int)$r['final_done']) / ($total_s * 3) * 100) : 0,
+            // Initials for avatar
+            'initials'        => strtoupper(substr($r['first_name'], 0, 1) . substr($r['last_name'], 0, 1)),
+        ];
+    }
+    $dataStmt->close();
+
+    echo json_encode([
+        'success'    => true,
+        'students'   => $students,
+        'total'      => $total,
+        'page'       => $page,
+        'limit'      => $limit,
+        'totalPages' => (int)ceil($total / $limit),
+    ]);
+}
+
+/**
+ * GET ?action=get_grade_student_detail&student_id=X
+ * Full grade sheet for a student — used when registrar clicks on a card/row.
+ */
+function getGradeStudentDetail($conn) {
+    $sid = (int)($_GET['student_id'] ?? 0);
+    if (!$sid) { echo json_encode(['success'=>false,'message'=>'student_id required']); return; }
+
+    $sRes = $conn->query("SELECT * FROM students WHERE id=$sid LIMIT 1");
+    $student = $sRes ? $sRes->fetch_assoc() : null;
+    if (!$student) { echo json_encode(['success'=>false,'message'=>'Student not found']); return; }
+
+    $res = $conn->query("
+        SELECT e.id AS enrollment_id, e.semester, e.status,
+               c.id AS course_id, c.code, c.name, c.credits, c.instructor,
+               e.prelim_grade  AS prelim,
+               e.midterm_grade AS midterm,
+               e.final_grade   AS final,
+               NULL AS prelim_at, NULL AS midterm_at, NULL AS final_at
+        FROM enrollments e
+        JOIN courses c ON e.course_id = c.id
+        WHERE e.student_id = $sid AND e.status IN ('Enrolled','Pending','Completed')
+        ORDER BY c.code ASC
+    ");
+
+    $subjects = [];
+    while ($r = $res->fetch_assoc()) {
+        $prelim  = $r['prelim']  !== null ? (float)$r['prelim']  : null;
+        $midterm = $r['midterm'] !== null ? (float)$r['midterm'] : null;
+        $final   = $r['final']   !== null ? (float)$r['final']   : null;
+        $vals    = array_filter([$prelim,$midterm,$final], fn($v) => $v !== null);
+        $overall = count($vals) > 0 ? round(array_sum($vals) / count($vals), 2) : null;
+        $remarks = $final !== null ? ($overall <= 3.0 ? 'Passed' : 'Failed') : 'In Progress';
+        $subjects[] = [
+            'enrollmentId' => (int)$r['enrollment_id'],
+            'courseId'     => (int)$r['course_id'],
+            'code'         => $r['code'],
+            'name'         => $r['name'],
+            'credits'      => (int)$r['credits'],
+            'instructor'   => $r['instructor'] ?? '',
+            'semester'     => $r['semester'] ?? '',
+            'prelim'       => $prelim,
+            'midterm'      => $midterm,
+            'final'        => $final,
+            'overall'      => $overall,
+            'remarks'      => $remarks,
+            'prelimAt'     => $r['prelim_at']  ?? null,
+            'midtermAt'    => $r['midterm_at'] ?? null,
+            'finalAt'      => $r['final_at']   ?? null,
+        ];
+    }
+
+    echo json_encode([
+        'success'  => true,
+        'student'  => $student,
+        'subjects' => $subjects,
+        'initials' => strtoupper(substr($student['first_name'],0,1).substr($student['last_name'],0,1)),
+    ]);
+}
+
+/**
+ * GET ?action=get_grade_courses
+ * Returns courses with enrolled student count + grade completion stats.
+ * Used as an alternative entry point: pick course → see students.
+ */
+function getGradeCourses($conn) {
+    $semester = trim($_GET['semester'] ?? '');
+    $program  = trim($_GET['program']  ?? '');
+
+    $where = ['e.status IN ("Enrolled","Pending")'];
+    if ($semester) $where[] = "e.semester='".$conn->real_escape_string($semester)."'";
+    if ($program)  $where[] = "c.program='".$conn->real_escape_string($program)."'";
+    $whereStr = implode(' AND ', $where);
+
+    $res = $conn->query("
+        SELECT c.id, c.code, c.name, c.instructor, c.program, c.credits,
+               COUNT(DISTINCT e.student_id) AS enrolled_count,
+               SUM(CASE WHEN e.prelim_grade  IS NOT NULL THEN 1 ELSE 0 END) AS prelim_done,
+               SUM(CASE WHEN e.midterm_grade IS NOT NULL THEN 1 ELSE 0 END) AS midterm_done,
+               SUM(CASE WHEN e.final_grade   IS NOT NULL THEN 1 ELSE 0 END) AS final_done
+        FROM courses c
+        JOIN enrollments e ON e.course_id = c.id
+        WHERE $whereStr
+        GROUP BY c.id
+        ORDER BY c.code ASC
+    ");
+    $courses = [];
+    while ($r = $res->fetch_assoc()) {
+        $enrolled = (int)$r['enrolled_count'];
+        $courses[] = [
+            'id'           => (int)$r['id'],
+            'code'         => $r['code'],
+            'name'         => $r['name'],
+            'instructor'   => $r['instructor'] ?? '',
+            'program'      => $r['program'],
+            'credits'      => (int)$r['credits'],
+            'enrolledCount'=> $enrolled,
+            'prelimDone'   => (int)$r['prelim_done'],
+            'midtermDone'  => (int)$r['midterm_done'],
+            'finalDone'    => (int)$r['final_done'],
+            'gradeCompletion' => $enrolled > 0 ? round(((int)$r['prelim_done']+(int)$r['midterm_done']+(int)$r['final_done'])/($enrolled*3)*100) : 0,
+        ];
+    }
+    echo json_encode(['success'=>true,'courses'=>$courses]);
+}
+
+/**
+ * GET ?action=get_course_students&course_id=X
+ * Returns all enrolled students in a specific course with their grades.
+ */
+function getCourseStudents($conn) {
+    $cid = (int)($_GET['course_id'] ?? 0);
+    if (!$cid) { echo json_encode(['success'=>false,'message'=>'course_id required']); return; }
+
+    $cRes   = $conn->query("SELECT * FROM courses WHERE id=$cid LIMIT 1");
+    $course = $cRes ? $cRes->fetch_assoc() : null;
+    if (!$course) { echo json_encode(['success'=>false,'message'=>'Course not found']); return; }
+
+    $res = $conn->query("
+        SELECT s.id AS student_id, s.student_number, s.first_name, s.last_name,
+               s.program, s.year_level, s.enrollment_status,
+               e.id AS enrollment_id, e.semester,
+               e.prelim_grade  AS prelim,
+               e.midterm_grade AS midterm,
+               e.final_grade   AS final
+        FROM enrollments e
+        JOIN students s ON s.id = e.student_id
+        WHERE e.course_id = $cid AND e.status IN ('Enrolled','Pending')
+        ORDER BY s.last_name, s.first_name
+    ");
+
+    $students = [];
+    while ($r = $res->fetch_assoc()) {
+        $prelim  = $r['prelim']  !== null ? (float)$r['prelim']  : null;
+        $midterm = $r['midterm'] !== null ? (float)$r['midterm'] : null;
+        $final   = $r['final']   !== null ? (float)$r['final']   : null;
+        $vals    = array_filter([$prelim,$midterm,$final], fn($v) => $v !== null);
+        $overall = count($vals) > 0 ? round(array_sum($vals)/count($vals), 2) : null;
+        $students[] = [
+            'studentId'    => (int)$r['student_id'],
+            'enrollmentId' => (int)$r['enrollment_id'],
+            'studentNumber'=> $r['student_number'],
+            'firstName'    => $r['first_name'],
+            'lastName'     => $r['last_name'],
+            'fullName'     => $r['first_name'].' '.$r['last_name'],
+            'program'      => $r['program'],
+            'yearLevel'    => $r['year_level'],
+            'semester'     => $r['semester'],
+            'initials'     => strtoupper(substr($r['first_name'],0,1).substr($r['last_name'],0,1)),
+            'prelim'       => $prelim,
+            'midterm'      => $midterm,
+            'final'        => $final,
+            'overall'      => $overall,
+            'remarks'      => $final !== null ? ($overall <= 3.0 ? 'Passed' : 'Failed') : 'In Progress',
+        ];
+    }
+    echo json_encode(['success'=>true,'course'=>$course,'students'=>$students]);
+}
+
+
+// ─────────────────────────────────────────────────────────────
+// DEBUG: GET ?action=debug_tor&student_id=XX
+// Dumps all intermediate values used in evaluateTOR computation
+// ─────────────────────────────────────────────────────────────
+function debugTOR($conn) {
+    $student_id = (int)($_GET['student_id'] ?? 0);
+    if (!$student_id) { echo json_encode(['error' => 'student_id required']); return; }
+
+    $out = ['student_id' => $student_id];
+
+    // 1. Student row
+    $st = $conn->query("SELECT program, semester, year_level, payment_plan, tor_eval_status, enrollment_status FROM students WHERE id=$student_id LIMIT 1");
+    $stRow = $st ? $st->fetch_assoc() : null;
+    $out['student'] = $stRow;
+
+    if (!$stRow) { echo json_encode($out); return; }
+
+    $pn      = $conn->real_escape_string($stRow['program'] ?? '');
+    $sem_raw = trim($stRow['semester'] ?? '');
+    $yl      = $conn->real_escape_string($stRow['year_level'] ?? '1st Year');
+
+    // 2. Sem/year filter construction
+    preg_match('/^(1st Semester|2nd Semester|Summer)/i', $sem_raw, $sm);
+    $semTerm        = $conn->real_escape_string($sm[1] ?? $sem_raw);
+    $semFilter      = $semTerm ? "AND c.semester LIKE '$semTerm%'" : '';
+    $semFilterPlain = $semTerm ? "AND semester LIKE '$semTerm%'" : '';
+    $ylFilter       = $yl ? "AND c.year_level = '$yl'" : '';
+    $ylFilterPlain  = $yl ? "AND year_level = '$yl'" : '';
+    $out['filters'] = compact('pn','sem_raw','semTerm','yl','ylFilter','semFilter','ylFilterPlain','semFilterPlain');
+
+    // 3. Tables existence
+    $out['tables'] = [
+        'program_courses' => $conn->query("SHOW TABLES LIKE 'program_courses'")->num_rows > 0,
+        'programs'        => $conn->query("SHOW TABLES LIKE 'programs'")->num_rows > 0,
+        'courses'         => $conn->query("SHOW TABLES LIKE 'courses'")->num_rows > 0,
+    ];
+
+    // 4. Source 1: program_courses JOIN
+    $sql1 = "SELECT COALESCE(SUM(c.credits),0) AS u FROM program_courses pc JOIN programs pr ON pc.program_id=pr.id JOIN courses c ON pc.course_id=c.id WHERE (pr.name='$pn' OR pr.code='$pn') $ylFilter $semFilter";
+    $r1 = $conn->query($sql1);
+    $out['source1_sql']    = $sql1;
+    $out['source1_error']  = $conn->error ?: null;
+    $out['source1_units']  = $r1 ? (int)$r1->fetch_assoc()['u'] : null;
+
+    // 5. Source 2: courses.program direct
+    $sql2 = "SELECT COALESCE(SUM(credits),0) AS u FROM courses WHERE program='$pn' $ylFilterPlain $semFilterPlain";
+    $r2 = $conn->query($sql2);
+    $out['source2_sql']    = $sql2;
+    $out['source2_error']  = $conn->error ?: null;
+    $out['source2_units']  = $r2 ? (int)$r2->fetch_assoc()['u'] : null;
+
+    // 6. All program values in courses table
+    $progs = $conn->query("SELECT DISTINCT program, year_level, semester FROM courses WHERE program LIKE '%$pn%' OR program LIKE '%IT%' OR program LIKE '%Information%' LIMIT 20");
+    $out['courses_programs'] = [];
+    if ($progs) while ($r = $progs->fetch_assoc()) $out['courses_programs'][] = $r;
+
+    // 7. tor_evaluations row
+    $te = $conn->query("SELECT * FROM tor_evaluations WHERE student_id=$student_id ORDER BY id DESC LIMIT 1");
+    $out['tor_evaluation'] = $te ? $te->fetch_assoc() : null;
+
+    // 8. tuition_fees row
+    $tf = $conn->query("SELECT * FROM tuition_fees WHERE student_id=$student_id LIMIT 1");
+    $out['tuition_fees'] = $tf ? $tf->fetch_assoc() : null;
+
+    echo json_encode($out, JSON_PRETTY_PRINT);
+}
 
 // ─────────────────────────────────────────────────────────────
 // STUDENT: Upload TOR file and create tor_evaluation record
@@ -103,8 +453,7 @@ function uploadTorFile($conn) {
     }
 
     // Save tor_file path to students table
-    $conn->query("ALTER TABLE students ADD COLUMN IF NOT EXISTS tor_file VARCHAR(255) DEFAULT NULL");
-    if ($torUrl) {
+        if ($torUrl) {
         $stmt = $conn->prepare("UPDATE students SET tor_file = ? WHERE id = ?");
         $stmt->bind_param("si", $torUrl, $student_id);
         $stmt->execute();
@@ -121,7 +470,8 @@ function uploadTorFile($conn) {
 
     $conn->query("UPDATE students SET tor_eval_status = 'Pending' WHERE id = $student_id");
 
-    $baseUrl  = 'http://' . ($_SERVER['HTTP_HOST'] ?? 'localhost') . '/sia-api/uploads/';
+    // FIX R-04: Use configurable base URL (set SIA_UPLOAD_URL in environment or .env)
+    $baseUrl  = rtrim(getenv('SIA_UPLOAD_URL') ?: ('http://' . ($_SERVER['HTTP_HOST'] ?? 'localhost') . '/sia-api/uploads'), '/') . '/';
     $fileUrl  = $torUrl ? ($baseUrl . $torUrl) : '';
     echo json_encode([
         'success'  => true,
@@ -456,6 +806,11 @@ function evaluateTOR($conn, $data) {
     $sem_raw = trim($st_row['semester']   ?? '');
     $yl      = $conn->real_escape_string($st_row['year_level'] ?? '1st Year');
 
+    // Resolve program code (students.program = full name; courses.program = code)
+    $pc_row = $conn->query("SELECT code FROM programs WHERE name = '$pn' OR code = '$pn' LIMIT 1");
+    $programCode = ($pc_row && $pc_row->num_rows > 0) ? $pc_row->fetch_assoc()['code'] : $st_row['program'];
+    $pc = $conn->real_escape_string($programCode);
+
     // Get existing discount/installment_fee from tuition_fees (do NOT use cached units)
     $tf_res   = $conn->query("SELECT discount, installment_fee FROM tuition_fees WHERE student_id = $student_id LIMIT 1");
     $tf_row   = $tf_res ? $tf_res->fetch_assoc() : null;
@@ -467,56 +822,71 @@ function evaluateTOR($conn, $data) {
     // Strip AY suffix so courses stored under any school year are matched.
     $semTerm   = '';
     $semFilter = '';
+    $semFilterPlain = '';
     if ($sem_raw !== '') {
         preg_match('/^(1st Semester|2nd Semester|Summer)/i', $sem_raw, $sm);
-        $semTerm   = $conn->real_escape_string($sm[1] ?? $sem_raw);
-        $semFilter = "AND c.semester LIKE '$semTerm%'";
+        $semTerm        = $conn->real_escape_string($sm[1] ?? $sem_raw);
+        $semFilter      = "AND c.semester LIKE '$semTerm%'";
+        $semFilterPlain = "AND semester LIKE '$semTerm%'";
     }
-    $ylFilter = ($yl !== '') ? "AND c.year_level = '$yl'" : '';
+    $ylFilter      = ($yl !== '') ? "AND c.year_level = '$yl'" : '';
+    $ylFilterPlain = ($yl !== '') ? "AND year_level = '$yl'" : '';
 
     // Source 1: program_courses junction table
-    $pu_res = $conn->query("
-        SELECT COALESCE(SUM(c.credits),0) AS u
+    // FIX R-02: Use prepared statements for all queries in evaluateTOR
+    $pu_sql = "SELECT COALESCE(SUM(c.credits),0) AS u
         FROM program_courses pc
         JOIN programs pr ON pc.program_id=pr.id
         JOIN courses c   ON pc.course_id=c.id
-        WHERE (pr.name='$pn' OR pr.code='$pn') $ylFilter $semFilter");
-    $program_units = (int)(($pu_res ? $pu_res->fetch_assoc()['u'] : 0) ?: 0);
+        WHERE (pr.name=? OR pr.code=?) $ylFilter $semFilter";
+    $pu_stmt = $conn->prepare($pu_sql);
+    $pu_stmt->bind_param("ss", $pn, $pn);
+    $pu_stmt->execute();
+    $program_units = (int)(($pu_stmt->get_result()->fetch_assoc()['u'] ?? 0) ?: 0);
 
-    // Source 2: courses.program direct column
     if ($program_units <= 0) {
-        $fb_res = $conn->query("
-            SELECT COALESCE(SUM(credits),0) AS u
-            FROM courses
-            WHERE program='$pn' $ylFilter $semFilter");
-        $program_units = (int)(($fb_res ? $fb_res->fetch_assoc()['u'] : 0) ?: 18);
+        $fb_sql  = "SELECT COALESCE(SUM(credits),0) AS u FROM courses WHERE (program=? OR program=?) $ylFilterPlain $semFilterPlain";
+        $fb_stmt = $conn->prepare($fb_sql);
+        $fb_stmt->bind_param("ss", $pc, $pn);
+        $fb_stmt->execute();
+        $program_units = (int)(($fb_stmt->get_result()->fetch_assoc()['u'] ?? 0) ?: 18);
     }
     if ($program_units <= 0) $program_units = 18;
 
     $approved_units = max(0, $program_units - $credited_units);
 
-    // ── 1. Update tor_evaluations ──────────────────────────────
-    $stmt = $conn->prepare("
-        UPDATE tor_evaluations
-        SET status              = 'Evaluated',
-            credited_units      = ?,
-            approved_units      = ?,
-            credited_subjects   = ?,
-            credited_course_ids = ?,
-            registrar_notes     = ?,
-            evaluated_by        = ?,
+    // ── 1. Upsert tor_evaluations ─────────────────────────────
+    // Use INSERT ... ON DUPLICATE KEY UPDATE so it works whether or not
+    // a tor_evaluations row already exists for this student/eval_id.
+    // FIX R-03: INSERT keyed only on student_id (the UNIQUE column), not eval_id (PK).
+    // Using eval_id in the INSERT caused the ON DUPLICATE KEY to fire on the wrong constraint.
+    $upsert = $conn->prepare("
+        INSERT INTO tor_evaluations
+            (student_id, status, credited_units, approved_units,
+             credited_subjects, credited_course_ids, registrar_notes,
+             evaluated_by, evaluated_at)
+        VALUES (?, 'Evaluated', ?, ?, ?, ?, ?, ?, NOW())
+        ON DUPLICATE KEY UPDATE
+            status              = 'Evaluated',
+            credited_units      = VALUES(credited_units),
+            approved_units      = VALUES(approved_units),
+            credited_subjects   = VALUES(credited_subjects),
+            credited_course_ids = VALUES(credited_course_ids),
+            registrar_notes     = VALUES(registrar_notes),
+            evaluated_by        = VALUES(evaluated_by),
             evaluated_at        = NOW()
-        WHERE id = ? AND student_id = ?
     ");
-    $stmt->bind_param("iisssiii",
+    if (!$upsert) {
+        echo json_encode(['success'=>false,'message'=>'DB error: '.$conn->error]); return;
+    }
+    $upsert->bind_param("iiisssi",
+        $student_id,
         $credited_units, $approved_units,
         $credited_json, $course_ids_json,
-        $notes, $registrar_id,
-        $eval_id, $student_id);
-    $stmt->execute();
-
-    if ($stmt->affected_rows === 0) {
-        echo json_encode(['success' => false, 'message' => 'Evaluation record not found']); return;
+        $notes, $registrar_id);
+    $upsert->execute();
+    if ($upsert->errno !== 0) {
+        echo json_encode(['success'=>false,'message'=>'Failed to save evaluation: '.$upsert->error]); return;
     }
 
     // ── 2. Update student tor_eval_status ──────────────────────
@@ -535,8 +905,8 @@ function evaluateTOR($conn, $data) {
         WHERE c.room LIKE '%Lab%'
           $ylFilter
           $semFilter
-          AND (c.program = '$pn'
-            OR c.id IN (SELECT pc.course_id FROM program_courses pc JOIN programs p ON pc.program_id=p.id WHERE p.name='$pn' OR p.code='$pn'))
+          AND (c.program = '$pc' OR c.program = '$pn'
+            OR c.id IN (SELECT pc2.course_id FROM program_courses pc2 JOIN programs p ON pc2.program_id=p.id WHERE p.name='$pn' OR p.code='$pn' OR p.code='$pc'))
     ");
     $lab_cnt = (int)(($lab_cnt_res ? $lab_cnt_res->fetch_assoc()['cnt'] : 0) ?? 0);
     $lab_fee    = $lab_cnt * 1900;
@@ -663,16 +1033,23 @@ function getStudentCurriculum($conn) {
 
     $p = $conn->real_escape_string($st_row['program']);
 
-    // All program courses
+    // Resolve program code from programs table.
+    // students.program may store the full name; courses.program stores the code.
+    $pc_row = $conn->query("SELECT code FROM programs WHERE name = '$p' OR code = '$p' LIMIT 1");
+    $programCode = ($pc_row && $pc_row->num_rows > 0) ? $pc_row->fetch_assoc()['code'] : $st_row['program'];
+    $pc = $conn->real_escape_string($programCode);
+
+    // All program courses — match via junction table (uses pr.name/code)
+    // UNION with courses.program using RESOLVED CODE to avoid wrongly-tagged courses
     $result = $conn->query("
         SELECT c.id, c.code, c.name, c.credits, c.year_level, c.semester, c.description
         FROM program_courses pc
         JOIN programs pr ON pc.program_id = pr.id
         JOIN courses c   ON pc.course_id  = c.id
-        WHERE pr.name = '$p' OR pr.code = '$p'
+        WHERE pr.name = '$p' OR pr.code = '$p' OR pr.code = '$pc'
         UNION
         SELECT id, code, name, credits, year_level, semester, description
-        FROM courses WHERE program = '$p'
+        FROM courses WHERE program = '$pc'
         ORDER BY year_level, semester, code
     ");
 
@@ -771,5 +1148,83 @@ function getStudentCurriculum($conn) {
             'remainingUnits' => $remaining_units,
         ],
         'courses' => $courses,
+    ]);
+}
+
+// ─────────────────────────────────────────────────────────────
+// POST ?action=upload_document  (multipart/form-data)
+// Fields: student_id, document_type (e.g. 'form138', 'psa', 'good_moral'),
+//         file (binary)
+// Used during SHS/TVET enrollment wizard to attach supporting documents
+// ─────────────────────────────────────────────────────────────
+function uploadDocument($conn) {
+    $student_id    = (int)($_POST['student_id']    ?? 0);
+    $document_type = trim($_POST['document_type']  ?? 'document');
+
+    if (!$student_id) {
+        echo json_encode(['success' => false, 'message' => 'student_id required']);
+        return;
+    }
+
+    // Validate document_type to prevent path traversal
+    $allowed_types = ['form138', 'psa', 'good_moral', 'birth_cert', 'id_picture',
+                      'report_card', 'diploma', 'transcript', 'certificate', 'document'];
+    if (!in_array($document_type, $allowed_types)) {
+        $document_type = 'document';
+    }
+
+    // Build upload directory
+    $scriptDir = dirname($_SERVER['SCRIPT_FILENAME']);
+    $uploadDir = $scriptDir . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR;
+    if (!is_dir($uploadDir)) {
+        if (!mkdir($uploadDir, 0755, true)) {
+            echo json_encode(['success' => false, 'message' => 'Could not create uploads folder.']);
+            return;
+        }
+    }
+
+    if (empty($_FILES['file']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK) {
+        // No file uploaded — still return success (document step is optional)
+        echo json_encode(['success' => true, 'message' => 'No file uploaded.', 'file_url' => '']);
+        return;
+    }
+
+    $ext     = strtolower(pathinfo($_FILES['file']['name'], PATHINFO_EXTENSION));
+    $allowed = ['pdf', 'jpg', 'jpeg', 'png', 'gif', 'webp'];
+    if (!in_array($ext, $allowed)) {
+        echo json_encode(['success' => false, 'message' => 'Only PDF and image files allowed.']);
+        return;
+    }
+
+    $filename = $document_type . '_' . $student_id . '_' . time() . '.' . $ext;
+    $dest     = $uploadDir . $filename;
+
+    if (!move_uploaded_file($_FILES['file']['tmp_name'], $dest)) {
+        echo json_encode(['success' => false, 'message' => 'File move failed. Check folder permissions.']);
+        return;
+    }
+
+    // Map document_type to the correct students column
+    $col_map = [
+        'form138'    => 'tor_file',
+        'psa'        => 'psa_file',
+        'transcript' => 'tor_file',
+    ];
+
+    $col = $col_map[$document_type] ?? null;
+    if ($col) {
+                $stmt = $conn->prepare("UPDATE students SET $col = ? WHERE id = ?");
+        $stmt->bind_param("si", $filename, $student_id);
+        $stmt->execute();
+    }
+
+    // FIX R-04: configurable upload base URL
+    $baseUrl = rtrim(getenv('SIA_UPLOAD_URL') ?: ('http://' . ($_SERVER['HTTP_HOST'] ?? 'localhost') . '/sia-api/uploads'), '/') . '/';
+    echo json_encode([
+        'success'      => true,
+        'message'      => 'Document uploaded successfully.',
+        'file_name'    => $filename,
+        'file_url'     => $baseUrl . $filename,
+        'document_type'=> $document_type,
     ]);
 }

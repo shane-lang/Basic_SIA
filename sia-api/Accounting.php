@@ -1,7 +1,21 @@
 <?php
 error_reporting(0);
 ini_set('display_errors', 0);
-header("Access-Control-Allow-Origin: *");
+// FIX A-02: Restrict CORS to trusted origins only
+$allowedOrigin = $_SERVER['HTTP_ORIGIN'] ?? '';
+$trustedOrigins = [
+    'http://localhost:4200',
+    'http://localhost',
+    'http://127.0.0.1:4200',
+    'http://127.0.0.1',
+];
+if (in_array($allowedOrigin, $trustedOrigins, true)) {
+    header("Access-Control-Allow-Origin: $allowedOrigin");
+    header('Access-Control-Allow-Credentials: true');
+} else {
+    header('Access-Control-Allow-Origin: http://localhost:4200');
+}
+
 header("Access-Control-Allow-Methods: GET, POST, PUT, OPTIONS");
 header("Access-Control-Allow-Headers: Content-Type, Authorization");
 header("Content-Type: application/json");
@@ -14,106 +28,139 @@ if ($conn->connect_error) {
 }
 $conn->set_charset("utf8mb4");
 
-// ── Ensure required columns exist ──
-$conn->query("ALTER TABLE payment_logs ADD COLUMN IF NOT EXISTS payment_method VARCHAR(20) NOT NULL DEFAULT 'GCash' AFTER student_id");
-$conn->query("ALTER TABLE students     ADD COLUMN IF NOT EXISTS payment_method VARCHAR(20) NOT NULL DEFAULT 'GCash' AFTER approval_status");
+$action = $_GET['action'] ?? '';
 
-// ── Ensure tuition_fees table ──
-$conn->query("
-  CREATE TABLE IF NOT EXISTS tuition_fees (
+require_once __DIR__ . '/auth_middleware.php';
+// Fee preview actions called during enrollment wizard (no token yet)
+$publicActions = ['get_fee_preview', 'get_shs_fee', 'get_tvet_fee'];
+$authUser = in_array($action, $publicActions) ? null : requireAuth($conn);
+
+// ── Auto-create required tables if missing (so migrate.php is not mandatory) ──
+$conn->query("CREATE TABLE IF NOT EXISTS tuition_fees (
     id INT AUTO_INCREMENT PRIMARY KEY,
     student_id INT NOT NULL UNIQUE,
-    units INT NOT NULL DEFAULT 18,
-    tuition_fee DECIMAL(10,2) NOT NULL,
-    miscellaneous_fee DECIMAL(10,2) NOT NULL DEFAULT 6688.00,
-    registration_fee DECIMAL(10,2) NOT NULL DEFAULT 700.00,
-    laboratory_fee DECIMAL(10,2) NOT NULL,
-    energy_fee DECIMAL(10,2) NOT NULL,
-    subtotal DECIMAL(10,2) NOT NULL,
-    discount DECIMAL(10,2) NOT NULL DEFAULT 0.00,
-    installment_fee DECIMAL(10,2) NOT NULL DEFAULT 0.00,
-    total_assessment DECIMAL(10,2) NOT NULL,
+    units INT DEFAULT 0,
+    tuition_fee DECIMAL(10,2) DEFAULT 0,
+    miscellaneous_fee DECIMAL(10,2) DEFAULT 0,
+    registration_fee DECIMAL(10,2) DEFAULT 0,
+    laboratory_fee DECIMAL(10,2) DEFAULT 0,
+    energy_fee DECIMAL(10,2) DEFAULT 0,
+    subtotal DECIMAL(10,2) DEFAULT 0,
+    discount DECIMAL(10,2) DEFAULT 0,
+    installment_fee DECIMAL(10,2) DEFAULT 0,
+    total_assessment DECIMAL(10,2) DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-");
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
-// ── Ensure installment_payments table ──
-$conn->query("
-  CREATE TABLE IF NOT EXISTS installment_payments (
+$conn->query("CREATE TABLE IF NOT EXISTS or_ar_sequences (
+    year INT NOT NULL UNIQUE,
+    last_seq INT NOT NULL DEFAULT 0
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+$conn->query("CREATE TABLE IF NOT EXISTS installment_payments (
     id INT AUTO_INCREMENT PRIMARY KEY,
     student_id INT NOT NULL,
     payment_log_id INT DEFAULT NULL,
-    or_ar_number VARCHAR(30) NOT NULL,
-    or_ar_type ENUM('OR','AR') NOT NULL DEFAULT 'AR',
-    amount DECIMAL(10,2) NOT NULL,
-    payment_date DATE NOT NULL,
-    payment_method VARCHAR(20) NOT NULL DEFAULT 'Cash',
+    or_ar_number VARCHAR(30) DEFAULT NULL,
+    or_ar_type VARCHAR(5) DEFAULT 'OR',
+    amount DECIMAL(10,2) DEFAULT 0,
+    payment_date DATE DEFAULT NULL,
+    payment_method VARCHAR(20) DEFAULT 'Cash',
     gcash_reference VARCHAR(100) DEFAULT NULL,
-    exam_period ENUM('Downpayment','Prelim','Midterm','Finals','Full') NOT NULL DEFAULT 'Downpayment',
+    exam_period VARCHAR(30) DEFAULT NULL,
     notes TEXT DEFAULT NULL,
     recorded_by INT DEFAULT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-");
-$conn->query("
-  CREATE TABLE IF NOT EXISTS payment_schedules (
-    id             INT AUTO_INCREMENT PRIMARY KEY,
-    student_id     INT NOT NULL UNIQUE,
-    payment_type   ENUM('full','installment') NOT NULL DEFAULT 'installment',
-    total_assessment DECIMAL(10,2) NOT NULL DEFAULT 0.00,
-    prelim_due     DECIMAL(10,2) NOT NULL DEFAULT 0.00,
-    midterm_due    DECIMAL(10,2) NOT NULL DEFAULT 0.00,
-    finals_due     DECIMAL(10,2) NOT NULL DEFAULT 0.00,
-    prelim_paid    DECIMAL(10,2) NOT NULL DEFAULT 0.00,
-    midterm_paid   DECIMAL(10,2) NOT NULL DEFAULT 0.00,
-    finals_paid    DECIMAL(10,2) NOT NULL DEFAULT 0.00,
-    prelim_status  ENUM('locked','unpaid','partial','paid') NOT NULL DEFAULT 'locked',
-    midterm_status ENUM('locked','unpaid','partial','paid') NOT NULL DEFAULT 'locked',
-    finals_status  ENUM('locked','unpaid','partial','paid') NOT NULL DEFAULT 'locked',
-    prelim_unlocked_at  TIMESTAMP NULL,
-    midterm_unlocked_at TIMESTAMP NULL,
-    finals_unlocked_at  TIMESTAMP NULL,
-    created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-");
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
-$conn->query("
-  CREATE TABLE IF NOT EXISTS payment_notices (
-    id           INT AUTO_INCREMENT PRIMARY KEY,
-    student_id   INT NOT NULL,
-    exam_period  ENUM('Prelim','Midterm','Finals') NOT NULL,
-    amount_due   DECIMAL(10,2) NOT NULL,
-    due_date     DATE NULL,
-    message      TEXT NULL,
-    sent_by      INT NOT NULL,
-    sent_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    is_read      TINYINT(1) NOT NULL DEFAULT 0,
-    UNIQUE KEY one_notice (student_id, exam_period)
-  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-");
+$conn->query("CREATE TABLE IF NOT EXISTS payment_schedules (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    student_id INT NOT NULL UNIQUE,
+    payment_type VARCHAR(20) DEFAULT 'full',
+    total_assessment DECIMAL(10,2) DEFAULT 0,
+    prelim_due DECIMAL(10,2) DEFAULT 0,
+    prelim_paid DECIMAL(10,2) DEFAULT 0,
+    prelim_status VARCHAR(20) DEFAULT 'locked',
+    prelim_unlocked_at DATETIME DEFAULT NULL,
+    midterm_due DECIMAL(10,2) DEFAULT 0,
+    midterm_paid DECIMAL(10,2) DEFAULT 0,
+    midterm_status VARCHAR(20) DEFAULT 'locked',
+    midterm_unlocked_at DATETIME DEFAULT NULL,
+    finals_due DECIMAL(10,2) DEFAULT 0,
+    finals_paid DECIMAL(10,2) DEFAULT 0,
+    finals_status VARCHAR(20) DEFAULT 'locked',
+    finals_unlocked_at DATETIME DEFAULT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
-$conn->query("
-  CREATE TABLE IF NOT EXISTS exam_permits (
-    id           INT AUTO_INCREMENT PRIMARY KEY,
-    student_id   INT NOT NULL,
-    exam_period  ENUM('Prelim','Midterm','Finals') NOT NULL,
-    school_year  VARCHAR(20) NOT NULL DEFAULT '2025-2026',
-    semester     VARCHAR(30) NOT NULL DEFAULT '2nd Semester',
-    status       ENUM('pending','approved','rejected') NOT NULL DEFAULT 'pending',
-    requested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    approved_at  TIMESTAMP NULL,
-    approved_by  INT NULL,
-    remarks      TEXT NULL,
-    UNIQUE KEY unique_permit (student_id, exam_period, school_year, semester)
-  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-");
+$conn->query("CREATE TABLE IF NOT EXISTS exam_permits (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    student_id INT NOT NULL,
+    exam_period VARCHAR(30) NOT NULL,
+    school_year VARCHAR(20) DEFAULT NULL,
+    semester VARCHAR(50) DEFAULT NULL,
+    status VARCHAR(20) DEFAULT 'Pending',
+    requested_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    approved_at DATETIME DEFAULT NULL,
+    approved_by INT DEFAULT NULL,
+    remarks TEXT DEFAULT NULL,
+    UNIQUE KEY uniq_permit (student_id, exam_period, school_year, semester)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+$conn->query("CREATE TABLE IF NOT EXISTS payment_notices (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    student_id INT NOT NULL,
+    exam_period VARCHAR(30) NOT NULL,
+    amount_due DECIMAL(10,2) DEFAULT 0,
+    due_date DATE DEFAULT NULL,
+    message TEXT DEFAULT NULL,
+    sent_by INT DEFAULT NULL,
+    is_read TINYINT(1) DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uniq_notice (student_id, exam_period)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+// ── End auto-create ──
+
+// ── Ensure required columns exist ──
+
+// ── Ensure tuition_fees table ──
+// Schema managed by migrate.php
+
+// ── Ensure installment_payments table ──
+// Schema managed by migrate.php
+// Schema managed by migrate.php
+
+// Schema managed by migrate.php
+
+// Schema managed by migrate.php
+
+// ── Ensure payment_logs has all required columns ──
+$conn->query("ALTER TABLE payment_logs ADD COLUMN IF NOT EXISTS verified_by INT DEFAULT NULL");
+$conn->query("ALTER TABLE payment_logs ADD COLUMN IF NOT EXISTS verified_at DATETIME DEFAULT NULL");
+$conn->query("ALTER TABLE payment_logs ADD COLUMN IF NOT EXISTS gcash_amount DECIMAL(10,2) DEFAULT 0");
+$conn->query("ALTER TABLE payment_logs ADD COLUMN IF NOT EXISTS gcash_date DATE DEFAULT NULL");
+$conn->query("ALTER TABLE payment_logs ADD COLUMN IF NOT EXISTS gcash_reference VARCHAR(100) DEFAULT NULL");
+$conn->query("ALTER TABLE payment_logs ADD COLUMN IF NOT EXISTS payment_method VARCHAR(20) DEFAULT 'GCash'");
+$conn->query("ALTER TABLE payment_logs ADD COLUMN IF NOT EXISTS notes TEXT DEFAULT NULL");
+$conn->query("ALTER TABLE payment_logs ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'Pending'");
+// ── Ensure students table has accounting approval columns ──
+$conn->query("ALTER TABLE students ADD COLUMN IF NOT EXISTS accounting_approved_by INT DEFAULT NULL");
+$conn->query("ALTER TABLE students ADD COLUMN IF NOT EXISTS accounting_approved_at DATETIME DEFAULT NULL");
+$conn->query("ALTER TABLE students ADD COLUMN IF NOT EXISTS accounting_notes TEXT DEFAULT NULL");
+$conn->query("ALTER TABLE students ADD COLUMN IF NOT EXISTS enrollment_status VARCHAR(30) DEFAULT 'Pending'");
+$conn->query("ALTER TABLE students ADD COLUMN IF NOT EXISTS payment_status VARCHAR(20) DEFAULT 'Pending'");
+$conn->query("ALTER TABLE students ADD COLUMN IF NOT EXISTS approval_status VARCHAR(20) DEFAULT 'Pending'");
+$conn->query("ALTER TABLE students ADD COLUMN IF NOT EXISTS payment_plan VARCHAR(20) DEFAULT 'full'");
+$conn->query("ALTER TABLE students ADD COLUMN IF NOT EXISTS payment_method VARCHAR(20) DEFAULT 'GCash'");
+// ── End column fixes ──
+
 // Fix legacy Cash logs
 $conn->query("UPDATE payment_logs SET payment_method = 'Cash' WHERE gcash_reference = 'CASH-PAYMENT' AND payment_method = 'GCash'");
 
 $method = $_SERVER['REQUEST_METHOD'];
-$action = $_GET['action'] ?? '';
 
 switch ($method) {
     case 'GET':
@@ -131,6 +178,13 @@ switch ($method) {
             case 'get_all_enrolled_students': getAllEnrolledStudents($conn); break;
             case 'get_student_installment':   getStudentInstallment($conn); break;
             case 'get_permit_details':         getPermitDetails($conn);      break;
+            case 'get_installment_students':   getInstallmentStudents($conn); break;
+            case 'get_shs_fee':               getSHSFee($conn);              break;
+            case 'get_tvet_fee':              getTVETFee($conn);             break;
+            // ── Income Report Generator ──
+            case 'get_income_report':         getIncomeReport($conn);        break;
+            case 'get_income_summary':        getIncomeSummary($conn);       break;
+            case 'get_income_by_program':     getIncomeByProgram($conn);     break;
             default: echo json_encode(['success' => false, 'message' => 'Unknown action']);
         }
         break;
@@ -148,6 +202,8 @@ switch ($method) {
             case 'process_exam_permit':  processExamPermit($conn, $data);  break;
             case 'unlock_payment_period': unlockPaymentPeriod($conn, $data); break;
             case 'submit_installment_payment': submitInstallmentPayment($conn, $data); break;
+            case 'edit_payment':              editPayment($conn, $data);              break;
+            case 'correct_verified_payment': correctVerifiedPayment($conn, $data); break;
             default: echo json_encode(['success' => false, 'message' => 'Unknown action']);
         }
         break;
@@ -180,6 +236,34 @@ function getFeePreview($conn) {
 
     if (!$program_name) {
         echo json_encode(['success' => false, 'message' => 'program required']); return;
+    }
+
+    // Route SHS / TVET students to their own fee functions
+    // so the college formula (units x650, misc, lab, energy) is never applied to them.
+    if ($student_id > 0) {
+        $catRes  = $conn->query("SELECT student_category, student_type, payment_plan, scholarship_amount FROM students WHERE id=$student_id LIMIT 1");
+        $catRow  = $catRes ? $catRes->fetch_assoc() : null;
+        $cat     = strtoupper(trim($catRow['student_category'] ?? ''));
+        $stype   = trim($catRow['student_type'] ?? 'New');
+        $disc    = $override_discount !== null ? $override_discount : (float)($catRow['scholarship_amount'] ?? 0);
+        $hasInst = $override_installment !== null ? $override_installment : (($catRow['payment_plan'] ?? 'full') === 'installment');
+        if ($cat === 'SHS') {
+            $_GET['student_type']    = $stype;
+            $_GET['student_id']      = $student_id;
+            $_GET['discount']        = $disc;
+            $_GET['has_installment'] = $hasInst ? 1 : 0;
+            getSHSFee($conn);
+            return;
+        }
+        if ($cat === 'TVET') {
+            $_GET['student_type']    = $stype;
+            $_GET['student_id']      = $student_id;
+            $_GET['program']         = $program_name;
+            $_GET['discount']        = $disc;
+            $_GET['has_installment'] = $hasInst ? 1 : 0;
+            getTVETFee($conn);
+            return;
+        }
     }
 
     $pn    = $conn->real_escape_string($program_name);
@@ -289,27 +373,9 @@ function getFeePreview($conn) {
         $has_installment = ($pi_row['payment_plan'] ?? 'full') === 'installment';
     }
 
-    // Count lab subjects — filtered by year_level + semester (same scope as unit count).
-    // Without these filters, ALL lab courses across ALL years inflate the lab fee.
-    $lab_count = 0;
-    if ($program_name) {
-        $lab_res = $conn->query("
-            SELECT COUNT(DISTINCT c.id) AS lab_cnt
-            FROM courses c
-            WHERE c.room LIKE '%Lab%'
-              $ylFilter
-              $semFilter
-              AND (
-                c.program = '$pn'
-                OR c.id IN (
-                    SELECT pc.course_id FROM program_courses pc
-                    JOIN programs p ON pc.program_id = p.id
-                    WHERE p.name = '$pn' OR p.code = '$pn'
-                )
-              )
-        ");
-        $lab_count = (int)(($lab_res ? $lab_res->fetch_assoc()['lab_cnt'] : 0) ?? 0);
-    }
+    // Lab fee: based on total number of Laboratory rooms (same for all students)
+    $lab_res   = $conn->query("SELECT COUNT(*) AS cnt FROM rooms WHERE room_type = 'Laboratory'");
+    $lab_count = (int)(($lab_res ? $lab_res->fetch_assoc()['cnt'] : 0) ?? 0);
 
     // Fee computation
     $tuition_fee    = $units * 650;
@@ -415,23 +481,9 @@ function computeFees($conn, $data) {
     $prog_res  = $conn->query("SELECT program FROM students WHERE id = $student_id LIMIT 1");
     $prog_row  = $prog_res ? $prog_res->fetch_assoc() : null;
     $prog_name = $conn->real_escape_string($prog_row['program'] ?? '');
-    $lab_count = 0;
-    if ($prog_name) {
-        $lab_res = $conn->query("
-            SELECT COUNT(DISTINCT c.id) AS lab_cnt
-            FROM courses c
-            WHERE c.room LIKE '%Lab%'
-              AND (
-                c.program = '$prog_name'
-                OR c.id IN (
-                    SELECT pc.course_id FROM program_courses pc
-                    JOIN programs p ON pc.program_id = p.id
-                    WHERE p.name = '$prog_name' OR p.code = '$prog_name'
-                )
-              )
-        ");
-        $lab_count = (int)(($lab_res ? $lab_res->fetch_assoc()['lab_cnt'] : 0) ?? 0);
-    }
+    // Lab fee: based on total number of Laboratory rooms (same for all students)
+    $lab_res2  = $conn->query("SELECT COUNT(*) AS cnt FROM rooms WHERE room_type = 'Laboratory'");
+    $lab_count = (int)(($lab_res2 ? $lab_res2->fetch_assoc()['cnt'] : 0) ?? 0);
 
     $tuition_fee    = $units * 650;
     $miscellaneous  = 6688.00;
@@ -530,10 +582,12 @@ function recordInstallment($conn, $data) {
     }
 
     // Generate sequential OR/AR number: AR-20260001
-    $year      = date('Y');
-    $count_res = $conn->query("SELECT COUNT(*) AS cnt FROM installment_payments WHERE YEAR(created_at) = $year");
-    $count     = (int)($count_res->fetch_assoc()['cnt'] ?? 0) + 1;
-    $or_ar_no  = $or_ar_type . '-' . $year . str_pad($count, 4, '0', STR_PAD_LEFT);
+    // FIX AC-02: Atomic OR/AR via sequence table (avoids race condition)
+    $year = (int)date('Y');
+    $conn->query("INSERT INTO or_ar_sequences (year, last_seq) VALUES ($year, 1) ON DUPLICATE KEY UPDATE last_seq = last_seq + 1");
+    $seqRow   = $conn->query("SELECT last_seq FROM or_ar_sequences WHERE year = $year")->fetch_assoc();
+    $seq      = (int)($seqRow['last_seq'] ?? 1);
+    $or_ar_no = $or_ar_type . '-' . $year . str_pad($seq, 4, '0', STR_PAD_LEFT);
 
     $stmt = $conn->prepare("
         INSERT INTO installment_payments (student_id, or_ar_number, or_ar_type, amount, payment_date, payment_method, gcash_reference, exam_period, notes, recorded_by)
@@ -543,21 +597,32 @@ function recordInstallment($conn, $data) {
     $stmt->execute();
 
     // Check if fully paid
-    $fee_res          = $conn->query("SELECT total_assessment FROM tuition_fees WHERE student_id = $student_id LIMIT 1");
+    $feeStmt = $conn->prepare("SELECT total_assessment FROM tuition_fees WHERE student_id = ? LIMIT 1");
+    $feeStmt->bind_param("i", $student_id);
+    $feeStmt->execute();
+    $fee_res = $feeStmt->get_result();
     $fee_row          = $fee_res ? $fee_res->fetch_assoc() : null;
     $total_assessment = (float)($fee_row['total_assessment'] ?? 0);
 
-    $paid_res   = $conn->query("SELECT COALESCE(SUM(amount),0) AS tp FROM installment_payments WHERE student_id = $student_id");
+    $paidStmt2 = $conn->prepare("SELECT COALESCE(SUM(amount),0) AS tp FROM installment_payments WHERE student_id = ?");
+    $paidStmt2->bind_param("i", $student_id);
+    $paidStmt2->execute();
+    $paid_res = $paidStmt2->get_result();
     $total_paid = (float)($paid_res->fetch_assoc()['tp'] ?? 0);
     $is_fully_paid = $total_assessment > 0 && $total_paid >= $total_assessment;
 
     $pay_status = $is_fully_paid ? 'Paid' : 'Pending';
-    $conn->query("UPDATE students SET payment_status = '$pay_status' WHERE id = $student_id");
+    $updStmt = $conn->prepare("UPDATE students SET payment_status = ? WHERE id = ?");
+    $updStmt->bind_param("si", $pay_status, $student_id);
+    $updStmt->execute();
 
     // ── BUG FIX: Sync payment_schedules after recording payment ──────────
     // After each installment, recalculate how much was paid per period and
     // update the status so the student's Payment Schedule page reflects it.
-    $sched_check = $conn->query("SELECT id FROM payment_schedules WHERE student_id = $student_id LIMIT 1");
+    $schedChkStmt = $conn->prepare("SELECT id FROM payment_schedules WHERE student_id = ? LIMIT 1");
+    $schedChkStmt->bind_param("i", $student_id);
+    $schedChkStmt->execute();
+    $sched_check = $schedChkStmt->get_result();
     if ($sched_check && $sched_check->num_rows > 0) {
         foreach (['Prelim', 'Midterm', 'Finals'] as $period) {
             $p = strtolower($period);
@@ -610,35 +675,8 @@ function getStudentReceipts($conn) {
         }
     }
 
-    // Self-heal fee_row: recompute lab_count and fix fee_row if lab_fee looks wrong (units × 1900)
-    if ($fee_row && $student) {
-        $pn_esc  = $conn->real_escape_string(trim($student['program'] ?? ''));
-        $lab_res = $conn->query("
-            SELECT COUNT(DISTINCT c.id) AS cnt FROM courses c
-            WHERE c.room LIKE '%Lab%'
-              AND (c.program = '$pn_esc'
-                OR c.id IN (SELECT pc.course_id FROM program_courses pc JOIN programs p ON pc.program_id=p.id WHERE p.name='$pn_esc' OR p.code='$pn_esc'))
-        ");
-        $lab_cnt = (int)(($lab_res ? $lab_res->fetch_assoc()['cnt'] : 0) ?? 0);
-        $correct_lab_fee  = $lab_cnt * 1900;
-        $correct_inst_fee = ($paymentPlan === 'installment') ? 750.00 : 0.00;
-        $stored_units     = (int)$fee_row['units'];
-        $wrong_lab_fee    = $stored_units * 1900; // old formula
-
-        // Fix if lab_fee equals old wrong formula AND differs from correct value
-        $needs_fix = (abs((float)$fee_row['laboratory_fee'] - $correct_lab_fee) > 0.01)
-                  || (abs((float)$fee_row['installment_fee'] - $correct_inst_fee) > 0.01);
-
-        if ($needs_fix) {
-            $new_subtotal    = (float)$fee_row['tuition_fee'] + (float)$fee_row['miscellaneous_fee']
-                             + (float)$fee_row['registration_fee'] + $correct_lab_fee + (float)$fee_row['energy_fee'];
-            $new_total       = max(0, $new_subtotal - (float)$fee_row['discount'] + $correct_inst_fee);
-            $conn->query("UPDATE tuition_fees SET laboratory_fee=$correct_lab_fee, installment_fee=$correct_inst_fee, subtotal=$new_subtotal, total_assessment=$new_total, updated_at=NOW() WHERE student_id=$student_id");
-            // Reload
-            $fee_res2 = $conn->query("SELECT * FROM tuition_fees WHERE student_id = $student_id LIMIT 1");
-            $fee_row  = $fee_res2 ? $fee_res2->fetch_assoc() : null;
-        }
-    }
+    // FIX AC-05: Removed self-healing fee recomputation on every receipt load.
+    // Fee corrections must be done explicitly via the computeFees action, not silently on read.
 
     // If tuition_fees row is missing, auto-compute and save it now
     // NOTE: Do NOT override if row already exists — registrar may have set correct values
@@ -674,7 +712,7 @@ function getStudentReceipts($conn) {
         $pn_esc  = $conn->real_escape_string($programName);
         $lab_res = $conn->query("
             SELECT COUNT(DISTINCT c.id) AS cnt FROM courses c
-            WHERE c.room LIKE '%Lab%'
+            WHERE c.is_lab = 1
               AND (c.program = '$pn_esc'
                 OR c.id IN (SELECT pc.course_id FROM program_courses pc JOIN programs p ON pc.program_id=p.id WHERE p.name='$pn_esc' OR p.code='$pn_esc'))
         ");
@@ -965,6 +1003,17 @@ function submitGcash($conn, $data) {
 // ─────────────────────────────────────────────────────────────
 // ACCOUNTING: Get pending payments
 // ─────────────────────────────────────────────────────────────
+function _getStudentPaymentPlan($conn, $sid) {
+    $r = $conn->query("SELECT payment_plan FROM students WHERE id=$sid LIMIT 1");
+    return $r ? ($r->fetch_assoc()['payment_plan'] ?? 'full') : 'full';
+}
+function _getScheduleAmounts($conn, $sid) {
+    $tf = $conn->query("SELECT total_assessment FROM tuition_fees WHERE student_id=$sid LIMIT 1");
+    $total = $tf ? (float)($tf->fetch_assoc()['total_assessment'] ?? 0) : 0;
+    if ($total <= 0) return ['downpayment'=>0,'prelim'=>0,'midterm'=>0,'finals'=>0,'total'=>0];
+    $dp = round($total/4,2);
+    return ['downpayment'=>$dp,'prelim'=>$dp,'midterm'=>$dp,'finals'=>round($total-$dp*3,2),'total'=>$total];
+}
 function getPendingPayments($conn) {
     $rows = [];
 
@@ -976,10 +1025,14 @@ function getPendingPayments($conn) {
                pl.notes, pl.created_at AS submitted_at,
                s.student_number, s.first_name, s.last_name, s.program, s.year_level,
                s.payment_status, s.approval_status, s.enrollment_status,
-               tf.total_assessment
+               s.student_category,
+               tf.total_assessment,
+               COALESCE(p.department,'') AS department
         FROM payment_logs pl
         JOIN students s ON pl.student_id = s.id
         LEFT JOIN tuition_fees tf ON tf.student_id = s.id
+        LEFT JOIN programs p ON (p.name = s.program OR p.code = s.program)
+                              AND p.level_type = s.student_category
         WHERE pl.status = 'Pending'
         ORDER BY pl.created_at DESC
     ";
@@ -1008,6 +1061,8 @@ function getPendingPayments($conn) {
                 'lastName'       => $r['last_name'],
                 'program'        => $r['program'],
                 'yearLevel'      => $r['year_level'],
+                'department'     => $r['department'] ?? '',
+                'studentCategory'=> $r['student_category'] ?? '',
                 'enrollmentStatus'=> $r['enrollment_status'],
                 'paymentMethod'  => $isCash ? 'Cash' : 'GCash',
                 'gcashReference' => $isCash ? '' : ($r['gcash_reference'] ?? ''),
@@ -1024,6 +1079,8 @@ function getPendingPayments($conn) {
                 'totalAssessment'=> (float)($r['total_assessment'] ?? 0),
                 'totalPaid'      => $total_paid,
                 'balance'        => max(0, (float)($r['total_assessment'] ?? 0) - $total_paid),
+                'paymentPlan'    => _getStudentPaymentPlan($conn, $sid),
+                'scheduleAmounts'=> _getScheduleAmounts($conn, $sid),
             ];
         }
     }
@@ -1033,10 +1090,14 @@ function getPendingPayments($conn) {
         SELECT s.id AS student_id, s.student_number, s.first_name, s.last_name,
                s.program, s.year_level, s.payment_status, s.approval_status,
                s.payment_method, s.semester, s.created_at AS submitted_at,
-               tf.total_assessment
+               s.student_category,
+               tf.total_assessment,
+               COALESCE(p.department,'') AS department
         FROM students s
         LEFT JOIN payment_logs pl ON pl.student_id = s.id AND pl.status = 'Pending'
         LEFT JOIN tuition_fees tf ON tf.student_id = s.id
+        LEFT JOIN programs p ON (p.name = s.program OR p.code = s.program)
+                              AND p.level_type = s.student_category
         WHERE s.enrollment_status != 'Enrolled'
           AND s.payment_status = 'Pending'
           AND pl.id IS NULL
@@ -1066,6 +1127,8 @@ function getPendingPayments($conn) {
                 'lastName'       => $r['last_name'],
                 'program'        => $r['program'],
                 'yearLevel'      => $r['year_level'],
+                'department'     => $r['department'] ?? '',
+                'studentCategory'=> $r['student_category'] ?? '',
                 'enrollmentStatus'=> 'Pending',
                 'paymentMethod'  => 'Cash',
                 'gcashReference' => '', 'gcashAmount' => 0, 'gcashDate' => '', 'transactionId' => '',
@@ -1079,6 +1142,8 @@ function getPendingPayments($conn) {
                 'totalAssessment'=> (float)($r['total_assessment'] ?? 0),
                 'totalPaid'      => $total_paid,
                 'balance'        => max(0, (float)($r['total_assessment'] ?? 0) - $total_paid),
+                'paymentPlan'    => _getStudentPaymentPlan($conn, $sid),
+                'scheduleAmounts'=> _getScheduleAmounts($conn, $sid),
             ];
         }
     }
@@ -1095,11 +1160,18 @@ function getPaymentHistory($conn) {
                pl.gcash_amount, pl.gcash_date, pl.transaction_id, pl.semester, pl.status,
                pl.notes, pl.verified_at, pl.created_at AS submitted_at,
                s.student_number, s.first_name, s.last_name, s.program, s.year_level,
-               u.first_name AS verified_by_fname, u.last_name AS verified_by_lname, tf.total_assessment
+               s.student_category,
+               u.first_name AS verified_by_fname, u.last_name AS verified_by_lname, tf.total_assessment,
+               ip.or_ar_number, ip.or_ar_type, ip.exam_period,
+               ip.amount AS ip_amount, ip.payment_date AS ip_payment_date,
+               COALESCE(p.department,'') AS department
         FROM payment_logs pl
         JOIN students s ON pl.student_id = s.id
         LEFT JOIN users u ON pl.verified_by = u.id
         LEFT JOIN tuition_fees tf ON tf.student_id = s.id
+        LEFT JOIN installment_payments ip ON ip.payment_log_id = pl.id
+        LEFT JOIN programs p ON (p.name = s.program OR p.code = s.program)
+                              AND p.level_type = s.student_category
         WHERE pl.status IN ('Verified','Rejected')
         ORDER BY pl.verified_at DESC
     ");
@@ -1120,10 +1192,16 @@ function getPaymentHistory($conn) {
                 'lastName'       => $r['last_name'],
                 'program'        => $r['program'],
                 'yearLevel'      => $r['year_level'],
+                'department'     => $r['department'] ?? '',
+                'studentCategory'=> $r['student_category'] ?? '',
                 'paymentMethod'  => $isCash ? 'Cash' : 'GCash',
                 'gcashReference' => $isCash ? '' : ($r['gcash_reference'] ?? ''),
-                'gcashAmount'    => (float)($r['gcash_amount'] ?? 0),
-                'gcashDate'      => $isCash ? ($r['verified_at'] ? date('Y-m-d', strtotime($r['verified_at'])) : '') : ($r['gcash_date'] ?? ''),
+                'gcashAmount'    => isset($r['ip_amount']) && $r['ip_amount'] !== null
+                                        ? (float)$r['ip_amount']
+                                        : (float)($r['gcash_amount'] ?? 0),
+                'gcashDate'      => isset($r['ip_payment_date']) && $r['ip_payment_date']
+                                        ? $r['ip_payment_date']
+                                        : ($isCash ? ($r['verified_at'] ? date('Y-m-d', strtotime($r['verified_at'])) : '') : ($r['gcash_date'] ?? '')),
                 'transactionId'  => $isCash ? '' : ($r['transaction_id'] ?? ''),
                 'semester'       => $r['semester'],
                 'status'         => $r['status'],
@@ -1134,6 +1212,9 @@ function getPaymentHistory($conn) {
                 'totalAssessment'=> (float)($r['total_assessment'] ?? 0),
                 'totalPaid'      => $total_paid,
                 'balance'        => max(0, (float)($r['total_assessment'] ?? 0) - $total_paid),
+                'orArNumber'     => $r['or_ar_number'] ?? '',
+                'orArType'       => $r['or_ar_type']   ?? '',
+                'examPeriod'     => $r['exam_period']   ?? '',
             ];
         }
     }
@@ -1156,6 +1237,20 @@ function verifyPayment($conn, $data) {
 
     if (!$log_id || !$student_id) {
         echo json_encode(['success' => false, 'message' => 'log_id and student_id required']); return;
+    }
+
+    // Validate cash_amount: must not exceed the student's total_assessment (typo guard)
+    if ($cash_amount !== null && $cash_amount > 0) {
+        $tfCheck = $conn->query("SELECT total_assessment FROM tuition_fees WHERE student_id=$student_id LIMIT 1");
+        $tfRow   = $tfCheck ? $tfCheck->fetch_assoc() : null;
+        $maxAllowed = $tfRow ? (float)$tfRow['total_assessment'] : 999999;
+        if ($cash_amount > $maxAllowed) {
+            echo json_encode([
+                'success' => false,
+                'message' => "Amount ₱" . number_format($cash_amount, 2) . " exceeds total assessment ₱" . number_format($maxAllowed, 2) . ". Please check for extra zeros."
+            ]);
+            return;
+        }
     }
 
     // Read original notes + amount BEFORE updating (notes will be overwritten by accounting notes)
@@ -1204,28 +1299,36 @@ function verifyPayment($conn, $data) {
     $dupCheck = $conn->prepare("SELECT id FROM installment_payments WHERE payment_log_id = ? LIMIT 1");
     $dupCheck->bind_param("i", $log_id);
     $dupCheck->execute();
-    if ($final_amount > 0 && $dupCheck->get_result()->num_rows === 0) {
-        $year      = date('Y');
-        $count_res = $conn->query("SELECT COUNT(*) AS cnt FROM installment_payments WHERE YEAR(created_at) = $year");
-        $count     = (int)($count_res->fetch_assoc()['cnt'] ?? 0) + 1;
+    // FIX AC-01: Always record even zero-amount (scholarship fully covered)
+    $dupResult = $dupCheck->get_result();
+    if ($dupResult->num_rows === 0) {
+        // FIX AC-02: Atomic sequence for OR/AR number
+        $year = (int)date('Y');
+        $conn->query("INSERT INTO or_ar_sequences (year, last_seq) VALUES ($year, 1) ON DUPLICATE KEY UPDATE last_seq = last_seq + 1");
+        $seqRow2 = $conn->query("SELECT last_seq FROM or_ar_sequences WHERE year = $year")->fetch_assoc();
+        $seq2    = (int)($seqRow2['last_seq'] ?? 1);
 
         if ($isEnrolled && $examPeriod && in_array($examPeriod, ['Prelim','Midterm','Finals'])) {
-            // Installment term payment (Prelim/Midterm/Finals) from enrolled student
             $or_ar_type = 'AR';
-            $or_no      = 'AR-' . $year . str_pad($count, 4, '0', STR_PAD_LEFT);
+            $or_no      = 'AR-' . $year . str_pad($seq2, 4, '0', STR_PAD_LEFT);
         } elseif ($paymentPlan === 'installment') {
-            // Initial downpayment AR
             $or_ar_type  = 'AR';
             $examPeriod  = $examPeriod ?: 'Downpayment';
-            $or_no       = 'AR-' . $year . str_pad($count, 4, '0', STR_PAD_LEFT);
+            $or_no       = 'AR-' . $year . str_pad($seq2, 4, '0', STR_PAD_LEFT);
         } else {
-            // Full payment OR
             $or_ar_type  = 'OR';
             $examPeriod  = $examPeriod ?: 'Full';
-            $or_no       = 'OR-' . $year . str_pad($count, 4, '0', STR_PAD_LEFT);
+            $or_no       = 'OR-' . $year . str_pad($seq2, 4, '0', STR_PAD_LEFT);
         }
 
-        $gcash_ref = ($payment_method !== 'cash') ? ($conn->query("SELECT gcash_reference FROM payment_logs WHERE id = $log_id LIMIT 1")->fetch_assoc()['gcash_reference'] ?? '') : '';
+        if ($payment_method !== 'cash') {
+            $grStmt = $conn->prepare("SELECT gcash_reference FROM payment_logs WHERE id = ? LIMIT 1");
+            $grStmt->bind_param("i", $log_id);
+            $grStmt->execute();
+            $gcash_ref = $grStmt->get_result()->fetch_assoc()['gcash_reference'] ?? '';
+        } else {
+            $gcash_ref = '';
+        }
 
         $ins = $conn->prepare("
             INSERT INTO installment_payments
@@ -1300,58 +1403,89 @@ function getPaymentSchedule($conn) {
     $tfRes = $conn->query("SELECT total_assessment FROM tuition_fees WHERE student_id=$student_id LIMIT 1");
     $tfRow = $tfRes ? $tfRes->fetch_assoc() : null;
     $total = $tfRow ? (float)$tfRow['total_assessment'] : 0;
-    $pd    = $total > 0 ? round($total / 4, 2) : 0;
-    $md    = $pd;
-    $fd    = $total > 0 ? round($total - $pd - $md * 2, 2) : 0;
 
-    // Always ensure a payment_schedules row exists (even if total=0 for now)
+    // ── Credit actual downpayment paid so Prelim/Midterm/Finals reflect remaining balance ──
+    $dpPaidRes = $conn->query("SELECT COALESCE(SUM(amount),0) AS paid FROM installment_payments WHERE student_id=$student_id AND exam_period='Downpayment'");
+    $dpPaid    = $dpPaidRes ? (float)$dpPaidRes->fetch_assoc()['paid'] : 0;
+    $dpCredit  = $dpPaid > 0 ? $dpPaid : ($total > 0 ? round($total / 4, 2) : 0);
+    $remaining = max(0, $total - $dpCredit);
+    $pd        = $remaining > 0 ? ceil($remaining / 3 * 100) / 100 : 0;
+    $md        = $pd;
+    $fd        = $remaining > 0 ? round($remaining - $pd * 2, 2) : 0;
+
+    // Ensure a payment_schedules row exists, update dues only when total actually changed
     $conn->query("INSERT INTO payment_schedules
         (student_id,payment_type,total_assessment,prelim_due,midterm_due,finals_due)
         VALUES ($student_id,'$ptype',$total,$pd,$md,$fd)
         ON DUPLICATE KEY UPDATE
-          total_assessment=IF(total_assessment=0 AND $total>0,$total,total_assessment),
           payment_type='$ptype',
-          prelim_due=IF($pd>0 AND ABS(prelim_due - $pd) > 100, $pd, prelim_due),
-          midterm_due=IF($md>0 AND ABS(midterm_due - $md) > 100, $md, midterm_due),
-          finals_due=IF($fd>0 AND ABS(finals_due - $fd) > 100, $fd, finals_due)");
+          total_assessment=IF($total>0, $total, total_assessment),
+          prelim_due=IF($pd>0, $pd, prelim_due),
+          midterm_due=IF($md>0, $md, midterm_due),
+          finals_due=IF($fd>0, $fd, finals_due)");
 
     $res = $conn->query("SELECT * FROM payment_schedules WHERE student_id=$student_id LIMIT 1");
     $schedule = $res ? $res->fetch_assoc() : null;
     if (!$schedule) { echo json_encode(['success'=>true,'schedule'=>null]); return; }
 
-    foreach (['Prelim','Midterm','Finals'] as $period) {
-        $p = strtolower($period);
-        if ($schedule[$p.'_status'] === 'locked') continue;
-        $paidRes = $conn->query("SELECT COALESCE(SUM(amount),0) AS paid
-            FROM installment_payments WHERE student_id=$student_id AND exam_period='$period'");
-        $paid = $paidRes ? (float)$paidRes->fetch_assoc()['paid'] : 0;
-        $due  = (float)$schedule[$p.'_due'];
-        $status = $paid <= 0 ? 'unpaid' : ($paid >= $due ? 'paid' : 'partial');
-        $conn->query("UPDATE payment_schedules SET {$p}_paid=$paid,{$p}_status='$status' WHERE student_id=$student_id");
-        $schedule[$p.'_paid']   = $paid;
-        $schedule[$p.'_status'] = $status;
+    // ── Compute actual paid amounts directly from installment_payments ──────
+    // Sum every verified payment per period — no caps, no hacks, no manual DB edits needed.
+    $allPaidRes = $conn->query("
+        SELECT exam_period, COALESCE(SUM(amount),0) AS paid
+        FROM installment_payments
+        WHERE student_id=$student_id
+        GROUP BY exam_period
+    ");
+    $paidByPeriod = [];
+    if ($allPaidRes) {
+        while ($row = $allPaidRes->fetch_assoc()) {
+            $paidByPeriod[$row['exam_period']] = (float)$row['paid'];
+        }
     }
 
+    // Total of ALL payments (Downpayment + Full + Prelim + Midterm + Finals)
+    $totalPaidAll = array_sum($paidByPeriod);
+
     if ($schedule['payment_type'] === 'full') {
-        $stPayRes = $conn->query("SELECT payment_status FROM students WHERE id=$student_id LIMIT 1");
-        $stPayRow = $stPayRes ? $stPayRes->fetch_assoc() : null;
-        $isFullyPaid = ($stPayRow && $stPayRow['payment_status'] === 'Paid');
+        // Full-payment: student pays everything at once (exam_period = 'Full' or 'Downpayment')
+        // Show all periods as paid if total covers the assessment
+        $isFullyPaid = $totalPaidAll >= (float)$schedule['total_assessment'];
         if (!$isFullyPaid) {
-            $tpRes = $conn->query("SELECT COALESCE(SUM(amount),0) AS tp FROM installment_payments WHERE student_id=$student_id");
-            $tp = $tpRes ? (float)$tpRes->fetch_assoc()['tp'] : 0;
-            $isFullyPaid = ($schedule['total_assessment'] > 0 && $tp >= (float)$schedule['total_assessment']);
+            // Check students.payment_status as fallback
+            $stPayRow = $conn->query("SELECT payment_status FROM students WHERE id=$student_id LIMIT 1")->fetch_assoc();
+            $isFullyPaid = ($stPayRow && $stPayRow['payment_status'] === 'Paid');
         }
         if ($isFullyPaid) {
+            $schedule['prelim_paid']    = (float)$schedule['prelim_due'];
+            $schedule['midterm_paid']   = (float)$schedule['midterm_due'];
+            $schedule['finals_paid']    = (float)$schedule['finals_due'];
             $schedule['prelim_status']  = 'paid';
             $schedule['midterm_status'] = 'paid';
             $schedule['finals_status']  = 'paid';
-            $conn->query("UPDATE payment_schedules SET prelim_status='paid',midterm_status='paid',finals_status='paid' WHERE student_id=$student_id");
+            $conn->query("UPDATE payment_schedules
+                SET prelim_paid=prelim_due, midterm_paid=midterm_due, finals_paid=finals_due,
+                    prelim_status='paid', midterm_status='paid', finals_status='paid'
+                WHERE student_id=$student_id");
         }
+        // downpayment_paid = remaining after prelim+midterm+finals (the 4th quarter)
+        $sumPeriods = (float)$schedule['prelim_paid'] + (float)$schedule['midterm_paid'] + (float)$schedule['finals_paid'];
+        $schedule['downpayment_paid'] = max(0, min($totalPaidAll, (float)$schedule['total_assessment']) - $sumPeriods);
+    } else {
+        // Installment: each payment is tagged by exam_period
+        // Just read the exact amount paid per period from installment_payments
+        foreach (['Prelim','Midterm','Finals'] as $period) {
+            $p    = strtolower($period);
+            $paid = $paidByPeriod[$period] ?? 0;
+            $due  = (float)$schedule[$p.'_due'];
+            $status = $paid <= 0 ? ($schedule[$p.'_status'] === 'locked' ? 'locked' : 'unpaid')
+                                 : ($paid >= $due ? 'paid' : 'partial');
+            $conn->query("UPDATE payment_schedules SET {$p}_paid=$paid,{$p}_status='$status' WHERE student_id=$student_id");
+            $schedule[$p.'_paid']   = $paid;
+            $schedule[$p.'_status'] = $status;
+        }
+        // Downpayment = sum of exam_period='Downpayment' rows
+        $schedule['downpayment_paid'] = $paidByPeriod['Downpayment'] ?? 0;
     }
-
-    // Add downpayment_paid for accurate total balance display
-    $dpRes = $conn->query("SELECT COALESCE(SUM(amount),0) AS dp FROM installment_payments WHERE student_id=$student_id AND exam_period='Downpayment'");
-    $schedule['downpayment_paid'] = $dpRes ? (float)$dpRes->fetch_assoc()['dp'] : 0;
 
     $noticeRes = $conn->query("SELECT exam_period, amount_due, due_date, message, sent_at, is_read
         FROM payment_notices WHERE student_id=$student_id");
@@ -1405,7 +1539,11 @@ function sendPaymentNotice($conn, $data) {
         $tfRes = $conn->query("SELECT total_assessment FROM tuition_fees WHERE student_id=$student_id LIMIT 1");
         $tfRow = $tfRes ? $tfRes->fetch_assoc() : null;
         $total = $tfRow ? (float)$tfRow['total_assessment'] : $amount_due;
-        $pd = round($total/4,2); $md = round($total/4,2); $fd = round($total-$pd-$md*2,2);
+        $dpPaidRes2 = $conn->query("SELECT COALESCE(SUM(amount),0) AS paid FROM installment_payments WHERE student_id=$student_id AND exam_period='Downpayment'");
+        $dpPaid2    = $dpPaidRes2 ? (float)$dpPaidRes2->fetch_assoc()['paid'] : 0;
+        $dpCredit2  = $dpPaid2 > 0 ? $dpPaid2 : round($total/4, 2);
+        $rem2       = max(0, $total - $dpCredit2);
+        $pd = ceil($rem2/3*100)/100; $md = $pd; $fd = round($rem2-$pd*2,2);
         $conn->query("INSERT INTO payment_schedules
             (student_id,payment_type,total_assessment,prelim_due,midterm_due,finals_due,{$p}_status,{$unlocked_col})
             VALUES ($student_id,'installment',$total,$pd,$md,$fd,'unpaid',NOW())");
@@ -1650,7 +1788,11 @@ function unlockPaymentPeriod($conn, $data) {
     }
 
     // ── 1. Check whether payment_schedules record already exists ──────────
-    $check = $conn->query("SELECT id FROM payment_schedules WHERE student_id = $student_id LIMIT 1");
+    // FIX AC-03: Use prepared statements in unlockPaymentPeriod
+    $checkStmt = $conn->prepare("SELECT id FROM payment_schedules WHERE student_id = ? LIMIT 1");
+    $checkStmt->bind_param("i", $student_id);
+    $checkStmt->execute();
+    $check = $checkStmt->get_result();
     if (!$check) {
         echo json_encode(['success' => false, 'message' => 'DB error (check): ' . $conn->error]);
         return;
@@ -1736,29 +1878,6 @@ function unlockPaymentPeriod($conn, $data) {
             return;
         }
     }
-
-    // ── BUG FIX: Write a payment_notice so student sees the unlocked period ──
-    // Without this, the student's Payment Schedule page stays blank after unlock
-    // because it checks payment_notices to know which periods are active.
-    $schedRes = $conn->query("SELECT {$p}_due FROM payment_schedules WHERE student_id = $student_id LIMIT 1");
-    $schedRow = $schedRes ? $schedRes->fetch_assoc() : null;
-    $due_amt  = $schedRow ? (float)$schedRow[$p.'_due'] : 0;
-    if ($due_amt <= 0) {
-        $tfRes2 = $conn->query("SELECT total_assessment FROM tuition_fees WHERE student_id = $student_id LIMIT 1");
-        $tfRow2 = $tfRes2 ? $tfRes2->fetch_assoc() : null;
-        $total2 = $tfRow2 ? (float)$tfRow2['total_assessment'] : 0;
-        $due_amt = round($total2 / 4, 2);
-    }
-    $msg_esc = $conn->real_escape_string("Your $exam_period payment of ₱" . number_format($due_amt, 2) . " has been unlocked. Please settle at the Accounting office.");
-    $conn->query("INSERT INTO payment_notices (student_id, exam_period, amount_due, message, sent_by)
-        VALUES ($student_id, '$exam_period', $due_amt, '$msg_esc', $acc_user_id)
-        ON DUPLICATE KEY UPDATE
-            amount_due = $due_amt,
-            message    = '$msg_esc',
-            sent_by    = $acc_user_id,
-            sent_at    = NOW(),
-            is_read    = 0");
-    // ─────────────────────────────────────────────────────────────────────
 
     echo json_encode([
         'success' => true,
@@ -2073,4 +2192,479 @@ function getPermitDetails($conn) {
 
     echo json_encode(['success' => true, 'permit' => $permit]);
 }
+
+// ─────────────────────────────────────────────────────────────
+// GET INSTALLMENT STUDENTS
+// Returns all students using installment payment plan with their balance.
+// Called by accounting.ts tab for installment management.
+// ─────────────────────────────────────────────────────────────
+function getInstallmentStudents($conn) {
+    $res = $conn->query("
+        SELECT
+            s.id AS student_id,
+            s.student_number,
+            s.first_name,
+            s.last_name,
+            s.program,
+            s.year_level,
+            s.student_category,
+            s.payment_plan,
+            s.payment_status,
+            s.approval_status,
+            s.enrollment_status,
+            tf.total_assessment,
+            COALESCE((SELECT SUM(amount) FROM installment_payments WHERE student_id = s.id), 0) AS total_paid,
+            COALESCE(p.department,'') AS department
+        FROM students s
+        LEFT JOIN tuition_fees tf ON tf.student_id = s.id
+        LEFT JOIN programs p ON (p.name = s.program OR p.code = s.program)
+                              AND p.level_type = s.student_category
+        WHERE s.payment_plan = 'installment'
+        ORDER BY s.last_name, s.first_name
+    ");
+    $students = [];
+    if ($res) {
+        while ($r = $res->fetch_assoc()) {
+            $total      = (float)($r['total_assessment'] ?? 0);
+            $paid       = (float)($r['total_paid']       ?? 0);
+            $r['balance']   = max(0, $total - $paid);
+            $r['total_paid']= $paid;
+            $students[]     = $r;
+        }
+    }
+    echo json_encode(['success' => true, 'students' => $students]);
+}
+
+// ─────────────────────────────────────────────────────────────
+// EDIT PAYMENT — update an existing payment_log record
+// Used by accounting staff to correct payment amounts or status.
+// POST body: { payment_log_id, amount, status, notes }
+// ─────────────────────────────────────────────────────────────
+function editPayment($conn, $data) {
+    $log_id = (int)($data['payment_log_id'] ?? 0);
+    if (!$log_id) {
+        echo json_encode(['success' => false, 'message' => 'payment_log_id required']); return;
+    }
+    $amount = (float)($data['amount'] ?? 0);
+    $status = trim($data['status']   ?? 'Pending');
+    $notes  = trim($data['notes']    ?? '');
+
+    // Validate status
+    $allowed = ['Pending', 'Verified', 'Rejected'];
+    if (!in_array($status, $allowed)) $status = 'Pending';
+
+    $stmt = $conn->prepare("UPDATE payment_logs SET gcash_amount = ?, status = ?, notes = ? WHERE id = ?");
+    $stmt->bind_param("dssi", $amount, $status, $notes, $log_id);
+    $stmt->execute();
+
+    if ($stmt->affected_rows >= 0) {
+        echo json_encode(['success' => true, 'message' => 'Payment updated successfully.']);
+    } else {
+        echo json_encode(['success' => false, 'message' => 'Update failed: ' . $conn->error]);
+    }
+}
+
+// ─────────────────────────────────────────────────────────────
+// GET SHS FEE — fee preview for SHS students
+// SHS is tuition-free (gov't) unless student is a paying enrollee.
+// GET ?action=get_shs_fee&student_type=New&discount=0&has_installment=0
+// ─────────────────────────────────────────────────────────────
+function getSHSFee($conn) {
+    $studentType    = trim($_GET['student_type']  ?? 'New');
+    $discount       = (float)($_GET['discount']   ?? 0);
+    $hasInstallment = (bool)(int)($_GET['has_installment'] ?? 0);
+    $sid            = (int)($_GET['student_id'] ?? 0);
+
+    $inst_fee = $hasInstallment ? 750.00 : 0.00;
+
+    // SHS Transferee: flat rate P20,000
+    if ($studentType === 'Transferee') {
+        $flat_rate = 20000.00;
+        $total     = max(0, $flat_rate - $discount + $inst_fee);
+        if ($sid > 0) {
+            $conn->query("INSERT INTO tuition_fees
+                (student_id,units,tuition_fee,miscellaneous_fee,registration_fee,
+                 laboratory_fee,energy_fee,subtotal,discount,installment_fee,total_assessment)
+                VALUES ($sid,0,$flat_rate,0,0,0,0,$flat_rate,$discount,$inst_fee,$total)
+                ON DUPLICATE KEY UPDATE
+                    units=0,tuition_fee=$flat_rate,miscellaneous_fee=0,
+                    registration_fee=0,laboratory_fee=0,energy_fee=0,
+                    subtotal=$flat_rate,discount=$discount,
+                    installment_fee=$inst_fee,total_assessment=$total,updated_at=NOW()");
+        }
+        echo json_encode(['success'=>true,'isFree'=>false,'fees'=>[
+            'tuitionFee'=>$flat_rate,'miscellaneousFee'=>0,'registrationFee'=>0,
+            'laboratoryFee'=>0,'energyFee'=>0,'subtotal'=>$flat_rate,
+            'discount'=>$discount,'installmentFee'=>$inst_fee,
+            'totalAssessment'=>$total,'shsFlatRate'=>true]]);
+        return;
+    }
+
+    // SHS New / Old: FREE (K-12 Government Subsidy)
+    if ($sid > 0) { $conn->query("DELETE FROM tuition_fees WHERE student_id=$sid"); }
+    echo json_encode(['success'=>true,'isFree'=>true,'fees'=>[
+        'tuitionFee'=>0,'miscellaneousFee'=>0,'registrationFee'=>0,
+        'laboratoryFee'=>0,'energyFee'=>0,'subtotal'=>0,
+        'discount'=>0,'installmentFee'=>0,'totalAssessment'=>0,'shsFlatRate'=>false]]);
+}
+
+// ─────────────────────────────────────────────────────────────
+// GET TVET FEE — fee preview for TVET programs
+// TESDA-funded TVET programs may be free; others have fees.
+// GET ?action=get_tvet_fee&program=Cookery+NCII&student_type=New
+// ─────────────────────────────────────────────────────────────
+function getTVETFee($conn) {
+    $programName = trim($_GET['program']      ?? '');
+    $studentType = trim($_GET['student_type'] ?? 'New');
+    $discount    = (float)($_GET['discount']  ?? 0);
+    $hasInst     = (bool)(int)($_GET['has_installment'] ?? 0);
+
+    // TESDA NC programs are typically scholarship-covered (free).
+    // Diploma / 2-year programs have regular fees.
+    $isFree     = false;
+    $pnUpper    = strtoupper($programName);
+    if (str_contains($pnUpper, 'NCII') || str_contains($pnUpper, 'NCIII') || str_contains($pnUpper, 'NC II') || str_contains($pnUpper, 'NC III')) {
+        $isFree = true;
+    }
+
+    $misc_fee = 3500.00;
+    $reg_fee  = 500.00;
+    $subtotal = $misc_fee + $reg_fee;
+    $inst_fee = $hasInst ? 500.00 : 0.00;
+    $total    = $isFree ? 0.00 : max(0, $subtotal - $discount + $inst_fee);
+
+    echo json_encode([
+        'success' => true,
+        'isFree'  => $isFree,
+        'fees'    => [
+            'tuitionFee'       => 0,
+            'miscellaneousFee' => $isFree ? 0 : $misc_fee,
+            'registrationFee'  => $isFree ? 0 : $reg_fee,
+            'laboratoryFee'    => 0,
+            'energyFee'        => 0,
+            'subtotal'         => $isFree ? 0 : $subtotal,
+            'discount'         => $discount,
+            'installmentFee'   => $isFree ? 0 : $inst_fee,
+            'totalAssessment'  => $total,
+        ],
+    ]);
+}
+function correctVerifiedPayment($conn, $data) {
+    $log_id     = (int)($data['log_id']     ?? 0);
+    $student_id = (int)($data['student_id'] ?? 0);
+    if (!$log_id || !$student_id) { echo json_encode(['success'=>false,'message'=>'log_id and student_id required']); return; }
+    $logRow = $conn->query("SELECT payment_method, status FROM payment_logs WHERE id=$log_id LIMIT 1")->fetch_assoc();
+    if (!$logRow) { echo json_encode(['success'=>false,'message'=>'Payment log not found']); return; }
+    if ($logRow['status'] !== 'Verified') { echo json_encode(['success'=>false,'message'=>'Only Verified payments can be corrected']); return; }
+    $isCash = strtolower($logRow['payment_method'] ?? '') === 'cash';
+    $notes  = trim($data['notes'] ?? '');
+    if ($isCash) {
+        $amount = (float)($data['cash_amount'] ?? 0);
+        $date   = trim($data['cash_date'] ?? date('Y-m-d'));
+        if ($amount <= 0) { echo json_encode(['success'=>false,'message'=>'Amount must be > 0']); return; }
+        $stmt = $conn->prepare("UPDATE payment_logs SET gcash_amount=?, gcash_date=?, notes=? WHERE id=?");
+        $stmt->bind_param("dssi", $amount, $date, $notes, $log_id);
+    } else {
+        $amount    = (float)($data['gcash_amount']  ?? 0);
+        $date      = trim($data['gcash_date']       ?? date('Y-m-d'));
+        $gcash_ref = trim($data['gcash_reference']  ?? '');
+        $stmt = $conn->prepare("UPDATE payment_logs SET gcash_reference=?, gcash_amount=?, gcash_date=?, notes=? WHERE id=?");
+        $stmt->bind_param("sdssi", $gcash_ref, $amount, $date, $notes, $log_id);
+    }
+    $stmt->execute();
+    if ($stmt->error) { echo json_encode(['success'=>false,'message'=>'DB error: '.$stmt->error]); return; }
+    // Sync installment_payments
+    $ins = $conn->prepare("UPDATE installment_payments SET amount=?, payment_date=?, notes=? WHERE payment_log_id=?");
+    $ins->bind_param("dssi", $amount, $date, $notes, $log_id);
+    $ins->execute();
+    // Re-sync student payment_status
+    $tp  = (float)$conn->query("SELECT COALESCE(SUM(amount),0) AS tp FROM installment_payments WHERE student_id=$student_id")->fetch_assoc()['tp'];
+    $ta  = (float)($conn->query("SELECT total_assessment FROM tuition_fees WHERE student_id=$student_id LIMIT 1")->fetch_assoc()['total_assessment'] ?? 0);
+    $ns  = ($ta > 0 && $tp >= $ta) ? 'Paid' : 'Partial';
+    $conn->query("UPDATE students SET payment_status='$ns' WHERE id=$student_id");
+    echo json_encode(['success'=>true,'message'=>'Payment corrected successfully.']);
+}
+
+// ================================================================
+// INCOME REPORT GENERATOR
+// Weekly / Monthly / Yearly income from student tuition payments
+// ================================================================
+
+/**
+ * GET ?action=get_income_report&period=weekly|monthly|yearly
+ *     &date_from=YYYY-MM-DD&date_to=YYYY-MM-DD
+ *     &year=YYYY&month=MM&week_start=YYYY-MM-DD
+ * Returns income broken down by day/week/month + totals.
+ */
+function getIncomeReport($conn) {
+    $period    = trim($_GET['period']     ?? 'monthly');
+    $year      = (int)($_GET['year']      ?? date('Y'));
+    $month     = (int)($_GET['month']     ?? date('n'));
+    $dateFrom  = trim($_GET['date_from']  ?? '');
+    $dateTo    = trim($_GET['date_to']    ?? '');
+    $weekStart = trim($_GET['week_start'] ?? '');
+
+    // Determine actual date range
+    switch ($period) {
+        case 'weekly':
+            if ($weekStart) {
+                $from = $weekStart;
+                $to   = date('Y-m-d', strtotime($weekStart . ' +6 days'));
+            } else {
+                $from = date('Y-m-d', strtotime('monday this week'));
+                $to   = date('Y-m-d', strtotime('sunday this week'));
+            }
+            $groupExpr  = 'DATE(p.created_at)';
+            $labelExpr  = 'DATE(p.created_at)';
+            $groupAlias = 'day';
+            break;
+
+        case 'yearly':
+            $from       = "$year-01-01";
+            $to         = "$year-12-31";
+            $groupExpr  = 'MONTH(p.created_at)';
+            $labelExpr  = 'DATE_FORMAT(p.created_at, "%b %Y")';
+            $groupAlias = 'month';
+            break;
+
+        case 'monthly':
+        default:
+            $period     = 'monthly';
+            $from       = date('Y-m-01', mktime(0,0,0,$month,1,$year));
+            $to         = date('Y-m-t',  mktime(0,0,0,$month,1,$year));
+            $groupExpr  = 'WEEK(p.created_at, 1)';
+            $labelExpr  = 'CONCAT("Week ", WEEK(p.created_at,1)-WEEK(DATE_FORMAT(p.created_at,"%%Y-%%m-01"),1)+1, " (", DATE_FORMAT(MIN(p.created_at),"%%b %%d"), ")")';
+            $groupAlias = 'week';
+            break;
+    }
+
+    // Override with custom range if provided
+    if ($dateFrom && $dateTo) { $from = $dateFrom; $to = $dateTo; }
+
+    $fromEsc = $conn->real_escape_string($from);
+    $toEsc   = $conn->real_escape_string($to);
+
+    // Main breakdown query — use installment_payments as source of truth for actual cash collected
+    $breakdownRes = $conn->query("
+        SELECT
+            $groupExpr AS period_key,
+            $labelExpr AS period_label,
+            COUNT(DISTINCT p.id) AS transaction_count,
+            COUNT(DISTINCT p.student_id) AS student_count,
+            SUM(p.amount) AS total_amount,
+            SUM(CASE WHEN p.payment_method='Cash'  THEN p.amount ELSE 0 END) AS cash_amount,
+            SUM(CASE WHEN p.payment_method='GCash' THEN p.amount ELSE 0 END) AS gcash_amount,
+            SUM(CASE WHEN p.payment_method='Check' THEN p.amount ELSE 0 END) AS check_amount
+        FROM installment_payments p
+        WHERE DATE(p.created_at) BETWEEN '$fromEsc' AND '$toEsc'
+        GROUP BY period_key
+        ORDER BY MIN(p.created_at) ASC
+    ");
+
+    $breakdown = [];
+    $grandTotal = 0;
+    $grandCount = 0;
+    while ($r = $breakdownRes->fetch_assoc()) {
+        $breakdown[] = [
+            'periodKey'       => $r['period_key'],
+            'periodLabel'     => $r['period_label'],
+            'transactionCount'=> (int)$r['transaction_count'],
+            'studentCount'    => (int)$r['student_count'],
+            'totalAmount'     => (float)$r['total_amount'],
+            'cashAmount'      => (float)$r['cash_amount'],
+            'gcashAmount'     => (float)$r['gcash_amount'],
+            'checkAmount'     => (float)$r['check_amount'],
+        ];
+        $grandTotal += (float)$r['total_amount'];
+        $grandCount += (int)$r['transaction_count'];
+    }
+
+    // Payment method breakdown
+    $methodRes = $conn->query("
+        SELECT payment_method,
+               COUNT(*) AS txn_count,
+               SUM(amount) AS total
+        FROM installment_payments
+        WHERE DATE(created_at) BETWEEN '$fromEsc' AND '$toEsc'
+        GROUP BY payment_method
+    ");
+    $byMethod = [];
+    while ($r = $methodRes->fetch_assoc()) {
+        $byMethod[] = ['method' => $r['payment_method'], 'count' => (int)$r['txn_count'], 'total' => (float)$r['total']];
+    }
+
+    // Exam period breakdown
+    $periodRes = $conn->query("
+        SELECT COALESCE(exam_period,'General') AS exam_period,
+               COUNT(*) AS txn_count,
+               SUM(amount) AS total
+        FROM installment_payments
+        WHERE DATE(created_at) BETWEEN '$fromEsc' AND '$toEsc'
+        GROUP BY exam_period
+        ORDER BY total DESC
+    ");
+    $byExamPeriod = [];
+    while ($r = $periodRes->fetch_assoc()) {
+        $byExamPeriod[] = ['period' => $r['exam_period'], 'count' => (int)$r['txn_count'], 'total' => (float)$r['total']];
+    }
+
+    // Top paying students
+    $topRes = $conn->query("
+        SELECT s.student_number, s.first_name, s.last_name, s.program,
+               SUM(p.amount) AS total_paid,
+               COUNT(p.id) AS txn_count
+        FROM installment_payments p
+        JOIN students s ON s.id = p.student_id
+        WHERE DATE(p.created_at) BETWEEN '$fromEsc' AND '$toEsc'
+        GROUP BY p.student_id
+        ORDER BY total_paid DESC
+        LIMIT 10
+    ");
+    $topStudents = [];
+    while ($r = $topRes->fetch_assoc()) {
+        $topStudents[] = [
+            'studentNumber' => $r['student_number'],
+            'name'          => $r['first_name'].' '.$r['last_name'],
+            'program'       => $r['program'],
+            'totalPaid'     => (float)$r['total_paid'],
+            'txnCount'      => (int)$r['txn_count'],
+        ];
+    }
+
+    echo json_encode([
+        'success'      => true,
+        'period'       => $period,
+        'dateFrom'     => $from,
+        'dateTo'       => $to,
+        'grandTotal'   => round($grandTotal, 2),
+        'grandCount'   => $grandCount,
+        'breakdown'    => $breakdown,
+        'byMethod'     => $byMethod,
+        'byExamPeriod' => $byExamPeriod,
+        'topStudents'  => $topStudents,
+    ]);
+}
+
+/**
+ * GET ?action=get_income_summary
+ * High-level KPIs: today, this week, this month, this year + YoY comparison.
+ */
+function getIncomeSummary($conn) {
+    $today     = date('Y-m-d');
+    $weekStart = date('Y-m-d', strtotime('monday this week'));
+    $weekEnd   = date('Y-m-d', strtotime('sunday this week'));
+    $monthStart= date('Y-m-01');
+    $monthEnd  = date('Y-m-t');
+    $yearStart = date('Y-01-01');
+    $yearEnd   = date('Y-12-31');
+    $prevYrS   = date('Y-01-01', strtotime('-1 year'));
+    $prevYrE   = date('Y-12-31', strtotime('-1 year'));
+
+    $q = fn($from, $to) => (float)($conn->query(
+        "SELECT COALESCE(SUM(amount),0) AS t FROM installment_payments WHERE DATE(created_at) BETWEEN '$from' AND '$to'"
+    )->fetch_assoc()['t'] ?? 0);
+
+    $todayAmt   = $q($today, $today);
+    $weekAmt    = $q($weekStart, $weekEnd);
+    $monthAmt   = $q($monthStart, $monthEnd);
+    $yearAmt    = $q($yearStart, $yearEnd);
+    $prevYrAmt  = $q($prevYrS, $prevYrE);
+
+    $yoyChange  = $prevYrAmt > 0 ? round(($yearAmt - $prevYrAmt) / $prevYrAmt * 100, 1) : null;
+
+    // Monthly trend for current year (for sparkline)
+    $trendRes = $conn->query("
+        SELECT MONTH(created_at) AS m, MONTHNAME(created_at) AS label, SUM(amount) AS total
+        FROM installment_payments
+        WHERE YEAR(created_at) = YEAR(CURDATE())
+        GROUP BY MONTH(created_at)
+        ORDER BY m ASC
+    ");
+    $monthlyTrend = [];
+    while ($r = $trendRes->fetch_assoc()) {
+        $monthlyTrend[] = ['month' => (int)$r['m'], 'label' => $r['label'], 'total' => (float)$r['total']];
+    }
+
+    // Outstanding balances
+    $outstandingRes = $conn->query("
+        SELECT COALESCE(SUM(
+            GREATEST(0, tf.total_assessment - COALESCE(paid.total_paid, 0))
+        ), 0) AS outstanding
+        FROM tuition_fees tf
+        JOIN students s ON s.id = tf.student_id AND s.enrollment_status = 'Enrolled'
+        LEFT JOIN (
+            SELECT student_id, SUM(amount) AS total_paid
+            FROM installment_payments
+            GROUP BY student_id
+        ) paid ON paid.student_id = tf.student_id
+    ");
+    $outstanding = (float)($outstandingRes->fetch_assoc()['outstanding'] ?? 0);
+
+    // Total enrolled students with fees
+    $enrolledCount = (int)$conn->query("SELECT COUNT(*) AS c FROM students WHERE enrollment_status='Enrolled'")->fetch_assoc()['c'];
+
+    echo json_encode([
+        'success'       => true,
+        'today'         => round($todayAmt, 2),
+        'thisWeek'      => round($weekAmt, 2),
+        'thisMonth'     => round($monthAmt, 2),
+        'thisYear'      => round($yearAmt, 2),
+        'prevYear'      => round($prevYrAmt, 2),
+        'yoyChange'     => $yoyChange,
+        'outstanding'   => round($outstanding, 2),
+        'enrolledCount' => $enrolledCount,
+        'monthlyTrend'  => $monthlyTrend,
+    ]);
+}
+
+/**
+ * GET ?action=get_income_by_program&period=monthly&year=YYYY&month=MM
+ * Income grouped by student program.
+ */
+function getIncomeByProgram($conn) {
+    $year  = (int)($_GET['year']  ?? date('Y'));
+    $month = (int)($_GET['month'] ?? 0);
+
+    $dateFilter = $month
+        ? "YEAR(p.created_at)=$year AND MONTH(p.created_at)=$month"
+        : "YEAR(p.created_at)=$year";
+
+    $res = $conn->query("
+        SELECT s.program,
+               COUNT(DISTINCT p.student_id) AS student_count,
+               COUNT(p.id) AS txn_count,
+               SUM(p.amount) AS total_amount
+        FROM installment_payments p
+        JOIN students s ON s.id = p.student_id
+        WHERE $dateFilter
+        GROUP BY s.program
+        ORDER BY total_amount DESC
+    ");
+
+    $programs = [];
+    $grandTotal = 0;
+    while ($r = $res->fetch_assoc()) {
+        $programs[]  = [
+            'program'      => $r['program'] ?: 'Unassigned',
+            'studentCount' => (int)$r['student_count'],
+            'txnCount'     => (int)$r['txn_count'],
+            'totalAmount'  => (float)$r['total_amount'],
+        ];
+        $grandTotal += (float)$r['total_amount'];
+    }
+
+    // Add percentage
+    foreach ($programs as &$p) {
+        $p['percentage'] = $grandTotal > 0 ? round($p['totalAmount'] / $grandTotal * 100, 1) : 0;
+    }
+
+    echo json_encode([
+        'success'    => true,
+        'year'       => $year,
+        'month'      => $month,
+        'grandTotal' => round($grandTotal, 2),
+        'programs'   => $programs,
+    ]);
+}
+
 ?>
