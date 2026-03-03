@@ -83,7 +83,7 @@ export const routes: Routes = [
       { path: 'class-sections',  component: ClassSections },
       { path: 'levels',          component: Levels },
       { path: 'rooms',  component: Rooms },
-      { path: '', redirectTo: 'dashboard', pathMatch: 'full' }
+      { path: '', redirectTo: 'courses', pathMatch: 'full' }
     ]
   },
 
@@ -99,7 +99,7 @@ export const routes: Routes = [
       { path: 'accounting', component: Accounting },
       { path: 'permits',    component: PermitGeneration },
       { path: 'report',     component: Report },
-      { path: '', redirectTo: 'asr', pathMatch: 'full' }
+      { path: '', redirectTo: 'accounting', pathMatch: 'full' }
     ]
   },
 
@@ -118,7 +118,7 @@ export const routes: Routes = [
       { path: 'tor-evaluation',             component: TorEvaluation },
 
       
-      { path: '', redirectTo: 'dashboard', pathMatch: 'full' }
+      { path: '', redirectTo: 'tor-evaluation', pathMatch: 'full' }
     ]
   },
 
