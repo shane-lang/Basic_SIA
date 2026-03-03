@@ -272,7 +272,9 @@ export class LoginComponent implements OnInit, OnDestroy {
         if (res.success) {
           if (isPlatformBrowser(this.platformId)) {
             sessionStorage.setItem('currentUser', JSON.stringify(res.user));
+            localStorage.setItem('currentUser', JSON.stringify(res.user));
             sessionStorage.setItem('token', res.token);
+            localStorage.setItem('token', res.token);
           }
           this.loading = false;
           this.redirectByRole(res.user.role);
@@ -790,7 +792,9 @@ export class LoginComponent implements OnInit, OnDestroy {
       next: (lr) => {
         if (lr.success && isPlatformBrowser(this.platformId)) {
           sessionStorage.setItem('currentUser', JSON.stringify(lr.user));
+            localStorage.setItem('currentUser', JSON.stringify(lr.user));
           sessionStorage.setItem('token', lr.token);
+            localStorage.setItem('token', lr.token);
         }
         this.router.navigate(['/student/enrollment']);
       },
@@ -876,7 +880,9 @@ export class LoginComponent implements OnInit, OnDestroy {
                   next: (lr) => {
                     if (lr.success && isPlatformBrowser(this.platformId)) {
                       sessionStorage.setItem('currentUser', JSON.stringify(lr.user));
+            localStorage.setItem('currentUser', JSON.stringify(lr.user));
                       sessionStorage.setItem('token', lr.token);
+            localStorage.setItem('token', lr.token);
                     }
                     this.router.navigate(['/student/enrollment']);
                   },
@@ -979,7 +985,9 @@ export class LoginComponent implements OnInit, OnDestroy {
               next: (lr) => {
                 if (lr.success && isPlatformBrowser(this.platformId)) {
                   sessionStorage.setItem('currentUser', JSON.stringify(lr.user));
+            localStorage.setItem('currentUser', JSON.stringify(lr.user));
                   sessionStorage.setItem('token', lr.token);
+            localStorage.setItem('token', lr.token);
                 }
                 this.router.navigate(['/student/enrollment']);
               },
@@ -1233,7 +1241,9 @@ export class LoginComponent implements OnInit, OnDestroy {
                   console.log('[ENROLL] STEP 3 login response:', lr);
                   if (lr.success && isPlatformBrowser(this.platformId)) {
                     sessionStorage.setItem('currentUser', JSON.stringify(lr.user));
+            localStorage.setItem('currentUser', JSON.stringify(lr.user));
                     sessionStorage.setItem('token', lr.token);
+            localStorage.setItem('token', lr.token);
                   }
                   this.router.navigate(['/student/enrollment']);
                 },
