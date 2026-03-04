@@ -1,0 +1,116 @@
+<div class="curriculum-container">
+
+  <!-- Header -->
+  <div class="curr-header">
+    <div class="curr-header-left">
+      <div class="curr-icon">📚</div>
+      <div>
+        <h1>Curriculum</h1>
+        <p class="curr-sub">{{ program || 'Your Program' }}</p>
+      </div>
+    </div>
+    <div class="curr-header-stats" *ngIf="!isLoading && yearGroups.length">
+      <div class="hstat">
+        <span class="hstat-num">{{ completedUnits }}</span>
+        <span class="hstat-lbl">Units Done</span>
+      </div>
+      <div class="hstat-div"></div>
+      <div class="hstat">
+        <span class="hstat-num">{{ remainingUnits }}</span>
+        <span class="hstat-lbl">Remaining</span>
+      </div>
+      <div class="hstat-div"></div>
+      <div class="hstat">
+        <span class="hstat-num">{{ totalUnits }}</span>
+        <span class="hstat-lbl">Total Units</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Loading -->
+  <div *ngIf="isLoading" class="curr-state">
+    <div class="spinner"></div>
+    <p>Loading curriculum...</p>
+  </div>
+
+  <!-- Error -->
+  <div *ngIf="!isLoading && error" class="curr-state curr-error">
+    <div>⚠️</div>
+    <p>{{ error }}</p>
+  </div>
+
+  <!-- Empty -->
+  <div *ngIf="!isLoading && !error && !yearGroups.length" class="curr-state">
+    <div style="font-size:48px">📋</div>
+    <h3>No curriculum data found</h3>
+    <p>Please contact the Registrar's office.</p>
+  </div>
+
+  <!-- Progress bar -->
+  <div *ngIf="!isLoading && yearGroups.length" class="progress-card">
+    <div class="progress-top">
+      <span class="progress-label">Overall Progress</span>
+      <span class="progress-pct">{{ progressPct }}%</span>
+    </div>
+    <div class="progress-bar-bg">
+      <div class="progress-bar-fill" [style.width.%]="progressPct"></div>
+    </div>
+    <div class="progress-bottom">
+      <span>{{ completedSubjects }} of {{ totalSubjects }} subjects completed</span>
+      <span>{{ completedUnits }} / {{ totalUnits }} units</span>
+    </div>
+  </div>
+
+  <!-- Year groups -->
+  <ng-container *ngFor="let year of yearGroups">
+    <div class="year-block">
+      <div class="year-header">
+        <span class="year-label">{{ year.yearLevel }}</span>
+        <span class="year-units">{{ year.completedUnits }} / {{ year.totalUnits }} units</span>
+      </div>
+
+      <ng-container *ngFor="let sem of year.semesters">
+        <div class="sem-section">
+          <div class="sem-header">
+            <span class="sem-title">{{ sem.semester }}</span>
+            <span class="sem-meta">{{ sem.courses.length }} subjects · {{ sem.totalUnits }} units</span>
+          </div>
+
+          <div class="course-table-wrap">
+            <table class="course-table">
+              <thead>
+                <tr>
+                  <th>Code</th>
+                  <th>Subject</th>
+                  <th class="th-units">Units</th>
+                  <th class="th-status">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr *ngFor="let c of sem.courses" [class]="'row-' + c.status">
+                  <td class="td-code">{{ c.code }}</td>
+                  <td class="td-name">
+                    {{ c.name }}
+                    <span *ngIf="c.description" class="course-desc">{{ c.description }}</span>
+                  </td>
+                  <td class="td-units">{{ c.credits }}</td>
+                  <td class="td-status">
+                    <span class="status-chip" [class]="'chip-' + c.status">{{ statusLabel(c.status) }}</span>
+                  </td>
+                </tr>
+              </tbody>
+              <tfoot>
+                <tr class="sem-total-row">
+                  <td colspan="2">Semester Total</td>
+                  <td class="td-units">{{ sem.totalUnits }}</td>
+                  <td></td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      </ng-container>
+    </div>
+  </ng-container>
+
+</div>

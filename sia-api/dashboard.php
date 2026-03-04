@@ -12,8 +12,15 @@ ini_set('display_errors', 0);
 //    GET ?action=get_events
 // ================================================================
 
+$allowedOrigin = $_SERVER['HTTP_ORIGIN'] ?? '';
+$trustedOrigins = ['http://localhost:4200','http://localhost','http://127.0.0.1:4200','http://127.0.0.1'];
 header('Content-Type: application/json');
-header('Access-Control-Allow-Origin: *');
+if (in_array($allowedOrigin, $trustedOrigins, true)) {
+    header("Access-Control-Allow-Origin: $allowedOrigin");
+    header('Access-Control-Allow-Credentials: true');
+} else {
+    header('Access-Control-Allow-Origin: http://localhost:4200');
+}
 header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type, Authorization');
 
@@ -28,6 +35,20 @@ if ($conn->connect_error) {
 $conn->set_charset('utf8mb4');
 
 $action = $_GET['action'] ?? '';
+
+// Auth routing:
+//   public   — no token needed
+//   admin    — admin token required
+//   student  — student token required (default)
+require_once __DIR__ . '/auth_middleware.php';
+$publicDashActions = ['get_announcements', 'get_events'];
+$adminDashActions  = ['add_announcement','update_announcement','delete_announcement',
+                      'add_event','update_event','delete_event'];
+if (in_array($action, $adminDashActions, true)) {
+    requireAuth($conn, 'admin');
+} elseif (!in_array($action, $publicDashActions, true)) {
+    requireAuth($conn);
+}
 
 // ================================================================
 //  ACTION: get_dashboard
@@ -215,6 +236,31 @@ if ($action === 'get_dashboard') {
     );
     $totalPaid = (float)(($paidRes ? $paidRes->fetch_assoc()['total_paid'] : 0) ?? 0);
 
+    // Load extra (custom) fees from fee_config for display as line items
+    $extraFeesList = [];
+    $stdKeys = ['tuition_rate_per_unit','misc_fee','reg_fee','lab_fee_per_room','energy_rate_per_unit','installment_fee'];
+    if (function_exists('loadFeeConfig')) {
+        // Accounting.php not included here — query directly
+    }
+    $studentCat = strtoupper(trim($student['student_category'] ?? 'College'));
+    $feeCategory = in_array($studentCat, ['SHS','TVET']) ? $studentCat : 'College';
+    $fcRes = $conn->query("SELECT fee_key, fee_label, value, is_per_unit FROM fee_config WHERE category='$feeCategory' AND is_active=1 ORDER BY sort_order");
+    if ($fcRes) {
+        while ($fcRow = $fcRes->fetch_assoc()) {
+            if (!in_array($fcRow['fee_key'], $stdKeys)) {
+                $units_for_extra = $tf ? (int)$tf['units'] : 0;
+                $lineAmt = (float)$fcRow['value'] * ($fcRow['is_per_unit'] ? $units_for_extra : 1);
+                $extraFeesList[] = [
+                    'fee_key'    => $fcRow['fee_key'],
+                    'fee_label'  => $fcRow['fee_label'],
+                    'is_per_unit'=> (int)$fcRow['is_per_unit'],
+                    'rate'       => (float)$fcRow['value'],
+                    'amount'     => $lineAmt,
+                ];
+            }
+        }
+    }
+
     if ($tf) {
         $totalAssessment = (float)$tf['total_assessment'];
         $discount        = (float)($tf['discount'] ?? 0);
@@ -227,6 +273,7 @@ if ($action === 'get_dashboard') {
             'registrationFee' => (float)$tf['registration_fee'],
             'laboratoryFee'   => (float)$tf['laboratory_fee'],
             'energyFee'       => (float)$tf['energy_fee'],
+            'extraFees'       => $extraFeesList,
             'subtotal'        => (float)$tf['subtotal'],
             'discount'        => $discount,
             'scholarship'     => $discount,
@@ -254,6 +301,7 @@ if ($action === 'get_dashboard') {
             'registrationFee' => $regFee,
             'laboratoryFee'   => 0,
             'energyFee'       => $energyFee,
+            'extraFees'       => $extraFeesList,
             'subtotal'        => $totalFees,
             'discount'        => 0,
             'scholarship'     => 0,
@@ -438,6 +486,87 @@ if ($action === 'get_events') {
     echo json_encode(['success' => true, 'events' => $events]);
     $conn->close();
     exit();
+}
+
+// ================================================================
+//  ADMIN ANNOUNCEMENT CRUD
+// ================================================================
+if ($action === 'add_announcement') {
+    $data  = json_decode(file_get_contents('php://input'), true) ?? [];
+    $title = trim($data['title']    ?? '');
+    $msg   = trim($data['message']  ?? '');
+    $date  = trim($data['date']     ?? date('Y-m-d'));
+    $type  = in_array($data['type'] ?? '', ['enrollment','payment','school','department','system']) ? $data['type'] : 'school';
+    $pri   = in_array($data['priority'] ?? '', ['high','normal','low']) ? $data['priority'] : 'normal';
+    $icon  = trim($data['icon']     ?? '📢');
+    if (!$title || !$msg) { echo json_encode(['success'=>false,'message'=>'title and message required']); exit(); }
+    $t=$conn->real_escape_string($title); $m=$conn->real_escape_string($msg);
+    $d=$conn->real_escape_string($date);  $ic=$conn->real_escape_string($icon);
+    $conn->query("INSERT INTO announcements (title,message,date,type,priority,icon) VALUES ('$t','$m','$d','$type','$pri','$ic')");
+    echo json_encode(['success'=>true,'id'=>(int)$conn->insert_id]);
+    $conn->close(); exit();
+}
+
+if ($action === 'update_announcement') {
+    $data  = json_decode(file_get_contents('php://input'), true) ?? [];
+    $id    = (int)($data['id'] ?? 0);
+    if (!$id) { echo json_encode(['success'=>false,'message'=>'id required']); exit(); }
+    $title = $conn->real_escape_string(trim($data['title']   ?? ''));
+    $msg   = $conn->real_escape_string(trim($data['message'] ?? ''));
+    $date  = $conn->real_escape_string(trim($data['date']    ?? date('Y-m-d')));
+    $type  = in_array($data['type'] ?? '', ['enrollment','payment','school','department','system']) ? $data['type'] : 'school';
+    $pri   = in_array($data['priority'] ?? '', ['high','normal','low']) ? $data['priority'] : 'normal';
+    $icon  = $conn->real_escape_string(trim($data['icon']    ?? '📢'));
+    $conn->query("UPDATE announcements SET title='$title',message='$msg',date='$date',type='$type',priority='$pri',icon='$icon' WHERE id=$id");
+    echo json_encode(['success'=>true]);
+    $conn->close(); exit();
+}
+
+if ($action === 'delete_announcement') {
+    $data = json_decode(file_get_contents('php://input'), true) ?? [];
+    $id   = (int)($data['id'] ?? 0);
+    if (!$id) { echo json_encode(['success'=>false,'message'=>'id required']); exit(); }
+    $conn->query("DELETE FROM announcements WHERE id=$id");
+    echo json_encode(['success'=>true]);
+    $conn->close(); exit();
+}
+
+// ================================================================
+//  ADMIN EVENTS CRUD
+// ================================================================
+if ($action === 'add_event') {
+    $data  = json_decode(file_get_contents('php://input'), true) ?? [];
+    $title = trim($data['title']       ?? '');
+    $date  = trim($data['event_date']  ?? date('Y-m-d'));
+    $type  = in_array($data['type'] ?? '', ['enrollment','payment','exam','activity','holiday']) ? $data['type'] : 'activity';
+    $desc  = trim($data['description'] ?? '');
+    if (!$title || !$date) { echo json_encode(['success'=>false,'message'=>'title and event_date required']); exit(); }
+    $t=$conn->real_escape_string($title); $d=$conn->real_escape_string($date); $de=$conn->real_escape_string($desc);
+    $conn->query("INSERT INTO school_events (title,event_date,type,description) VALUES ('$t','$d','$type','$de')");
+    echo json_encode(['success'=>true,'id'=>(int)$conn->insert_id]);
+    $conn->close(); exit();
+}
+
+if ($action === 'update_event') {
+    $data  = json_decode(file_get_contents('php://input'), true) ?? [];
+    $id    = (int)($data['id'] ?? 0);
+    if (!$id) { echo json_encode(['success'=>false,'message'=>'id required']); exit(); }
+    $title = $conn->real_escape_string(trim($data['title']       ?? ''));
+    $date  = $conn->real_escape_string(trim($data['event_date']  ?? date('Y-m-d')));
+    $type  = in_array($data['type'] ?? '', ['enrollment','payment','exam','activity','holiday']) ? $data['type'] : 'activity';
+    $desc  = $conn->real_escape_string(trim($data['description'] ?? ''));
+    $conn->query("UPDATE school_events SET title='$title',event_date='$date',type='$type',description='$desc' WHERE id=$id");
+    echo json_encode(['success'=>true]);
+    $conn->close(); exit();
+}
+
+if ($action === 'delete_event') {
+    $data = json_decode(file_get_contents('php://input'), true) ?? [];
+    $id   = (int)($data['id'] ?? 0);
+    if (!$id) { echo json_encode(['success'=>false,'message'=>'id required']); exit(); }
+    $conn->query("DELETE FROM school_events WHERE id=$id");
+    echo json_encode(['success'=>true]);
+    $conn->close(); exit();
 }
 
 // ── Unknown action ────────────────────────────────────────────

@@ -40,12 +40,10 @@ export const authInterceptorFn: HttpInterceptorFn = (req, next) => {
 
         if (!isPublicAction) {
           // Clear stale session data from both storages
-          sessionStorage.removeItem('token');
-          sessionStorage.removeItem('currentUser');
-          sessionStorage.removeItem('studentDbId');
-          sessionStorage.removeItem('studentCategory');
-          localStorage.removeItem('token');
-          localStorage.removeItem('currentUser');
+          ['token', 'currentUser', 'studentDbId', 'studentCategory'].forEach(k => {
+            sessionStorage.removeItem(k);
+            localStorage.removeItem(k);
+          });
           // Redirect to login
           router.navigate(['/login']);
         }

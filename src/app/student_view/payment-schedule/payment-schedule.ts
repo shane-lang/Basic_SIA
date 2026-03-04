@@ -210,7 +210,7 @@ export class PaymentSchedule implements OnInit {
   // ── Payment modal ─────────────────────────────────────────────────────────
   openPayModal(period: string): void {
     this.payPeriod    = period;
-    this.payAmount    = parseFloat(this.getBalance(period).toFixed(2));
+    this.payAmount    = 0;          // student enters their own amount — no minimum enforced
     this.payMethod    = 'Cash';
     this.payGcashRef  = '';
     this.payNote      = '';

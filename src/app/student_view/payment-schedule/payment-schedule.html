@@ -64,6 +64,23 @@
       </div>
     </div>
 
+    <!-- Downpayment summary for installment students -->
+    <div *ngIf="schedule.payment_type==='installment'" class="dp-summary-card">
+      <div class="dp-row">
+        <span>Downpayment Paid</span>
+        <strong [class.dp-partial]="schedule.downpayment_paid < (schedule.total_assessment / 4)"
+                [class.dp-ok]="schedule.downpayment_paid >= (schedule.total_assessment / 4)">
+          ₱{{ fmt(schedule.downpayment_paid) }}
+        </strong>
+      </div>
+      <div class="dp-row dp-hint" *ngIf="schedule.downpayment_paid < (schedule.total_assessment / 4) && schedule.downpayment_paid > 0">
+        <span>⚠️ Below scheduled DP (₱{{ fmt(schedule.total_assessment / 4) }}) — unpaid portion added to term dues</span>
+      </div>
+      <div class="dp-row dp-hint dp-hint-good" *ngIf="schedule.downpayment_paid > (schedule.total_assessment / 4)">
+        <span>✅ Above scheduled DP — term dues reduced accordingly</span>
+      </div>
+    </div>
+
     <!-- Period cards -->
     <div class="cards">
       <div *ngFor="let period of periods" class="period-card"
@@ -131,7 +148,8 @@
           <button class="btn-pay"
             *ngIf="getStatus(period)==='unpaid' || getStatus(period)==='partial'"
             (click)="openPayModal(period)">
-            💳 Pay ₱{{ fmt(getBalance(period)) }}
+            💳 Pay {{ payPeriod === period ? '' : period }}
+            <span *ngIf="getBalance(period) > 0"> · ₱{{ fmt(getBalance(period)) }} remaining</span>
           </button>
 
           <!-- Request permit button (paid, no active permit) -->
@@ -183,9 +201,14 @@
 
           <div class="field-group">
             <label>Amount (₱)</label>
-            <input type="number" [(ngModel)]="payAmount" min="1" [max]="getBalance(payPeriod)"
-                   placeholder="Enter amount" [disabled]="isSubmitting" />
-            <span class="field-hint">Balance: ₱{{ fmt(getBalance(payPeriod)) }}</span>
+            <input type="number" [(ngModel)]="payAmount" min="1"
+                   placeholder="Enter amount to pay" [disabled]="isSubmitting" />
+            <span class="field-hint">
+              Term balance: <strong>₱{{ fmt(getBalance(payPeriod)) }}</strong>
+              <ng-container *ngIf="payAmount > 0 && payAmount > getBalance(payPeriod) && getBalance(payPeriod) > 0">
+                &nbsp;— ₱{{ fmt(payAmount - getBalance(payPeriod)) }} will carry over to next term
+              </ng-container>
+            </span>
           </div>
 
           <div class="field-group">

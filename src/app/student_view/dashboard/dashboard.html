@@ -108,7 +108,8 @@
     </div>
   </section>
 
-  <!-- ══ NEXT CLASS ALERT ═══════════════════════════════════ -->
+<!-- COMMENTED OUT: Next Class section-->
+  <!-- ══ NEXT CLASS ALERT ═══════════════════════════════════ 
   <section class="next-class-section" *ngIf="nextClass">
     <div class="next-class-card">
       <div class="next-class-icon">🔔</div>
@@ -123,8 +124,9 @@
       <div class="next-class-badge">{{ nextClass.code }}</div>
     </div>
   </section>
+-->
 
-  <!-- ══ ENROLLED COURSES ═══════════════════════════════════ -->
+  <!-- ══ ENROLLED COURSES ═══════════════════════════════════ 
   <section class="courses-section">
     <div class="section-header">
       <h2>🎓 Your Enrolled Courses</h2>
@@ -160,7 +162,7 @@
       </div>
     </div>
   </section>
-
+-->
   <!-- ══ FINANCIAL SUMMARY (College only) ═════════════════════ -->
   <section class="fees-section" *ngIf="isCollege">
     <div class="section-header">
@@ -185,6 +187,9 @@
             <div class="fee-row"><span>Registration Fee</span><span>{{ fmt(fees.registrationFee ?? 0) }}</span></div>
             <div class="fee-row" *ngIf="(fees.laboratoryFee ?? 0) > 0"><span>Laboratory Fee</span><span>{{ fmt(fees.laboratoryFee) }}</span></div>
             <div class="fee-row"><span>Energy Fee</span><span>{{ fmt(fees.energyFee ?? 0) }}</span></div>
+            <div class="fee-row" *ngFor="let ef of (fees.extraFees || [])">
+              <span>{{ ef.fee_label }}</span><span>{{ fmt(ef.amount) }}</span>
+            </div>
             <div class="fee-row fee-subtotal"><span>Total Assessment</span><span>{{ fmt(fees.totalAssessment ?? fees.totalFees) }}</span></div>
           </div>
 
@@ -348,7 +353,7 @@
     </div>
   </section>
 
-  <!-- ══ WEEKLY SCHEDULE (keep original) ══════════════════════ -->
+  <!-- ══ WEEKLY SCHEDULE (keep original) ══════════════════════ 
   <section class="schedule-section">
     <div class="section-header">
       <h2>📅 Weekly Schedule</h2>
@@ -368,9 +373,10 @@
       </div>
     </div>
   </section>
-
-  <!-- ══ QUICK ACTIONS (keep original) ═══════════════════════ -->
-  <section class="actions-section">
+-->
+<!-- COMMENTED OUT: Quick Actions section-->
+  <!-- ══ QUICK ACTIONS (keep original) ═══════════════════════ 
+    <section class="actions-section">
     <div class="section-header">
       <h2>⚡ Quick Actions</h2>
     </div>
@@ -381,6 +387,7 @@
       <button class="action-btn"><span class="action-icon">⚙️</span><span class="action-text">Settings</span></button>
     </div>
   </section>
+-->
 
   </ng-container>
 </div>

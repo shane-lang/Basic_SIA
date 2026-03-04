@@ -17,7 +17,7 @@ if (in_array($allowedOrigin, $trustedOrigins, true)) {
 }
 
 header("Access-Control-Allow-Methods: GET, POST, PUT, OPTIONS");
-header("Access-Control-Allow-Headers: Content-Type, Authorization");
+header("Access-Control-Allow-Headers: Content-Type, Authorization, X-User-Id");
 header("Content-Type: application/json");
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { http_response_code(200); exit(); }
@@ -28,11 +28,61 @@ if ($conn->connect_error) {
 }
 $conn->set_charset("utf8mb4");
 
+// ================================================================
+// FEE CONFIG HELPER — shared by all fee computation functions.
+// Loads rates from `fee_config` table; seeds defaults on first run.
+// Usage: $r = loadFeeConfig($conn, 'College');
+//        $tuition_rate = (float)($r['tuition_rate_per_unit']['value'] ?? 650);
+// ================================================================
+function loadFeeConfig(mysqli $conn, string $category): array {
+    $conn->query("CREATE TABLE IF NOT EXISTS `fee_config` (
+        `id`          INT NOT NULL AUTO_INCREMENT,
+        `category`    ENUM('College','SHS','TVET') NOT NULL DEFAULT 'College',
+        `fee_key`     VARCHAR(60)  NOT NULL,
+        `fee_label`   VARCHAR(120) NOT NULL,
+        `value`       DECIMAL(14,4) NOT NULL DEFAULT 0.0000,
+        `is_per_unit` TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '1=multiply by enrolled units',
+        `applies_to`  VARCHAR(200) NOT NULL DEFAULT 'All',
+        `description` VARCHAR(255) DEFAULT NULL,
+        `is_active`   TINYINT(1)   NOT NULL DEFAULT 1,
+        `sort_order`  INT          NOT NULL DEFAULT 0,
+        `created_at`  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        `updated_at`  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (`id`),
+        UNIQUE KEY `uq_cat_key` (`category`,`fee_key`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+    $cnt = (int)($conn->query("SELECT COUNT(*) AS c FROM fee_config")->fetch_assoc()['c'] ?? 0);
+    if ($cnt === 0) {
+        $conn->query("INSERT IGNORE INTO fee_config
+            (category,fee_key,fee_label,value,is_per_unit,applies_to,description,sort_order) VALUES
+            ('College','tuition_rate_per_unit','Tuition Fee (per unit)',650,1,'All','Charged per enrolled unit',1),
+            ('College','misc_fee','Miscellaneous Fee',6688,0,'All','Fixed miscellaneous fee',2),
+            ('College','reg_fee','Registration Fee',700,0,'All','Fixed registration fee',3),
+            ('College','lab_fee_per_room','Laboratory Fee (per lab room)',1900,0,'All','Per laboratory room on campus',4),
+            ('College','energy_rate_per_unit','Energy Fee (per unit)',63,1,'All','units × ₱21 × 3 terms = ₱63/unit',5),
+            ('College','installment_fee','Installment Surcharge',750,0,'All','Added when payment plan is installment',6),
+            ('SHS','transferee_flat_rate','Transferee Flat Rate',20000,0,'Transferee','Flat fee for SHS transferees',1),
+            ('SHS','installment_fee','Installment Surcharge',750,0,'All','Added when payment plan is installment',2),
+            ('TVET','misc_fee','Miscellaneous Fee',3500,0,'All','Fixed miscellaneous fee for TVET',1),
+            ('TVET','reg_fee','Registration Fee',500,0,'All','Fixed registration fee for TVET',2),
+            ('TVET','installment_fee','Installment Surcharge',500,0,'All','Added when payment plan is installment',3),
+            ('TVET','transferee_flat_rate','Transferee Flat Rate',20000,0,'Transferee','Flat fee for TVET transferees',4)");
+    }
+
+    $cat = $conn->real_escape_string($category);
+    $res = $conn->query("SELECT * FROM fee_config WHERE category='$cat' AND is_active=1 ORDER BY sort_order");
+    $cfg = [];
+    if ($res) while ($r = $res->fetch_assoc()) $cfg[$r['fee_key']] = $r;
+    return $cfg;
+}
+
+
 $action = $_GET['action'] ?? '';
 
 require_once __DIR__ . '/auth_middleware.php';
 // Fee preview actions called during enrollment wizard (no token yet)
-$publicActions = ['get_fee_preview', 'get_shs_fee', 'get_tvet_fee'];
+$publicActions = ['get_fee_preview', 'get_shs_fee', 'get_tvet_fee', 'get_fee_config'];
 $authUser = in_array($action, $publicActions) ? null : requireAuth($conn);
 
 // ── Auto-create required tables if missing (so migrate.php is not mandatory) ──
@@ -181,6 +231,7 @@ switch ($method) {
             case 'get_installment_students':   getInstallmentStudents($conn); break;
             case 'get_shs_fee':               getSHSFee($conn);              break;
             case 'get_tvet_fee':              getTVETFee($conn);             break;
+            case 'get_fee_config':            getFeeConfig($conn);           break;
             // ── Income Report Generator ──
             case 'get_income_report':         getIncomeReport($conn);        break;
             case 'get_income_summary':        getIncomeSummary($conn);       break;
@@ -196,6 +247,9 @@ switch ($method) {
             case 'verify_payment':      verifyPayment($conn, $data);      break;
             case 'reject_payment':      rejectPayment($conn, $data);      break;
             case 'compute_fees':        computeFees($conn, $data);        break;
+            case 'save_fee_config':     saveFeeConfig($conn, $data);      break;
+            case 'add_fee_config':      addFeeConfig($conn, $data);       break;
+            case 'delete_fee_config':   deleteFeeConfig($conn, $data);    break;
             case 'record_installment':  recordInstallment($conn, $data);  break;
             case 'send_payment_notice':  sendPaymentNotice($conn, $data);  break;
             case 'request_exam_permit':  requestExamPermit($conn, $data);  break;
@@ -269,21 +323,27 @@ function getFeePreview($conn) {
     $pn    = $conn->real_escape_string($program_name);
     $units = 0;
 
-    // 1. Check tuition_fees table first (already evaluated by registrar for transferees)
+    // 1. For transferees: always use tor_evaluations.approved_units FIRST.
+    //    This is the post-credit unit count the registrar approved — it overrides
+    //    any stale tuition_fees.units that may have been saved before evaluation.
     if ($student_id > 0) {
+        $typeRes = $conn->query("SELECT student_type FROM students WHERE id=$student_id LIMIT 1");
+        $typeRow = $typeRes ? $typeRes->fetch_assoc() : null;
+        if (trim($typeRow['student_type'] ?? '') === 'Transferee') {
+            $te = $conn->query("SELECT approved_units FROM tor_evaluations WHERE student_id = $student_id AND status = 'Evaluated' LIMIT 1");
+            $te_row = $te ? $te->fetch_assoc() : null;
+            if ($te_row && (int)$te_row['approved_units'] > 0) {
+                $units = (int)$te_row['approved_units'];
+            }
+        }
+    }
+
+    // 2. Non-transferee or unevaluated: check tuition_fees table
+    if ($units <= 0 && $student_id > 0) {
         $tf_res = $conn->query("SELECT units FROM tuition_fees WHERE student_id = $student_id LIMIT 1");
         $tf_row = $tf_res ? $tf_res->fetch_assoc() : null;
         if ($tf_row && (int)$tf_row['units'] > 0) {
             $units = (int)$tf_row['units'];
-        }
-    }
-
-    // 1b. If still zero — check tor_evaluations.approved_units (permanent across all semesters)
-    if ($units <= 0 && $student_id > 0) {
-        $te = $conn->query("SELECT approved_units FROM tor_evaluations WHERE student_id = $student_id AND status = 'Evaluated' LIMIT 1");
-        $te_row = $te ? $te->fetch_assoc() : null;
-        if ($te_row && (int)$te_row['approved_units'] > 0) {
-            $units = (int)$te_row['approved_units'];
         }
     }
 
@@ -373,18 +433,44 @@ function getFeePreview($conn) {
         $has_installment = ($pi_row['payment_plan'] ?? 'full') === 'installment';
     }
 
-    // Lab fee: based on total number of Laboratory rooms (same for all students)
+    // Lab fee: based on total number of Laboratory rooms
     $lab_res   = $conn->query("SELECT COUNT(*) AS cnt FROM rooms WHERE room_type = 'Laboratory'");
     $lab_count = (int)(($lab_res ? $lab_res->fetch_assoc()['cnt'] : 0) ?? 0);
 
+    // Load rates from fee_config (managed by Accounting)
+    $fc = loadFeeConfig($conn, 'College');
+    $r_tuition  = (float)($fc['tuition_rate_per_unit']['value'] ?? 650);
+    $r_misc     = (float)($fc['misc_fee']['value']              ?? 6688);
+    $r_reg      = (float)($fc['reg_fee']['value']               ?? 700);
+    $r_lab_room = (float)($fc['lab_fee_per_room']['value']      ?? 1900);
+    $r_energy   = (float)($fc['energy_rate_per_unit']['value']  ?? 63);
+    $r_install  = (float)($fc['installment_fee']['value']       ?? 750);
+    // Any extra active fees (not one of the standard built-in keys)
+    $standard_keys = ['tuition_rate_per_unit','misc_fee','reg_fee','lab_fee_per_room','energy_rate_per_unit','installment_fee'];
+    $extra_fees      = 0.00;
+    $extra_fees_list = [];   // NEW: individual line items for the UI
+    foreach ($fc as $fk => $frow) {
+        if (!in_array($fk, $standard_keys)) {
+            $line_amount = (float)$frow['value'] * ($frow['is_per_unit'] ? $units : 1);
+            $extra_fees += $line_amount;
+            $extra_fees_list[] = [
+                'fee_key'    => $fk,
+                'fee_label'  => $frow['fee_label'],
+                'is_per_unit'=> (int)$frow['is_per_unit'],
+                'rate'       => (float)$frow['value'],
+                'amount'     => $line_amount,
+            ];
+        }
+    }
+
     // Fee computation
-    $tuition_fee    = $units * 650;
-    $miscellaneous  = 6688.00;
-    $registration   = 700.00;
-    $laboratory_fee = $lab_count * 1900;   // number of lab subjects × 1,900
-    $energy_fee     = $units * 21 * 3;
-    $subtotal       = $tuition_fee + $miscellaneous + $registration + $laboratory_fee + $energy_fee;
-    $installment_fee = $has_installment ? 750.00 : 0.00;
+    $tuition_fee    = $units * $r_tuition;
+    $miscellaneous  = $r_misc;
+    $registration   = $r_reg;
+    $laboratory_fee = $lab_count * $r_lab_room;
+    $energy_fee     = $units * $r_energy;
+    $subtotal       = $tuition_fee + $miscellaneous + $registration + $laboratory_fee + $energy_fee + $extra_fees;
+    $installment_fee = $has_installment ? $r_install : 0.00;
     $total          = max(0, $subtotal - $discount + $installment_fee);
 
     // If student already has enrolled courses, use ACTUAL enrolled credits as units
@@ -401,9 +487,25 @@ function getFeePreview($conn) {
         if ($enrolledUnits > 0) {
             // Recompute fees based on actual enrolled units
             $units          = $enrolledUnits;
-            $tuition_fee    = $units * 650;
-            $energy_fee     = $units * 21 * 3;
-            $subtotal       = $tuition_fee + $miscellaneous + $registration + $laboratory_fee + $energy_fee;
+            $tuition_fee    = $units * $r_tuition;
+            $energy_fee     = $units * $r_energy;
+            // recalculate extra per-unit fees
+            $extra_fees      = 0.00;
+            $extra_fees_list = [];
+            foreach ($fc as $fk => $frow) {
+                if (!in_array($fk, $standard_keys)) {
+                    $line_amount = (float)$frow['value'] * ($frow['is_per_unit'] ? $units : 1);
+                    $extra_fees += $line_amount;
+                    $extra_fees_list[] = [
+                        'fee_key'    => $fk,
+                        'fee_label'  => $frow['fee_label'],
+                        'is_per_unit'=> (int)$frow['is_per_unit'],
+                        'rate'       => (float)$frow['value'],
+                        'amount'     => $line_amount,
+                    ];
+                }
+            }
+            $subtotal       = $tuition_fee + $miscellaneous + $registration + $laboratory_fee + $energy_fee + $extra_fees;
             $total          = max(0, $subtotal - $discount + $installment_fee);
         }
     }
@@ -438,6 +540,7 @@ function getFeePreview($conn) {
             'registrationFee'  => $registration,
             'laboratoryFee'    => $laboratory_fee,
             'energyFee'        => $energy_fee,
+            'extraFees'        => $extra_fees_list,
             'subtotal'         => $subtotal,
             'discount'         => $discount,
             'installmentFee'   => $installment_fee,
@@ -485,14 +588,38 @@ function computeFees($conn, $data) {
     $lab_res2  = $conn->query("SELECT COUNT(*) AS cnt FROM rooms WHERE room_type = 'Laboratory'");
     $lab_count = (int)(($lab_res2 ? $lab_res2->fetch_assoc()['cnt'] : 0) ?? 0);
 
-    $tuition_fee    = $units * 650;
-    $miscellaneous  = 6688.00;
-    $registration   = 700.00;
-    $laboratory_fee = $lab_count * 1900;   // number of lab subjects × 1,900
-    $energy_fee     = $units * 21 * 3;
-    $subtotal       = $tuition_fee + $miscellaneous + $registration + $laboratory_fee + $energy_fee;
-    $installment_fee = $has_installment ? 750.00 : 0.00;
-    $total          = $subtotal - $discount + $installment_fee;
+    $fc2 = loadFeeConfig($conn, 'College');
+    $r_tuition  = (float)($fc2['tuition_rate_per_unit']['value'] ?? 650);
+    $r_misc     = (float)($fc2['misc_fee']['value']              ?? 6688);
+    $r_reg      = (float)($fc2['reg_fee']['value']               ?? 700);
+    $r_lab_room = (float)($fc2['lab_fee_per_room']['value']      ?? 1900);
+    $r_energy   = (float)($fc2['energy_rate_per_unit']['value']  ?? 63);
+    $r_install  = (float)($fc2['installment_fee']['value']       ?? 750);
+    $std_keys2  = ['tuition_rate_per_unit','misc_fee','reg_fee','lab_fee_per_room','energy_rate_per_unit','installment_fee'];
+    $extra2 = 0.00;
+    $extra2_list = [];
+    foreach ($fc2 as $fk => $frow) {
+        if (!in_array($fk, $std_keys2)) {
+            $line_amt = (float)$frow['value'] * ($frow['is_per_unit'] ? $units : 1);
+            $extra2 += $line_amt;
+            $extra2_list[] = [
+                'fee_key'    => $fk,
+                'fee_label'  => $frow['fee_label'],
+                'is_per_unit'=> (int)$frow['is_per_unit'],
+                'rate'       => (float)$frow['value'],
+                'amount'     => $line_amt,
+            ];
+        }
+    }
+
+    $tuition_fee    = $units * $r_tuition;
+    $miscellaneous  = $r_misc;
+    $registration   = $r_reg;
+    $laboratory_fee = $lab_count * $r_lab_room;
+    $energy_fee     = $units * $r_energy;
+    $subtotal       = $tuition_fee + $miscellaneous + $registration + $laboratory_fee + $energy_fee + $extra2;
+    $installment_fee = $has_installment ? $r_install : 0.00;
+    $total          = max(0, $subtotal - $discount + $installment_fee);
 
     $stmt = $conn->prepare("
         INSERT INTO tuition_fees (student_id, units, tuition_fee, miscellaneous_fee, registration_fee, laboratory_fee, energy_fee, subtotal, discount, installment_fee, total_assessment)
@@ -515,12 +642,38 @@ function computeFees($conn, $data) {
             'registrationFee'  => $registration,
             'laboratoryFee'    => $laboratory_fee,
             'energyFee'        => $energy_fee,
+            'extraFees'        => $extra2_list,
             'subtotal'         => $subtotal,
             'discount'         => $discount,
             'installmentFee'   => $installment_fee,
             'totalAssessment'  => $total,
         ]
     ]);
+}
+
+// ─────────────────────────────────────────────────────────────
+// SHARED HELPER: build extraFees line items from fee_config
+// ─────────────────────────────────────────────────────────────
+function _buildExtraFeesList(mysqli $conn, string $category, int $units): array {
+    $stdKeys = ['tuition_rate_per_unit','misc_fee','reg_fee','lab_fee_per_room','energy_rate_per_unit','installment_fee'];
+    $cat     = $conn->real_escape_string($category);
+    $res     = $conn->query("SELECT fee_key, fee_label, value, is_per_unit FROM fee_config WHERE category='$cat' AND is_active=1 ORDER BY sort_order");
+    $list    = [];
+    if ($res) {
+        while ($r = $res->fetch_assoc()) {
+            if (!in_array($r['fee_key'], $stdKeys)) {
+                $amt    = (float)$r['value'] * ($r['is_per_unit'] ? $units : 1);
+                $list[] = [
+                    'fee_key'    => $r['fee_key'],
+                    'fee_label'  => $r['fee_label'],
+                    'is_per_unit'=> (int)$r['is_per_unit'],
+                    'rate'       => (float)$r['value'],
+                    'amount'     => $amt,
+                ];
+            }
+        }
+    }
+    return $list;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -541,6 +694,9 @@ function getTuitionFees($conn) {
 
     $balance = max(0, (float)$row['total_assessment'] - $total_paid);
 
+    // Build extra fees list from fee_config
+    $extraList = _buildExtraFeesList($conn, 'College', (int)$row['units']);
+
     echo json_encode([
         'success' => true,
         'fees' => [
@@ -550,6 +706,7 @@ function getTuitionFees($conn) {
             'registrationFee'  => (float)$row['registration_fee'],
             'laboratoryFee'    => (float)$row['laboratory_fee'],
             'energyFee'        => (float)$row['energy_fee'],
+            'extraFees'        => $extraList,
             'subtotal'         => (float)$row['subtotal'],
             'discount'         => (float)$row['discount'],
             'installmentFee'   => (float)$row['installment_fee'],
@@ -616,26 +773,60 @@ function recordInstallment($conn, $data) {
     $updStmt->bind_param("si", $pay_status, $student_id);
     $updStmt->execute();
 
-    // ── BUG FIX: Sync payment_schedules after recording payment ──────────
-    // After each installment, recalculate how much was paid per period and
-    // update the status so the student's Payment Schedule page reflects it.
+    // ── Sync payment_schedules with DP-aware carry-over redistribution ─────
+    // Rule: student pays any amount for DP. Term dues are recomputed from actual DP.
+    //   - DP < scheduled (total/4) → remaining increases, so term dues go up
+    //   - DP > scheduled           → remaining shrinks, so term dues go down
+    // Within terms (Prelim→Midterm→Finals): overflow carries forward as usual.
     $schedChkStmt = $conn->prepare("SELECT id FROM payment_schedules WHERE student_id = ? LIMIT 1");
     $schedChkStmt->bind_param("i", $student_id);
     $schedChkStmt->execute();
     $sched_check = $schedChkStmt->get_result();
     if ($sched_check && $sched_check->num_rows > 0) {
-        foreach (['Prelim', 'Midterm', 'Finals'] as $period) {
-            $p = strtolower($period);
-            // Only update non-locked periods
-            $lock_check = $conn->query("SELECT {$p}_status, {$p}_due FROM payment_schedules WHERE student_id = $student_id LIMIT 1");
-            $lock_row = $lock_check ? $lock_check->fetch_assoc() : null;
-            if (!$lock_row || $lock_row[$p.'_status'] === 'locked') continue;
+        // Step 1: Get total assessment
+        $tfR  = $conn->query("SELECT total_assessment FROM tuition_fees WHERE student_id = $student_id LIMIT 1");
+        $tfRw = $tfR ? $tfR->fetch_assoc() : null;
+        $tot  = $tfRw ? (float)$tfRw['total_assessment'] : $total_assessment;
 
-            $period_paid_res = $conn->query("SELECT COALESCE(SUM(amount),0) AS paid FROM installment_payments WHERE student_id = $student_id AND exam_period = '$period'");
-            $period_paid = (float)($period_paid_res->fetch_assoc()['paid'] ?? 0);
-            $period_due  = (float)($lock_row[$p.'_due'] ?? 0);
-            $new_status  = $period_paid <= 0 ? 'unpaid' : ($period_paid >= $period_due ? 'paid' : 'partial');
-            $conn->query("UPDATE payment_schedules SET {$p}_paid = $period_paid, {$p}_status = '$new_status' WHERE student_id = $student_id");
+        // Step 2: Get actual DP paid
+        $dpR   = $conn->query("SELECT COALESCE(SUM(amount),0) AS paid FROM installment_payments WHERE student_id = $student_id AND exam_period = 'Downpayment'");
+        $dpPd  = $dpR ? (float)$dpR->fetch_assoc()['paid'] : 0;
+        // Fall back to scheduled quarter if no DP recorded yet
+        $dpEff = $dpPd > 0 ? $dpPd : ($tot > 0 ? round($tot / 4, 2) : 0);
+
+        // Step 3: Recompute term dues based on actual DP
+        $rem   = max(0.0, $tot - $dpEff);
+        $new_pd = $rem > 0 ? (ceil($rem / 3 * 100) / 100) : 0;
+        $new_md = $new_pd;
+        $new_fd = $rem > 0 ? round(max(0, $rem - $new_pd * 2), 2) : 0;
+        $conn->query("UPDATE payment_schedules SET prelim_due=$new_pd, midterm_due=$new_md, finals_due=$new_fd WHERE student_id=$student_id");
+
+        // Step 4: Carry-over redistribution across terms
+        $raw_paid = ['Prelim' => 0.0, 'Midterm' => 0.0, 'Finals' => 0.0];
+        $paid_res = $conn->query("SELECT exam_period, COALESCE(SUM(amount),0) AS paid
+            FROM installment_payments
+            WHERE student_id = $student_id AND exam_period IN ('Prelim','Midterm','Finals')
+            GROUP BY exam_period");
+        if ($paid_res) {
+            while ($pr = $paid_res->fetch_assoc()) {
+                $raw_paid[$pr['exam_period']] = (float)$pr['paid'];
+            }
+        }
+        $sched_row = $conn->query("SELECT * FROM payment_schedules WHERE student_id=$student_id LIMIT 1")->fetch_assoc();
+        $carry = 0.0; $credited = [];
+        foreach (['Prelim'=>$new_pd, 'Midterm'=>$new_md, 'Finals'=>$new_fd] as $period => $due) {
+            $p = strtolower($period);
+            if (($sched_row[$p.'_status'] ?? '') === 'locked') { $carry = 0.0; $credited[$period] = 0.0; continue; }
+            $total_for_period  = $raw_paid[$period] + $carry;
+            $credited[$period] = min($total_for_period, $due);
+            $carry             = max(0.0, $total_for_period - $due);
+        }
+        foreach (['Prelim'=>$new_pd, 'Midterm'=>$new_md, 'Finals'=>$new_fd] as $period => $due) {
+            $p      = strtolower($period);
+            if (($sched_row[$p.'_status'] ?? '') === 'locked') continue;
+            $paid_c = round($credited[$period], 2);
+            $status = $paid_c <= 0 ? 'unpaid' : ($paid_c >= $due ? 'paid' : 'partial');
+            $conn->query("UPDATE payment_schedules SET {$p}_paid=$paid_c, {$p}_status='$status' WHERE student_id=$student_id");
         }
     }
     // ─────────────────────────────────────────────────────────────────────
@@ -719,18 +910,25 @@ function getStudentReceipts($conn) {
         $lab_cnt = (int)(($lab_res ? $lab_res->fetch_assoc()['cnt'] : 0) ?? 0);
 
         // Compute fees
-        $tuition       = $units * 650;
-        $miscellaneous = 6688;
-        $registration  = 700;
-        $laboratory    = $lab_cnt * 1900;   // number of lab subjects × 1,900
-        $energy        = $units * 21 * 3;
+        $fc3 = loadFeeConfig($conn, 'College');
+        $r3_tuition  = (float)($fc3['tuition_rate_per_unit']['value'] ?? 650);
+        $r3_misc     = (float)($fc3['misc_fee']['value']              ?? 6688);
+        $r3_reg      = (float)($fc3['reg_fee']['value']               ?? 700);
+        $r3_lab_room = (float)($fc3['lab_fee_per_room']['value']      ?? 1900);
+        $r3_energy   = (float)($fc3['energy_rate_per_unit']['value']  ?? 63);
+        $r3_install  = (float)($fc3['installment_fee']['value']       ?? 750);
+        $tuition       = $units * $r3_tuition;
+        $miscellaneous = $r3_misc;
+        $registration  = $r3_reg;
+        $laboratory    = $lab_cnt * $r3_lab_room;
+        $energy        = $units * $r3_energy;
         $subtotal      = $tuition + $miscellaneous + $registration + $laboratory + $energy;
 
         $disc_res  = $conn->query("SELECT is_scholar, scholarship_amount FROM students WHERE id = $student_id LIMIT 1");
         $disc_row  = $disc_res ? $disc_res->fetch_assoc() : null;
         $discount  = ($disc_row && $disc_row['is_scholar']) ? (float)($disc_row['scholarship_amount'] ?? 0) : 0;
 
-        $install_fee = $has_installment ? 750.00 : 0.00;
+        $install_fee = $has_installment ? $r3_install : 0.00;
         $total       = max(0, $subtotal - $discount + $install_fee);
 
         $conn->query("INSERT INTO tuition_fees (student_id, units, tuition_fee, miscellaneous_fee, registration_fee, laboratory_fee, energy_fee, subtotal, discount, installment_fee, total_assessment)
@@ -859,6 +1057,7 @@ function getStudentReceipts($conn) {
             'registrationFee'  => (float)$fee_row['registration_fee'],
             'laboratoryFee'    => (float)$fee_row['laboratory_fee'],
             'energyFee'        => (float)$fee_row['energy_fee'],
+            'extraFees'        => _buildExtraFeesList($conn, 'College', (int)$fee_row['units']),
             'subtotal'         => (float)$fee_row['subtotal'],
             'discount'         => (float)$fee_row['discount'],
             'installmentFee'   => (float)$fee_row['installment_fee'],
@@ -1404,25 +1603,33 @@ function getPaymentSchedule($conn) {
     $tfRow = $tfRes ? $tfRes->fetch_assoc() : null;
     $total = $tfRow ? (float)$tfRow['total_assessment'] : 0;
 
-    // ── Credit actual downpayment paid so Prelim/Midterm/Finals reflect remaining balance ──
-    $dpPaidRes = $conn->query("SELECT COALESCE(SUM(amount),0) AS paid FROM installment_payments WHERE student_id=$student_id AND exam_period='Downpayment'");
-    $dpPaid    = $dpPaidRes ? (float)$dpPaidRes->fetch_assoc()['paid'] : 0;
-    $dpCredit  = $dpPaid > 0 ? $dpPaid : ($total > 0 ? round($total / 4, 2) : 0);
-    $remaining = max(0, $total - $dpCredit);
-    $pd        = $remaining > 0 ? ceil($remaining / 3 * 100) / 100 : 0;
-    $md        = $pd;
-    $fd        = $remaining > 0 ? round($remaining - $pd * 2, 2) : 0;
+    // ── Recompute term dues based on actual DP paid ──────────────────────────
+    // Rule: DP can be any amount the student can afford.
+    //   - scheduled DP = total / 4
+    //   - remaining after DP = total - dpPaid  (not total - scheduledDP)
+    //   - remaining is split equally across Prelim/Midterm/Finals
+    // This means:
+    //   - small DP  → larger term dues
+    //   - large DP  → smaller term dues (or zero if DP covers everything)
+    $dpPaidRes  = $conn->query("SELECT COALESCE(SUM(amount),0) AS paid FROM installment_payments WHERE student_id=$student_id AND exam_period='Downpayment'");
+    $dpPaid     = $dpPaidRes ? (float)$dpPaidRes->fetch_assoc()['paid'] : 0;
+    // Use actual DP paid if any, else fall back to scheduled quarter
+    $dpCredit   = $dpPaid > 0 ? $dpPaid : ($total > 0 ? round($total / 4, 2) : 0);
+    $remaining  = max(0, $total - $dpCredit);
+    $pd         = $remaining > 0 ? (ceil($remaining / 3 * 100) / 100) : 0;
+    $md         = $pd;
+    $fd         = $remaining > 0 ? round(max(0, $remaining - $pd * 2), 2) : 0;
 
-    // Ensure a payment_schedules row exists, update dues only when total actually changed
+    // Always upsert — dues must reflect the actual DP paid (recomputed every load)
     $conn->query("INSERT INTO payment_schedules
         (student_id,payment_type,total_assessment,prelim_due,midterm_due,finals_due)
         VALUES ($student_id,'$ptype',$total,$pd,$md,$fd)
         ON DUPLICATE KEY UPDATE
-          payment_type='$ptype',
-          total_assessment=IF($total>0, $total, total_assessment),
-          prelim_due=IF($pd>0, $pd, prelim_due),
-          midterm_due=IF($md>0, $md, midterm_due),
-          finals_due=IF($fd>0, $fd, finals_due)");
+          payment_type     = '$ptype',
+          total_assessment = IF($total>0, $total, total_assessment),
+          prelim_due       = IF($total>0, $pd, prelim_due),
+          midterm_due      = IF($total>0, $md, midterm_due),
+          finals_due       = IF($total>0, $fd, finals_due)");
 
     $res = $conn->query("SELECT * FROM payment_schedules WHERE student_id=$student_id LIMIT 1");
     $schedule = $res ? $res->fetch_assoc() : null;
@@ -1471,26 +1678,47 @@ function getPaymentSchedule($conn) {
         $sumPeriods = (float)$schedule['prelim_paid'] + (float)$schedule['midterm_paid'] + (float)$schedule['finals_paid'];
         $schedule['downpayment_paid'] = max(0, min($totalPaidAll, (float)$schedule['total_assessment']) - $sumPeriods);
     } else {
-        // Installment: each payment is tagged by exam_period
-        // Just read the exact amount paid per period from installment_payments
-        foreach (['Prelim','Midterm','Finals'] as $period) {
-            $p    = strtolower($period);
-            $paid = $paidByPeriod[$period] ?? 0;
-            $due  = (float)$schedule[$p.'_due'];
-            $status = $paid <= 0 ? ($schedule[$p.'_status'] === 'locked' ? 'locked' : 'unpaid')
-                                 : ($paid >= $due ? 'paid' : 'partial');
-            $conn->query("UPDATE payment_schedules SET {$p}_paid=$paid,{$p}_status='$status' WHERE student_id=$student_id");
-            $schedule[$p.'_paid']   = $paid;
+        // Installment: apply same carry-over redistribution for display.
+        // Any DP paid beyond the scheduled DP reduces Prelim due (and chains forward).
+        // Any DP shortfall increases Prelim due.
+        // The $pd/$md/$fd already reflect this since they are computed from actual dpPaid above.
+        // Now compute effective credited amounts per term using carry-over:
+        $raw_p = $paidByPeriod['Prelim']  ?? 0;
+        $raw_m = $paidByPeriod['Midterm'] ?? 0;
+        $raw_f = $paidByPeriod['Finals']  ?? 0;
+
+        // Re-fetch updated dues (just upserted above)
+        $schRow = $conn->query("SELECT prelim_due,midterm_due,finals_due,prelim_status,midterm_status,finals_status FROM payment_schedules WHERE student_id=$student_id LIMIT 1")->fetch_assoc();
+        $due_p  = (float)($schRow['prelim_due']   ?? $pd);
+        $due_m  = (float)($schRow['midterm_due']  ?? $md);
+        $due_f  = (float)($schRow['finals_due']   ?? $fd);
+
+        $carry = 0.0;
+        foreach (['Prelim'=>[$raw_p,$due_p], 'Midterm'=>[$raw_m,$due_m], 'Finals'=>[$raw_f,$due_f]] as $period => [$raw,$due]) {
+            $p = strtolower($period);
+            if (($schRow[$p.'_status'] ?? '') === 'locked') { $carry = 0.0; continue; }
+            $effective = min($raw + $carry, $due);
+            $carry     = max(0.0, $raw + $carry - $due);
+            $status    = $effective <= 0 ? 'unpaid' : ($effective >= $due ? 'paid' : 'partial');
+            $effective = round($effective, 2);
+            $conn->query("UPDATE payment_schedules SET {$p}_paid=$effective,{$p}_status='$status' WHERE student_id=$student_id");
+            $schedule[$p.'_paid']   = $effective;
             $schedule[$p.'_status'] = $status;
         }
-        // Downpayment = sum of exam_period='Downpayment' rows
-        $schedule['downpayment_paid'] = $paidByPeriod['Downpayment'] ?? 0;
+        $schedule['downpayment_paid'] = $dpPaid;
     }
 
     $noticeRes = $conn->query("SELECT exam_period, amount_due, due_date, message, sent_at, is_read
         FROM payment_notices WHERE student_id=$student_id");
     $notices = [];
     while ($row = $noticeRes->fetch_assoc()) $notices[$row['exam_period']] = $row;
+
+    // Cast all numeric fields — fetch_assoc returns DECIMAL as strings.
+    // Without this, JS arithmetic becomes string concatenation (e.g. 5000+"0.00" = "50000.00").
+    foreach (['total_assessment','prelim_due','midterm_due','finals_due',
+              'prelim_paid','midterm_paid','finals_paid','downpayment_paid'] as $f) {
+        if (isset($schedule[$f])) $schedule[$f] = (float)$schedule[$f];
+    }
 
     echo json_encode(['success'=>true,'schedule'=>$schedule,'notices'=>$notices]);
 }
@@ -2018,6 +2246,7 @@ function getStudentInstallment($conn) {
             'registrationFee'  => (float)$tf['registration_fee'],
             'laboratoryFee'    => (float)$tf['laboratory_fee'],
             'energyFee'        => (float)$tf['energy_fee'],
+            'extraFees'        => _buildExtraFeesList($conn, 'College', (int)$tf['units']),
             'subtotal'         => (float)$tf['subtotal'],
             'discount'         => (float)$tf['discount'],
             'installmentFee'   => (float)$tf['installment_fee'],
@@ -2275,12 +2504,29 @@ function getSHSFee($conn) {
     $hasInstallment = (bool)(int)($_GET['has_installment'] ?? 0);
     $sid            = (int)($_GET['student_id'] ?? 0);
 
-    $inst_fee = $hasInstallment ? 750.00 : 0.00;
+    $fc_shs   = loadFeeConfig($conn, 'SHS');
+    $inst_fee = $hasInstallment ? (float)($fc_shs['installment_fee']['value'] ?? 750) : 0.00;
 
-    // SHS Transferee: flat rate P20,000
+    // SHS Transferee: flat rate (configurable)
     if ($studentType === 'Transferee') {
-        $flat_rate = 20000.00;
-        $total     = max(0, $flat_rate - $discount + $inst_fee);
+        $flat_rate = (float)($fc_shs['transferee_flat_rate']['value'] ?? 20000);
+        // Add any extra SHS fees and build line items
+        $std_shs       = ['transferee_flat_rate','installment_fee'];
+        $extra_shs_list = [];
+        foreach ($fc_shs as $fk => $frow) {
+            if (!in_array($fk, $std_shs)) {
+                $line_amt        = (float)$frow['value'];
+                $flat_rate      += $line_amt;
+                $extra_shs_list[] = [
+                    'fee_key'    => $fk,
+                    'fee_label'  => $frow['fee_label'],
+                    'is_per_unit'=> 0,
+                    'rate'       => (float)$frow['value'],
+                    'amount'     => $line_amt,
+                ];
+            }
+        }
+        $total = max(0, $flat_rate - $discount + $inst_fee);
         if ($sid > 0) {
             $conn->query("INSERT INTO tuition_fees
                 (student_id,units,tuition_fee,miscellaneous_fee,registration_fee,
@@ -2294,7 +2540,9 @@ function getSHSFee($conn) {
         }
         echo json_encode(['success'=>true,'isFree'=>false,'fees'=>[
             'tuitionFee'=>$flat_rate,'miscellaneousFee'=>0,'registrationFee'=>0,
-            'laboratoryFee'=>0,'energyFee'=>0,'subtotal'=>$flat_rate,
+            'laboratoryFee'=>0,'energyFee'=>0,
+            'extraFees'=>$extra_shs_list,
+            'subtotal'=>$flat_rate,
             'discount'=>$discount,'installmentFee'=>$inst_fee,
             'totalAssessment'=>$total,'shsFlatRate'=>true]]);
         return;
@@ -2304,7 +2552,7 @@ function getSHSFee($conn) {
     if ($sid > 0) { $conn->query("DELETE FROM tuition_fees WHERE student_id=$sid"); }
     echo json_encode(['success'=>true,'isFree'=>true,'fees'=>[
         'tuitionFee'=>0,'miscellaneousFee'=>0,'registrationFee'=>0,
-        'laboratoryFee'=>0,'energyFee'=>0,'subtotal'=>0,
+        'laboratoryFee'=>0,'energyFee'=>0,'extraFees'=>[],'subtotal'=>0,
         'discount'=>0,'installmentFee'=>0,'totalAssessment'=>0,'shsFlatRate'=>false]]);
 }
 
@@ -2318,19 +2566,68 @@ function getTVETFee($conn) {
     $studentType = trim($_GET['student_type'] ?? 'New');
     $discount    = (float)($_GET['discount']  ?? 0);
     $hasInst     = (bool)(int)($_GET['has_installment'] ?? 0);
+    $sid         = (int)($_GET['student_id'] ?? 0);
 
-    // TESDA NC programs are typically scholarship-covered (free).
-    // Diploma / 2-year programs have regular fees.
-    $isFree     = false;
-    $pnUpper    = strtoupper($programName);
-    if (str_contains($pnUpper, 'NCII') || str_contains($pnUpper, 'NCIII') || str_contains($pnUpper, 'NC II') || str_contains($pnUpper, 'NC III')) {
+    $fc_tvet  = loadFeeConfig($conn, 'TVET');
+    $inst_fee = $hasInst ? (float)($fc_tvet['installment_fee']['value'] ?? 500) : 0.00;
+
+    // ── TVET Transferee: flat rate ₱20,000 (same as SHS transferee) ──
+    if ($studentType === 'Transferee') {
+        // Reuse the SHS transferee_flat_rate from fee_config (or TVET if set separately)
+        $fc_shs    = loadFeeConfig($conn, 'SHS');
+        $flat_rate = (float)($fc_tvet['transferee_flat_rate']['value']
+                     ?? $fc_shs['transferee_flat_rate']['value']
+                     ?? 20000);
+        $total = max(0, $flat_rate - $discount + $inst_fee);
+        if ($sid > 0) {
+            $conn->query("INSERT INTO tuition_fees
+                (student_id,units,tuition_fee,miscellaneous_fee,registration_fee,
+                 laboratory_fee,energy_fee,subtotal,discount,installment_fee,total_assessment)
+                VALUES ($sid,0,$flat_rate,0,0,0,0,$flat_rate,$discount,$inst_fee,$total)
+                ON DUPLICATE KEY UPDATE
+                    units=0,tuition_fee=$flat_rate,miscellaneous_fee=0,
+                    registration_fee=0,laboratory_fee=0,energy_fee=0,
+                    subtotal=$flat_rate,discount=$discount,
+                    installment_fee=$inst_fee,total_assessment=$total,updated_at=NOW()");
+        }
+        echo json_encode(['success' => true, 'isFree' => false, 'fees' => [
+            'tuitionFee'      => $flat_rate, 'miscellaneousFee' => 0, 'registrationFee' => 0,
+            'laboratoryFee'   => 0, 'energyFee' => 0, 'extraFees' => [],
+            'subtotal'        => $flat_rate,
+            'discount'        => $discount, 'installmentFee' => $inst_fee,
+            'totalAssessment' => $total, 'tvetFlatRate' => true,
+        ]]);
+        return;
+    }
+
+    // ── TVET New / Old: check if NC (free) or Diploma (paid) ──
+    $isFree  = false;
+    $pnUpper = strtoupper($programName);
+    if (str_contains($pnUpper, 'NCII') || str_contains($pnUpper, 'NCIII') ||
+        str_contains($pnUpper, 'NC II') || str_contains($pnUpper, 'NC III')) {
         $isFree = true;
     }
 
-    $misc_fee = 3500.00;
-    $reg_fee  = 500.00;
-    $subtotal = $misc_fee + $reg_fee;
-    $inst_fee = $hasInst ? 500.00 : 0.00;
+    $misc_fee = (float)($fc_tvet['misc_fee']['value'] ?? 3500);
+    $reg_fee  = (float)($fc_tvet['reg_fee']['value']  ?? 500);
+    // Any extra TVET fees — build list
+    $std_tvet        = ['misc_fee', 'reg_fee', 'installment_fee', 'transferee_flat_rate'];
+    $extra_tvet      = 0.00;
+    $extra_tvet_list = [];
+    foreach ($fc_tvet as $fk => $frow) {
+        if (!in_array($fk, $std_tvet)) {
+            $line_amt         = (float)$frow['value'];
+            $extra_tvet      += $line_amt;
+            $extra_tvet_list[] = [
+                'fee_key'    => $fk,
+                'fee_label'  => $frow['fee_label'],
+                'is_per_unit'=> 0,
+                'rate'       => (float)$frow['value'],
+                'amount'     => $line_amt,
+            ];
+        }
+    }
+    $subtotal = $misc_fee + $reg_fee + $extra_tvet;
     $total    = $isFree ? 0.00 : max(0, $subtotal - $discount + $inst_fee);
 
     echo json_encode([
@@ -2342,6 +2639,7 @@ function getTVETFee($conn) {
             'registrationFee'  => $isFree ? 0 : $reg_fee,
             'laboratoryFee'    => 0,
             'energyFee'        => 0,
+            'extraFees'        => $isFree ? [] : $extra_tvet_list,
             'subtotal'         => $isFree ? 0 : $subtotal,
             'discount'         => $discount,
             'installmentFee'   => $isFree ? 0 : $inst_fee,
@@ -2349,6 +2647,77 @@ function getTVETFee($conn) {
         ],
     ]);
 }
+// ================================================================
+// FEE CONFIG API — GET / SAVE / ADD / DELETE
+// ================================================================
+
+/** GET ?action=get_fee_config&category=College|SHS|TVET */
+function getFeeConfig(mysqli $conn): void {
+    $categories = ['College', 'SHS', 'TVET'];
+    $out = [];
+    foreach ($categories as $cat) {
+        $rows = array_values(loadFeeConfig($conn, $cat));
+        // Cast numeric fields so JSON encodes them as numbers, not strings
+        foreach ($rows as &$row) {
+            $row['value']       = (float)$row['value'];
+            $row['is_per_unit'] = (int)$row['is_per_unit'];
+            $row['is_active']   = (int)$row['is_active'];
+            $row['sort_order']  = (int)$row['sort_order'];
+        }
+        $out[$cat] = $rows;
+    }
+    echo json_encode(['success' => true, 'config' => $out]);
+}
+
+/** POST ?action=save_fee_config  body: {updates:[{id,value,fee_label,description,is_per_unit}]} */
+function saveFeeConfig(mysqli $conn, array $data): void {
+    $updates = $data['updates'] ?? [];
+    if (empty($updates)) { echo json_encode(['success' => false, 'message' => 'No updates provided']); return; }
+    $saved = 0;
+    foreach ($updates as $u) {
+        $id        = (int)($u['id']          ?? 0);
+        $val       = (float)($u['value']      ?? 0);
+        $lbl       = $conn->real_escape_string(trim($u['fee_label']    ?? ''));
+        $desc      = $conn->real_escape_string(trim($u['description']  ?? ''));
+        $isPerUnit = (int)(bool)($u['is_per_unit'] ?? 0);
+        if ($id <= 0) continue;
+        $conn->query("UPDATE fee_config SET value=$val, fee_label='$lbl', description='$desc', is_per_unit=$isPerUnit WHERE id=$id");
+        $saved++;
+    }
+    echo json_encode(['success' => true, 'saved' => $saved, 'message' => "$saved fee(s) updated. New rates apply to all future enrollments."]);
+}
+
+/** POST ?action=add_fee_config  body: {category, fee_key, fee_label, value, is_per_unit, applies_to, description} */
+function addFeeConfig(mysqli $conn, array $data): void {
+    $cat      = $conn->real_escape_string(trim($data['category']    ?? 'College'));
+    $rawKey   = strtolower(trim($data['fee_key']    ?? ''));
+    $key      = $conn->real_escape_string(preg_replace('/[^a-z0-9_]/', '_', $rawKey));
+    $label    = $conn->real_escape_string(trim($data['fee_label']   ?? ''));
+    $val      = (float)($data['value']       ?? 0);
+    $perUnit  = (int)(bool)($data['is_per_unit']  ?? 0);
+    $appTo    = $conn->real_escape_string(trim($data['applies_to']  ?? 'All'));
+    $desc     = $conn->real_escape_string(trim($data['description'] ?? ''));
+
+    if (!$key || !$label) { echo json_encode(['success' => false, 'message' => 'fee_key and fee_label are required']); return; }
+
+    $maxSort = (int)($conn->query("SELECT COALESCE(MAX(sort_order),0)+1 AS s FROM fee_config WHERE category='$cat'")->fetch_assoc()['s'] ?? 1);
+    $conn->query("INSERT INTO fee_config (category,fee_key,fee_label,value,is_per_unit,applies_to,description,sort_order)
+                  VALUES ('$cat','$key','$label',$val,$perUnit,'$appTo','$desc',$maxSort)");
+    if ($conn->insert_id) {
+        echo json_encode(['success' => true, 'id' => $conn->insert_id, 'message' => 'Fee added successfully.']);
+    } else {
+        echo json_encode(['success' => false, 'message' => 'Failed to add fee (key may already exist): ' . $conn->error]);
+    }
+}
+
+/** POST ?action=delete_fee_config  body: {id} */
+function deleteFeeConfig(mysqli $conn, array $data): void {
+    $id = (int)($data['id'] ?? 0);
+    if (!$id) { echo json_encode(['success' => false, 'message' => 'id required']); return; }
+    $conn->query("UPDATE fee_config SET is_active=0 WHERE id=$id");
+    echo json_encode(['success' => true, 'message' => 'Fee removed.']);
+}
+
 function correctVerifiedPayment($conn, $data) {
     $log_id     = (int)($data['log_id']     ?? 0);
     $student_id = (int)($data['student_id'] ?? 0);

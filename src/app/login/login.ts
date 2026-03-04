@@ -70,7 +70,7 @@ export class LoginComponent implements OnInit, OnDestroy {
     guardianName: '', guardianAddress: '', guardianContact: '',
     yearLevel: '1st Year',
     semesterEnroll: '' as string,
-    ayYear: '',
+    ayYear: (() => { const now = new Date(); const m = now.getMonth()+1; const s = m>=6?now.getFullYear():now.getFullYear()-1; return `${s}-${s+1}`; })(),
   };
 
   strandOptions = [
@@ -100,7 +100,20 @@ export class LoginComponent implements OnInit, OnDestroy {
   get yearLevelOptions(): string[] {
     if (this.studentTypeCategory === 'SHS') return ['Grade 11', 'Grade 12'];
     if (this.studentTypeCategory === 'TVET') return ['1st Year', '2nd Year'];
-    return ['1st Year', '2nd Year', '3rd Year', '4th Year', '5th Year'];
+    return ['1st Year', '2nd Year', '3rd Year', '4th Year'];
+  }
+
+  get ayYearOptions(): string[] {
+    const now = new Date();
+    const month = now.getMonth() + 1; // 1-12
+    // Current AY: if June-Dec → current year is start; if Jan-May → previous year is start
+    const startYear = month >= 6 ? now.getFullYear() : now.getFullYear() - 1;
+    // Offer current AY + 1 year back and 1 year forward
+    return [
+      `${startYear}-${startYear + 1}`,
+      `${startYear + 1}-${startYear + 2}`,
+      `${startYear - 1}-${startYear}`,
+    ];
   }
 
   get isSHS(): boolean { return this.studentTypeCategory === 'SHS'; }
@@ -130,6 +143,7 @@ export class LoginComponent implements OnInit, OnDestroy {
     units: number;
     tuitionFee: number; miscellaneousFee: number; registrationFee: number;
     laboratoryFee: number; energyFee: number;
+    extraFees: { fee_key: string; fee_label: string; is_per_unit: number; rate: number; amount: number }[];
     subtotal: number; discount: number; installmentFee: number; totalAssessment: number;
   } | null = null;
   isFeePreviewLoading = false;
@@ -151,7 +165,9 @@ export class LoginComponent implements OnInit, OnDestroy {
     creditedSubjects: { courseId: number; code: string; name: string; credits: number }[];
     registrarNotes: string; evaluatedAt: string;
     fee: { units:number; tuitionFee:number; miscellaneousFee:number; registrationFee:number;
-           laboratoryFee:number; energyFee:number; subtotal:number; discount:number;
+           laboratoryFee:number; energyFee:number;
+           extraFees?: { fee_key: string; fee_label: string; is_per_unit: number; rate: number; amount: number }[];
+           subtotal:number; discount:number;
            installmentFee:number; totalAssessment:number } | null;
   } | null = null;
   private torPollTimer: any = null;
@@ -160,6 +176,12 @@ export class LoginComponent implements OnInit, OnDestroy {
   // 'full' = pay everything now
   // 'installment' = DP + Prelim + Midterm + Finals (each = total / 4)
   paymentPlan: 'full' | 'installment' = 'full';
+
+  // ── Enrollment Period ─────────────────────────────────────────
+  enrollmentPeriod: { is_open: boolean; start: string|null; end: string|null; label: string } | null = null;
+  enrollmentIsOpen = false;
+  enrollmentClosedMsg = '';
+  isCheckingPeriod = false;
 
   /** Active total assessment — uses TOR fee for transferees, feePreview for regular students */
   get activeTotalAssessment(): number {
@@ -216,19 +238,77 @@ export class LoginComponent implements OnInit, OnDestroy {
 
   constructor(private http: HttpClient, private router: Router, private cdr: ChangeDetectorRef) {}
 
+  // ── Wizard state persistence helpers ─────────────────────────
+  private saveWizardState(): void {
+    const state = {
+      view: this.view, enrollStep: this.enrollStep,
+      studentTypeCategory: this.studentTypeCategory,
+      selectedProgram: this.selectedProgram, selectedProgramName: this.selectedProgramName,
+      selectedDepartment: this.selectedDepartment, selectedDept: this.selectedDept,
+      selectedGradeLevel: this.selectedGradeLevel, selectedTvetType: this.selectedTvetType,
+      shsSelectedTrack: this.shsSelectedTrack, tvetSelectedType: this.tvetSelectedType,
+      regForm: this.regForm, previousSchools: this.previousSchools,
+      isScholar: this.isScholar, scholarType: this.scholarType,
+      scholarGrantor: this.scholarGrantor, scholarshipAmount: this.scholarshipAmount,
+      paymentMethod: this.paymentMethod, paymentPlan: this.paymentPlan,
+      torReviewStudentId: this.torReviewStudentId,
+      torReviewPhase: this.torReviewPhase, torEvalResult: this.torEvalResult,
+    };
+    sessionStorage.setItem('enrollWizardState', JSON.stringify(state));
+  }
+
+  private clearWizardState(): void {
+    sessionStorage.removeItem('enrollWizardState');
+    sessionStorage.removeItem('torReviewStudentId');
+  }
+
   ngOnInit(): void {
-    // Resume TOR polling if student refreshed mid-evaluation
+    // Restore wizard state after reload
+    const raw = sessionStorage.getItem('enrollWizardState');
+    if (raw) {
+      try {
+        const s = JSON.parse(raw);
+        this.view                = s.view                ?? 'enroll';
+        this.enrollStep          = s.enrollStep          ?? 'program';
+        this.studentTypeCategory = s.studentTypeCategory ?? '';
+        this.selectedProgram     = s.selectedProgram     ?? '';
+        this.selectedProgramName = s.selectedProgramName ?? '';
+        this.selectedDepartment  = s.selectedDepartment  ?? '';
+        this.selectedDept        = s.selectedDept        ?? '';
+        this.selectedGradeLevel  = s.selectedGradeLevel  ?? '';
+        this.selectedTvetType    = s.selectedTvetType    ?? '';
+        this.shsSelectedTrack    = s.shsSelectedTrack    ?? '';
+        this.tvetSelectedType    = s.tvetSelectedType    ?? '';
+        if (s.regForm)                this.regForm          = { ...this.regForm, ...s.regForm };
+        if (s.previousSchools?.length) this.previousSchools = s.previousSchools;
+        this.isScholar           = s.isScholar           ?? false;
+        this.scholarType         = s.scholarType         ?? '';
+        this.scholarGrantor      = s.scholarGrantor      ?? '';
+        this.scholarshipAmount   = s.scholarshipAmount   ?? 0;
+        this.paymentMethod       = s.paymentMethod       ?? 'GCash';
+        this.paymentPlan         = s.paymentPlan         ?? 'full';
+        this.torReviewStudentId  = s.torReviewStudentId  ?? 0;
+        this.torReviewPhase      = s.torReviewPhase      ?? 'idle';
+        this.torEvalResult       = s.torEvalResult       ?? null;
+        // Resume TOR poll if mid-evaluation
+        if (this.enrollStep === 'tor-review' && this.torReviewStudentId > 0 && this.torReviewPhase === 'waiting') {
+          this.startTorPoll();
+        }
+        if (this.studentTypeCategory) this.loadPrograms();
+        this.cdr.detectChanges();
+        return;
+      } catch (e) {
+        this.clearWizardState();
+      }
+    }
+    // Legacy fallback
     const saved = sessionStorage.getItem('torReviewStudentId');
     if (saved) {
       const sid = parseInt(saved, 10);
       if (sid > 0) {
         this.torReviewStudentId = sid;
-        this.view        = 'enroll';
-        this.enrollStep  = 'tor-review';
-        this.torReviewPhase = 'waiting';
-        console.log('[TOR RESUME] Resuming poll for student_id', sid);
-        this.startTorPoll();
-        this.cdr.detectChanges();
+        this.view = 'enroll'; this.enrollStep = 'tor-review'; this.torReviewPhase = 'waiting';
+        this.startTorPoll(); this.cdr.detectChanges();
       }
     }
   }
@@ -253,7 +333,7 @@ export class LoginComponent implements OnInit, OnDestroy {
             this.programsByType[level].push({
               id:   p.code || String(p.id),
               name: p.name,
-              dept: p.department || level,
+              dept: (p.department || '').trim(),  // empty string if no dept — never fall back to level name
             });
           });
         }
@@ -286,12 +366,30 @@ export class LoginComponent implements OnInit, OnDestroy {
 
   private redirectByRole(role: string): void {
     const r: { [k: string]: string } = { student: '/student', admin: '/admin', accounting: '/accounting', registrar: '/registrar', faculty: '/admin' };
+    this.clearWizardState();
     this.router.navigate([r[role] || '/login']);
   }
 
   // ══ ENROLLMENT WIZARD ════════════════════════════════════════
   openEnrollment(): void {
-    this.view = 'enroll'; this.enrollStep = 'program'; this.enrollError = '';
+    // Check if enrollment is open before showing the wizard
+    this.isCheckingPeriod = true;
+    this.enrollmentClosedMsg = '';
+    this.http.get<any>(`${this.apiUrl}?action=get_enrollment_period`).subscribe({
+      next: res => {
+        this.isCheckingPeriod = false;
+        this.enrollmentIsOpen = res.is_open ?? false;
+        this.enrollmentPeriod = res.period ?? null;
+        if (!this.enrollmentIsOpen) {
+          const p = res.period ?? {};
+          let msg = 'Enrollment is currently closed.';
+          if (p.label)  msg += ` (${p.label})`;
+          if (p.start)  msg += ` Opens: ${new Date(p.start).toLocaleDateString('en-PH', {month:'short',day:'numeric',year:'numeric',hour:'2-digit',minute:'2-digit'})}`;
+          this.enrollmentClosedMsg = msg;
+          // Still show enroll view but will display closed message at top
+        }
+        this.view = 'enroll'; this.enrollStep = 'program'; this.enrollError = '';
+        this.saveWizardState();
     this.studentTypeCategory = ''; this.selectedProgram = ''; this.selectedProgramName = ''; this.selectedDepartment = ''; this.selectedDept = ''; this.selectedGradeLevel = ''; this.selectedTvetType = '';
     this.regForm = { lastName:'',firstName:'',middleName:'',suffix:'',studentType:'New',lrnNo:'',dateOfBirth:'',lastSchoolAttended:'',psaBirthCertNo:'',sex:'',religion:'',age:'',placeOfBirth:'',citizenship:'',homeAddress:'',contactNumber:'',isIndigenous:'No',motherTongue:'',hasSpecialNeeds:'No',specialNeedsDetails:'',hasAssistiveTech:'No',assistiveTechDetails:'',strand:'',learningDelivery:'',guardianName:'',guardianAddress:'',guardianContact:'',yearLevel:'1st Year',semesterEnroll:'',ayYear:'' };
     this.torFile=null; this.goodMoralFile=null; this.psaFile=null; this.form138File=null; this.picFile=null;
@@ -307,6 +405,16 @@ export class LoginComponent implements OnInit, OnDestroy {
     if(this.torPollTimer){clearInterval(this.torPollTimer);this.torPollTimer=null;}
     this.loadPrograms();
     this.cdr.detectChanges();
+      },
+      error: () => {
+        this.isCheckingPeriod = false;
+        // On error, still open wizard — server will block registration if closed
+        this.enrollmentIsOpen = true;
+        this.view = 'enroll'; this.enrollStep = 'program';
+        this.loadPrograms();
+        this.cdr.detectChanges();
+      }
+    });
   }
 
   backToLogin(): void { this.view = 'login'; this.enrollError = ''; this.cdr.detectChanges(); }
@@ -345,13 +453,40 @@ export class LoginComponent implements OnInit, OnDestroy {
     this.cdr.detectChanges();
   }
 
-  // Returns unique departments for the current level — fully dynamic from DB
+  // Returns UNIQUE departments for the current level.
+  // Get unique dept/strand/program-type labels for a level.
+  // Primary: unique non-empty dept values from DB programs (deduplicated).
+  // Fallback: localStorage admin entries (only for newly-added depts with no programs yet).
   getDeptsForLevel(level: string): string[] {
-    return [...new Set(
+    // Step 1 — unique real dept values from DB programs
+    const dbDepts = [...new Set(
       (this.programsByType[level] || [])
-        .map(p => p.dept)
-        .filter(d => d && d.trim() !== '')
+        .map(p => p.dept.trim())
+        .filter(d => d !== '' && d !== level)  // skip empty or accidental level-name fallbacks
     )];
+
+    // Step 2 — localStorage admin dept manager (only entries truly missing from DB)
+    let storageDepts: string[] = [];
+    try {
+      const raw = localStorage.getItem('sia_dept_entries');
+      if (raw) {
+        const entries: { label: string; dbName?: string; type: string }[] = JSON.parse(raw);
+        storageDepts = [...new Set(
+          entries
+            .filter(e => e.type === level)
+            .map(e => (e.dbName ?? e.label).trim())
+            .filter(d => d !== '' && d !== level)
+        )];
+      }
+    } catch {}
+
+    // Merge: DB is truth; localStorage only adds entries not already in DB
+    const seen = new Set<string>(dbDepts);
+    const merged = [...dbDepts];
+    for (const s of storageDepts) {
+      if (!seen.has(s)) { seen.add(s); merged.push(s); }
+    }
+    return merged.sort();
   }
 
   get collegeDepts(): string[] { return this.getDeptsForLevel('College'); }
@@ -379,6 +514,7 @@ export class LoginComponent implements OnInit, OnDestroy {
     // Auto-set strand for SHS from the selected program name
     if (this.isSHS) { this.regForm.strand = this.selectedProgramName; }
     this.enrollError = ''; this.enrollStep = 'info'; this.cdr.detectChanges();
+    this.saveWizardState();
   }
 
   // Step 2 — per-field validation with console debug
@@ -459,6 +595,7 @@ export class LoginComponent implements OnInit, OnDestroy {
 
     console.log('[STEP 2] All validations passed → proceeding to documents');
     this.enrollError = ''; this.enrollStep = 'documents';
+    this.saveWizardState();
     if (this.isTransfereeEnrolling) {
       this.loadProgramCourses();
     } else if (this.isSHS) {
@@ -569,8 +706,8 @@ export class LoginComponent implements OnInit, OnDestroy {
   }
 
   // ── Program course grouping helpers ──────────────────────
-  private yearOrder = ['1st Year','2nd Year','3rd Year','4th Year','5th Year'];
-  private semOrder  = ['1st Semester','2nd Semester','Summer','Midyear'];
+  private yearOrder = ['1st Year','2nd Year','3rd Year','4th Year'];
+  private semOrder  = ['1st Semester','2nd Semester','Midyear'];
 
   getYearLevels(): string[] {
     const years = [...new Set(this.programCourses.map(c => c.yearLevel || '1st Year'))];
@@ -606,8 +743,11 @@ export class LoginComponent implements OnInit, OnDestroy {
       if (!this.psaFile)       { this.enrollError='PSA Birth Certificate is required.';           this.cdr.detectChanges(); return; }
       if (!this.picFile)       { this.enrollError='2×2 picture is required.';                    this.cdr.detectChanges(); return; }
     } else {
-      if (!this.torFile)  { this.enrollError='TOR / Form 137 is required.';              this.cdr.detectChanges(); return; }
-      if (!this.psaFile)  { this.enrollError='PSA Birth Certificate is required.';        this.cdr.detectChanges(); return; }
+      // College / TVET: only Transferee must upload TOR
+      if (this.isTransfereeEnrolling && !this.torFile) {
+        this.enrollError = 'TOR / Form 137 is required for Transferee evaluation.';
+        this.cdr.detectChanges(); return;
+      }
     }
     if (this.isScholar && !this.scholarType) { this.enrollError='Please select a scholarship type.'; this.cdr.detectChanges(); return; }
     this.enrollError = '';
@@ -619,11 +759,13 @@ export class LoginComponent implements OnInit, OnDestroy {
     if (this.isTransfereeEnrolling) {
       // Transferees: go to TOR review sub-step — create account + send TOR + wait for evaluation
       this.enrollStep = 'tor-review';
+      this.saveWizardState();
       this.torReviewPhase = 'idle';
       this.torReviewError = '';
       this.torEvalResult = null;
     } else {
       this.enrollStep = 'account';
+      this.saveWizardState();
     }
     this.cdr.detectChanges();
   }
@@ -796,6 +938,7 @@ export class LoginComponent implements OnInit, OnDestroy {
           sessionStorage.setItem('token', lr.token);
             localStorage.setItem('token', lr.token);
         }
+        this.clearWizardState();
         this.router.navigate(['/student/enrollment']);
       },
       error: () => {
@@ -884,6 +1027,7 @@ export class LoginComponent implements OnInit, OnDestroy {
                       sessionStorage.setItem('token', lr.token);
             localStorage.setItem('token', lr.token);
                     }
+                    this.clearWizardState();
                     this.router.navigate(['/student/enrollment']);
                   },
                   error: () => { this.view = 'login'; this.email = a.email; this.successMessage = 'Account created! Please log in.'; this.cdr.detectChanges(); }
@@ -989,6 +1133,7 @@ export class LoginComponent implements OnInit, OnDestroy {
                   sessionStorage.setItem('token', lr.token);
             localStorage.setItem('token', lr.token);
                 }
+                this.clearWizardState();
                 this.router.navigate(['/student/enrollment']);
               },
               error: () => { this.view = 'login'; this.email = a.email; this.successMessage = 'Account created! Please log in.'; this.cdr.detectChanges(); }
@@ -1041,6 +1186,7 @@ export class LoginComponent implements OnInit, OnDestroy {
     f.lastSchoolAttended = filledSchools.map(s => `${s.level} - ${s.schoolName} (${s.schoolYear})`).join('; ');
     this.enrollError = '';
     this.enrollStep = 'documents';
+    this.saveWizardState();
     this.loadSHSFee();
     this.cdr.detectChanges();
   }
@@ -1101,6 +1247,7 @@ export class LoginComponent implements OnInit, OnDestroy {
     f.lastSchoolAttended = filledSchools.map(s => `${s.level} - ${s.schoolName} (${s.schoolYear})`).join('; ');
     this.enrollError = '';
     this.enrollStep = 'documents';
+    this.saveWizardState();
     this.loadTVETFee();
     this.cdr.detectChanges();
   }
@@ -1133,6 +1280,7 @@ export class LoginComponent implements OnInit, OnDestroy {
     }
     this.enrollError = '';
     this.enrollStep = 'account';
+    this.saveWizardState();
     this.cdr.detectChanges();
   }
 
@@ -1140,6 +1288,7 @@ export class LoginComponent implements OnInit, OnDestroy {
     if (this.isScholar && !this.scholarType) { this.enrollError = 'Please select a scholarship type.'; this.cdr.detectChanges(); return; }
     this.enrollError = '';
     this.enrollStep = 'account';
+    this.saveWizardState();
     this.cdr.detectChanges();
   }
 
@@ -1245,6 +1394,7 @@ export class LoginComponent implements OnInit, OnDestroy {
                     sessionStorage.setItem('token', lr.token);
             localStorage.setItem('token', lr.token);
                   }
+                  this.clearWizardState();
                   this.router.navigate(['/student/enrollment']);
                 },
                 error: (err) => {

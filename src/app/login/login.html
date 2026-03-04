@@ -25,9 +25,17 @@
       </form>
       <div class="enroll-section">
         <p class="enroll-divider">New to our school?</p>
-        <button mat-stroked-button class="enroll-button" (click)="openEnrollment()" [disabled]="loading">
-          🎓 New Student Enrollment
+        <button mat-stroked-button class="enroll-button"
+          (click)="openEnrollment()"
+          [disabled]="loading || isCheckingPeriod || !!enrollmentClosedMsg"
+          [class.enroll-closed]="!!enrollmentClosedMsg && !isCheckingPeriod">
+          <span *ngIf="isCheckingPeriod">⏳ Checking enrollment...</span>
+          <span *ngIf="!isCheckingPeriod && enrollmentClosedMsg">🔒 Enrollment Closed</span>
+          <span *ngIf="!isCheckingPeriod && !enrollmentClosedMsg">🎓 New Student Enrollment</span>
         </button>
+        <p class="enroll-closed-hint" *ngIf="enrollmentClosedMsg && !isCheckingPeriod">
+          {{ enrollmentClosedMsg }}
+        </p>
       </div>
       <!--<div class="demo-credentials">
         <p><strong>Demo Accounts:</strong></p>
@@ -213,7 +221,7 @@
 
       <div class="wiz-actions">
         <span></span>
-        <button class="btn-next" (click)="proceedFromProgram()" [disabled]="!selectedProgram">
+        <button class="btn-next" (click)="proceedFromProgram()" [disabled]="!selectedProgram || !!enrollmentClosedMsg">
           Next: Personal Information →
         </button>
       </div>
@@ -436,12 +444,14 @@
               <option value="">-- Select Semester --</option>
               <option value="1st Semester">1st Semester</option>
               <option value="2nd Semester">2nd Semester</option>
-              <option value="Summer">Summer</option>
             </select>
           </div>
           <div class="form-group">
             <label>Academic Year <span class="req">*</span></label>
-            <input type="text" class="form-control" [(ngModel)]="regForm.ayYear" placeholder="e.g. 2026-2027" maxlength="9">
+            <select class="form-control" [(ngModel)]="regForm.ayYear">
+              <option value="" disabled>-- Select AY --</option>
+              <option *ngFor="let ay of ayYearOptions" [value]="ay">AY {{ ay }}</option>
+            </select>
             <small class="field-hint" *ngIf="regForm.semesterEnroll && regForm.ayYear">
               → {{ regForm.semesterEnroll }}, AY {{ regForm.ayYear }}
             </small>
@@ -506,12 +516,15 @@
           <div class="fee-breakdown-card" *ngIf="shsFeeResult && !isSHSFeeLoading" style="margin-top:1rem;">
             <div class="fee-breakdown-header">Fee Assessment — {{ selectedProgramName }}</div>
             <div class="fee-breakdown-table">
-              <div class="fb-row"><span>SHS Flat Rate</span><span>₱20,000.00</span></div>
+              <div class="fb-row"><span>SHS Flat Rate</span><span>₱{{ shsFeeResult.fees.tuitionFee | number:'1.2-2' }}</span></div>
+              <div class="fb-row" *ngFor="let ef of (shsFeeResult.fees.extraFees || [])">
+                <span>{{ ef.fee_label }}</span><span>₱{{ ef.amount | number:'1.2-2' }}</span>
+              </div>
               <div class="fb-row fb-discount" *ngIf="shsFeeResult.fees.discount > 0">
                 <span>🎓 Scholarship Discount</span><span class="text-green">– ₱{{ shsFeeResult.fees.discount | number:'1.2-2' }}</span>
               </div>
               <div class="fb-row fb-installment" *ngIf="paymentPlan === 'installment'">
-                <span>Installment Fee</span><span>₱750.00</span>
+                <span>Installment Fee</span><span>₱{{ shsFeeResult.fees.installmentFee | number:'1.2-2' }}</span>
               </div>
               <div class="fb-row fb-total">
                 <span><strong>TOTAL ASSESSMENT</strong></span>
@@ -582,12 +595,21 @@
           <div class="fee-breakdown-card" *ngIf="tvetFeeResult && !isTVETFeeLoading" style="margin-top:1rem;">
             <div class="fee-breakdown-header">Fee Assessment — {{ selectedProgramName }}</div>
             <div class="fee-breakdown-table">
-              <div class="fb-row"><span>TVET Flat Rate</span><span>₱20,000.00</span></div>
+              <ng-container *ngIf="tvetFeeResult.fees.tvetFlatRate; else tvetLineItems">
+                <div class="fb-row"><span>TVET Flat Rate</span><span>₱{{ tvetFeeResult.fees.tuitionFee | number:'1.2-2' }}</span></div>
+              </ng-container>
+              <ng-template #tvetLineItems>
+                <div class="fb-row" *ngIf="tvetFeeResult.fees.miscellaneousFee > 0"><span>Miscellaneous Fee</span><span>₱{{ tvetFeeResult.fees.miscellaneousFee | number:'1.2-2' }}</span></div>
+                <div class="fb-row" *ngIf="tvetFeeResult.fees.registrationFee > 0"><span>Registration Fee</span><span>₱{{ tvetFeeResult.fees.registrationFee | number:'1.2-2' }}</span></div>
+              </ng-template>
+              <div class="fb-row" *ngFor="let ef of (tvetFeeResult.fees.extraFees || [])">
+                <span>{{ ef.fee_label }}</span><span>₱{{ ef.amount | number:'1.2-2' }}</span>
+              </div>
               <div class="fb-row fb-discount" *ngIf="tvetFeeResult.fees.discount > 0">
                 <span>🎓 Scholarship Discount</span><span class="text-green">– ₱{{ tvetFeeResult.fees.discount | number:'1.2-2' }}</span>
               </div>
               <div class="fb-row fb-installment" *ngIf="paymentPlan === 'installment'">
-                <span>Installment Fee</span><span>₱750.00</span>
+                <span>Installment Fee</span><span>₱{{ tvetFeeResult.fees.installmentFee | number:'1.2-2' }}</span>
               </div>
               <div class="fb-row fb-total">
                 <span><strong>TOTAL ASSESSMENT</strong></span>
@@ -638,18 +660,21 @@
         <div class="req-banner college-banner">
           <strong>🎓 College Requirements</strong>
           <ul>
-            <li>TOR / Form 137 (Photocopy) <span class="req">*</span></li>
+            <li *ngIf="isTransfereeEnrolling">TOR / Form 137 (Photocopy) <span class="req">*</span></li>
+            <li *ngIf="!isTransfereeEnrolling">TOR / Form 137 (Photocopy)</li>
             <li>Certificate of Good Moral <span class="optional-tag">If Available</span></li>
             <li>Birth Certificate / PSA (Original &amp; Photocopy) <span class="req">*</span></li>
           </ul>
         </div>
         <div class="form-section">
-          <div class="upload-item" [class.upload-item-transferee]="isTransfereeEnrolling">
+
+          <!-- Transferee: TOR upload for evaluation -->
+          <div *ngIf="isTransfereeEnrolling" class="upload-item upload-item-transferee">
             <div class="upload-label-row">
               <span class="upload-title">
                 📄 TOR / Form 137 (Scanned Soft Copy)
                 <span class="req">*</span>
-                <span class="transferee-tag" *ngIf="isTransfereeEnrolling">For Registrar Evaluation</span>
+                <span class="transferee-tag">For Registrar Evaluation</span>
               </span>
             </div>
             <div class="upload-box" [class.has-file]="torFile">
@@ -660,30 +685,23 @@
               <input type="file" id="torUploadCollege" accept=".pdf,image/*" (change)="onFileChange($event,'tor')" hidden>
             </div>
           </div>
-          <div class="upload-item">
-            <div class="upload-label-row">
-              <span class="upload-title">📄 Certificate of Good Moral <span class="optional-tag">If Available</span></span>
-            </div>
-            <div class="upload-box" [class.has-file]="goodMoralFile">
-              <label class="upload-label" for="goodMoralUploadCollege">
-                <span *ngIf="!goodMoralFile">📁 Click to upload (optional)</span>
-                <span *ngIf="goodMoralFile" class="file-name">✓ {{ goodMoralFileName }}</span>
-              </label>
-              <input type="file" id="goodMoralUploadCollege" accept=".pdf,image/*" (change)="onFileChange($event,'goodMoral')" hidden>
-            </div>
-          </div>
-          <div class="upload-item">
-            <div class="upload-label-row">
-              <span class="upload-title">📄 Birth Certificate / PSA <span class="req">*</span></span>
-            </div>
-            <div class="upload-box" [class.has-file]="psaFile">
-              <label class="upload-label" for="psaUploadCollege">
-                <span *ngIf="!psaFile">📁 Click to upload PSA Birth Certificate</span>
-                <span *ngIf="psaFile" class="file-name">✓ {{ psaFileName }}</span>
-              </label>
-              <input type="file" id="psaUploadCollege" accept=".pdf,image/*" (change)="onFileChange($event,'psa')" hidden>
+
+          <!-- Non-Transferee: info notice for all documents -->
+          <div *ngIf="!isTransfereeEnrolling" class="dnb-notice-card">
+            <div class="dnb-notice-icon">📋</div>
+            <div>
+              <div class="dnb-notice-title">Bring your documents to the Registrar's Office</div>
+              <div class="dnb-notice-body">
+                Please submit the following upon enrollment:
+                <ul class="dnb-doc-list">
+                  <li>TOR / Form 137 <span class="doc-tag">Photocopy</span></li>
+                  <li>Certificate of Good Moral Character <span class="doc-tag optional">If Available</span></li>
+                  <li>PSA Birth Certificate <span class="doc-tag">Original &amp; Photocopy</span></li>
+                </ul>
+              </div>
             </div>
           </div>
+
         </div>
       </div>
 
@@ -820,11 +838,16 @@
           </div>
           <div class="fee-breakdown-table">
             <div class="fb-row"><span>No. of Units</span><span>{{ feePreview.units }}</span></div>
-            <div class="fb-row"><span>Tuition Fee ({{ feePreview.units }} units × ₱650)</span><span>₱{{ feePreview.tuitionFee | number:'1.2-2' }}</span></div>
+            <div class="fb-row"><span>Tuition Fee ({{ feePreview.units }} units × ₱{{ feePreview.units > 0 ? (feePreview.tuitionFee / feePreview.units | number:'1.2-2') : '650.00' }})</span><span>₱{{ feePreview.tuitionFee | number:'1.2-2' }}</span></div>
             <div class="fb-row"><span>Miscellaneous Fee</span><span>₱{{ feePreview.miscellaneousFee | number:'1.2-2' }}</span></div>
             <div class="fb-row"><span>Registration Fee</span><span>₱{{ feePreview.registrationFee | number:'1.2-2' }}</span></div>
-            <div class="fb-row"><span>Laboratory Fee (lab subjects × ₱1,900)</span><span>₱{{ feePreview.laboratoryFee | number:'1.2-2' }}</span></div>
-            <div class="fb-row"><span>Energy Fee ({{ feePreview.units }} × ₱21 × 3)</span><span>₱{{ feePreview.energyFee | number:'1.2-2' }}</span></div>
+            <div class="fb-row"><span>Laboratory Fee ({{ feePreview.laboratoryFee > 0 && feePreview.units > 0 ? 'lab rooms × ₱' + (feePreview.laboratoryFee | number:'1.0-0') : 'lab rooms' }})</span><span>₱{{ feePreview.laboratoryFee | number:'1.2-2' }}</span></div>
+            <div class="fb-row"><span>Energy Fee ({{ feePreview.units }} units × ₱{{ feePreview.units > 0 ? (feePreview.energyFee / feePreview.units | number:'1.2-2') : '63.00' }})</span><span>₱{{ feePreview.energyFee | number:'1.2-2' }}</span></div>
+            <!-- Extra / custom fees added by Accounting -->
+            <div class="fb-row" *ngFor="let ef of (feePreview.extraFees || [])">
+              <span>{{ ef.fee_label }}<ng-container *ngIf="ef.is_per_unit"> ({{ feePreview.units }} units × ₱{{ ef.rate | number:'1.2-2' }})</ng-container></span>
+              <span>₱{{ ef.amount | number:'1.2-2' }}</span>
+            </div>
             <div class="fb-row fb-subtotal"><span>Subtotal</span><span>₱{{ feePreview.subtotal | number:'1.2-2' }}</span></div>
             <div class="fb-row fb-discount" *ngIf="feePreview.discount > 0">
               <span>🎓 Scholarship Discount</span><span class="text-green">– ₱{{ feePreview.discount | number:'1.2-2' }}</span>
@@ -1108,11 +1131,15 @@
             <div class="fee-breakdown-header">{{ selectedProgramName }} — {{ torEvalResult.approvedUnits }} units after credit</div>
             <div class="fee-breakdown-table">
               <div class="fb-row"><span>Units (after credit)</span><span>{{ torEvalResult.fee.units }}</span></div>
-              <div class="fb-row"><span>Tuition Fee ({{ torEvalResult.fee.units }} × ₱650)</span><span>₱{{ torEvalResult.fee.tuitionFee | number:'1.2-2' }}</span></div>
+              <div class="fb-row"><span>Tuition Fee ({{ torEvalResult.fee.units }} units × ₱{{ torEvalResult.fee.units > 0 ? (torEvalResult.fee.tuitionFee / torEvalResult.fee.units | number:'1.2-2') : '650.00' }})</span><span>₱{{ torEvalResult.fee.tuitionFee | number:'1.2-2' }}</span></div>
               <div class="fb-row"><span>Miscellaneous Fee</span><span>₱{{ torEvalResult.fee.miscellaneousFee | number:'1.2-2' }}</span></div>
               <div class="fb-row"><span>Registration Fee</span><span>₱{{ torEvalResult.fee.registrationFee | number:'1.2-2' }}</span></div>
               <div class="fb-row"><span>Laboratory Fee</span><span>₱{{ torEvalResult.fee.laboratoryFee | number:'1.2-2' }}</span></div>
-              <div class="fb-row"><span>Energy Fee</span><span>₱{{ torEvalResult.fee.energyFee | number:'1.2-2' }}</span></div>
+              <div class="fb-row"><span>Energy Fee ({{ torEvalResult.fee.units }} units × ₱{{ torEvalResult.fee.units > 0 ? (torEvalResult.fee.energyFee / torEvalResult.fee.units | number:'1.2-2') : '63.00' }})</span><span>₱{{ torEvalResult.fee.energyFee | number:'1.2-2' }}</span></div>
+              <div class="fb-row" *ngFor="let ef of (torEvalResult.fee.extraFees || [])">
+                <span>{{ ef.fee_label }}<ng-container *ngIf="ef.is_per_unit"> ({{ torEvalResult.fee.units }} units × ₱{{ ef.rate | number:'1.2-2' }})</ng-container></span>
+                <span>₱{{ ef.amount | number:'1.2-2' }}</span>
+              </div>
               <div class="fb-row fb-subtotal"><span>Subtotal</span><span>₱{{ torEvalResult.fee.subtotal | number:'1.2-2' }}</span></div>
               <div class="fb-row fb-discount" *ngIf="torEvalResult.fee.discount > 0">
                 <span>🎓 Scholarship Discount</span><span class="text-green">– ₱{{ torEvalResult.fee.discount | number:'1.2-2' }}</span>

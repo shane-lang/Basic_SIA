@@ -19,7 +19,7 @@ if (in_array($allowedOrigin, $trustedOrigins, true)) {
 }
 
 header("Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS");
-header("Access-Control-Allow-Headers: Content-Type, Authorization");
+header("Access-Control-Allow-Headers: Content-Type, Authorization, X-User-Id");
 header("Content-Type: application/json");
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
@@ -37,10 +37,47 @@ if ($conn->connect_error) {
 }
 $conn->set_charset("utf8mb4");
 
+// Fee config helper — reads rates from fee_config table (managed by Accounting)
+if (!function_exists('loadFeeConfig')) {
+function loadFeeConfig(mysqli $conn, string $category): array {
+    $conn->query("CREATE TABLE IF NOT EXISTS `fee_config` (
+        `id` INT NOT NULL AUTO_INCREMENT, `category` ENUM('College','SHS','TVET') NOT NULL DEFAULT 'College',
+        `fee_key` VARCHAR(60) NOT NULL, `fee_label` VARCHAR(120) NOT NULL,
+        `value` DECIMAL(14,4) NOT NULL DEFAULT 0.0000, `is_per_unit` TINYINT(1) NOT NULL DEFAULT 0,
+        `applies_to` VARCHAR(200) NOT NULL DEFAULT 'All', `description` VARCHAR(255) DEFAULT NULL,
+        `is_active` TINYINT(1) NOT NULL DEFAULT 1, `sort_order` INT NOT NULL DEFAULT 0,
+        `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (`id`), UNIQUE KEY `uq_cat_key` (`category`,`fee_key`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    $cnt = (int)($conn->query("SELECT COUNT(*) AS c FROM fee_config")->fetch_assoc()['c'] ?? 0);
+    if ($cnt === 0) {
+        $conn->query("INSERT IGNORE INTO fee_config (category,fee_key,fee_label,value,is_per_unit,applies_to,description,sort_order) VALUES
+            ('College','tuition_rate_per_unit','Tuition Fee (per unit)',650,1,'All','Charged per enrolled unit',1),
+            ('College','misc_fee','Miscellaneous Fee',6688,0,'All','Fixed miscellaneous fee',2),
+            ('College','reg_fee','Registration Fee',700,0,'All','Fixed registration fee',3),
+            ('College','lab_fee_per_room','Laboratory Fee (per lab room)',1900,0,'All','Per laboratory room on campus',4),
+            ('College','energy_rate_per_unit','Energy Fee (per unit)',63,1,'All','units x 21 x 3 terms',5),
+            ('College','installment_fee','Installment Surcharge',750,0,'All','Added for installment plan',6),
+            ('SHS','transferee_flat_rate','Transferee Flat Rate',20000,0,'Transferee','Flat fee for SHS transferees',1),
+            ('SHS','installment_fee','Installment Surcharge',750,0,'All','Added for installment plan',2),
+            ('TVET','misc_fee','Miscellaneous Fee',3500,0,'All','Fixed misc fee for TVET',1),
+            ('TVET','reg_fee','Registration Fee',500,0,'All','Fixed reg fee for TVET',2),
+            ('TVET','installment_fee','Installment Surcharge',500,0,'All','Added for installment plan',3)");
+    }
+    $cat = $conn->real_escape_string($category);
+    $res = $conn->query("SELECT * FROM fee_config WHERE category='$cat' AND is_active=1 ORDER BY sort_order");
+    $cfg = [];
+    if ($res) while ($r = $res->fetch_assoc()) $cfg[$r['fee_key']] = $r;
+    return $cfg;
+}
+}
+
 require_once __DIR__ . '/auth_middleware.php';
 // Actions that happen BEFORE login (enrollment wizard) — no token exists yet
 $publicActions = [
     'register_student', 'register_student_shs', 'register_student_tvet', 'register_transferee',
+    'get_enrollment_period',  // public — students & login page need to check if enrollment is open
 ];
 $authUser = in_array($action, $publicActions) ? null : requireAuth($conn);
 
@@ -50,6 +87,34 @@ ini_set('display_errors', 0);
 mysqli_report(MYSQLI_REPORT_OFF);
 
 // Schema managed by migrate.php — no ALTER TABLE at request time
+
+// ── sys_config table (enrollment period, etc.) ───────────────────────────────
+$conn->query("CREATE TABLE IF NOT EXISTS sys_config (
+    config_key   VARCHAR(100) PRIMARY KEY,
+    config_value TEXT         DEFAULT NULL,
+    updated_at   TIMESTAMP    DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+// ── Enrollment period helpers ─────────────────────────────────────────────────
+function getEnrollmentPeriodRow(mysqli $conn): array {
+    $res = $conn->query("SELECT config_value FROM sys_config WHERE config_key = 'enrollment_period' LIMIT 1");
+    if ($res && $res->num_rows > 0) {
+        $val = json_decode($res->fetch_assoc()['config_value'], true);
+        if (is_array($val)) return $val;
+    }
+    return ['start' => null, 'end' => null, 'is_open' => false, 'label' => ''];
+}
+
+function isEnrollmentOpen(mysqli $conn): bool {
+    $p = getEnrollmentPeriodRow($conn);
+    if (!($p['is_open'] ?? false)) return false;
+    $now = time();
+    $start = !empty($p['start']) ? strtotime($p['start']) : null;
+    $end   = !empty($p['end'])   ? strtotime($p['end'])   : null;
+    if ($start && $now < $start) return false;
+    if ($end   && $now > $end)   return false;
+    return true;
+}
 
 // (action already defined above)
 
@@ -68,6 +133,8 @@ switch ($method) {
             case 'get_payment_status':      getPaymentStatus($conn);            break;
             case 'get_enrollment_summary':  getEnrollmentSummary($conn);        break;
             case 'get_student_context':     getStudentContext($conn);           break;
+            case 'get_curriculum':          getCurriculum($conn);               break;
+            case 'get_enrollment_period':   getEnrollmentPeriod($conn);         break;
             default: echo json_encode(['success' => false, 'message' => 'Unknown action: ' . $action]);
         }
         break;
@@ -91,6 +158,7 @@ switch ($method) {
             case 'submit_add_drop':          submitAddDropRequest($conn, $data);     break;
             case 'process_add_drop':         processAddDropRequest($conn, $data);    break;
             case 'set_add_drop_window':      setAddDropWindow($conn, $data);         break;
+            case 'set_enrollment_period':   setEnrollmentPeriod($conn, $data);  break;
             case 'auto_enroll_new':         autoEnrollNew($conn, $data);            break;  // NEW/regular students
             case 'auto_enroll_transferee':  autoEnrollTransfereeAction($conn, $data); break; // Transferee students
             case 'auto_enroll_all':         autoEnrollAll($conn, $data);            break;  // legacy router (kept for compatibility)
@@ -439,8 +507,23 @@ function getEnrollments($conn) {
         return;
     }
 
+    // Get student's year_level and semester for filtering
+    $stuQ = $conn->prepare("SELECT year_level, semester, student_type FROM students WHERE id = ? LIMIT 1");
+    $stuQ->bind_param("i", $student_id);
+    $stuQ->execute();
+    $stuRow = $stuQ->get_result()->fetch_assoc();
+    $stuYearLevel = $stuRow['year_level'] ?? '';
+    $stuSemRaw    = $stuRow['semester']   ?? '';
+    $stuType      = $stuRow['student_type'] ?? '';
+
+    // Extract semester term (strip AY suffix)
+    $semTerm = '';
+    if ($stuSemRaw !== '') {
+        preg_match('/^(1st Semester|2nd Semester|Summer)/i', $stuSemRaw, $sm);
+        $semTerm = $sm[1] ?? $stuSemRaw;
+    }
+
     // Get credited course IDs for this student (transferees) — exclude from enrolled list
-    // FIX: Use credited_subjects JSON field instead of credited_course_ids
     $creditedIds = [];
     $torQ = $conn->prepare("SELECT credited_subjects FROM tor_evaluations WHERE student_id = ? AND status = 'Evaluated' LIMIT 1");
     $torQ->bind_param("i", $student_id);
@@ -456,9 +539,22 @@ function getEnrollments($conn) {
             }
         }
     }
-    // FIX E-02: Validate all credited IDs are integers before interpolating
     $safeIds    = array_filter(array_map('intval', $creditedIds), fn($v) => $v > 0);
     $excludeSql = !empty($safeIds) ? 'AND c.id NOT IN (' . implode(',', $safeIds) . ')' : '';
+
+    // FIX: For transferees, filter enrollments to the student's current year_level + semester.
+    // This prevents wrongly auto-enrolled cross-year subjects (from old code bug) from showing.
+    // For regular students, also scope to their current year/semester.
+    $ylFilter  = '';
+    $semFilter = '';
+    if ($stuYearLevel !== '') {
+        $ylEsc    = $conn->real_escape_string($stuYearLevel);
+        $ylFilter = "AND c.year_level = '$ylEsc'";
+    }
+    if ($semTerm !== '') {
+        $semEsc    = $conn->real_escape_string($semTerm);
+        $semFilter = "AND c.semester LIKE '$semEsc%'";
+    }
 
     $stmt = $conn->prepare("
         SELECT
@@ -471,18 +567,23 @@ function getEnrollments($conn) {
             c.code,
             c.name,
             c.credits,
+            c.lec_units,
+            c.lab_units,
             c.instructor,
             c.schedule,
             c.day,
             c.time,
             c.room,
-            c.semester
+            c.semester,
+            c.year_level
         FROM enrollments e
         JOIN courses c ON e.course_id = c.id
         WHERE e.student_id = ?
           AND e.status IN ('Pending', 'Enrolled')
+          $ylFilter
+          $semFilter
           $excludeSql
-        ORDER BY e.created_at DESC
+        ORDER BY c.year_level, c.semester, c.code
     ");
     $stmt->bind_param("i", $student_id);
     $stmt->execute();
@@ -490,18 +591,26 @@ function getEnrollments($conn) {
     $enrollments = [];
     if ($result) {
         while ($r = $result->fetch_assoc()) {
+            $lec = (int)($r['lec_units'] ?? 0);
+            $lab = (int)($r['lab_units'] ?? 0);
+            $cred = (int)$r['credits'];
+            // Apply same lec_units fix as get_courses
+            if ($lec === 0 && $lab === 0 && $cred > 0) $lec = $cred;
             $enrollments[] = [
                 'id'             => (int)$r['id'],
                 'courseId'       => (int)$r['course_id'],
                 'code'           => $r['code'],
                 'name'           => $r['name'],
-                'credits'        => (int)$r['credits'],
+                'credits'        => $cred,
+                'lecUnits'       => $lec,
+                'labUnits'       => $lab,
                 'instructor'     => $r['instructor'],
                 'schedule'       => $r['schedule'],
                 'day'            => $r['day'],
                 'time'           => $r['time'],
                 'room'           => $r['room'],
                 'semester'       => $r['semester'],
+                'yearLevel'      => $r['year_level'],
                 'enrollmentDate' => $r['enrollment_date'],
                 'status'         => $r['status'],
                 'grade'          => $r['grade'],
@@ -511,12 +620,20 @@ function getEnrollments($conn) {
     }
     echo json_encode(['success' => true, 'enrollments' => $enrollments]);
 }
-
 // ─────────────────────────────────────────────────────────────
 // REGISTER TRANSFEREE - Separate function for transferee students
 // Transferees need TOR evaluation before payment and enrollment
 // ─────────────────────────────────────────────────────────────
 function registerTransferee($conn, $data) {
+    // ── Enrollment period gate ────────────────────────────────────
+    if (empty($data['bypass_period_check']) && !isEnrollmentOpen($conn)) {
+        $p = getEnrollmentPeriodRow($conn);
+        $msg = 'Enrollment is currently closed.';
+        if (!empty($p['start'])) $msg .= ' Opens: ' . date('M d, Y g:i A', strtotime($p['start']));
+        if (!empty($p['label'])) $msg .= ' (' . $p['label'] . ')';
+        echo json_encode(['success' => false, 'message' => $msg, 'enrollment_closed' => true]);
+        return;
+    }
     // Validate required fields
     foreach (['user_id', 'firstName', 'lastName', 'email', 'program'] as $f) {
         if (empty($data[$f])) {
@@ -774,6 +891,17 @@ function registerStudentTVET($conn, $data) {
 // REGISTER STUDENT
 // ─────────────────────────────────────────────────────────────
 function registerStudent($conn, $data) {
+    // ── Enrollment period gate ────────────────────────────────────
+    // Skip gate for admin-initiated registrations (data has 'bypass_period_check')
+    if (empty($data['bypass_period_check']) && !isEnrollmentOpen($conn)) {
+        $p = getEnrollmentPeriodRow($conn);
+        $msg = 'Enrollment is currently closed.';
+        if (!empty($p['start'])) $msg .= ' Opens: ' . date('M d, Y g:i A', strtotime($p['start']));
+        if (!empty($p['label'])) $msg .= ' (' . $p['label'] . ')';
+        echo json_encode(['success' => false, 'message' => $msg, 'enrollment_closed' => true]);
+        return;
+    }
+    // ─────────────────────────────────────────────────────────────
     foreach (['user_id', 'firstName', 'lastName', 'email', 'program'] as $f) {
         if (empty($data[$f])) {
             echo json_encode(['success' => false, 'message' => "Field '$f' is required"]);
@@ -1138,14 +1266,11 @@ function approveEnrollment($conn, $data) {
     $stmt->bind_param("i", $student_id);
     $stmt->execute();
 
-    // BUG FIX: Auto-enroll the student in their program courses right at approval time.
-    // Without this, transferees arrive at the dashboard with 0 enrollment rows because:
-    //   1. auto_enroll_all ran before approval (when courses couldn't be inserted yet), OR
-    //   2. ensureEnrolledThenLoad() on the frontend sees approval_status='Approved' on
-    //      first load and calls auto_enroll_all — but for transferees the TOR-credited
-    //      exclusion query may have silently wiped out the course list.
-    // Calling it here at the moment of approval guarantees rows are inserted.
-    $enrolled = autoEnrollAll($conn, ['student_id' => $student_id], false);
+    // Pass semester from DB so autoEnrollAll can match courses correctly
+    $semRow = $conn->query("SELECT semester FROM students WHERE id=$student_id LIMIT 1")->fetch_assoc();
+    $semester = trim($semRow['semester'] ?? '');
+
+    $enrolled = autoEnrollAll($conn, ['student_id' => $student_id, 'semester' => $semester], false);
     echo json_encode(['success' => true, 'message' => 'Enrollment approved', 'auto_enrolled' => $enrolled]);
 }
 // ─────────────────────────────────────────────────────────────
@@ -1243,8 +1368,12 @@ function getEnrollmentSummary($conn) {
             'paymentDate'    => null,
         ];
     } else {
-        // Fallback if no tuition_fees record
-        $totalAssessment = $totalCredits * 650 + 6688 + 700 + ($totalCredits * 63);
+        // Fallback if no tuition_fees record — use fee_config rates
+        $fc_fb = loadFeeConfig($conn, 'College');
+        $totalAssessment = $totalCredits * (float)($fc_fb['tuition_rate_per_unit']['value'] ?? 650)
+                         + (float)($fc_fb['misc_fee']['value'] ?? 6688)
+                         + (float)($fc_fb['reg_fee']['value']  ?? 700)
+                         + $totalCredits * (float)($fc_fb['energy_rate_per_unit']['value'] ?? 63);
         $discount        = (float)($s['scholarship_amount'] ?? 0);
         $balance         = max(0.0, $totalAssessment - $discount - $totalPaid);
         $payment = [
@@ -1352,6 +1481,30 @@ function autoEnrollNew($conn, $data, $respondJson = true) {
     if (preg_match('/^(1st Semester|2nd Semester|Summer)/i', $semester, $m)) {
         $semesterTerm = $m[1];
     }
+    if ($semesterTerm === '') $semesterTerm = '1st Semester'; // safety default
+
+    // ── IDEMPOTENCY CHECK ─────────────────────────────────────
+    // Skip if student already has correct enrollments for this year+semester.
+    $ylEsc  = $conn->real_escape_string($yearLevel);
+    $semEsc = $conn->real_escape_string($semesterTerm);
+    $alreadyCorrect = (int)$conn->query("
+        SELECT COUNT(*) AS cnt FROM enrollments e
+        JOIN courses c ON e.course_id = c.id
+        WHERE e.student_id = $student_id
+          AND e.status IN ('Enrolled','Pending')
+          AND c.year_level = '$ylEsc'
+          AND c.semester LIKE '$semEsc%'
+    ")->fetch_assoc()['cnt'];
+
+    if ($alreadyCorrect > 0) {
+        if ($respondJson) echo json_encode([
+            'success'  => true,
+            'enrolled' => 0,
+            'program'  => $programName,
+            'message'  => 'Already enrolled in correct courses for this semester.',
+        ]);
+        return 0;
+    }
 
     // Collect courses — no credits to exclude for regular students
     $courses  = collectProgramCourses($conn, $programName, $semesterTerm, $yearLevel, $student_id, []);
@@ -1452,6 +1605,86 @@ function autoEnrollTransfereeAction($conn, $data, $respondJson = true) {
     if (preg_match('/^(1st Semester|2nd Semester|Summer)/i', $semester, $m)) {
         $semesterTerm = $m[1];
     }
+    if ($semesterTerm === '') $semesterTerm = '1st Semester'; // safety default
+
+    $ylEscClean  = $conn->real_escape_string($yearLevel);
+    $semEscClean = $conn->real_escape_string($semesterTerm);
+
+    // ── IDEMPOTENCY CHECK ─────────────────────────────────────
+    // auto_enroll_all is called on EVERY page load by the Angular frontend.
+    // To prevent re-enrolling on every visit, check if the student already
+    // has correct enrollments for this year+semester.
+    // If they do AND there are no wrong-year/wrong-semester enrollments to clean,
+    // skip the rest entirely.
+    $wrongEnrollCount = (int)$conn->query("
+        SELECT COUNT(*) AS cnt FROM enrollments e
+        JOIN courses c ON e.course_id = c.id
+        WHERE e.student_id = $student_id
+          AND e.status IN ('Enrolled','Pending')
+          AND e.notes IN ('Auto-enrolled (Transferee)', 'Auto-enrolled')
+          AND (
+            (c.year_level != '$ylEscClean'  AND c.year_level != '' AND c.year_level IS NOT NULL)
+            OR
+            (c.semester NOT LIKE '$semEscClean%' AND c.semester != '' AND c.semester IS NOT NULL)
+          )
+    ")->fetch_assoc()['cnt'];
+
+    $correctEnrollCount = (int)$conn->query("
+        SELECT COUNT(*) AS cnt FROM enrollments e
+        JOIN courses c ON e.course_id = c.id
+        WHERE e.student_id = $student_id
+          AND e.status IN ('Enrolled','Pending')
+          AND c.year_level = '$ylEscClean'
+          AND c.semester LIKE '$semEscClean%'
+    ")->fetch_assoc()['cnt'];
+
+    // If already correctly enrolled and nothing to clean up → skip
+    if ($wrongEnrollCount === 0 && $correctEnrollCount > 0) {
+        if ($respondJson) echo json_encode([
+            'success'       => true,
+            'enrolled'      => 0,
+            'program'       => $programName,
+            'creditedCount' => count($creditedIds),
+            'message'       => 'Already enrolled in correct courses for this semester.',
+        ]);
+        return 0;
+    }
+
+    // ── CLEANUP: Remove wrong-semester or wrong-year auto-enrollments ──
+    $conn->query("
+        DELETE e FROM enrollments e
+        JOIN courses c ON e.course_id = c.id
+        WHERE e.student_id = $student_id
+          AND e.status IN ('Enrolled','Pending')
+          AND e.notes IN ('Auto-enrolled (Transferee)', 'Auto-enrolled')
+          AND (
+            (c.year_level != '$ylEscClean'  AND c.year_level != '' AND c.year_level IS NOT NULL)
+            OR
+            (c.semester NOT LIKE '$semEscClean%' AND c.semester != '' AND c.semester IS NOT NULL)
+          )
+    ");
+
+    // Re-check: if correct enrollments still exist after cleanup, we're done.
+    // This prevents re-enrolling on every page load after the first cleanup.
+    $correctAfterCleanup = (int)$conn->query("
+        SELECT COUNT(*) AS cnt FROM enrollments e
+        JOIN courses c ON e.course_id = c.id
+        WHERE e.student_id = $student_id
+          AND e.status IN ('Enrolled','Pending')
+          AND c.year_level = '$ylEscClean'
+          AND c.semester LIKE '$semEscClean%'
+    ")->fetch_assoc()['cnt'];
+
+    if ($correctAfterCleanup > 0) {
+        if ($respondJson) echo json_encode([
+            'success'       => true,
+            'enrolled'      => 0,
+            'program'       => $programName,
+            'creditedCount' => count($creditedIds),
+            'message'       => 'Enrollment verified for this semester.',
+        ]);
+        return 0;
+    }
 
     $courses  = collectProgramCourses($conn, $programName, $semesterTerm, $yearLevel, $student_id, $creditedIds);
     $enrolled = insertEnrollments($conn, $student_id, $courses, $semester, 'Auto-enrolled (Transferee)');
@@ -1534,11 +1767,27 @@ function collectProgramCourses($conn, $programName, $semesterTerm, $yearLevel, $
     // Courses are stored under old AY values ('1st Semester, AY 2024-2025')
     // but a student enrolling in AY 2026-2027 still needs those courses.
     // LIKE '1st Semester%' matches correctly regardless of AY suffix.
-    $semClause = ($st_esc !== '') ? "AND c.semester LIKE '$st_esc%'" : '';
+    //
+    // SAFETY: If semesterTerm is empty, default to '1st Semester' to prevent
+    // enrolling courses from ALL semesters at once.
+    if ($st_esc === '') {
+        $st_esc = '1st Semester';
+    }
+    $semClause = "AND c.semester LIKE '$st_esc%'";
 
     // Year level: REQUIRED — prevents 1st year students from being enrolled
     // in 2nd, 3rd, or 4th year subjects.
-    $ylClause = ($yl_esc !== '') ? "AND c.year_level = '$yl_esc'" : '';
+    // FIX: SHS/TVET use 'Grade 11'/'Grade 12' — use LIKE so minor storage
+    // differences (e.g. 'Grade 11' vs 'Grade-11') still match correctly.
+    // For College levels ('1st Year', '2nd Year' etc) use exact match.
+    $isGradeBased = (stripos($yl_esc, 'grade') !== false || preg_match('/^\d+$/', $yl_esc));
+    if ($yl_esc !== '') {
+        $ylClause = $isGradeBased
+            ? "AND c.year_level LIKE '%$yl_esc%'"
+            : "AND c.year_level = '$yl_esc'";
+    } else {
+        $ylClause = '';
+    }
 
     // ── Resolve program code from programs table ──────────────
     // students.program stores the FULL NAME (e.g. "Bachelor of Science in Information Technology")
@@ -1570,7 +1819,7 @@ function collectProgramCourses($conn, $programName, $semesterTerm, $yearLevel, $
               $ylClause
               $semClause
               $excludeClause
-            LIMIT 40
+            LIMIT 200
         ");
         if ($res) {
             foreach ($res->fetch_all(MYSQLI_ASSOC) as $c) {
@@ -1579,19 +1828,18 @@ function collectProgramCourses($conn, $programName, $semesterTerm, $yearLevel, $
         }
     }
 
-    // Source 2: courses.program direct column — match by RESOLVED CODE first,
-    // then fall back to full name. This handles both storage conventions.
-    // We search by code (primary) so that AEC courses wrongly tagged with the
-    // full BSIT name do NOT contaminate a CIMT/BSIT student's enrollment.
+    // Source 2: courses.program direct column — match by FULL NAME first (primary storage),
+    // then fall back to resolved CODE. This matches actual DB storage where courses.program
+    // stores the full program name (e.g. "Bachelor of Science in Information Technology").
     $res = $conn->query("
         SELECT id, name, semester, year_level
         FROM courses
-        WHERE program = '$pc_esc'
+        WHERE program = '$pn_esc'
           AND id NOT IN ($alreadyEnrolledSub)
           $ylClause
           $semClause
           $excludeClause
-        LIMIT 40
+        LIMIT 200
     ");
     if ($res) {
         foreach ($res->fetch_all(MYSQLI_ASSOC) as $c) {
@@ -1599,21 +1847,59 @@ function collectProgramCourses($conn, $programName, $semesterTerm, $yearLevel, $
         }
     }
 
-    // Source 3: if still empty, try by full name (legacy data compatibility)
+    // Source 3: if still empty, try by resolved code (legacy data compatibility)
     if (empty($allCourses) && $pc_esc !== $pn_esc) {
         $res = $conn->query("
             SELECT id, name, semester, year_level
             FROM courses
-            WHERE program = '$pn_esc'
+            WHERE program = '$pc_esc'
               AND id NOT IN ($alreadyEnrolledSub)
               $ylClause
               $semClause
               $excludeClause
-            LIMIT 40
+            LIMIT 200
         ");
         if ($res) {
             foreach ($res->fetch_all(MYSQLI_ASSOC) as $c) {
                 $allCourses[$c['id']] = $c;
+            }
+        }
+    }
+
+    // FIX Source 4: Last resort — if ALL sources returned zero courses,
+    // retry by program only (no year_level or semester filter).
+    // This catches SHS/TVET courses that may be stored without matching
+    // year_level values (e.g. stored as NULL or a different format).
+    if (empty($allCourses)) {
+        $res = $conn->query("
+            SELECT id, name, semester, year_level
+            FROM courses
+            WHERE (program = '$pc_esc' OR program = '$pn_esc')
+              AND id NOT IN ($alreadyEnrolledSub)
+              $excludeClause
+            LIMIT 200
+        ");
+        if ($res) {
+            foreach ($res->fetch_all(MYSQLI_ASSOC) as $c) {
+                $allCourses[$c['id']] = $c;
+            }
+        }
+        // Also try program_courses junction without year/sem filter
+        if (empty($allCourses) && $hasPCTable && $hasPTable) {
+            $res = $conn->query("
+                SELECT c.id, c.name, c.semester, c.year_level
+                FROM program_courses pc
+                JOIN programs p ON pc.program_id = p.id
+                JOIN courses  c ON pc.course_id  = c.id
+                WHERE (p.name = '$pn_esc' OR p.code = '$pn_esc' OR p.code = '$pc_esc')
+                  AND c.id NOT IN ($alreadyEnrolledSub)
+                  $excludeClause
+                LIMIT 200
+            ");
+            if ($res) {
+                foreach ($res->fetch_all(MYSQLI_ASSOC) as $c) {
+                    $allCourses[$c['id']] = $c;
+                }
             }
         }
     }
@@ -1633,15 +1919,34 @@ function insertEnrollments($conn, $student_id, $courses, $semester, $notes) {
 
     foreach ($courses as $course) {
         $useSemester = ($semester !== '') ? $semester : ($course['semester'] ?? '');
+        $cid = (int)$course['id'];
+
+        // FIX: First try to UPDATE any existing Dropped row back to Enrolled.
+        // INSERT IGNORE silently skips if a Dropped row exists (UNIQUE KEY),
+        // causing 0 enrolled count on re-enrollment. UPDATE first fixes this.
+        $upd = $conn->prepare("
+            UPDATE enrollments
+            SET status = 'Enrolled', enrollment_date = ?, semester = ?, notes = ?
+            WHERE student_id = ? AND course_id = ? AND status = 'Dropped'
+        ");
+        $upd->bind_param("sssii", $enrollDate, $useSemester, $notes, $student_id, $cid);
+        $upd->execute();
+        if ($upd->affected_rows > 0) {
+            $enrolled++;
+            $conn->query("UPDATE courses SET enrolled_count = enrolled_count + 1 WHERE id = $cid");
+            continue;
+        }
+
+        // No Dropped row — attempt fresh INSERT
         $ins = $conn->prepare("
             INSERT IGNORE INTO enrollments
                 (student_id, course_id, enrollment_date, status, semester, notes)
             VALUES (?, ?, ?, 'Enrolled', ?, ?)
         ");
-        $ins->bind_param("iisss", $student_id, $course['id'], $enrollDate, $useSemester, $notes);
+        $ins->bind_param("iisss", $student_id, $cid, $enrollDate, $useSemester, $notes);
         if ($ins->execute() && $ins->affected_rows > 0) {
             $enrolled++;
-            $conn->query("UPDATE courses SET enrolled_count = enrolled_count + 1 WHERE id = " . (int)$course['id']);
+            $conn->query("UPDATE courses SET enrolled_count = enrolled_count + 1 WHERE id = $cid");
         }
     }
 
@@ -1795,35 +2100,63 @@ function computeFeesTransferee($conn, $student_id, $programName, $semester, $yea
     $ylFilter   = ($yl_esc !== '') ? "AND c.year_level = '$yl_esc'" : '';
     $ylFilterNJ = ($yl_esc !== '') ? "AND year_level = '$yl_esc'" : '';
 
-    // Priority 1: TOR approved_units — authoritative after registrar evaluation.
-    // This already accounts for credited subjects (program_units - credited_units).
+    // ── Priority 1: Count units from ACTUAL active (non-credited) enrollments ──
+    // This is the most accurate: only what the student is actually enrolled in,
+    // after TOR evaluation credited courses have been Dropped.
+    // Avoids the stale tor_evaluations.approved_units bug where approved_units
+    // was saved when program_courses was incomplete (e.g. only 12 units linked).
     $units = 0;
-    $tor_r = $conn->query("SELECT approved_units FROM tor_evaluations
-                           WHERE student_id = $student_id AND status = 'Evaluated'
-                           ORDER BY id DESC LIMIT 1");
-    $tor   = $tor_r ? $tor_r->fetch_assoc() : null;
-    if ($tor && (int)$tor['approved_units'] > 0) {
-        $units = (int)$tor['approved_units'];
+    $actualRes = $conn->query("
+        SELECT COALESCE(SUM(c.credits), 0) AS u
+        FROM enrollments e
+        JOIN courses c ON e.course_id = c.id
+        WHERE e.student_id = $student_id
+          AND e.status IN ('Enrolled', 'Pending')
+    ");
+    if ($actualRes) {
+        $units = (int)($actualRes->fetch_assoc()['u'] ?? 0);
     }
 
-    // Priority 2 (pre-evaluation estimate): count live from courses using
-    // semester + year_level filters.
-    // NEVER use cached tuition_fees.units — it may be a stale value computed
-    // before the year_level filter existed (e.g. 15 instead of 12).
+    // ── Priority 2: TOR approved_units — only if no active enrollments yet ──
+    // (Pre-enrollment estimate: student paid but auto-enroll hasn't run yet)
     if ($units <= 0) {
-        $pu = $conn->query("SELECT COALESCE(SUM(c.credits),0) AS u
+        $tor_r = $conn->query("SELECT approved_units, credited_units FROM tor_evaluations
+                               WHERE student_id = $student_id AND status = 'Evaluated'
+                               ORDER BY id DESC LIMIT 1");
+        $tor   = $tor_r ? $tor_r->fetch_assoc() : null;
+        if ($tor && (int)$tor['approved_units'] > 0) {
+            $units = (int)$tor['approved_units'];
+        }
+    }
+
+    // ── Priority 3: Live count from program curriculum minus credited courses ──
+    // Used when TOR evaluated but approved_units is 0/stale.
+    if ($units <= 0) {
+        // Count total semester+year units from program
+        $totalRes = $conn->query("SELECT COALESCE(SUM(c.credits),0) AS u
             FROM program_courses pc
             JOIN programs p ON pc.program_id=p.id
             JOIN courses c  ON pc.course_id=c.id
             WHERE (p.name='$pn_esc' OR p.code='$pn_esc') $ylFilter $semFilter");
-        $units = (int)(($pu ? $pu->fetch_assoc()['u'] : 0) ?: 0);
+        $totalUnits = (int)(($totalRes ? $totalRes->fetch_assoc()['u'] : 0) ?: 0);
+
+        if ($totalUnits <= 0) {
+            $fb = $conn->query("SELECT COALESCE(SUM(credits),0) AS u
+                FROM courses WHERE program='$pn_esc' $ylFilterNJ $sfNoJoin");
+            $totalUnits = (int)(($fb ? $fb->fetch_assoc()['u'] : 0) ?: 0);
+        }
+
+        // Subtract credited units from TOR
+        $creditedUnits = 0;
+        $torCr = $conn->query("SELECT credited_units FROM tor_evaluations
+                               WHERE student_id = $student_id ORDER BY id DESC LIMIT 1");
+        if ($torCr) {
+            $creditedUnits = (int)($torCr->fetch_assoc()['credited_units'] ?? 0);
+        }
+        $units = max(0, $totalUnits - $creditedUnits);
     }
-    if ($units <= 0) {
-        $fb = $conn->query("SELECT COALESCE(SUM(credits),0) AS u
-            FROM courses WHERE program='$pn_esc' $ylFilterNJ $sfNoJoin");
-        $units = (int)(($fb ? $fb->fetch_assoc()['u'] : 0) ?: 0);
-    }
-    if ($units <= 0) $units = 18;
+
+    if ($units <= 0) $units = 18; // absolute fallback
 
     return _buildFees($conn, $student_id, $programName, $semester, $yearLevel, $units, $paymentPlan, $discount);
 }
@@ -1861,18 +2194,31 @@ function _buildFees($conn, $student_id, $programName, $semester, $yearLevel, $un
     }
 
     // Lab fee: based on total number of Laboratory rooms in the rooms table
-    // (not per-student enrollment — all students pay the same lab count × ₱1,900)
     $conn->query("ALTER TABLE courses ADD COLUMN IF NOT EXISTS is_lab TINYINT(1) DEFAULT 0");
     $labRoomRes = $conn->query("SELECT COUNT(*) AS cnt FROM rooms WHERE room_type = 'Laboratory'");
     $lab_cnt    = (int)(($labRoomRes ? $labRoomRes->fetch_assoc()['cnt'] : 0) ?? 0);
 
-    $tuition_fee = $units * 650;
-    $misc_fee    = 6688.00;
-    $reg_fee     = 700.00;
-    $lab_fee     = $lab_cnt * 1900;
-    $energy_fee  = $units * 21 * 3;
-    $subtotal    = $tuition_fee + $misc_fee + $reg_fee + $lab_fee + $energy_fee;
-    $inst_fee    = ($paymentPlan === 'installment') ? 750.00 : 0.00;
+    // Load fee rates from fee_config table (managed by Accounting)
+    $fc = loadFeeConfig($conn, 'College');
+    $r_tuition  = (float)($fc['tuition_rate_per_unit']['value'] ?? 650);
+    $r_misc     = (float)($fc['misc_fee']['value']              ?? 6688);
+    $r_reg      = (float)($fc['reg_fee']['value']               ?? 700);
+    $r_lab_room = (float)($fc['lab_fee_per_room']['value']      ?? 1900);
+    $r_energy   = (float)($fc['energy_rate_per_unit']['value']  ?? 63);
+    $r_install  = (float)($fc['installment_fee']['value']       ?? 750);
+    $std_keys   = ['tuition_rate_per_unit','misc_fee','reg_fee','lab_fee_per_room','energy_rate_per_unit','installment_fee'];
+    $extra_fees = 0.00;
+    foreach ($fc as $fk => $frow) {
+        if (!in_array($fk, $std_keys)) $extra_fees += (float)$frow['value'] * ($frow['is_per_unit'] ? $units : 1);
+    }
+
+    $tuition_fee = $units * $r_tuition;
+    $misc_fee    = $r_misc;
+    $reg_fee     = $r_reg;
+    $lab_fee     = $lab_cnt * $r_lab_room;
+    $energy_fee  = $units * $r_energy;
+    $subtotal    = $tuition_fee + $misc_fee + $reg_fee + $lab_fee + $energy_fee + $extra_fees;
+    $inst_fee    = ($paymentPlan === 'installment') ? $r_install : 0.00;
     $total       = max(0, $subtotal - $discount + $inst_fee);
 
     // Persist to tuition_fees
@@ -1986,6 +2332,16 @@ function getStudentContext($conn) {
             'subtotal' => 0, 'discount' => 0, 'installmentFee' => 0,
             'totalAssessment' => 0,
         ];
+        // FIX: SHS/TVET non-transferee students are FREE — auto-approve immediately
+        // so the frontend can route them to the dashboard and trigger auto-enrollment.
+        // Without this they stay Pending forever because verifyPayment() never runs.
+        $isTransfereeCheck = (trim($studentType) === 'Transferee');
+        if (!$isTransfereeCheck && $approvalStatus !== 'Approved') {
+            $conn->query("UPDATE students SET approval_status='Approved', payment_status='Paid', enrollment_status='Enrolled' WHERE id=$student_id AND approval_status != 'Approved'");
+            $approvalStatus = 'Approved';
+            $paymentStatus  = 'Paid';
+            $enrollStatus   = 'Enrolled';
+        }
     } else {
         $fees = computeFeesNew($conn, $student_id, $programName, $semester, $yearLevel, $paymentPlan, $discount);
     }
@@ -2517,14 +2873,25 @@ function recalcTuitionAfterAddDrop($conn, $sid) {
     $labRoomRes2 = $conn->query("SELECT COUNT(*) AS cnt FROM rooms WHERE room_type = 'Laboratory'");
     $lab_count   = (int)(($labRoomRes2 ? $labRoomRes2->fetch_assoc()['cnt'] : 0) ?? 0);
 
-    $tuition_fee     = $units * 650;
-    $miscellaneous   = 6688.00;
-    $registration    = 700.00;
-    $laboratory_fee  = $lab_count * 1900;
-    $energy_fee      = $units * 21 * 3;
-    $subtotal        = $tuition_fee + $miscellaneous + $registration + $laboratory_fee + $energy_fee;
-    $installment_fee = $has_installment ? 750.00 : 0.00;
-    $total           = $subtotal - $discount + $installment_fee;
+    $fc_ad = loadFeeConfig($conn, 'College');
+    $r_t   = (float)($fc_ad['tuition_rate_per_unit']['value'] ?? 650);
+    $r_m   = (float)($fc_ad['misc_fee']['value']              ?? 6688);
+    $r_r   = (float)($fc_ad['reg_fee']['value']               ?? 700);
+    $r_lb  = (float)($fc_ad['lab_fee_per_room']['value']      ?? 1900);
+    $r_e   = (float)($fc_ad['energy_rate_per_unit']['value']  ?? 63);
+    $r_i   = (float)($fc_ad['installment_fee']['value']       ?? 750);
+    $std_ad = ['tuition_rate_per_unit','misc_fee','reg_fee','lab_fee_per_room','energy_rate_per_unit','installment_fee'];
+    $extra_ad = 0.00;
+    foreach ($fc_ad as $fk => $frow) { if (!in_array($fk,$std_ad)) $extra_ad += (float)$frow['value'] * ($frow['is_per_unit'] ? $units : 1); }
+
+    $tuition_fee     = $units * $r_t;
+    $miscellaneous   = $r_m;
+    $registration    = $r_r;
+    $laboratory_fee  = $lab_count * $r_lb;
+    $energy_fee      = $units * $r_e;
+    $subtotal        = $tuition_fee + $miscellaneous + $registration + $laboratory_fee + $energy_fee + $extra_ad;
+    $installment_fee = $has_installment ? $r_i : 0.00;
+    $total           = max(0, $subtotal - $discount + $installment_fee);
 
     // ── FORCE update tuition_fees (no conditional guards) ───────────────────
     $stmt = $conn->prepare("
@@ -2680,4 +3047,250 @@ function setAddDropWindow($conn, $data) {
     } else {
         echo json_encode(['success' => false, 'message' => 'Failed to save window']);
     }
+}
+// ─────────────────────────────────────────────────────────────
+// GET CURRICULUM
+// GET ?action=get_curriculum&student_id=XX
+//
+// Returns the full program curriculum for the student,
+// grouped by year level → semester, with per-course status
+// (completed / enrolled / failed / not_taken) based on
+// their actual enrollment + grade records.
+// ─────────────────────────────────────────────────────────────
+function getCurriculum($conn) {
+    $student_id = (int)($_GET['student_id'] ?? 0);
+    if (!$student_id) {
+        echo json_encode(['success' => false, 'message' => 'student_id required']); return;
+    }
+
+    // Get student info — including semester for AY computation
+    $stRes = $conn->query("SELECT program, year_level, semester FROM students WHERE id = $student_id LIMIT 1");
+    $stRow = $stRes ? $stRes->fetch_assoc() : null;
+    if (!$stRow) {
+        echo json_encode(['success' => false, 'message' => 'Student not found']); return;
+    }
+    $programName      = trim($stRow['program']    ?? '');
+    $currentYearLevel = trim($stRow['year_level'] ?? '1st Year');
+    $currentSemRaw    = trim($stRow['semester']   ?? '');
+
+    // Extract current AY from semester field (e.g. "1st Semester, AY 2025-2026" → 2025)
+    $currentAYStart = (int)date('Y');
+    if (preg_match('/AY\s*(\d{4})-(\d{4})/i', $currentSemRaw, $ayM)) {
+        $currentAYStart = (int)$ayM[1];
+    }
+    // Map year level name → number (1st=1, 2nd=2, etc.)
+    $ylMap = ['1st Year'=>1,'2nd Year'=>2,'3rd Year'=>3,'4th Year'=>4,'5th Year'=>5];
+    $currentYLNum = $ylMap[$currentYearLevel] ?? 1;
+
+    // Resolve program to id (support both name and code)
+    $pn  = $conn->real_escape_string($programName);
+    $pRes = $conn->query("SELECT id FROM programs WHERE name = '$pn' OR code = '$pn' LIMIT 1");
+    $pRow = $pRes ? $pRes->fetch_assoc() : null;
+    $programId = $pRow ? (int)$pRow['id'] : 0;
+
+    // Fetch all program courses via program_courses junction OR courses.program column
+    $courses = [];
+    if ($programId > 0) {
+        $cRes = $conn->query("
+            SELECT c.id, c.code, c.name, c.credits,
+                   COALESCE(c.lec_units, c.credits, 0) AS lec_units,
+                   COALESCE(c.lab_units, 0) AS lab_units,
+                   c.semester, c.year_level,
+                   COALESCE(c.description, '') AS description
+            FROM program_courses pc
+            JOIN courses c ON pc.course_id = c.id
+            WHERE pc.program_id = $programId
+            ORDER BY c.year_level, c.semester, c.code
+        ");
+        if ($cRes) {
+            while ($row = $cRes->fetch_assoc()) $courses[] = $row;
+        }
+    }
+
+    // Fallback: courses.program column
+    if (empty($courses)) {
+        $cRes2 = $conn->query("
+            SELECT id, code, name, credits,
+                   COALESCE(lec_units, credits, 0) AS lec_units,
+                   COALESCE(lab_units, 0) AS lab_units,
+                   semester, year_level,
+                   COALESCE(description, '') AS description
+            FROM courses
+            WHERE program = '$pn' OR program = (
+                SELECT code FROM programs WHERE name = '$pn' LIMIT 1
+            )
+            ORDER BY year_level, semester, code
+        ");
+        if ($cRes2) {
+            while ($row = $cRes2->fetch_assoc()) $courses[] = $row;
+        }
+    }
+
+    if (empty($courses)) {
+        echo json_encode(['success' => true, 'program' => $programName, 'yearGroups' => []]); return;
+    }
+
+    // Fetch student's enrollment + grade records for all courses
+    $enrollMap = [];
+    $eRes = $conn->query("
+        SELECT e.course_id, e.status, e.grade
+        FROM enrollments e
+        WHERE e.student_id = $student_id
+    ");
+    if ($eRes) {
+        while ($r = $eRes->fetch_assoc()) {
+            $cid = (int)$r['course_id'];
+            // Prefer 'Enrolled' over 'Pending' if multiple records exist
+            if (!isset($enrollMap[$cid]) || $r['status'] === 'Enrolled') {
+                $enrollMap[$cid] = $r;
+            }
+        }
+    }
+
+    // Build course list with status
+    $yearData = [];
+    foreach ($courses as $c) {
+        $cid  = (int)$c['id'];
+        $yrRaw = trim($c['year_level'] ?? '');
+        // Normalize year_level: "Year 1" → "1st Year", "Year 2" → "2nd Year", etc.
+        $ylNormMap = [
+            'Year 1'=>'1st Year','Year 2'=>'2nd Year','Year 3'=>'3rd Year','Year 4'=>'4th Year','Year 5'=>'4th Year',
+            '1'=>'1st Year','2'=>'2nd Year','3'=>'3rd Year','4'=>'4th Year',
+        ];
+        $yr = $ylNormMap[$yrRaw] ?? ($yrRaw !== '' ? $yrRaw : 'Other');
+        $semRaw = trim($c['semester'] ?? 'Unknown Semester');
+        // Strip AY suffix from course semester — we compute AY from year level
+        if (preg_match('/^(1st Semester|2nd Semester|Summer|Midyear)/i', $semRaw, $sm)) {
+            $semTerm = $sm[1];
+        } else {
+            $semTerm = $semRaw;
+        }
+        // Compute correct AY for this year level:
+        //   AY offset = (this year level number) - (student's current year level number)
+        $thisYLNum = $ylMap[$yr] ?? 1;
+        $ayOffset  = $thisYLNum - $currentYLNum;
+        $ayStart   = $currentAYStart + $ayOffset;
+        $ayEnd     = $ayStart + 1;
+        $sem       = "$semTerm, AY $ayStart-$ayEnd";
+        $enr  = $enrollMap[$cid] ?? null;
+
+        // Determine status
+        $status = 'not_taken';
+        $grade  = null;
+        if ($enr) {
+            $grade = $enr['grade'] !== '' && $enr['grade'] !== null ? $enr['grade'] : null;
+            if ($grade !== null && is_numeric($grade)) {
+                $gn = (float)$grade;
+                $status = $gn <= 3.0 ? 'completed' : 'failed';
+            } elseif ($enr['status'] === 'Enrolled') {
+                $status = 'enrolled';
+            }
+        }
+
+        $yearData[$yr][$sem][] = [
+            'courseId'    => $cid,
+            'code'        => $c['code'],
+            'name'        => $c['name'],
+            'credits'     => (int)$c['credits'],
+            'lecUnits'    => (int)$c['lec_units'],
+            'labUnits'    => (int)$c['lab_units'],
+            'semester'    => $sem,
+            'yearLevel'   => $yr,
+            'description' => $c['description'],
+            'status'      => $status,
+            'grade'       => $grade,
+        ];
+    }
+
+    // Sort years in natural order
+    $yearOrder = ['1st Year', '2nd Year', '3rd Year', '4th Year', '5th Year'];
+    uksort($yearData, function($a, $b) use ($yearOrder) {
+        $ia = array_search($a, $yearOrder);
+        $ib = array_search($b, $yearOrder);
+        $ia = $ia === false ? 99 : $ia;
+        $ib = $ib === false ? 99 : $ib;
+        return $ia - $ib;
+    });
+
+    $semOrder = ['1st Semester', '2nd Semester', 'Summer', 'Midyear'];
+
+    // Build response structure
+    $yearGroups = [];
+    foreach ($yearData as $yr => $sems) {
+        uksort($sems, function($a, $b) use ($semOrder) {
+            $ia = 99; $ib = 99;
+            foreach ($semOrder as $i => $s) {
+                if (stripos($a, $s) !== false) $ia = $i;
+                if (stripos($b, $s) !== false) $ib = $i;
+            }
+            return $ia - $ib;
+        });
+
+        $yearTotalUnits = 0; $yearCompletedUnits = 0;
+        $semGroups = [];
+        foreach ($sems as $sem => $cs) {
+            $semTotal = array_sum(array_column($cs, 'credits'));
+            $semCompleted = array_sum(array_map(
+                fn($c) => $c['status'] === 'completed' ? $c['credits'] : 0, $cs
+            ));
+            $yearTotalUnits     += $semTotal;
+            $yearCompletedUnits += $semCompleted;
+            $semGroups[] = [
+                'semester'       => $sem,
+                'courses'        => array_values($cs),
+                'totalUnits'     => $semTotal,
+                'completedUnits' => $semCompleted,
+            ];
+        }
+        $yearGroups[] = [
+            'yearLevel'      => $yr,
+            'semesters'      => $semGroups,
+            'totalUnits'     => $yearTotalUnits,
+            'completedUnits' => $yearCompletedUnits,
+        ];
+    }
+
+    echo json_encode([
+        'success'    => true,
+        'program'    => $programName,
+        'yearGroups' => $yearGroups,
+    ]);
+}
+// ════════════════════════════════════════════════════════════════
+//  ENROLLMENT PERIOD — Admin sets open/close dates
+// ════════════════════════════════════════════════════════════════
+
+/** GET ?action=get_enrollment_period — public, no auth needed */
+function getEnrollmentPeriod(mysqli $conn): void {
+    $p   = getEnrollmentPeriodRow($conn);
+    $now = date('Y-m-d\TH:i');
+    echo json_encode([
+        'success'   => true,
+        'period'    => $p,
+        'is_open'   => isEnrollmentOpen($conn),
+        'server_now'=> $now,
+    ]);
+}
+
+/** POST ?action=set_enrollment_period — admin only */
+function setEnrollmentPeriod(mysqli $conn, array $data): void {
+    $authUser = requireAuth($conn, 'admin');
+
+    $isOpen = (bool)($data['is_open'] ?? false);
+    $start  = trim($data['start']   ?? '');
+    $end    = trim($data['end']     ?? '');
+    $label  = trim($data['label']   ?? '');
+
+    $val = json_encode([
+        'is_open' => $isOpen,
+        'start'   => $start ?: null,
+        'end'     => $end   ?: null,
+        'label'   => $label,
+    ]);
+    $esc = $conn->real_escape_string($val);
+    $conn->query("INSERT INTO sys_config (config_key, config_value)
+                  VALUES ('enrollment_period', '$esc')
+                  ON DUPLICATE KEY UPDATE config_value = '$esc', updated_at = NOW()");
+
+    echo json_encode(['success' => true, 'is_open' => $isOpen, 'period' => json_decode($val, true)]);
 }

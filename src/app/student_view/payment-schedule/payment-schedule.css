@@ -190,3 +190,22 @@
 .pp-sig-block { text-align: center; min-width: 220px; }
 .pp-sig-name { font-size: 13px; font-weight: 900; color: #1a4fa0; text-transform: uppercase; letter-spacing: .5px; }
 .pp-sig-line { border-top: 1.5px solid #000; margin-top: 8px; padding-top: 4px; font-size: 10px; }
+/* ── Downpayment summary card ─────────────────────────────── */
+.dp-summary-card {
+  background: #f8faff;
+  border: 1px solid #c7d7f5;
+  border-radius: 10px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+}
+.dp-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  padding: 2px 0;
+}
+.dp-partial { color: #b45309; }
+.dp-ok      { color: #16a34a; }
+.dp-hint    { font-size: 11px; color: #92400e; margin-top: 4px; justify-content: flex-start; gap: 6px; }
+.dp-hint-good { color: #166534; }

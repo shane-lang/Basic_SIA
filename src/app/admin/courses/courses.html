@@ -26,29 +26,58 @@
       <span class="stat-val">{{ courseList.length }}</span>
       <span class="stat-lbl">Total Courses</span>
     </div>
-    <div class="stat-item stat-blue">
-      <span class="stat-val">{{ uniqueDepts.length }}</span>
-      <span class="stat-lbl">Departments</span>
+    <div class="stat-item stat-college">
+      <span class="stat-val">{{ countCollege }}</span>
+      <span class="stat-lbl">🏫 College</span>
     </div>
-    <div class="stat-item stat-green">
-      <span class="stat-val">{{ totalUnits }}</span>
-      <span class="stat-lbl">Total Units</span>
+    <div class="stat-item stat-shs">
+      <span class="stat-val">{{ countSHS }}</span>
+      <span class="stat-lbl">📗 Senior High</span>
     </div>
-    <div class="stat-item stat-yellow">
-      <span class="stat-val">{{ avgUnits }}</span>
-      <span class="stat-lbl">Avg Units</span>
+    <div class="stat-item stat-tvet">
+      <span class="stat-val">{{ countTVET }}</span>
+      <span class="stat-lbl">🔧 TVET</span>
     </div>
+  </div>
+
+  <!-- Level Tabs -->
+  <div class="level-tabs">
+    <button class="level-tab tab-all"
+            [class.active]="filterLevel === 'All'"
+            (click)="onLevelFilterChange('All')">
+      📚 All Courses
+      <span class="tab-badge">{{ countAll }}</span>
+    </button>
+    <button class="level-tab tab-college"
+            [class.active]="filterLevel === 'College'"
+            (click)="onLevelFilterChange('College')">
+      🏫 College
+      <span class="tab-badge">{{ countCollege }}</span>
+    </button>
+    <button class="level-tab tab-shs"
+            [class.active]="filterLevel === 'SHS'"
+            (click)="onLevelFilterChange('SHS')">
+      📗 Senior High School
+      <span class="tab-badge">{{ countSHS }}</span>
+    </button>
+    <button class="level-tab tab-tvet"
+            [class.active]="filterLevel === 'TVET'"
+            (click)="onLevelFilterChange('TVET')">
+      🔧 TVET
+      <span class="tab-badge">{{ countTVET }}</span>
+    </button>
   </div>
 
   <!-- Toolbar -->
   <div class="toolbar">
     <div class="search-wrap">
       <span class="search-icon">🔍</span>
-      <input class="search-input" type="text" placeholder="Search code, name, department…"
+      <input class="search-input" type="text"
+             [placeholder]="filterLevel === 'All' ? 'Search all courses…' : 'Search ' + filterLevel + ' courses…'"
              [(ngModel)]="searchQuery" (input)="applyFilter()">
     </div>
     <select class="filter-select" [(ngModel)]="filterDept" (change)="applyFilter()">
-      <option value="All">All Departments</option>
+      <option value="All">{{ filterLevel === 'All' ? 'All Departments' : 'All ' + (filterLevel === 'SHS' ? 'Strands' : filterLevel === 'TVET' ? 'Program Types' : 'Departments') }}</option>
       <option *ngFor="let d of uniqueDepts" [value]="d">{{ d }}</option>
     </select>
   </div>
@@ -60,23 +89,41 @@
 
   <!-- Empty -->
   <div *ngIf="!isLoading && filteredList.length === 0" class="empty-state">
-    <div class="empty-icon">📚</div>
-    <h3>No courses found</h3>
-    <p>{{ searchQuery ? 'Try a different search.' : 'Add your first course to get started.' }}</p>
-    <button class="btn-add" (click)="openAdd()" *ngIf="!searchQuery">＋ Add Course</button>
+    <div class="empty-icon">
+      {{ filterLevel === 'College' ? '🏫' : filterLevel === 'SHS' ? '📗' : filterLevel === 'TVET' ? '🔧' : '📚' }}
+    </div>
+    <h3>No {{ filterLevel === 'All' ? '' : filterLevel + ' ' }}courses found</h3>
+    <p>{{ searchQuery || filterDept !== 'All' ? 'Try adjusting your filters.' : 'Add the first ' + (filterLevel === 'All' ? '' : filterLevel + ' ') + 'course to get started.' }}</p>
+    <button class="btn-add" [class.btn-add-college]="filterLevel === 'College'"
+            [class.btn-add-shs]="filterLevel === 'SHS'"
+            [class.btn-add-tvet]="filterLevel === 'TVET'"
+            (click)="openAdd()" *ngIf="!searchQuery && filterDept === 'All'">
+      ＋ Add Course
+    </button>
   </div>
 
   <!-- Cards Grid -->
   <div *ngIf="!isLoading && filteredList.length > 0" class="courses-grid">
-    <div class="course-card" *ngFor="let c of filteredList">
+    <div class="course-card"
+         [class.card-college]="getCardLevel(c) === 'College'"
+         [class.card-shs]="getCardLevel(c) === 'SHS'"
+         [class.card-tvet]="getCardLevel(c) === 'TVET'"
+         *ngFor="let c of filteredList">
       <div class="card-top">
         <div class="card-code-wrap">
           <span class="card-code">{{ c.code }}</span>
           <span class="card-units">{{ c.credits }} units</span>
+          <span class="card-level-badge"
+                [class.badge-college]="getCardLevel(c) === 'College'"
+                [class.badge-shs]="getCardLevel(c) === 'SHS'"
+                [class.badge-tvet]="getCardLevel(c) === 'TVET'">
+            {{ getCardLevel(c) === 'College' ? '🏫' : getCardLevel(c) === 'SHS' ? '📗' : '🔧' }}
+            {{ getCardLevel(c) }}
+          </span>
         </div>
         <div class="card-actions">
-          <button class="btn-action btn-edit-sm"  (click)="openEdit(c)" title="Edit">✏️</button>
-          <button class="btn-action btn-view-sm"  (click)="openView(c)" title="View details">👁️</button>
+          <button class="btn-action btn-edit-sm"  (click)="openEdit(c)"      title="Edit">✏️</button>
+          <button class="btn-action btn-view-sm"  (click)="openView(c)"      title="View details">👁️</button>
           <button class="btn-action btn-del-sm"   (click)="confirmDelete(c)" title="Delete">🗑️</button>
         </div>
       </div>
@@ -86,58 +133,103 @@
         <span class="meta-pill meta-dept" *ngIf="c.department">{{ c.department }}</span>
         <span class="meta-pill meta-level" *ngIf="c.year_level">{{ c.year_level }}</span>
         <span class="meta-pill meta-program" *ngIf="c.program">{{ c.program }}</span>
-        <span class="meta-pill" style="background:#ede9fe;color:#6d28d9;font-weight:700;" *ngIf="c.is_lab">🔬 Lab</span>
+        <span class="meta-pill meta-lab" *ngIf="c.is_lab">🔬 Lab</span>
       </div>
     </div>
   </div>
 
 </div>
 
-<!-- ── Add / Edit Modal ── -->
+<!-- ══════════════════════════════════════════════════════════
+     ADD / EDIT MODAL
+══════════════════════════════════════════════════════════ -->
 <div class="modal-bg" *ngIf="showModal" (click)="closeModal()">
   <div class="modal-box" (click)="$event.stopPropagation()">
-    <div class="modal-head">
+    <div class="modal-head"
+         [class.head-college]="form._levelType === 'College'"
+         [class.head-shs]="form._levelType === 'SHS'"
+         [class.head-tvet]="form._levelType === 'TVET'">
       <h2>{{ isEditing ? '✏️ Edit Course' : '➕ Add New Course' }}</h2>
       <button class="modal-x" (click)="closeModal()">✕</button>
     </div>
+
     <div class="modal-body">
-      <div class="form-row two-col">
-        <div class="form-group">
-          <label>Course Code <span class="req">*</span></label>
-          <input class="form-ctrl" type="text" [(ngModel)]="form.code" placeholder="e.g. CS111" style="text-transform:uppercase">
-        </div>
-        <div class="form-group">
-          <label>Units <span class="req">*</span></label>
-          <input class="form-ctrl" type="number" [(ngModel)]="form.credits" min="1" max="9">
+
+      <!-- Level Type Selector -->
+      <div class="form-group">
+        <label class="form-label-sm">LEVEL TYPE</label>
+        <div class="level-type-row">
+          <button class="lvl-btn" [class.lvl-college]="form._levelType === 'College'"
+                  (click)="form._levelType = 'College'; onLevelTypeChange()">
+            🏫 College
+          </button>
+          <button class="lvl-btn" [class.lvl-shs]="form._levelType === 'SHS'"
+                  (click)="form._levelType = 'SHS'; onLevelTypeChange()">
+            📗 Senior High School
+          </button>
+          <button class="lvl-btn" [class.lvl-tvet]="form._levelType === 'TVET'"
+                  (click)="form._levelType = 'TVET'; onLevelTypeChange()">
+            🔧 TVET
+          </button>
         </div>
       </div>
+
+      <!-- Code + Units -->
+      <div class="form-row units-row">
+        <div class="form-group form-group-code">
+          <label>Course Code <span class="req">*</span></label>
+          <input class="form-ctrl" type="text" [(ngModel)]="form.code"
+                 placeholder="e.g. CS111" style="text-transform:uppercase">
+        </div>
+        <div class="form-group form-group-unit">
+          <label>Lec. Units</label>
+          <input class="form-ctrl unit-input" type="number" [(ngModel)]="form.lec_units"
+                 min="0" max="9" (input)="onLecLabChange()">
+        </div>
+        <div class="form-group form-group-unit">
+          <label>Lab. Units</label>
+          <input class="form-ctrl unit-input unit-lab" type="number" [(ngModel)]="form.lab_units"
+                 min="0" max="9" (input)="onLecLabChange()">
+        </div>
+        <div class="form-group form-group-unit">
+          <label>Total</label>
+          <div class="unit-total-box" [class.total-college]="form._levelType === 'College'"
+               [class.total-shs]="form._levelType === 'SHS'"
+               [class.total-tvet]="form._levelType === 'TVET'">
+            {{ form.credits || 0 }}
+          </div>
+        </div>
+      </div>
+
+      <!-- Course Name -->
       <div class="form-group">
         <label>Course Name <span class="req">*</span></label>
-        <input class="form-ctrl" type="text" [(ngModel)]="form.name" placeholder="e.g. Introduction to Programming">
+        <input class="form-ctrl" type="text" [(ngModel)]="form.name"
+               placeholder="e.g. Introduction to Programming">
       </div>
+
+      <!-- Description -->
       <div class="form-group">
         <label>Description</label>
-        <textarea class="form-ctrl" rows="3" [(ngModel)]="form.description" placeholder="Brief description of the course…"></textarea>
+        <textarea class="form-ctrl" rows="3" [(ngModel)]="form.description"
+                  placeholder="Brief description of the course…"></textarea>
       </div>
+
+      <!-- Program + Semester -->
       <div class="form-row two-col">
         <div class="form-group">
-          <label>Department</label>
-          <select class="form-ctrl" [(ngModel)]="form.department">
-            <option value="">— Select —</option>
-            <option *ngFor="let d of DEPARTMENTS" [value]="d">{{ d }}</option>
+          <label>Program <span class="form-hint-inline">— from Levels &amp; Programs</span></label>
+          <select class="form-ctrl prog-select"
+                  [class.prog-select-college]="form._levelType === 'College'"
+                  [class.prog-select-shs]="form._levelType === 'SHS'"
+                  [class.prog-select-tvet]="form._levelType === 'TVET'"
+                  [(ngModel)]="form.program" (change)="onProgramChange()">
+            <option value="">— Select Program —</option>
+            <option *ngFor="let p of currentPrograms" [value]="p.name">{{ p.code }} — {{ p.name }}</option>
           </select>
-        </div>
-        <div class="form-group">
-          <label>Year Level</label>
-          <select class="form-ctrl" [(ngModel)]="form.year_level">
-            <option *ngFor="let y of YEAR_LEVELS" [value]="y">{{ y }}</option>
-          </select>
-        </div>
-      </div>
-      <div class="form-row two-col">
-        <div class="form-group">
-          <label>Program</label>
-          <input class="form-ctrl" type="text" [(ngModel)]="form.program" placeholder="e.g. BS Information Technology">
+          <p class="form-hint" *ngIf="currentPrograms.length === 0">
+            No {{ form._levelType }} programs yet — create them in <strong>Levels &amp; Programs</strong>.
+          </p>
         </div>
         <div class="form-group">
           <label>Semester</label>
@@ -146,40 +238,84 @@
             <option *ngFor="let s of SEMESTERS" [value]="s">{{ s }}</option>
           </select>
         </div>
-        <div class="form-group" style="grid-column:1/-1;">
-          <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-weight:600;">
-            <input type="checkbox" [checked]="!!form.is_lab" (change)="form.is_lab = $any($event.target).checked ? 1 : 0"
-              style="width:18px;height:18px;cursor:pointer;accent-color:#7c3aed;">
-            <span>🔬 This is a Laboratory subject <span style="font-weight:400;color:#6b7280;">(adds ₱1,900 lab fee per student)</span></span>
-          </label>
+      </div>
+
+      <!-- Dept/Strand + Year Level -->
+      <div class="form-row two-col">
+        <div class="form-group">
+          <label>{{ deptLabel() }} <span class="form-hint-inline">— auto-filled from program</span></label>
+          <select class="form-ctrl dept-select"
+                  [class.dept-select-college]="form._levelType === 'College'"
+                  [class.dept-select-shs]="form._levelType === 'SHS'"
+                  [class.dept-select-tvet]="form._levelType === 'TVET'"
+                  [(ngModel)]="form.department">
+            <option value="">— Select {{ deptLabel() }} —</option>
+            <option *ngFor="let d of currentDepts" [value]="d.label">{{ d.label }}</option>
+          </select>
+          <p class="form-hint" *ngIf="currentDepts.length === 0">
+            No {{ deptLabel() }}s found — add in <strong>Levels &amp; Programs → ⚙️ Manage Departments</strong>.
+          </p>
+        </div>
+        <div class="form-group">
+          <label>Year Level</label>
+          <select class="form-ctrl" [(ngModel)]="form.year_level">
+            <option *ngFor="let y of currentYearLevels" [value]="y">{{ y }}</option>
+          </select>
         </div>
       </div>
+
+      <!-- Lab checkbox -->
+      <div class="form-group">
+        <label class="lab-checkbox-label">
+          <input type="checkbox" [checked]="!!form.is_lab"
+                 (change)="form.is_lab = $any($event.target).checked ? 1 : 0"
+                 style="width:18px;height:18px;cursor:pointer;accent-color:#7c3aed;">
+          <span>🔬 This is a Laboratory subject
+            <span style="font-weight:400;color:#6b7280;">(adds ₱1,900 lab fee per student)</span>
+          </span>
+        </label>
+      </div>
+
     </div>
+
     <div class="modal-foot">
       <button class="btn-cancel" (click)="closeModal()">Cancel</button>
-      <button class="btn-save" (click)="save()" [disabled]="isSaving">
+      <button class="btn-save"
+              [class.btn-save-college]="form._levelType === 'College'"
+              [class.btn-save-shs]="form._levelType === 'SHS'"
+              [class.btn-save-tvet]="form._levelType === 'TVET'"
+              (click)="save()" [disabled]="isSaving">
         {{ isSaving ? 'Saving…' : (isEditing ? '💾 Update Course' : '✅ Create Course') }}
       </button>
     </div>
   </div>
 </div>
 
-<!-- ── View Details Modal ── -->
+<!-- View Details Modal -->
 <div class="modal-bg" *ngIf="showViewModal" (click)="closeViewModal()">
   <div class="modal-box" (click)="$event.stopPropagation()">
-    <div class="modal-head" style="background: linear-gradient(135deg, #0369a1 0%, #0284c7 100%);">
+    <div class="modal-head"
+         [class.head-college]="viewTarget && getCardLevel(viewTarget) === 'College'"
+         [class.head-shs]="viewTarget && getCardLevel(viewTarget) === 'SHS'"
+         [class.head-tvet]="viewTarget && getCardLevel(viewTarget) === 'TVET'">
       <h2>📋 Course Details</h2>
       <button class="modal-x" (click)="closeViewModal()">✕</button>
     </div>
     <div class="modal-body" *ngIf="viewTarget">
-      <div class="view-code-banner">
+      <div class="view-code-banner"
+           [class.banner-college]="getCardLevel(viewTarget) === 'College'"
+           [class.banner-shs]="getCardLevel(viewTarget) === 'SHS'"
+           [class.banner-tvet]="getCardLevel(viewTarget) === 'TVET'">
         <span class="view-code">{{ viewTarget.code }}</span>
         <span class="view-units">{{ viewTarget.credits }} Units</span>
+        <span class="view-level-tag">
+          {{ getCardLevel(viewTarget) === 'College' ? '🏫 College' : getCardLevel(viewTarget) === 'SHS' ? '📗 SHS' : '🔧 TVET' }}
+        </span>
       </div>
       <h2 class="view-name">{{ viewTarget.name }}</h2>
       <p class="view-desc">{{ viewTarget.description || 'No description available.' }}</p>
       <div class="view-grid">
-        <div class="view-item"><label>Department</label><p>{{ viewTarget.department || '—' }}</p></div>
+        <div class="view-item"><label>Department / Strand</label><p>{{ viewTarget.department || '—' }}</p></div>
         <div class="view-item"><label>Year Level</label><p>{{ viewTarget.year_level || '—' }}</p></div>
         <div class="view-item"><label>Program</label><p>{{ viewTarget.program || '—' }}</p></div>
         <div class="view-item"><label>Semester</label><p>{{ viewTarget.semester || '—' }}</p></div>
@@ -194,7 +330,7 @@
   </div>
 </div>
 
-<!-- ── Delete Confirm ── -->
+<!-- Delete Confirm -->
 <div class="modal-bg" *ngIf="showDeleteModal" (click)="closeDeleteModal()">
   <div class="modal-box modal-sm" (click)="$event.stopPropagation()">
     <div class="modal-head danger-head">

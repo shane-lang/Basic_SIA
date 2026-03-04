@@ -27,6 +27,7 @@ interface FeeData {
   units: number;
   tuitionFee: number; miscellaneousFee: number; registrationFee: number;
   laboratoryFee: number; energyFee: number;
+  extraFees?: { fee_key: string; fee_label: string; is_per_unit: number; rate: number; amount: number }[];
   subtotal: number; discount: number; installmentFee: number;
   totalAssessment: number; totalPaid: number; balance: number; paymentStatus: string;
 }
@@ -46,7 +47,7 @@ export class Enrollment implements OnInit {
   
   /** Returns HTTP headers with the auth token. Call this in every API request. */
   private getHeaders() {
-    const token = sessionStorage.getItem('token') ?? '';
+    const token = sessionStorage.getItem('token') || localStorage.getItem('token') || '';
     return { headers: { Authorization: `Bearer ${token}` } };
   }
 
@@ -112,7 +113,7 @@ export class Enrollment implements OnInit {
   // INIT — one call, one source of truth
   // ═══════════════════════════════════════════════════════════════
   ngOnInit(): void {
-    const storedUser = sessionStorage.getItem('currentUser');
+    const storedUser = sessionStorage.getItem('currentUser') || localStorage.getItem('currentUser');
     if (!storedUser) { this.router.navigate(['/login']); return; }
     this.userId = JSON.parse(storedUser).id;
     this.loadContext();
@@ -136,6 +137,7 @@ export class Enrollment implements OnInit {
           else if (sNum.startsWith('TVET-')) this.studentCategory = 'TVET';
         }
         sessionStorage.setItem('studentCategory', this.studentCategory);
+        localStorage.setItem('studentCategory', this.studentCategory);
         this.paymentMethod   = res.student.paymentMethod === 'Cash' ? 'Cash' : 'GCash';
         this.paymentPlan     = res.student.paymentPlan  === 'installment' ? 'installment' : 'full';
         this.fees            = res.fees ?? null;
@@ -159,6 +161,7 @@ export class Enrollment implements OnInit {
         }
 
         sessionStorage.setItem('studentDbId', String(this.studentDbId));
+        localStorage.setItem('studentDbId', String(this.studentDbId));
 
         // ── ROUTING ─────────────────────────────────────────────
         const s        = res.student;
@@ -385,7 +388,7 @@ export class Enrollment implements OnInit {
   closeDropModal(): void { this.showDropModal = false; this.selectedCourseForDrop = null; this.cdr.detectChanges(); }
   confirmDrop(): void {
     if (!this.selectedCourseForDrop) return;
-    this.http.put<any>(`${this.apiUrl}?action=drop_course`, { enrollment_id: this.selectedCourseForDrop.id, student_id: this.studentDbId }).subscribe({
+    this.http.put<any>(`${this.apiUrl}?action=drop_course`, { enrollment_id: this.selectedCourseForDrop.id, student_id: this.studentDbId }, this.getHeaders()).subscribe({
       next: (res) => {
         if (res.success) { this.addNotification('success', `${this.selectedCourseForDrop!.code} dropped.`); this.loadEnrolledCourses(); this.loadEnrollmentSummary(); }
         else { this.addNotification('error', res.message); }
@@ -980,6 +983,7 @@ export class Enrollment implements OnInit {
       <tr><td>Registration Fee</td><td>${fmt(f.registrationFee)}</td></tr>
       <tr><td>NSTP Fee</td><td></td></tr>
       <tr><td>ENERGY FEE</td><td>${f.energyFee ? fmt(f.energyFee) : ''}</td></tr>
+      ${(f.extraFees && f.extraFees.length > 0) ? f.extraFees.map((ef: any) => `<tr><td>${ef.fee_label}${ef.is_per_unit ? ` (${f.units} units × ${fmt(ef.rate)})` : ''}</td><td>${fmt(ef.amount)}</td></tr>`).join('') : ''}
       <tr><td>Supervision Fee</td><td></td></tr>
       <tr><td style="padding-top:4px;"># of laboratory</td><td></td></tr>
       <tr><td>Laboratory Fees:</td><td>${f.laboratoryFee ? fmt(f.laboratoryFee) : ''}</td></tr>

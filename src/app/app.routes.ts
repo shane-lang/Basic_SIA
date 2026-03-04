@@ -32,7 +32,7 @@ import { ASR } from './accounting/asr/asr';
 import { Gcash } from './accounting/gcash/gcash';
 import { PermitGeneration } from './accounting/permit-generation/permit-generation';
 import { Report } from './accounting/report/report';
-
+import { FeeConfigComponent } from './accounting/fee-config/fee-config';
 // registrar sub-components
 import { RegistrarDashboardComponent } from './registrar/registrar-dashboard/registrar-dashboard';
 import { ManageSubjectsComponent } from './registrar/manage-subjects/manage-subjects';
@@ -46,6 +46,8 @@ import { Accounting } from './accounting/accounting/accounting';
 import { TorEvaluation } from './registrar/tor-evaluation/tor-evaluation';
 import { AddDropComponent } from './registrar/add-drop/add-drop';
 import { StudentAddDropComponent } from './student_view/student-add-drop/student-add-drop';
+import { Curriculum } from './student_view/curriculum/curriculum';
+import { AnnouncementsAdmin } from './admin/announcements/announcements';
 
 export const routes: Routes = [
   { path: 'login', component: LoginComponent },
@@ -64,6 +66,7 @@ export const routes: Routes = [
       { path: 'schedule',   component: Schedule },
       { path: 'grades',     component: Grades },
       { path: 'add-drop',   component: StudentAddDropComponent },
+      { path: 'curriculum', component: Curriculum },
       { path: 'about',      component: About },
       { path: '', redirectTo: 'dashboard', pathMatch: 'full' }
     ]
@@ -89,6 +92,7 @@ export const routes: Routes = [
       { path: 'class-sections',  component: ClassSections },
       { path: 'levels',          component: Levels },
       { path: 'rooms',  component: Rooms },
+      { path: 'announcements', component: AnnouncementsAdmin },
       { path: '', redirectTo: 'courses', pathMatch: 'full' }
     ]
   },
@@ -105,6 +109,7 @@ export const routes: Routes = [
       { path: 'accounting', component: Accounting },
       { path: 'permits',    component: PermitGeneration },
       { path: 'report',     component: Report },
+      { path: 'fee-config',     component: FeeConfigComponent },
       { path: '', redirectTo: 'asr', pathMatch: 'full' }
     ]
   },

@@ -71,6 +71,11 @@ interface YearGroup {
 })
 export class TorEvaluation implements OnInit {
   private registrarApi = 'http://localhost/sia-api/registrar.php';
+  private accountingApi = 'http://localhost/sia-api/accounting.php';
+
+  // Live fee rates loaded from fee_config on init
+  private feeRates = { tuition: 650, misc: 6688, reg: 700, labPerRoom: 1900, energy: 63, labRooms: 4 };
+  private extraFeeConfig: { fee_key: string; fee_label: string; value: number; is_per_unit: number }[] = [];
 
   
   /** Returns HTTP headers with the auth token. Call this in every API request. */
@@ -115,7 +120,37 @@ export class TorEvaluation implements OnInit {
   get allSelected(): boolean { return this.curriculumCourses.length > 0 && this.curriculumCourses.every(c => c.selected); }
   get totalProgramUnits(): number { return this.curriculumCourses.reduce((s, c) => s + c.credits, 0); }
 
-  ngOnInit(): void { this.loadPendingTors(); }
+  ngOnInit(): void {
+    this.loadPendingTors();
+    this.loadFeeRates();
+  }
+
+  loadFeeRates(): void {
+    this.http.get<any>(`${this.accountingApi}?action=get_fee_config`).subscribe({
+      next: (res) => {
+        if (res.success && res.config?.College) {
+          const c = res.config.College;
+          const find = (key: string) => c.find((r: any) => r.fee_key === key)?.value ?? null;
+          this.feeRates.tuition    = parseFloat(find('tuition_rate_per_unit') ?? 650);
+          this.feeRates.misc       = parseFloat(find('misc_fee')              ?? 6688);
+          this.feeRates.reg        = parseFloat(find('reg_fee')               ?? 700);
+          this.feeRates.labPerRoom = parseFloat(find('lab_fee_per_room')      ?? 1900);
+          this.feeRates.energy     = parseFloat(find('energy_rate_per_unit')  ?? 63);
+          // Store custom (extra) fees for inclusion in fee preview
+          const stdKeys = ['tuition_rate_per_unit','misc_fee','reg_fee','lab_fee_per_room','energy_rate_per_unit','installment_fee'];
+          this.extraFeeConfig = c.filter((r: any) => !stdKeys.includes(r.fee_key));
+        }
+        // Get lab room count from rooms table via registrar
+        this.http.get<any>(`${this.registrarApi}?action=get_lab_room_count`).subscribe({
+          next: (r) => { if (r.success) this.feeRates.labRooms = r.count ?? 4; },
+          error: () => {}
+        });
+        this.updateFeePreview();
+        this.cdr.detectChanges();
+      },
+      error: () => {}
+    });
+  }
 
   // ── Robust PHP response parser ─────────────────────────────────
   // PHP sometimes prepends notices/warnings before the JSON.
@@ -362,9 +397,22 @@ export class TorEvaluation implements OnInit {
     if (!this.selectedTor) { this.recomputedFee = null; return; }
     const u = this.approvedUnits > 0 ? this.approvedUnits : (this.selectedTor.programUnits || 0);
     if (!u) { this.recomputedFee = null; return; }
-    const tf = u * 650, misc = 6688, reg = 700, lab = u * 1900, energy = u * 21 * 3;
-    const sub = tf + misc + reg + lab + energy;
-    this.recomputedFee = { units: u, tuitionFee: tf, miscellaneousFee: misc, registrationFee: reg, laboratoryFee: lab, energyFee: energy, subtotal: sub, totalAssessment: sub };
+    const tf     = u * this.feeRates.tuition;
+    const misc   = this.feeRates.misc;
+    const reg    = this.feeRates.reg;
+    const lab    = this.feeRates.labRooms * this.feeRates.labPerRoom;
+    const energy = u * this.feeRates.energy;
+    // Compute extra (custom) fees
+    const extraFees = this.extraFeeConfig.map(ef => ({
+      fee_key: ef.fee_key,
+      fee_label: ef.fee_label,
+      is_per_unit: ef.is_per_unit,
+      rate: ef.value,
+      amount: ef.value * (ef.is_per_unit ? u : 1),
+    }));
+    const extraTotal = extraFees.reduce((s, ef) => s + ef.amount, 0);
+    const sub    = tf + misc + reg + lab + energy + extraTotal;
+    this.recomputedFee = { units: u, tuitionFee: tf, miscellaneousFee: misc, registrationFee: reg, laboratoryFee: lab, energyFee: energy, extraFees, subtotal: sub, totalAssessment: sub };
   }
 
   submitEvaluation(): void {

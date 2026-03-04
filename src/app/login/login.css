@@ -87,6 +87,22 @@ mat-card-content { padding: 0; }
   background: rgba(102,126,234,0.08) !important;
 }
 
+/* Closed state */
+.enroll-button.enroll-closed {
+  color: #b45309 !important;
+  border-color: #f59e0b !important;
+  background: #fffbeb !important;
+  cursor: not-allowed !important;
+  opacity: 0.85 !important;
+}
+.enroll-closed-hint {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: #b45309;
+  text-align: center;
+  line-height: 1.4;
+}
+
 /* ── Demo Credentials ── */
 .demo-credentials {
   margin-top: 24px; padding: 16px 20px; background: #f5f5f5;
@@ -1159,3 +1175,49 @@ span.optional-tag { font-size: 11px; background: #e2e8f0; padding: 1px 7px; bord
 .dnb-list { margin:0 0 0.75rem 1.2rem; display:flex; flex-direction:column; gap:0.3rem; }
 .dnb-list li { font-size:0.85rem; color:#374151; }
 .dnb-note { font-size:0.8rem; color:#6b7280; background:#eff6ff; border-radius:7px; padding:6px 10px; font-style:italic; }
+
+/* ── Document notice card (non-transferee) ── */
+.dnb-notice-card {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-left: 4px solid #3b82f6;
+  border-radius: 10px;
+  padding: 16px 18px;
+  margin-bottom: 16px;
+}
+.dnb-notice-icon { font-size: 28px; flex-shrink: 0; }
+.dnb-notice-title { font-size: 14px; font-weight: 700; color: #1e40af; margin-bottom: 6px; }
+.dnb-notice-body { font-size: 13px; color: #374151; }
+.dnb-doc-list { margin: 6px 0 0 0; padding-left: 18px; line-height: 2; }
+.dnb-doc-list li { color: #374151; }
+.doc-tag {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 99px;
+  background: #dbeafe;
+  color: #1e40af;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+.doc-tag.optional { background: #fef3c7; color: #92400e; }
+/* ── Enrollment Period Closed Banner ─────────────────────── */
+.ep-closed-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  background: #fff7ed;
+  border: 1.5px solid #fb923c;
+  border-radius: 10px;
+  padding: 16px 20px;
+  margin-bottom: 20px;
+  color: #9a3412;
+}
+.ep-closed-icon { font-size: 22px; line-height: 1; margin-top: 2px; }
+.ep-closed-banner strong { display: block; font-size: 15px; font-weight: 700; margin-bottom: 2px; }
+.ep-closed-banner p { margin: 0; font-size: 13px; line-height: 1.5; }
+.ep-checking { color: #64748b; font-size: 13px; padding: 8px 0; margin-bottom: 12px; }

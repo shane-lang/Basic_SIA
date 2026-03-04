@@ -1,0 +1,202 @@
+<div class="fee-config-wrap">
+
+  <!-- ── Header ──────────────────────────────────────────────────── -->
+  <div class="fc-header">
+    <div class="fc-header-left">
+      <span class="fc-icon">₱</span>
+      <div>
+        <h2 class="fc-title">Fee Configuration</h2>
+        <p class="fc-sub">Changes apply to all new enrollments immediately.</p>
+      </div>
+    </div>
+    <div class="fc-tabs">
+      <button *ngFor="let cat of categories"
+              class="fc-tab" [class.active]="activeCategory === cat"
+              (click)="activeCategory = cat">
+        {{ cat }}
+      </button>
+    </div>
+  </div>
+
+  <!-- ── Alert banner ─────────────────────────────────────────────── -->
+  <div class="fc-alert" *ngIf="alertMsg" [class.error]="alertIsError">
+    <span>{{ alertMsg }}</span>
+    <button (click)="alertMsg = ''">✕</button>
+  </div>
+
+  <!-- ── Fee table ────────────────────────────────────────────────── -->
+  <div class="fc-card" *ngIf="!loading">
+
+    <!-- Category description -->
+    <div class="fc-cat-desc">
+      <ng-container *ngIf="activeCategory === 'College'">
+        <strong>College</strong> — Per-unit tuition + fixed fees. Applies to all BS / AB / BM / BEd programs.
+      </ng-container>
+      <ng-container *ngIf="activeCategory === 'SHS'">
+        <strong>Senior High School</strong> — New / Old students are free (K-12 subsidy). Transferees pay a flat rate.
+      </ng-container>
+      <ng-container *ngIf="activeCategory === 'TVET'">
+        <strong>TVET / Tech-Voc</strong> — NC II / NC III programs are TESDA-funded (free). Diploma programs pay these fees.
+      </ng-container>
+    </div>
+
+    <!-- Live total preview (College only) -->
+    <div class="fc-preview" *ngIf="activeCategory === 'College'">
+      <span class="preview-label">📊 Sample Total — 18 units, full payment</span>
+      <span class="preview-amount">₱{{ calcCollegePreview(18) | number:'1.2-2' }}</span>
+    </div>
+
+    <!-- Fee rows -->
+    <table class="fc-table">
+      <thead>
+        <tr>
+          <th>Fee Name</th>
+          <th>Type</th>
+          <th class="th-rate">Rate (₱)</th>
+          <th>Description</th>
+          <th class="th-actions">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+
+        <tr *ngFor="let row of getRows()" [class.editing]="row.editing">
+
+          <!-- ── View mode ── -->
+          <ng-container *ngIf="!row.editing">
+            <td>
+              <span class="fee-label">{{ row.fee_label }}</span>
+              <span class="fee-key">{{ row.fee_key }}</span>
+            </td>
+            <td>
+              <span class="badge" [class.per-unit]="row.is_per_unit" [class.per-lab]="row.fee_key === 'lab_fee_per_room'" [class.flat-rate]="row.fee_key === 'transferee_flat_rate'">
+                {{ getTypeLabel(row) }}
+              </span>
+            </td>
+            <td class="td-rate">₱{{ row.value | number:'1.2-2' }}</td>
+            <td class="td-desc">{{ row.description || '—' }}</td>
+            <td class="td-actions">
+              <button class="btn-icon btn-edit" (click)="startEdit(row)" title="Edit">✏️</button>
+              <button class="btn-icon btn-del"  (click)="deleteFee(row)" title="Remove"
+                      *ngIf="!isCoreFee(row.fee_key)">🗑️</button>
+            </td>
+          </ng-container>
+
+          <!-- ── Edit mode ── -->
+          <ng-container *ngIf="row.editing">
+            <td>
+              <input class="fc-input" [(ngModel)]="row.editLabel" placeholder="Fee name" />
+            </td>
+            <td>
+              <!-- Locked type: show read-only badge for special fee keys -->
+              <ng-container *ngIf="isTypeLocked(row.fee_key); else editableType">
+                <span class="badge" [class.per-unit]="row.is_per_unit" [class.per-lab]="row.fee_key === 'lab_fee_per_room'" [class.flat-rate]="row.fee_key === 'transferee_flat_rate'">
+                  {{ getTypeLabel(row) }}
+                </span>
+              </ng-container>
+              <!-- Editable type: radio buttons for custom/other core fees -->
+              <ng-template #editableType>
+                <div class="type-radios-inline">
+                  <label class="type-radio-opt" [class.selected]="!row.editPerUnit">
+                    <input type="radio" [name]="'type_' + row.id" [value]="false" [(ngModel)]="row.editPerUnit" />
+                    Fixed
+                  </label>
+                  <label class="type-radio-opt" [class.selected]="row.editPerUnit">
+                    <input type="radio" [name]="'type_' + row.id" [value]="true" [(ngModel)]="row.editPerUnit" />
+                    Per Unit
+                  </label>
+                </div>
+              </ng-template>
+            </td>
+            <td class="td-rate">
+              <input class="fc-input rate-input" type="number" min="0" step="0.01"
+                     [(ngModel)]="row.editValue" placeholder="0.00" />
+            </td>
+            <td>
+              <input class="fc-input" [(ngModel)]="row.editDesc" placeholder="Description" />
+            </td>
+            <td class="td-actions">
+              <button class="btn-icon btn-save"   (click)="saveRow(row)"    [disabled]="saving">{{ saving ? '…' : '✓' }}</button>
+              <button class="btn-icon btn-cancel" (click)="cancelEdit(row)">✕</button>
+            </td>
+          </ng-container>
+
+        </tr>
+
+        <!-- Empty state -->
+        <tr *ngIf="getRows().length === 0">
+          <td colspan="5" class="td-empty">No fees configured for {{ activeCategory }}.</td>
+        </tr>
+
+      </tbody>
+    </table>
+
+    <!-- ── Add new fee form ─────────────────────────────────────── -->
+    <div class="fc-add-section">
+      <button class="btn-toggle-add" (click)="showAddForm = !showAddForm">
+        {{ showAddForm ? '✕ Cancel' : '+ Add Fee' }}
+      </button>
+
+      <div class="fc-add-form" *ngIf="showAddForm">
+        <h4 class="add-title">New Fee — {{ activeCategory }}</h4>
+        <div class="add-grid">
+
+          <div class="add-field">
+            <label>Fee Name *</label>
+            <input class="fc-input" [(ngModel)]="newFee.fee_label" placeholder="e.g. Library Fee" />
+          </div>
+
+          <div class="add-field">
+            <label>Internal Key *</label>
+            <input class="fc-input" [(ngModel)]="newFee.fee_key" placeholder="e.g. library_fee" />
+            <small>Lowercase + underscores only. Auto-generated if left blank.</small>
+          </div>
+
+          <div class="add-field">
+            <label>Amount (₱) *</label>
+            <input class="fc-input" type="number" min="0" step="0.01"
+                   [(ngModel)]="newFee.value" placeholder="0.00" />
+          </div>
+
+          <div class="add-field">
+            <label>Fee Type</label>
+            <div class="fee-type-radios">
+              <label class="radio-option" [class.selected]="!newFee.is_per_unit">
+                <input type="radio" name="feeType" [value]="false" [(ngModel)]="newFee.is_per_unit" />
+                <span class="radio-label">
+                  <strong>Fixed</strong>
+                  <small>Same amount for all students</small>
+                </span>
+              </label>
+              <label class="radio-option" [class.selected]="newFee.is_per_unit">
+                <input type="radio" name="feeType" [value]="true" [(ngModel)]="newFee.is_per_unit" />
+                <span class="radio-label">
+                  <strong>Per Unit</strong>
+                  <small>Amount × enrolled units</small>
+                </span>
+              </label>
+            </div>
+          </div>
+
+          <div class="add-field add-field-full">
+            <label>Description</label>
+            <input class="fc-input" [(ngModel)]="newFee.description" placeholder="Optional description" />
+          </div>
+
+        </div>
+        <div class="add-footer">
+          <button class="btn-primary" (click)="addFee()" [disabled]="saving">
+            {{ saving ? 'Saving…' : 'Add Fee' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /fc-card -->
+
+  <!-- ── Loading spinner ─────────────────────────────────────────── -->
+  <div class="fc-loading" *ngIf="loading">
+    <div class="spinner"></div>
+    <span>Loading fee configuration…</span>
+  </div>
+
+</div>

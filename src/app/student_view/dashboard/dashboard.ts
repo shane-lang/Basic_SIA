@@ -262,21 +262,28 @@ export class StudentDashboard implements OnInit {
     const today = new Date();
     const days: CalendarCell[] = [];
 
-    for (let i = first.getDay() - 1; i >= 0; i--)
-      days.push({ date: new Date(year, month, -i), isCurrentMonth: false, isToday: false, events: [] });
+    // Leading days from previous month (fix: use day-offset from 1, not negative dates)
+    const startDow = first.getDay(); // 0=Sun … 6=Sat
+    for (let i = startDow - 1; i >= 0; i--) {
+      const date = new Date(year, month, 1 - (i + 1));
+      days.push({ date, isCurrentMonth: false, isToday: false, events: [] });
+    }
 
     for (let d = 1; d <= last.getDate(); d++) {
       const date = new Date(year, month, d);
+      // FIX: compare using local YYYY-MM-DD string so timezone doesn't shift the date
+      const ds = this.toDateStr(date);
       days.push({
         date, isCurrentMonth: true,
         isToday: date.toDateString() === today.toDateString(),
-        events: this.events.filter(e => e.event_date === this.toDateStr(date))
+        events: this.events.filter(e => (e.event_date ?? '').slice(0, 10) === ds)
       });
     }
-    while (days.length < 42) {
-      const d = days.length - (last.getDate() + first.getDay() - 1);
-      days.push({ date: new Date(year, month + 1, d), isCurrentMonth: false, isToday: false, events: [] });
-    }
+    // Trailing days from next month
+    let nd = 1;
+    while (days.length < 42)
+      days.push({ date: new Date(year, month + 1, nd++), isCurrentMonth: false, isToday: false, events: [] });
+
     this.calendarDays = days;
   }
 
@@ -293,8 +300,24 @@ export class StudentDashboard implements OnInit {
     return `${this.MONTHS[this.calendarMonth.getMonth()]} ${this.calendarMonth.getFullYear()}`;
   }
   get upcomingEvents(): SchoolEvent[] {
-    const t = this.toDateStr(new Date());
-    return this.events.filter(e => e.event_date >= t).slice(0, 6);
+    // Show events for the currently viewed calendar month (not always from today)
+    const year  = this.calendarMonth.getFullYear();
+    const month = this.calendarMonth.getMonth();
+    const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`;
+    const todayStr = this.toDateStr(new Date());
+    const isCurrentMonth = monthStr === todayStr.slice(0, 7);
+
+    if (isCurrentMonth) {
+      // For current month: show from today onwards
+      return this.events
+        .filter(e => (e.event_date ?? '').slice(0, 10) >= todayStr)
+        .slice(0, 6);
+    } else {
+      // For past/future months: show all events in that month
+      return this.events
+        .filter(e => (e.event_date ?? '').slice(0, 7) === monthStr)
+        .slice(0, 6);
+    }
   }
 
   // ── Helpers ───────────────────────────────────────────────────

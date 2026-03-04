@@ -109,11 +109,14 @@
           <!-- SHS / TVET Transferee — flat rate only -->
           <ng-container *ngIf="isSHS || isTVET; else collegeFeeRows">
             <div class="fp-row"><span>{{ isSHS ? 'SHS' : 'TVET' }} Flat Rate</span><span>₱{{ feePreview.tuitionFee | number:'1.2-2' }}</span></div>
+            <div class="fp-row" *ngFor="let ef of (feePreview.extraFees || [])">
+              <span>{{ ef.fee_label }}</span><span>₱{{ ef.amount | number:'1.2-2' }}</span>
+            </div>
             <div class="fp-row fp-discount" *ngIf="feePreview.discount > 0">
               <span>🎓 Scholarship Discount</span><span class="text-green">– ₱{{ feePreview.discount | number:'1.2-2' }}</span>
             </div>
             <div class="fp-row fp-installment" *ngIf="paymentPlan === 'installment'">
-              <span>Installment Fee</span><span>₱750.00</span>
+              <span>Installment Fee</span><span>₱{{ feePreview.installmentFee | number:'1.2-2' }}</span>
             </div>
             <div class="fp-row fp-total"><span><strong>TOTAL ASSESSMENT</strong></span><span><strong>₱{{ feePreview.totalAssessment | number:'1.2-2' }}</strong></span></div>
           </ng-container>
@@ -121,11 +124,15 @@
           <!-- College — full breakdown -->
           <ng-template #collegeFeeRows>
             <div class="fp-row"><span>No. of Units</span><span>{{ feePreview.units }}</span></div>
-            <div class="fp-row"><span>Tuition Fee ({{ feePreview.units }} × ₱650)</span><span>₱{{ feePreview.tuitionFee | number:'1.2-2' }}</span></div>
+            <div class="fp-row"><span>Tuition Fee ({{ feePreview.units }} units × ₱{{ feePreview.units > 0 ? (feePreview.tuitionFee / feePreview.units | number:'1.2-2') : '650.00' }})</span><span>₱{{ feePreview.tuitionFee | number:'1.2-2' }}</span></div>
             <div class="fp-row"><span>Miscellaneous Fee</span><span>₱{{ feePreview.miscellaneousFee | number:'1.2-2' }}</span></div>
             <div class="fp-row"><span>Registration Fee</span><span>₱{{ feePreview.registrationFee | number:'1.2-2' }}</span></div>
-            <div class="fp-row"><span>Laboratory Fee (lab subjects × ₱1,900)</span><span>₱{{ feePreview.laboratoryFee | number:'1.2-2' }}</span></div>
-            <div class="fp-row"><span>Energy Fee ({{ feePreview.units }} × ₱21 × 3)</span><span>₱{{ feePreview.energyFee | number:'1.2-2' }}</span></div>
+            <div class="fp-row"><span>Laboratory Fee (lab rooms × ₱{{ feePreview.laboratoryFee > 0 ? (feePreview.laboratoryFee | number:'1.0-0') : '0' }})</span><span>₱{{ feePreview.laboratoryFee | number:'1.2-2' }}</span></div>
+            <div class="fp-row"><span>Energy Fee ({{ feePreview.units }} units × ₱{{ feePreview.units > 0 ? (feePreview.energyFee / feePreview.units | number:'1.2-2') : '63.00' }})</span><span>₱{{ feePreview.energyFee | number:'1.2-2' }}</span></div>
+            <div class="fp-row" *ngFor="let ef of (feePreview.extraFees || [])">
+              <span>{{ ef.fee_label }}<ng-container *ngIf="ef.is_per_unit"> ({{ feePreview.units }} units × ₱{{ ef.rate | number:'1.2-2' }})</ng-container></span>
+              <span>₱{{ ef.amount | number:'1.2-2' }}</span>
+            </div>
             <div class="fp-row fp-subtotal"><span>Subtotal</span><span>₱{{ feePreview.subtotal | number:'1.2-2' }}</span></div>
             <div class="fp-row fp-discount" *ngIf="feePreview.discount > 0">
               <span>🎓 Scholarship Discount</span><span class="text-green">– ₱{{ feePreview.discount | number:'1.2-2' }}</span>
@@ -216,11 +223,14 @@
           <!-- SHS / TVET Transferee — flat rate only -->
           <ng-container *ngIf="isSHS || isTVET; else collegeFeeRowsCash">
             <div class="fp-row"><span>{{ isSHS ? 'SHS' : 'TVET' }} Flat Rate</span><span>₱{{ feePreview.tuitionFee | number:'1.2-2' }}</span></div>
+            <div class="fp-row" *ngFor="let ef of (feePreview.extraFees || [])">
+              <span>{{ ef.fee_label }}</span><span>₱{{ ef.amount | number:'1.2-2' }}</span>
+            </div>
             <div class="fp-row fp-discount" *ngIf="feePreview.discount > 0">
               <span>🎓 Scholarship Discount</span><span class="text-green">– ₱{{ feePreview.discount | number:'1.2-2' }}</span>
             </div>
             <div class="fp-row fp-installment" *ngIf="paymentPlan === 'installment'">
-              <span>Installment Fee</span><span>₱750.00</span>
+              <span>Installment Fee</span><span>₱{{ feePreview.installmentFee | number:'1.2-2' }}</span>
             </div>
             <div class="fp-row fp-total"><span><strong>TOTAL ASSESSMENT</strong></span><span><strong>₱{{ feePreview.totalAssessment | number:'1.2-2' }}</strong></span></div>
           </ng-container>
@@ -228,17 +238,21 @@
           <!-- College — full breakdown -->
           <ng-template #collegeFeeRowsCash>
             <div class="fp-row"><span>No. of Units</span><span>{{ feePreview.units }}</span></div>
-            <div class="fp-row"><span>Tuition Fee ({{ feePreview.units }} × ₱650)</span><span>₱{{ feePreview.tuitionFee | number:'1.2-2' }}</span></div>
+            <div class="fp-row"><span>Tuition Fee ({{ feePreview.units }} units × ₱{{ feePreview.units > 0 ? (feePreview.tuitionFee / feePreview.units | number:'1.2-2') : '650.00' }})</span><span>₱{{ feePreview.tuitionFee | number:'1.2-2' }}</span></div>
             <div class="fp-row"><span>Miscellaneous Fee</span><span>₱{{ feePreview.miscellaneousFee | number:'1.2-2' }}</span></div>
             <div class="fp-row"><span>Registration Fee</span><span>₱{{ feePreview.registrationFee | number:'1.2-2' }}</span></div>
             <div class="fp-row"><span>Laboratory Fee</span><span>₱{{ feePreview.laboratoryFee | number:'1.2-2' }}</span></div>
-            <div class="fp-row"><span>Energy Fee ({{ feePreview.units }} × ₱21 × 3)</span><span>₱{{ feePreview.energyFee | number:'1.2-2' }}</span></div>
+            <div class="fp-row"><span>Energy Fee ({{ feePreview.units }} units × ₱{{ feePreview.units > 0 ? (feePreview.energyFee / feePreview.units | number:'1.2-2') : '63.00' }})</span><span>₱{{ feePreview.energyFee | number:'1.2-2' }}</span></div>
+            <div class="fp-row" *ngFor="let ef of (feePreview.extraFees || [])">
+              <span>{{ ef.fee_label }}<ng-container *ngIf="ef.is_per_unit"> ({{ feePreview.units }} units × ₱{{ ef.rate | number:'1.2-2' }})</ng-container></span>
+              <span>₱{{ ef.amount | number:'1.2-2' }}</span>
+            </div>
             <div class="fp-row fp-subtotal"><span>Subtotal</span><span>₱{{ feePreview.subtotal | number:'1.2-2' }}</span></div>
             <div class="fp-row fp-discount" *ngIf="feePreview.discount > 0">
               <span>🎓 Scholarship Discount</span><span class="text-green">– ₱{{ feePreview.discount | number:'1.2-2' }}</span>
             </div>
             <div class="fp-row fp-installment" *ngIf="paymentPlan === 'installment'">
-              <span>Installment Fee</span><span>₱750.00</span>
+              <span>Installment Fee</span><span>₱{{ feePreview.installmentFee | number:'1.2-2' }}</span>
             </div>
             <div class="fp-row fp-total"><span><strong>TOTAL ASSESSMENT</strong></span><span><strong>₱{{ feePreview.totalAssessment | number:'1.2-2' }}</strong></span></div>
           </ng-template>
@@ -252,7 +266,7 @@
             <div class="is-header"><span>Period</span><span>Amount Due</span><span>When</span></div>
             <div class="is-row dp">
               <span>⬇️ <strong>Downpayment (DP)</strong></span>
-              <span class="is-amount">₱{{ dpAmount | number:'1.2-2' }}</span>
+              <span class="is-amount">₱{{ dpAmount | number:'1.2-2' }} <small style="font-weight:400;font-size:10px;color:#6b7280;">(suggested)</small></span>
               <span class="is-badge">Pay now — upon enrollment</span>
             </div>
             <div class="is-row prelim">
@@ -276,7 +290,7 @@
               <span></span>
             </div>
           </div>
-          <div class="inst-note">⚠️ Go to Accounting to pay the <strong>Downpayment first</strong>. Each term must be paid before the corresponding exam.</div>
+          <div class="inst-note">⚠️ Go to Accounting to pay the <strong>Downpayment first</strong>. You may pay <strong>any amount</strong> for the DP — remaining term dues will automatically adjust to cover the balance. Each term must be paid before the corresponding exam.</div>
         </div>
       </div>
       <div class="cash-steps">
@@ -537,6 +551,10 @@
               <tr><td>Registration Fee</td><td>{{ feeBreakdown.registrationFee | number:'1.2-2' }}</td></tr>
               <tr><td>NSTP Fee</td><td></td></tr>
               <tr><td>ENERGY FEE</td><td>{{ feeBreakdown.energyFee | number:'1.2-2' }}</td></tr>
+              <tr *ngFor="let ef of (feeBreakdown.extraFees || [])">
+                <td>{{ ef.fee_label }}<ng-container *ngIf="ef.is_per_unit"> ({{ feeBreakdown.units }} units × ₱{{ ef.rate | number:'1.2-2' }})</ng-container></td>
+                <td>{{ ef.amount | number:'1.2-2' }}</td>
+              </tr>
               <tr><td>Supervision Fee</td><td></td></tr>
               <tr><td class="soa-indent"># of laboratory</td><td></td></tr>
               <tr><td>Laboratory Fees:</td><td>{{ feeBreakdown.laboratoryFee | number:'1.2-2' }}</td></tr>

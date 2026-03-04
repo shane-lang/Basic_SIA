@@ -408,13 +408,14 @@
         <div *ngIf="isCash(selectedPayment)" class="am-cash-box">
           <div class="am-cash-title">💵 Enter Amount Received at Cashier</div>
           <div *ngIf="selectedPayment.paymentPlan === 'installment'" class="am-cash-due">
-            Due for <strong>{{ selectedPayment.examPeriod || 'Downpayment' }}</strong>:
+            Scheduled due for <strong>{{ selectedPayment.examPeriod || 'Downpayment' }}</strong>:
             <strong class="am-cash-due-amt">₱{{ formatAmount(
               selectedPayment.examPeriod === 'Prelim'  ? (selectedPayment.scheduleAmounts?.prelim   ?? 0) :
               selectedPayment.examPeriod === 'Midterm' ? (selectedPayment.scheduleAmounts?.midterm  ?? 0) :
               selectedPayment.examPeriod === 'Finals'  ? (selectedPayment.scheduleAmounts?.finals   ?? 0) :
               (selectedPayment.scheduleAmounts?.downpayment ?? 0)
             ) }}</strong>
+            <span class="am-cash-due-hint"> — any amount accepted</span>
           </div>
           <div class="am-cash-fields">
             <div class="form-group">

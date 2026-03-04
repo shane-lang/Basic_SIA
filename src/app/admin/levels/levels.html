@@ -12,12 +12,17 @@
       <div class="page-icon">🎓</div>
       <div>
         <h1>Year Levels & Programs</h1>
-        <p class="page-sub">Manage college degree programs and SHS strands with their offered courses</p>
+        <p class="page-sub">Manage college degree programs, SHS strands, and TVET offerings</p>
       </div>
     </div>
-    <button class="btn-add" (click)="openAdd()">
-      <span>＋</span> Add Program
-    </button>
+    <div class="header-actions">
+      <button class="btn-manage-dept" (click)="openDeptManager()" title="Manage Departments / Strands / Program Types">
+        ⚙️ Manage Departments
+      </button>
+      <button class="btn-add" (click)="openAdd()">
+        <span>＋</span> Add Program
+      </button>
+    </div>
   </div>
 
   <!-- Stats Row -->
@@ -30,7 +35,6 @@
       <span class="stat-val">{{ collegePrograms.length }}</span>
       <span class="stat-lbl">College</span>
     </div>
-
     <div class="stat-item stat-shs">
       <span class="stat-val">{{ shsPrograms.length }}</span>
       <span class="stat-lbl">SHS Strands</span>
@@ -42,6 +46,10 @@
     <div class="stat-item stat-courses">
       <span class="stat-val">{{ allCourses.length }}</span>
       <span class="stat-lbl">Total Courses</span>
+    </div>
+    <div class="stat-item stat-dept">
+      <span class="stat-val">{{ deptEntries.length }}</span>
+      <span class="stat-lbl">Dept / Strands</span>
     </div>
   </div>
 
@@ -82,8 +90,12 @@
             {{ p.level_type === 'College' ? '🏫 College' : p.level_type === 'SHS' ? '📗 SHS' : '🔧 TVET' }}
           </span>
           <span class="prog-dur-badge">{{ p.duration }} year{{ p.duration > 1 ? 's' : '' }}</span>
+          <span *ngIf="p.department" class="prog-dept-badge">
+            {{ p.level_type === 'College' ? '🏢' : p.level_type === 'SHS' ? '📌' : '⚙️' }} {{ p.department }}
+          </span>
         </div>
         <div class="prog-card-actions">
+          <button class="btn-action btn-curr-sm" (click)="openCurriculum(p)" title="View Curriculum">📋</button>
           <button class="btn-action btn-edit-sm"  (click)="openEdit(p)" title="Edit">✏️</button>
           <button class="btn-action btn-del-sm"   (click)="confirmDelete(p)" title="Delete">🗑️</button>
         </div>
@@ -99,139 +111,609 @@
           <span>📚 Courses Offered</span>
           <span class="course-count-badge">{{ p.course_ids.length }}</span>
         </div>
-        <div *ngIf="!p.course_ids.length" class="no-courses">No courses assigned yet.</div>
-        <div *ngIf="p.course_ids.length > 0" class="prog-course-chips">
-          <span class="prog-course-chip" *ngFor="let c of getCoursesByProgram(p).slice(0,5)">
-            {{ c.code }}
-          </span>
-          <span class="prog-course-chip chip-more" *ngIf="p.course_ids.length > 5">
+        <div *ngIf="p.course_ids.length === 0" class="no-courses">No courses assigned.</div>
+        <div *ngIf="p.course_ids.length > 0" class="course-tags">
+          <span class="course-tag" *ngFor="let c of getCoursesByProgram(p).slice(0, 5)">{{ c.code }}</span>
+          <span *ngIf="p.course_ids.length > 5" class="course-tag course-tag-more">
             +{{ p.course_ids.length - 5 }} more
           </span>
         </div>
       </div>
-
     </div>
   </div>
 
-</div>
 
-<!-- ── Add / Edit Program Modal ── -->
-<div class="modal-bg" *ngIf="showModal" (click)="closeModal()">
-  <div class="modal-box modal-lg" (click)="$event.stopPropagation()">
-    <div class="modal-head">
-      <h2>{{ isEditing ? '✏️ Edit Program' : '➕ Add Program / Strand' }}</h2>
-      <button class="modal-x" (click)="closeModal()">✕</button>
+  <!-- ════════════════════════════════════════════════════════
+       DEPARTMENT / STRAND / PROGRAM TYPE MANAGER MODAL
+  ═════════════════════════════════════════════════════════ -->
+  <div class="modal-backdrop" *ngIf="showDeptModal" (click)="closeDeptModal()"></div>
+  <div class="modal-wrap dept-modal" *ngIf="showDeptModal">
+
+    <!-- Header -->
+    <div class="modal-header dept-header">
+      <div class="modal-header-left">
+        <span class="modal-header-icon">⚙️</span>
+        <div>
+          <h2>Manage Departments / Strands</h2>
+          <p class="modal-header-sub">Add or remove departments, SHS strands, and TVET program types</p>
+        </div>
+      </div>
+      <button class="modal-close" (click)="closeDeptModal()">✕</button>
     </div>
-    <div class="modal-body">
-      <!-- Level Type Toggle -->
-      <div class="level-toggle-group">
-        <button class="level-toggle" [class.active]="form.level_type==='College'"
-                (click)="form.level_type='College'; onLevelChange()">🏫 College Degree</button>
-        <button class="level-toggle" [class.active]="form.level_type==='SHS'"
-                (click)="form.level_type='SHS'; onLevelChange()">📗 SHS Strand</button>
-        <button class="level-toggle" [class.active]="form.level_type==='TVET'"
-                (click)="form.level_type='TVET'; onLevelChange()">🔧 TVET</button>
+
+    <!-- Tabs inside dept modal -->
+    <div class="dept-tabs">
+      <button class="dept-tab" [class.dept-tab-college]="deptModalTab==='College'"
+              [class.dept-tab-active]="deptModalTab==='College'"
+              (click)="deptModalTab='College'; newDeptLabel=''">
+        🏫 College Departments
+        <span class="dept-tab-count">{{ collegeDepts.length }}</span>
+      </button>
+      <button class="dept-tab" [class.dept-tab-shs]="deptModalTab==='SHS'"
+              [class.dept-tab-active]="deptModalTab==='SHS'"
+              (click)="deptModalTab='SHS'; newDeptLabel=''">
+        📗 SHS Strands
+        <span class="dept-tab-count">{{ shsStrands.length }}</span>
+      </button>
+      <button class="dept-tab" [class.dept-tab-tvet]="deptModalTab==='TVET'"
+              [class.dept-tab-active]="deptModalTab==='TVET'"
+              (click)="deptModalTab='TVET'; newDeptLabel=''">
+        🔧 TVET Program Types
+        <span class="dept-tab-count">{{ tvetProgTypes.length }}</span>
+      </button>
+    </div>
+
+    <div class="dept-modal-body">
+
+      <!-- Add new entry row -->
+      <div class="dept-add-row">
+        <div class="dept-add-label">
+          <span *ngIf="deptModalTab==='College'">New Department</span>
+          <span *ngIf="deptModalTab==='SHS'">New Strand</span>
+          <span *ngIf="deptModalTab==='TVET'">New Program Type</span>
+        </div>
+        <div class="dept-add-input-row">
+          <input
+            class="dept-input"
+            [(ngModel)]="newDeptLabel"
+            [placeholder]="deptPlaceholder(deptModalTab)"
+            (keyup.enter)="addDeptEntry()"
+          />
+          <button class="dept-add-btn"
+                  [class.dept-add-btn-college]="deptModalTab==='College'"
+                  [class.dept-add-btn-shs]="deptModalTab==='SHS'"
+                  [class.dept-add-btn-tvet]="deptModalTab==='TVET'"
+                  (click)="addDeptEntry()" [disabled]="isDeptSaving">
+            + Add
+          </button>
+        </div>
       </div>
 
-      <div class="form-row two-col">
+      <!-- Existing entries -->
+      <div class="dept-list-header">
+        <span>Existing {{ deptLabel(deptModalTab) }}s</span>
+        <span class="dept-list-count">
+          {{ (deptModalTab==='College' ? collegeDepts : deptModalTab==='SHS' ? shsStrands : tvetProgTypes).length }} entries
+        </span>
+      </div>
+
+      <!-- College -->
+      <div *ngIf="deptModalTab==='College'">
+        <div *ngIf="collegeDepts.length === 0" class="dept-empty">No departments yet. Add one above.</div>
+        <div class="dept-list">
+          <div class="dept-entry dept-entry-college" *ngFor="let d of collegeDepts">
+            <span class="dept-entry-icon">🏢</span>
+            <ng-container *ngIf="editingDeptId === d.id; else viewCollegeMode">
+              <input class="dept-edit-input" [(ngModel)]="editingDeptLabel"
+                     (keydown.enter)="saveEditDept()" (keydown.escape)="cancelEditDept()"
+                     placeholder="Department name" autofocus />
+              <button class="dept-save-btn" (click)="saveEditDept()" title="Save">✅</button>
+              <button class="dept-cancel-btn" (click)="cancelEditDept()" title="Cancel">❌</button>
+            </ng-container>
+            <ng-template #viewCollegeMode>
+              <span class="dept-entry-label">{{ d.label }}</span>
+              <button class="dept-edit-btn" (click)="startEditDept(d)" title="Edit">✏️</button>
+              <button class="dept-del-btn" (click)="confirmDeleteDept(d)" title="Remove">🗑️</button>
+            </ng-template>
+          </div>
+        </div>
+      </div>
+
+      <!-- SHS -->
+      <div *ngIf="deptModalTab==='SHS'">
+        <div *ngIf="shsStrands.length === 0" class="dept-empty">No strands yet. Add one above.</div>
+        <div class="dept-list">
+          <div class="dept-entry dept-entry-shs" *ngFor="let d of shsStrands">
+            <span class="dept-entry-icon">📌</span>
+            <ng-container *ngIf="editingDeptId === d.id; else viewShsMode">
+              <input class="dept-edit-input" [(ngModel)]="editingDeptLabel"
+                     (keydown.enter)="saveEditDept()" (keydown.escape)="cancelEditDept()"
+                     placeholder="Strand name" autofocus />
+              <button class="dept-save-btn" (click)="saveEditDept()" title="Save">✅</button>
+              <button class="dept-cancel-btn" (click)="cancelEditDept()" title="Cancel">❌</button>
+            </ng-container>
+            <ng-template #viewShsMode>
+              <span class="dept-entry-label">{{ d.label }}</span>
+              <button class="dept-edit-btn" (click)="startEditDept(d)" title="Edit">✏️</button>
+              <button class="dept-del-btn" (click)="confirmDeleteDept(d)" title="Remove">🗑️</button>
+            </ng-template>
+          </div>
+        </div>
+      </div>
+
+      <!-- TVET -->
+      <div *ngIf="deptModalTab==='TVET'">
+        <div *ngIf="tvetProgTypes.length === 0" class="dept-empty">No program types yet. Add one above.</div>
+        <div class="dept-list">
+          <div class="dept-entry dept-entry-tvet" *ngFor="let d of tvetProgTypes">
+            <span class="dept-entry-icon">⚙️</span>
+            <ng-container *ngIf="editingDeptId === d.id; else viewTvetMode">
+              <input class="dept-edit-input" [(ngModel)]="editingDeptLabel"
+                     (keydown.enter)="saveEditDept()" (keydown.escape)="cancelEditDept()"
+                     placeholder="Program type name" autofocus />
+              <button class="dept-save-btn" (click)="saveEditDept()" title="Save">✅</button>
+              <button class="dept-cancel-btn" (click)="cancelEditDept()" title="Cancel">❌</button>
+            </ng-container>
+            <ng-template #viewTvetMode>
+              <span class="dept-entry-label">{{ d.label }}</span>
+              <button class="dept-edit-btn" (click)="startEditDept(d)" title="Edit">✏️</button>
+              <button class="dept-del-btn" (click)="confirmDeleteDept(d)" title="Remove">🗑️</button>
+            </ng-template>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="dept-modal-footer">
+      <p class="dept-modal-note">
+        💡 These {{ deptLabel(deptModalTab) }}s appear as dropdown options when creating or editing programs.
+      </p>
+      <button class="btn-done" (click)="closeDeptModal()">Done</button>
+    </div>
+  </div>
+
+  <!-- Confirm Delete Dept -->
+  <div class="modal-backdrop" *ngIf="showDeleteDeptModal" (click)="cancelDeleteDept()"></div>
+  <div class="modal-wrap delete-modal" *ngIf="showDeleteDeptModal">
+    <div class="delete-icon">🗑️</div>
+    <h3>Remove Entry?</h3>
+    <p>Remove <strong>{{ deleteDeptTarget?.label }}</strong>?<br>Programs already assigned to this department will have their department cleared.</p>
+    <div class="delete-actions">
+      <button class="btn-cancel-del" (click)="cancelDeleteDept()" [disabled]="isDeletingDept">Cancel</button>
+      <button class="btn-confirm-del" (click)="doDeleteDept()" [disabled]="isDeletingDept">
+        {{ isDeletingDept ? 'Deleting…' : 'Remove' }}
+      </button>
+    </div>
+  </div>
+
+
+
+
+
+
+
+
+
+  </div>
+
+
+  <!-- ════════════════════════════════════════════════════════
+       ADD / EDIT PROGRAM MODAL
+  ═════════════════════════════════════════════════════════ -->
+  <div class="modal-backdrop" *ngIf="showModal" (click)="closeModal()"></div>
+  <div class="modal-wrap" *ngIf="showModal">
+
+    <div class="modal-header">
+      <div class="modal-header-left">
+        <span class="modal-header-icon">{{ isEditing ? '✏️' : '＋' }}</span>
+        <h2>{{ isEditing ? 'Edit Program / Strand' : 'Add Program / Strand' }}</h2>
+      </div>
+      <button class="modal-close" (click)="closeModal()">✕</button>
+    </div>
+
+    <!-- Level Type Tabs -->
+    <div class="modal-level-tabs">
+      <button class="mlvl-tab" [class.mlvl-college]="form.level_type==='College'" (click)="form.level_type='College'; onLevelChange()">
+        🏫 College Degree
+      </button>
+      <button class="mlvl-tab" [class.mlvl-shs]="form.level_type==='SHS'" (click)="form.level_type='SHS'; onLevelChange()">
+        📗 SHS Strand
+      </button>
+      <button class="mlvl-tab" [class.mlvl-tvet]="form.level_type==='TVET'" (click)="form.level_type='TVET'; onLevelChange()">
+        🔧 TVET
+      </button>
+    </div>
+
+    <div class="modal-body">
+
+      <!-- Row 1: Code + Duration -->
+      <div class="form-row">
         <div class="form-group">
-          <label>Program Code <span class="req">*</span></label>
-          <input class="form-ctrl" type="text" [(ngModel)]="form.code"
-                 [placeholder]="form.level_type === 'College' ? 'e.g. BSIT' : 'e.g. STEM'"
-                 style="text-transform:uppercase">
+          <label class="form-label">Program Code <span class="req">*</span></label>
+          <input class="form-input" [(ngModel)]="form.code" placeholder="E.g. BSIT" />
         </div>
         <div class="form-group">
-          <label>Duration (Years)</label>
-          <select class="form-ctrl" [(ngModel)]="form.duration">
+          <label class="form-label">Duration (Years)</label>
+          <select class="form-input" [(ngModel)]="form.duration">
+            <option [value]="1">1 Year</option>
             <option [value]="2">2 Years (SHS)</option>
+            <option [value]="3">3 Years</option>
             <option [value]="4">4 Years (College)</option>
             <option [value]="5">5 Years</option>
           </select>
         </div>
       </div>
+
+      <!-- Program Name -->
       <div class="form-group">
-        <label>Program Name <span class="req">*</span></label>
-        <input class="form-ctrl" type="text" [(ngModel)]="form.name"
-               [placeholder]="form.level_type === 'College' ? 'e.g. BS Information Technology' : 'e.g. STEM Strand'">
-      </div>
-      <div class="form-group">
-        <label>Description</label>
-        <textarea class="form-ctrl" rows="2" [(ngModel)]="form.description"
-                  placeholder="Brief description of this program…"></textarea>
-      </div>
-      <div class="form-group">
-        <label>Department / Track</label>
-        <input class="form-ctrl" type="text" [(ngModel)]="form.department"
-               placeholder="e.g. Information and Communication Technology, Academic Track">
-        <small style="color:#9ca3af;font-size:0.75rem;margin-top:4px;display:block;">Used to group programs in the enrollment wizard</small>
+        <label class="form-label">Program Name <span class="req">*</span></label>
+        <input class="form-input" [(ngModel)]="form.name" placeholder="e.g. BS Information Technology" />
       </div>
 
-      <!-- Course Selection -->
+      <!-- Description -->
       <div class="form-group">
-        <label>Courses / Subjects Offered
+        <label class="form-label">Description</label>
+        <textarea class="form-input form-textarea" [(ngModel)]="form.description"
+                  placeholder="Brief description of this program…"></textarea>
+      </div>
+
+      <!-- Department / Strand / Program Type DROPDOWN -->
+      <div class="form-group">
+        <label class="form-label">
+          {{ deptLabel(form.level_type!) }}
+          <span class="dept-manage-link" (click)="closeDeptModal(); openDeptManager()">
+            ⚙️ Manage {{ deptLabel(form.level_type!) }}s
+          </span>
+        </label>
+
+        <!-- Dropdown from deptEntries -->
+        <select class="form-input dept-select"
+                [(ngModel)]="form.department"
+                [class.dept-select-college]="form.level_type==='College'"
+                [class.dept-select-shs]="form.level_type==='SHS'"
+                [class.dept-select-tvet]="form.level_type==='TVET'">
+          <option value="">— Select {{ deptLabel(form.level_type!) }} —</option>
+          <option *ngFor="let d of currentDeptOptions" [value]="d.label">{{ d.label }}</option>
+        </select>
+
+        <p class="form-hint" *ngIf="currentDeptOptions.length === 0">
+          No {{ deptLabel(form.level_type!) }}s found.
+          <span class="dept-manage-link" (click)="openDeptManager()">Add one here →</span>
+        </p>
+        <p class="form-hint" *ngIf="currentDeptOptions.length > 0">
+          Used to group programs in the enrollment wizard.
+          <span class="dept-manage-link" (click)="openDeptManager()">Manage {{ deptLabel(form.level_type!) }}s →</span>
+        </p>
+      </div>
+
+      <!-- Courses / Subjects — trigger button -->
+      <div class="form-group">
+        <label class="form-label">
+          Courses / Subjects Offered
           <span class="selected-count-badge" *ngIf="form.course_ids.length > 0">
             {{ form.course_ids.length }} selected
           </span>
         </label>
-        <div class="course-picker">
-          <div class="course-picker-search">
-            <span>🔍</span>
-            <input type="text" [(ngModel)]="courseSearch" placeholder="Search courses…">
-          </div>
-          <div class="course-picker-list">
-            <div class="course-picker-item" *ngFor="let c of filteredCourseSearch"
-                 [class.selected]="isSelected(c.id)"
-                 (click)="toggleCourse(c.id)">
-              <div class="picker-check">{{ isSelected(c.id) ? '✓' : '' }}</div>
-              <div class="picker-info">
-                <span class="picker-code">{{ c.code }}</span>
-                <span class="picker-name">{{ c.name }}</span>
-              </div>
-              <span class="picker-units">{{ c.credits }}u</span>
-            </div>
-            <div *ngIf="filteredCourseSearch.length === 0" class="picker-empty">
-              No courses match your search.
-            </div>
-          </div>
-        </div>
 
-        <!-- Selected chips -->
-        <div class="selected-chips" *ngIf="form.course_ids.length > 0">
-          <div class="sel-chip" *ngFor="let id of form.course_ids">
-            {{ getCourseName(id) }}
-            <button class="chip-x" (click)="toggleCourse(id)">×</button>
+        <button type="button" class="picker-trigger-btn" (click)="openCoursePicker()">
+          <span class="picker-trigger-icon">📚</span>
+          <span *ngIf="form.course_ids.length === 0">Browse &amp; Select Courses…</span>
+          <span *ngIf="form.course_ids.length > 0">Edit Course Selection ({{ form.course_ids.length }} courses)</span>
+          <span class="picker-trigger-arrow">›</span>
+        </button>
+
+        <!-- Selected course summary cards -->
+        <div *ngIf="form.course_ids.length > 0" class="selected-summary">
+          <div class="selected-summary-item" *ngFor="let c of selectedCourses">
+            <span class="ss-code">{{ c.code }}</span>
+            <span class="ss-name">{{ c.name }}</span>
+            <span class="ss-units">{{ c.credits }}u</span>
+            <button class="ss-remove" (click)="toggleCourse(c.id)" title="Remove">✕</button>
           </div>
         </div>
       </div>
+
     </div>
-    <div class="modal-foot">
+
+    <div class="modal-footer">
       <button class="btn-cancel" (click)="closeModal()">Cancel</button>
       <button class="btn-save" (click)="save()" [disabled]="isSaving">
-        {{ isSaving ? 'Saving…' : (isEditing ? '💾 Update Program' : '✅ Create Program') }}
+        <span *ngIf="!isSaving">{{ isEditing ? '💾 Save Changes' : '✅ Create Program' }}</span>
+        <span *ngIf="isSaving" class="saving-text">⏳ Saving…</span>
       </button>
     </div>
   </div>
-</div>
 
-<!-- ── Delete Confirm ── -->
-<div class="modal-bg" *ngIf="showDeleteModal" (click)="closeDeleteModal()">
-  <div class="modal-box modal-sm" (click)="$event.stopPropagation()">
-    <div class="modal-head danger-head">
-      <h2>🗑️ Delete Program</h2>
-      <button class="modal-x" (click)="closeDeleteModal()">✕</button>
+
+  <!-- ════════════════════════════════════════════════════════
+       COURSE PICKER MODAL
+  ═════════════════════════════════════════════════════════ -->
+  <div class="modal-backdrop picker-backdrop" *ngIf="showPickerModal" (click)="closeCoursePicker()"></div>
+  <div class="picker-modal" *ngIf="showPickerModal">
+
+    <!-- Header -->
+    <div class="picker-header">
+      <div class="picker-header-left">
+        <span class="picker-header-icon">📚</span>
+        <div>
+          <h2>Select Courses / Subjects</h2>
+          <p class="picker-header-sub">{{ form.course_ids.length }} selected  •  {{ pickerFilteredCourses.length }} shown  •  {{ allCourses.length }} total</p>
+        </div>
+      </div>
+      <button class="modal-close" (click)="closeCoursePicker()">✕</button>
     </div>
-    <div class="modal-body" *ngIf="deleteTarget">
-      <div class="danger-info">
-        <p>Delete this program permanently?</p>
-        <strong>{{ deleteTarget.code }} — {{ deleteTarget.name }}</strong>
-        <p class="danger-warn">⚠️ All course assignments for this program will be removed.</p>
+
+    <!-- Filter toolbar -->
+    <div class="picker-toolbar">
+      <div class="picker-search-wrap">
+        <span>🔍</span>
+        <input class="picker-search-input" [(ngModel)]="pickerSearch"
+               placeholder="Search code, name, program…" />
+        <button *ngIf="pickerSearch" class="picker-clear-btn" (click)="pickerSearch=''">✕</button>
+      </div>
+
+      <select class="picker-filter-sel" [(ngModel)]="pickerFilterYear">
+        <option value="">All Year Levels</option>
+        <option *ngFor="let y of pickerYearOptions" [value]="y">{{ y }}</option>
+      </select>
+
+      <select class="picker-filter-sel" [(ngModel)]="pickerFilterSem">
+        <option value="">All Semesters</option>
+        <option value="1st Semester">1st Semester</option>
+        <option value="2nd Semester">2nd Semester</option>
+      </select>
+
+      <select class="picker-filter-sel" [(ngModel)]="pickerFilterDept">
+        <option value="">All Departments</option>
+        <option *ngFor="let d of pickerDeptOptions" [value]="d">{{ d }}</option>
+      </select>
+
+      <div class="picker-bulk-btns">
+        <button class="picker-bulk-btn picker-select-all" (click)="selectAllFiltered()"
+                title="Select all {{ pickerFilteredCourses.length }} shown">
+          ✓ All
+        </button>
+        <button class="picker-bulk-btn picker-desel-all" (click)="deselectAllFiltered()"
+                title="Deselect all shown">
+          ✗ None
+        </button>
       </div>
     </div>
-    <div class="modal-foot">
-      <button class="btn-cancel" (click)="closeDeleteModal()">Cancel</button>
-      <button class="btn-danger" (click)="doDelete()" [disabled]="isDeleting">
-        {{ isDeleting ? 'Deleting…' : '🗑️ Delete' }}
+
+    <!-- Course list body -->
+    <div class="picker-body">
+
+      <div class="picker-empty" *ngIf="pickerFilteredCourses.length === 0">
+        <span style="font-size:2rem">🔍</span>
+        <p>No courses match your filters.</p>
+      </div>
+
+      <div class="picker-course-row"
+           *ngFor="let c of pickerFilteredCourses"
+           [class.picker-row-selected]="isSelected(c.id)"
+           (click)="toggleCourse(c.id)">
+
+        <div class="picker-checkbox">
+          <div class="picker-check-box" [class.checked]="isSelected(c.id)">
+            <span *ngIf="isSelected(c.id)">✓</span>
+          </div>
+        </div>
+
+        <div class="picker-course-info">
+          <div class="picker-course-top">
+            <span class="picker-code">{{ c.code }}</span>
+            <span class="picker-prog-tag" *ngIf="c.program">{{ c.program }}</span>
+          </div>
+          <div class="picker-course-name">{{ c.name }}</div>
+          <div class="picker-course-meta">
+            <span *ngIf="c.year_level" class="picker-meta-pill picker-yr">{{ c.year_level }}</span>
+            <span *ngIf="c.semester"   class="picker-meta-pill picker-sem">
+              {{ c.semester.split(',')[0] }}
+            </span>
+            <span *ngIf="c.department" class="picker-meta-pill picker-dept">{{ c.department }}</span>
+          </div>
+        </div>
+
+        <div class="picker-units-block">
+          <div class="picker-units-row">
+            <span class="picker-unit-lbl">Lec</span>
+            <span class="picker-unit-val">{{ c.lec_units ?? c.credits }}</span>
+          </div>
+          <div class="picker-units-row" *ngIf="c.lab_units">
+            <span class="picker-unit-lbl">Lab</span>
+            <span class="picker-unit-val picker-lab">{{ c.lab_units }}</span>
+          </div>
+          <div class="picker-units-total">{{ c.credits }}u</div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="picker-footer">
+      <span class="picker-selected-info">
+        <strong>{{ form.course_ids.length }}</strong> courses selected
+      </span>
+      <div style="display:flex;gap:10px;">
+        <button class="btn-cancel" (click)="closeCoursePicker()">Cancel</button>
+        <button class="btn-save picker-done-btn" (click)="closeCoursePicker()">
+          ✅ Done — {{ form.course_ids.length }} Selected
+        </button>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ════════════════════════════════════════════════════════
+       DELETE PROGRAM CONFIRM
+  ═════════════════════════════════════════════════════════ -->
+  <div class="modal-backdrop" *ngIf="showDeleteModal" (click)="closeDeleteModal()"></div>
+  <div class="modal-wrap delete-modal" *ngIf="showDeleteModal">
+    <div class="delete-icon">🗑️</div>
+    <h3>Delete Program?</h3>
+    <p>Are you sure you want to delete <strong>{{ deleteTarget?.name }}</strong>? This cannot be undone.</p>
+    <div class="delete-actions">
+      <button class="btn-cancel-del" (click)="closeDeleteModal()">Cancel</button>
+      <button class="btn-confirm-del" (click)="doDelete()" [disabled]="isDeleting">
+        {{ isDeleting ? 'Deleting…' : 'Delete' }}
       </button>
     </div>
   </div>
-</div>
+
+
+
+  <!-- ════════════════════════════════════════════════════════
+       CURRICULUM VIEW MODAL — PDF-style layout
+  ═════════════════════════════════════════════════════════ -->
+  <div class="modal-backdrop curr-backdrop" *ngIf="showCurrModal" (click)="closeCurrModal()"></div>
+  <div class="curr-modal" *ngIf="showCurrModal && currProgram">
+
+    <!-- Header -->
+    <div class="curr-header">
+      <div class="curr-header-left">
+        <div class="curr-school-badge">ST. BENILDE CENTER FOR GLOBAL COMPETENCE, INC.</div>
+        <h2 class="curr-prog-name">{{ currProgram.name | uppercase }}</h2>
+        <p class="curr-prog-sub">CURRICULUM CHECKLIST ({{ currProgram.code }}) &nbsp;•&nbsp;
+          Total: {{ currTotalUnits }} units
+        </p>
+      </div>
+      <button class="curr-close" (click)="closeCurrModal()">✕</button>
+    </div>
+
+    <div class="curr-body">
+
+      <!-- One section per Year -->
+      <div class="curr-year-block" *ngFor="let year of currYears">
+        <div class="curr-year-label">{{ year | uppercase }}</div>
+
+        <div class="curr-sem-grid">
+
+          <!-- First Semester -->
+          <div class="curr-sem-col">
+            <div class="curr-sem-header">
+              <span class="curr-sem-title">FIRST SEMESTER</span>
+            </div>
+            <table class="curr-table">
+              <thead>
+                <tr>
+                  <th class="col-code">Code</th>
+                  <th class="col-name">Subject Title</th>
+                  <th class="col-lec">Lec.</th>
+                  <th class="col-lab">Lab.</th>
+                  <th class="col-total">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr *ngFor="let c of getCurrCourses(year, '1st Semester')"
+                    [class.row-lab]="c.is_lab">
+                  <td class="col-code">{{ c.code }}</td>
+                  <td class="col-name">{{ c.name }}</td>
+                  <td class="col-lec">{{ lecUnits(c) }}</td>
+                  <td class="col-lab">{{ labUnits(c) }}</td>
+                  <td class="col-total">{{ c.credits }}</td>
+                </tr>
+                <tr *ngIf="getCurrCourses(year, '1st Semester').length === 0">
+                  <td colspan="5" class="curr-empty">No subjects assigned yet.</td>
+                </tr>
+              </tbody>
+              <tfoot>
+                <tr class="curr-total-row">
+                  <td colspan="2" class="total-label">TOTAL UNITS</td>
+                  <td>{{ semLecUnits(year, '1st Semester') }}</td>
+                  <td>{{ semLabCount(year, '1st Semester') }}</td>
+                  <td>{{ semUnits(year, '1st Semester') }}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+
+          <!-- Second Semester -->
+          <div class="curr-sem-col">
+            <div class="curr-sem-header">
+              <span class="curr-sem-title">SECOND SEMESTER</span>
+            </div>
+            <table class="curr-table">
+              <thead>
+                <tr>
+                  <th class="col-code">Code</th>
+                  <th class="col-name">Subject Title</th>
+                  <th class="col-lec">Lec.</th>
+                  <th class="col-lab">Lab.</th>
+                  <th class="col-total">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr *ngFor="let c of getCurrCourses(year, '2nd Semester')"
+                    [class.row-lab]="c.is_lab">
+                  <td class="col-code">{{ c.code }}</td>
+                  <td class="col-name">{{ c.name }}</td>
+                  <td class="col-lec">{{ lecUnits(c) }}</td>
+                  <td class="col-lab">{{ labUnits(c) }}</td>
+                  <td class="col-total">{{ c.credits }}</td>
+                </tr>
+                <tr *ngIf="getCurrCourses(year, '2nd Semester').length === 0">
+                  <td colspan="5" class="curr-empty">No subjects assigned yet.</td>
+                </tr>
+              </tbody>
+              <tfoot>
+                <tr class="curr-total-row">
+                  <td colspan="2" class="total-label">TOTAL UNITS</td>
+                  <td>{{ semLecUnits(year, '2nd Semester') }}</td>
+                  <td>{{ semLabCount(year, '2nd Semester') }}</td>
+                  <td>{{ semUnits(year, '2nd Semester') }}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+
+        </div><!-- end curr-sem-grid -->
+      </div><!-- end curr-year-block -->
+
+      <!-- Unassigned courses notice -->
+      <div class="curr-unassigned-notice" *ngIf="currUnassignedCourses.length > 0">
+        <div class="curr-unassigned-header">
+          ⚠️ {{ currUnassignedCourses.length }} course(s) have no Year Level / Semester assigned yet
+          <span class="curr-unassigned-hint">— Edit each course in the Courses page to assign them</span>
+        </div>
+        <table class="curr-table curr-table-unassigned">
+          <thead>
+            <tr>
+              <th class="col-code">Code</th>
+              <th class="col-name">Subject Title</th>
+              <th class="col-lec">Lec.</th>
+              <th class="col-lab">Lab.</th>
+              <th class="col-total">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr *ngFor="let c of currUnassignedCourses" class="row-unassigned">
+              <td class="col-code">{{ c.code }}</td>
+              <td class="col-name">{{ c.name }}</td>
+              <td class="col-lec">{{ lecUnits(c) }}</td>
+              <td class="col-lab">{{ labUnits(c) }}</td>
+              <td class="col-total">{{ c.credits }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Grand total row -->
+      <div class="curr-grand-total">
+        <div class="curr-grand-left">
+          <span>TOTAL PROGRAM UNITS</span>
+          <span class="curr-assigned-note" *ngIf="currUnassignedCourses.length > 0">
+            ({{ currAssignedCount }} of {{ currProgram!.course_ids.length }} courses placed in curriculum)
+          </span>
+        </div>
+        <span class="curr-grand-val">{{ currTotalUnits }}</span>
+      </div>
+
+    </div><!-- end curr-body -->
+
+    <div class="curr-footer">
+      <button class="btn-done" (click)="closeCurrModal()">Close</button>
+      <button class="btn-edit-curr" (click)="closeCurrModal(); openEdit(currProgram!)">✏️ Edit Program</button>
+    </div>
+  </div>
+

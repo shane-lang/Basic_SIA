@@ -1,0 +1,156 @@
+<div class="ann-page">
+
+  <!-- Header -->
+  <div class="ann-header">
+    <div>
+      <h1>📢 Announcements & Events</h1>
+      <p class="ann-sub">Manage what students see on their dashboard</p>
+    </div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="ann-tabs">
+    <button class="ann-tab" [class.active]="tab==='announcements'" (click)="tab='announcements'">
+      📋 Announcements <span class="ann-count">{{ announcements.length }}</span>
+    </button>
+    <button class="ann-tab" [class.active]="tab==='events'" (click)="tab='events'">
+      📅 School Calendar <span class="ann-count">{{ events.length }}</span>
+    </button>
+  </div>
+
+  <!-- ══ ANNOUNCEMENTS TAB ══ -->
+  <div *ngIf="tab==='announcements'">
+    <div class="ann-toolbar">
+      <span *ngIf="aMsg" class="ann-msg" [class.success]="aMsgType==='success'" [class.error]="aMsgType==='error'">{{ aMsg }}</span>
+      <button class="btn-add" (click)="openNewA()" *ngIf="!aShowForm">+ New Announcement</button>
+    </div>
+
+    <!-- Form -->
+    <div class="ann-form-card" *ngIf="aShowForm">
+      <h3>{{ aEditing ? '✏️ Edit Announcement' : '➕ New Announcement' }}</h3>
+      <div class="ann-form-grid">
+        <div class="fg-full">
+          <label>Title *</label>
+          <input type="text" [(ngModel)]="aForm.title" placeholder="Announcement title" maxlength="255">
+        </div>
+        <div class="fg-full">
+          <label>Message *</label>
+          <textarea [(ngModel)]="aForm.message" rows="3" placeholder="Full announcement text..."></textarea>
+        </div>
+        <div>
+          <label>Date</label>
+          <input type="date" [(ngModel)]="aForm.date">
+        </div>
+        <div>
+          <label>Type</label>
+          <select [(ngModel)]="aForm.type" (change)="onTypeChange()">
+            <option *ngFor="let t of aTypeOptions" [value]="t">{{ t | titlecase }}</option>
+          </select>
+        </div>
+        <div>
+          <label>Priority</label>
+          <select [(ngModel)]="aForm.priority">
+            <option *ngFor="let p of aPriOptions" [value]="p">{{ p | titlecase }}</option>
+          </select>
+        </div>
+        <div>
+          <label>Icon</label>
+          <div class="icon-picker">
+            <span *ngFor="let ic of aIconOptions" class="icon-opt" [class.selected]="aForm.icon===ic" (click)="aForm.icon=ic">{{ ic }}</span>
+          </div>
+        </div>
+      </div>
+      <div class="form-actions">
+        <button class="btn-save" (click)="saveA()" [disabled]="aSaving || !aForm.title || !aForm.message">
+          {{ aSaving ? 'Saving...' : (aEditing ? 'Update' : 'Post Announcement') }}
+        </button>
+        <button class="btn-cancel" (click)="cancelA()">Cancel</button>
+      </div>
+    </div>
+
+    <!-- List -->
+    <div class="ann-loading" *ngIf="aLoading">Loading...</div>
+    <div class="ann-list" *ngIf="!aLoading">
+      <div class="ann-item" *ngFor="let a of announcements">
+        <div class="ann-item-icon">{{ a.icon }}</div>
+        <div class="ann-item-body">
+          <div class="ann-item-top">
+            <span class="ann-item-title">{{ a.title }}</span>
+            <span class="ann-type-badge" [style.background]="typeColor(a.type)+'22'" [style.color]="typeColor(a.type)">{{ a.type }}</span>
+            <span class="ann-pri-badge" [style.color]="priColor(a.priority)">{{ a.priority }}</span>
+          </div>
+          <p class="ann-item-msg">{{ a.message }}</p>
+          <span class="ann-item-date">{{ fmtDate(a.date) }}</span>
+        </div>
+        <div class="ann-item-actions">
+          <button class="btn-icon-edit" (click)="editA(a)" title="Edit">✏️</button>
+          <button class="btn-icon-del"  (click)="deleteA(a.id)" title="Delete">🗑️</button>
+        </div>
+      </div>
+      <div class="ann-empty" *ngIf="announcements.length===0">No announcements yet.</div>
+    </div>
+  </div>
+
+  <!-- ══ EVENTS TAB ══ -->
+  <div *ngIf="tab==='events'">
+    <div class="ann-toolbar">
+      <span *ngIf="eMsg" class="ann-msg" [class.success]="eMsgType==='success'" [class.error]="eMsgType==='error'">{{ eMsg }}</span>
+      <button class="btn-add" (click)="openNewE()" *ngIf="!eShowForm">+ Add Event</button>
+    </div>
+
+    <!-- Form -->
+    <div class="ann-form-card" *ngIf="eShowForm">
+      <h3>{{ eEditing ? '✏️ Edit Event' : '➕ New Event' }}</h3>
+      <div class="ann-form-grid">
+        <div class="fg-full">
+          <label>Event Title *</label>
+          <input type="text" [(ngModel)]="eForm.title" placeholder="Event title" maxlength="255">
+        </div>
+        <div>
+          <label>Date *</label>
+          <input type="date" [(ngModel)]="eForm.event_date">
+        </div>
+        <div>
+          <label>Type</label>
+          <select [(ngModel)]="eForm.type">
+            <option *ngFor="let t of eTypeOptions" [value]="t">{{ t | titlecase }}</option>
+          </select>
+        </div>
+        <div class="fg-full">
+          <label>Description</label>
+          <input type="text" [(ngModel)]="eForm.description" placeholder="Short description (optional)" maxlength="255">
+        </div>
+      </div>
+      <div class="form-actions">
+        <button class="btn-save" (click)="saveE()" [disabled]="eSaving || !eForm.title || !eForm.event_date">
+          {{ eSaving ? 'Saving...' : (eEditing ? 'Update' : 'Add Event') }}
+        </button>
+        <button class="btn-cancel" (click)="cancelE()">Cancel</button>
+      </div>
+    </div>
+
+    <!-- Events table -->
+    <div class="ann-loading" *ngIf="eLoading">Loading...</div>
+    <div class="evt-table-wrap" *ngIf="!eLoading">
+      <table class="evt-table">
+        <thead>
+          <tr><th>Date</th><th>Event</th><th>Type</th><th>Description</th><th>Actions</th></tr>
+        </thead>
+        <tbody>
+          <tr *ngFor="let e of events">
+            <td class="evt-date">{{ fmtDate(e.event_date) }}</td>
+            <td class="evt-title">{{ e.title }}</td>
+            <td><span class="ann-type-badge" [style.background]="typeColor(e.type)+'22'" [style.color]="typeColor(e.type)">{{ e.type }}</span></td>
+            <td class="evt-desc">{{ e.description }}</td>
+            <td class="evt-acts">
+              <button class="btn-icon-edit" (click)="editE(e)" title="Edit">✏️</button>
+              <button class="btn-icon-del"  (click)="deleteE(e.id)" title="Delete">🗑️</button>
+            </td>
+          </tr>
+          <tr *ngIf="events.length===0"><td colspan="5" class="ann-empty">No events yet.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>

@@ -30,7 +30,7 @@ export class Schedule implements OnInit {
   
   /** Returns HTTP headers with the auth token. Call this in every API request. */
   private getHeaders() {
-    const token = sessionStorage.getItem('token') ?? '';
+    const token = sessionStorage.getItem('token') || localStorage.getItem('token') || '';
     return { headers: { Authorization: `Bearer ${token}` } };
   }
 
@@ -54,7 +54,7 @@ export class Schedule implements OnInit {
   private colorMap: Record<number, string> = {};
 
   ngOnInit(): void {
-    const stored = sessionStorage.getItem('currentUser');
+    const stored = sessionStorage.getItem('currentUser') || localStorage.getItem('currentUser');
     if (!stored) {
       this.error     = 'Not logged in.';
       this.isLoading = false;
@@ -64,7 +64,7 @@ export class Schedule implements OnInit {
     this.userId = JSON.parse(stored).id;
 
     // Prefer studentDbId saved by enrollment component (avoids lookup ambiguity)
-    const savedDbId = sessionStorage.getItem('studentDbId');
+    const savedDbId = sessionStorage.getItem('studentDbId') || localStorage.getItem('studentDbId');
     if (savedDbId) this.studentDbId = parseInt(savedDbId, 10);
 
     this.loadSchedule();
@@ -79,7 +79,7 @@ export class Schedule implements OnInit {
       ? `student_id=${this.studentDbId}`
       : `user_id=${this.userId}`;
 
-    this.http.get<any>(`${this.apiUrl}?action=get_schedule&${param}`)
+    this.http.get<any>(`${this.apiUrl}?action=get_schedule&${param}`, this.getHeaders())
       .subscribe({
         next: (res) => {
           this.isLoading = false;

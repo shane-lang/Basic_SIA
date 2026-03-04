@@ -1,0 +1,69 @@
+.ann-page { padding: 0 4px; }
+.ann-header { display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:20px; }
+.ann-header h1 { font-size:22px; font-weight:700; color:#1e293b; margin:0 0 4px; }
+.ann-sub { color:#64748b; font-size:13px; margin:0; }
+
+/* Tabs */
+.ann-tabs { display:flex; gap:4px; border-bottom:2px solid #e2e8f0; margin-bottom:20px; }
+.ann-tab { background:none; border:none; padding:10px 20px 12px; font-size:14px; font-weight:600; color:#64748b; cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-2px; transition:all .2s; }
+.ann-tab.active { color:#4f46e5; border-bottom-color:#4f46e5; }
+.ann-tab:hover:not(.active) { color:#374151; }
+.ann-count { background:#e2e8f0; color:#374151; border-radius:99px; padding:1px 7px; font-size:11px; margin-left:6px; }
+
+/* Toolbar */
+.ann-toolbar { display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; min-height:36px; }
+.btn-add { background:#4f46e5; color:#fff; border:none; border-radius:8px; padding:8px 18px; font-size:13px; font-weight:600; cursor:pointer; }
+.btn-add:hover { background:#4338ca; }
+.ann-msg { font-size:13px; font-weight:600; }
+.ann-msg.success { color:#16a34a; }
+.ann-msg.error   { color:#dc2626; }
+
+/* Form Card */
+.ann-form-card { background:#f8fafc; border:1.5px solid #e2e8f0; border-radius:12px; padding:20px 24px; margin-bottom:20px; }
+.ann-form-card h3 { font-size:15px; font-weight:700; color:#1e293b; margin:0 0 16px; }
+.ann-form-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px 16px; }
+.fg-full { grid-column: 1 / -1; }
+.ann-form-grid label { display:block; font-size:12px; font-weight:600; color:#374151; margin-bottom:4px; }
+.ann-form-grid input, .ann-form-grid select, .ann-form-grid textarea {
+  width:100%; border:1.5px solid #d1d5db; border-radius:7px; padding:8px 10px; font-size:13px; color:#1e293b; outline:none; box-sizing:border-box;
+}
+.ann-form-grid input:focus, .ann-form-grid select:focus, .ann-form-grid textarea:focus { border-color:#6366f1; }
+.ann-form-grid textarea { resize:vertical; font-family:inherit; }
+.icon-picker { display:flex; flex-wrap:wrap; gap:6px; }
+.icon-opt { font-size:20px; padding:4px 6px; border-radius:6px; cursor:pointer; border:2px solid transparent; transition:border-color .15s; }
+.icon-opt.selected { border-color:#6366f1; background:#eef2ff; }
+.icon-opt:hover:not(.selected) { border-color:#c7d2fe; }
+.form-actions { display:flex; gap:10px; margin-top:16px; }
+.btn-save { background:#4f46e5; color:#fff; border:none; border-radius:7px; padding:9px 22px; font-size:13px; font-weight:600; cursor:pointer; }
+.btn-save:disabled { opacity:.6; cursor:not-allowed; }
+.btn-cancel { background:#f1f5f9; color:#374151; border:none; border-radius:7px; padding:9px 18px; font-size:13px; font-weight:600; cursor:pointer; }
+
+/* Announcement List */
+.ann-loading { color:#94a3b8; padding:20px 0; }
+.ann-list { display:flex; flex-direction:column; gap:10px; }
+.ann-item { display:flex; align-items:flex-start; gap:14px; background:#fff; border:1.5px solid #e2e8f0; border-radius:10px; padding:14px 16px; }
+.ann-item-icon { font-size:22px; flex-shrink:0; margin-top:2px; }
+.ann-item-body { flex:1; min-width:0; }
+.ann-item-top { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:4px; }
+.ann-item-title { font-weight:700; color:#1e293b; font-size:14px; }
+.ann-type-badge { padding:2px 8px; border-radius:99px; font-size:11px; font-weight:700; }
+.ann-pri-badge { font-size:11px; font-weight:600; text-transform:uppercase; }
+.ann-item-msg { color:#374151; font-size:13px; margin:0 0 4px; }
+.ann-item-date { color:#94a3b8; font-size:12px; }
+.ann-item-actions { display:flex; gap:6px; flex-shrink:0; }
+.btn-icon-edit, .btn-icon-del { background:none; border:none; font-size:16px; cursor:pointer; padding:4px; border-radius:6px; }
+.btn-icon-edit:hover { background:#eef2ff; }
+.btn-icon-del:hover  { background:#fef2f2; }
+.ann-empty { color:#94a3b8; text-align:center; padding:32px 0; font-size:14px; }
+
+/* Events Table */
+.evt-table-wrap { overflow-x:auto; border-radius:10px; border:1.5px solid #e2e8f0; }
+.evt-table { width:100%; border-collapse:collapse; font-size:13px; }
+.evt-table th { background:#f8fafc; padding:10px 14px; text-align:left; font-size:12px; font-weight:700; color:#64748b; border-bottom:1.5px solid #e2e8f0; }
+.evt-table td { padding:11px 14px; border-bottom:1px solid #f1f5f9; vertical-align:middle; }
+.evt-table tr:last-child td { border-bottom:none; }
+.evt-table tr:hover td { background:#f8fafc; }
+.evt-date { white-space:nowrap; font-weight:600; color:#374151; }
+.evt-title { font-weight:600; color:#1e293b; }
+.evt-desc { color:#64748b; }
+.evt-acts { white-space:nowrap; }

@@ -239,11 +239,12 @@
       <div class="fee-recompute-card" *ngIf="recomputedFee && totalCreditedUnits > 0">
         <div class="frc-header">💰 Recomputed Tuition After Crediting ({{ approvedUnits }} units remaining)</div>
         <div class="frc-body">
-          <div class="frc-row"><span>Tuition ({{ recomputedFee.units }} × ₱650)</span><span>₱{{ fa(recomputedFee.tuitionFee) }}</span></div>
+          <div class="frc-row"><span>Tuition ({{ recomputedFee.units }} units × ₱{{ recomputedFee.units > 0 ? (recomputedFee.tuitionFee / recomputedFee.units | number:'1.2-2') : '650.00' }})</span><span>₱{{ fa(recomputedFee.tuitionFee) }}</span></div>
           <div class="frc-row"><span>Miscellaneous</span><span>₱{{ fa(recomputedFee.miscellaneousFee) }}</span></div>
           <div class="frc-row"><span>Registration</span><span>₱{{ fa(recomputedFee.registrationFee) }}</span></div>
-          <div class="frc-row"><span>Laboratory ({{ recomputedFee.units }} × ₱1,900)</span><span>₱{{ fa(recomputedFee.laboratoryFee) }}</span></div>
+          <div class="frc-row"><span>Laboratory (lab rooms × ₱{{ recomputedFee.laboratoryFee > 0 ? (recomputedFee.laboratoryFee | number:'1.0-0') : '0' }})</span><span>₱{{ fa(recomputedFee.laboratoryFee) }}</span></div>
           <div class="frc-row"><span>Energy Fee</span><span>₱{{ fa(recomputedFee.energyFee) }}</span></div>
+          <div class="frc-row" *ngFor="let ef of (recomputedFee.extraFees || [])"><span>{{ ef.fee_label }}<ng-container *ngIf="ef.is_per_unit"> ({{ recomputedFee.units }} units)</ng-container></span><span>₱{{ ef.amount | number:'1.2-2' }}</span></div>
           <div class="frc-row frc-total"><span><strong>NEW TOTAL ASSESSMENT</strong></span><span><strong>₱{{ fa(recomputedFee.totalAssessment) }}</strong></span></div>
         </div>
       </div>
@@ -335,12 +336,13 @@
       <div class="fee-recompute-card" *ngIf="manualSubjects.length && selectedTor!.programUnits">
         <div class="frc-header">💰 Recomputed Tuition After Crediting ({{ manualApprovedUnits }} units remaining)</div>
         <div class="frc-body">
-          <div class="frc-row"><span>Tuition ({{ manualApprovedUnits }} × ₱650)</span><span>₱{{ fa(manualApprovedUnits * 650) }}</span></div>
-          <div class="frc-row"><span>Miscellaneous</span><span>₱6,688.00</span></div>
-          <div class="frc-row"><span>Registration</span><span>₱700.00</span></div>
-          <div class="frc-row"><span>Laboratory ({{ manualApprovedUnits }} × ₱1,900)</span><span>₱{{ fa(manualApprovedUnits * 1900) }}</span></div>
-          <div class="frc-row"><span>Energy Fee</span><span>₱{{ fa(manualApprovedUnits * 21 * 3) }}</span></div>
-          <div class="frc-row frc-total"><span><strong>ESTIMATED NEW TOTAL</strong></span><span><strong>₱{{ fa(manualApprovedUnits * 650 + 6688 + 700 + manualApprovedUnits * 1900 + manualApprovedUnits * 21 * 3) }}</strong></span></div>
+          <div class="frc-row"><span>Tuition ({{ manualApprovedUnits }} units × ₱{{ recomputedFee ? (recomputedFee.tuitionFee / (recomputedFee.units||1) | number:'1.2-2') : '650.00' }})</span><span>₱{{ recomputedFee ? (recomputedFee.tuitionFee | number:'1.2-2') : '0.00' }}</span></div>
+          <div class="frc-row"><span>Miscellaneous</span><span>₱{{ recomputedFee ? (recomputedFee.miscellaneousFee | number:'1.2-2') : '6,688.00' }}</span></div>
+          <div class="frc-row"><span>Registration</span><span>₱{{ recomputedFee ? (recomputedFee.registrationFee | number:'1.2-2') : '700.00' }}</span></div>
+          <div class="frc-row"><span>Laboratory (lab rooms × ₱{{ recomputedFee && recomputedFee.laboratoryFee > 0 ? (recomputedFee.laboratoryFee | number:'1.0-0') : '0' }})</span><span>₱{{ recomputedFee ? (recomputedFee.laboratoryFee | number:'1.2-2') : '0.00' }}</span></div>
+          <div class="frc-row"><span>Energy Fee</span><span>₱{{ recomputedFee ? (recomputedFee.energyFee | number:'1.2-2') : '0.00' }}</span></div>
+          <div class="frc-row" *ngFor="let ef of (recomputedFee?.extraFees || [])"><span>{{ ef.fee_label }}</span><span>₱{{ ef.amount | number:'1.2-2' }}</span></div>
+          <div class="frc-row frc-total"><span><strong>ESTIMATED NEW TOTAL</strong></span><span><strong>₱{{ recomputedFee ? (recomputedFee.totalAssessment | number:'1.2-2') : '0.00' }}</strong></span></div>
         </div>
       </div>
 

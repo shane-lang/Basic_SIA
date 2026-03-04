@@ -24,7 +24,7 @@ if (in_array($allowedOrigin, $trustedOrigins, true)) {
 }
 
 header("Access-Control-Allow-Methods: GET, POST, PUT, OPTIONS");
-header("Access-Control-Allow-Headers: Content-Type, Authorization");
+header("Access-Control-Allow-Headers: Content-Type, Authorization, X-User-Id");
 header("Content-Type: application/json");
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { http_response_code(200); exit(); }
@@ -34,6 +34,21 @@ if ($conn->connect_error) {
     echo json_encode(['success' => false, 'message' => 'DB error: ' . $conn->connect_error]); exit();
 }
 $conn->set_charset("utf8mb4");
+
+// Fee config helper — reads rates from fee_config table (managed by Accounting)
+if (!function_exists('loadFeeConfig')) {
+function loadFeeConfig(mysqli $conn, string $category): array {
+    $cnt = (int)($conn->query("SELECT COUNT(*) AS c FROM fee_config")->fetch_assoc()['c'] ?? 0);
+    if ($cnt === 0) { // table might not exist yet — just return defaults
+        return [];
+    }
+    $cat = $conn->real_escape_string($category);
+    $res = $conn->query("SELECT * FROM fee_config WHERE category='$cat' AND is_active=1 ORDER BY sort_order");
+    $cfg = [];
+    if ($res) while ($r = $res->fetch_assoc()) $cfg[$r['fee_key']] = $r;
+    return $cfg;
+}
+}
 
 $action = $_GET['action'] ?? '';
 
@@ -68,6 +83,10 @@ if ($action === 'upload_document') { uploadDocument($conn);   exit(); }
 // Read-only actions (GET)
 switch ($action) {
     case 'get_pending_tor':        getPendingTOR($conn);               exit();
+    case 'get_lab_room_count':
+        $cnt = (int)($conn->query("SELECT COUNT(*) AS c FROM rooms WHERE room_type='Laboratory'")->fetch_assoc()['c'] ?? 0);
+        echo json_encode(['success' => true, 'count' => $cnt]);
+        exit();
     case 'get_evaluated_tor':      getEvaluatedTOR($conn);             exit();
     case 'get_tor_evaluation':     getTORForStudent($conn);            exit();
     case 'get_program_courses':    getProgramCourses($conn);           exit();
@@ -506,6 +525,74 @@ function submitTOR($conn, $data) {
 }
 
 // ─────────────────────────────────────────────────────────────
+// HELPER: Compute total program units live (semester + year filtered)
+// Used by getPendingTOR, getTORForStudent — replaces stale tuition_fees.units.
+// ─────────────────────────────────────────────────────────────
+function computeProgramUnitsLive(mysqli $conn, string $programName, string $yearLevel, string $semester): int {
+    $pn  = $conn->real_escape_string($programName);
+    $yl  = $conn->real_escape_string($yearLevel);
+
+    $semFilter = ''; $sfNoJoin = '';
+    if ($semester !== '') {
+        preg_match('/^(1st Semester|2nd Semester|Summer)/i', $semester, $sm);
+        $semTerm   = $conn->real_escape_string($sm[1] ?? $semester);
+        $semFilter = "AND c.semester LIKE '$semTerm%'";
+        $sfNoJoin  = "AND semester LIKE '$semTerm%'";
+    }
+    // Normalize year_level format: 'Year 1' → '1st Year', etc.
+    // Some legacy course records use the 'Year N' format instead of 'Nth Year'.
+    // The DB fix in migrate.php corrects this at rest, but we also handle it
+    // here defensively so queries never miss courses due to format mismatch.
+    $ylNormMap = [
+        'Year 1' => '1st Year', 'Year 2' => '2nd Year',
+        'Year 3' => '3rd Year', 'Year 4' => '4th Year', 'Year 5' => '5th Year',
+        '1st Year' => '1st Year', '2nd Year' => '2nd Year',
+        '3rd Year' => '3rd Year', '4th Year' => '4th Year', '5th Year' => '5th Year',
+    ];
+    $ylNorm = $ylNormMap[$yearLevel] ?? $yearLevel;
+    $yl     = $conn->real_escape_string($ylNorm);
+
+    // Use CASE-insensitive year_level match covering both 'Year 1' and '1st Year' formats
+    $ylFilter   = ($yl !== '') ? "AND (c.year_level = '$yl' OR c.year_level = '" . $conn->real_escape_string($yearLevel) . "')" : '';
+    $ylFilterNJ = ($yl !== '') ? "AND (year_level = '$yl' OR year_level = '" . $conn->real_escape_string($yearLevel) . "')" : '';
+
+    // Source 1: program_courses junction table
+    $res    = $conn->query("SELECT COALESCE(SUM(c.credits),0) AS u
+        FROM program_courses pc
+        JOIN programs p ON pc.program_id=p.id
+        JOIN courses c  ON pc.course_id=c.id
+        WHERE (p.name='$pn' OR p.code='$pn') $ylFilter $semFilter");
+    $units1 = (int)(($res ? $res->fetch_assoc()['u'] : 0) ?: 0);
+
+    // Source 2: courses.program direct column
+    // FIX: Always run BOTH sources and take the MAX.
+    // Some courses may be linked in the junction table but others may only
+    // exist via courses.program (e.g. courses added before program_courses was
+    // populated, or courses whose program_courses link was accidentally deleted).
+    // Using only source 1 as primary + source 2 as fallback caused under-counting
+    // when the junction table was incomplete (e.g. 23 units instead of 26).
+    $res2   = $conn->query("SELECT COALESCE(SUM(credits),0) AS u
+        FROM courses WHERE program='$pn' $ylFilterNJ $sfNoJoin");
+    $units2 = (int)(($res2 ? $res2->fetch_assoc()['u'] : 0) ?: 0);
+
+    // Also try resolved program code (students.program stores full name;
+    // courses.program may store short code — check both)
+    $pcRow  = $conn->query("SELECT code FROM programs WHERE name='$pn' OR code='$pn' LIMIT 1");
+    $pc     = $pcRow && $pcRow->num_rows > 0
+        ? $conn->real_escape_string($pcRow->fetch_assoc()['code'])
+        : $pn;
+    $units3 = 0;
+    if ($pc !== $pn) {
+        $res3   = $conn->query("SELECT COALESCE(SUM(credits),0) AS u
+            FROM courses WHERE program='$pc' $ylFilterNJ $sfNoJoin");
+        $units3 = (int)(($res3 ? $res3->fetch_assoc()['u'] : 0) ?: 0);
+    }
+
+    $units = max($units1, $units2, $units3);
+    return $units > 0 ? $units : 18;
+}
+
+// ─────────────────────────────────────────────────────────────
 // REGISTRAR: Get all pending TOR evaluations
 // GET ?action=get_pending_tor
 // ─────────────────────────────────────────────────────────────
@@ -526,14 +613,13 @@ function getPendingTOR($conn) {
             s.last_name,
             s.program,
             s.year_level,
+            s.semester,
             s.last_school_attended,
             s.student_type,
             s.tor_eval_status,
-            s.tor_file,
-            tf.units AS program_units
+            s.tor_file
         FROM tor_evaluations te
         JOIN students s ON te.student_id = s.id
-        LEFT JOIN tuition_fees tf ON tf.student_id = s.id
         WHERE te.status = 'Pending'
         ORDER BY te.created_at ASC
     ");
@@ -546,6 +632,8 @@ function getPendingTOR($conn) {
                 $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
                 $torFileUrl = 'http://' . $host . '/sia-api/uploads/' . $r['tor_file'];
             }
+            // Compute programUnits live (total semester units, not cached stale value)
+            $programUnits = computeProgramUnitsLive($conn, $r['program'], $r['year_level'], $r['semester'] ?? '');
             $rows[] = [
                 'evalId'             => (int)$r['eval_id'],
                 'studentId'          => (int)$r['student_id'],
@@ -563,7 +651,7 @@ function getPendingTOR($conn) {
                 'registrarNotes'     => $r['registrar_notes'],
                 'evaluatedAt'        => $r['evaluated_at'],
                 'submittedAt'        => $r['created_at'],
-                'programUnits'       => (int)($r['program_units'] ?? 0),
+                'programUnits'       => $programUnits,
                 'torFileUrl'         => $torFileUrl,
             ];
         }
@@ -631,14 +719,15 @@ function getTORForStudent($conn) {
     $student_id = (int)($_GET['student_id'] ?? 0);
     if (!$student_id) { echo json_encode(['success' => false, 'message' => 'student_id required']); return; }
 
-    $res = $conn->query("SELECT te.*, s.student_number, s.first_name, s.last_name, s.program, tf.units AS program_units
+    $res = $conn->query("SELECT te.*, s.student_number, s.first_name, s.last_name, s.program, s.year_level, s.semester
         FROM tor_evaluations te
         JOIN students s ON te.student_id = s.id
-        LEFT JOIN tuition_fees tf ON tf.student_id = s.id
         WHERE te.student_id = $student_id LIMIT 1");
     $r = $res ? $res->fetch_assoc() : null;
 
     if (!$r) { echo json_encode(['success' => false, 'message' => 'No TOR evaluation found for this student']); return; }
+
+    $programUnits = computeProgramUnitsLive($conn, $r['program'], $r['year_level'], $r['semester'] ?? '');
 
     echo json_encode([
         'success' => true,
@@ -648,7 +737,7 @@ function getTORForStudent($conn) {
             'studentNumber'    => $r['student_number'],
             'studentName'      => $r['first_name'] . ' ' . $r['last_name'],
             'program'          => $r['program'],
-            'programUnits'     => (int)($r['program_units'] ?? 0),
+            'programUnits'     => $programUnits,
             'status'           => $r['status'],
             'creditedUnits'    => (int)$r['credited_units'],
             'approvedUnits'    => (int)$r['approved_units'],
@@ -698,7 +787,12 @@ function getProgramCourses($conn) {
     $courses = [];
     $seen    = [];
 
-    // Try program_courses + programs join if tables exist
+    // Source 1: program_courses junction (authoritative — reflects current program assignments)
+    // This is the ONLY reliable source. The fallback via courses.program direct column
+    // is intentionally removed because courses.program may still hold a stale program name
+    // after a course is unlinked from a program via update_program (admin removes it from
+    // the course list). Using the junction table exclusively prevents deleted/removed
+    // subjects from reappearing in TOR evaluation views.
     $hasPCTable = $conn->query("SHOW TABLES LIKE 'program_courses'")->num_rows > 0;
     $hasPTable  = $conn->query("SHOW TABLES LIKE 'programs'")->num_rows > 0;
 
@@ -723,21 +817,23 @@ function getProgramCourses($conn) {
         }
     }
 
-    // Fallback: courses.program direct column
-    $res2 = $conn->query("
-        SELECT id, code, name, credits,
-               IFNULL(NULLIF(TRIM(year_level),''), '1st Year') AS year_level,
-               IFNULL(NULLIF(TRIM(semester),''), '1st Semester') AS semester,
-               description
-        FROM courses
-        WHERE program = '$p'
-        ORDER BY year_level, semester, code
-    ");
-    if ($res2) {
-        while ($r = $res2->fetch_assoc()) {
-            if (isset($seen[$r['id']])) continue;
-            $seen[$r['id']] = true;
-            $courses[] = $r;
+    // Fallback ONLY when program_courses table is unavailable (should not happen in production)
+    if (empty($courses)) {
+        $res2 = $conn->query("
+            SELECT id, code, name, credits,
+                   IFNULL(NULLIF(TRIM(year_level),''), '1st Year') AS year_level,
+                   IFNULL(NULLIF(TRIM(semester),''), '1st Semester') AS semester,
+                   description
+            FROM courses
+            WHERE program = '$p'
+            ORDER BY year_level, semester, code
+        ");
+        if ($res2) {
+            while ($r = $res2->fetch_assoc()) {
+                if (isset($seen[$r['id']])) continue;
+                $seen[$r['id']] = true;
+                $courses[] = $r;
+            }
         }
     }
 
@@ -829,12 +925,25 @@ function evaluateTOR($conn, $data) {
         $semFilter      = "AND c.semester LIKE '$semTerm%'";
         $semFilterPlain = "AND semester LIKE '$semTerm%'";
     }
-    $ylFilter      = ($yl !== '') ? "AND c.year_level = '$yl'" : '';
-    $ylFilterPlain = ($yl !== '') ? "AND year_level = '$yl'" : '';
+    $ylNormMap2 = [
+        'Year 1'=>'1st Year','Year 2'=>'2nd Year','Year 3'=>'3rd Year',
+        'Year 4'=>'4th Year','Year 5'=>'5th Year',
+    ];
+    $ylRaw  = $st_row['year_level'] ?? '1st Year';
+    $ylNorm = $ylNormMap2[$ylRaw] ?? $ylRaw;
+    $yl     = $conn->real_escape_string($ylNorm);
+    $ylOrig = $conn->real_escape_string($ylRaw);
+
+    // Match both normalized ('1st Year') and legacy ('Year 1') formats
+    $ylFilter      = ($yl !== '') ? "AND (c.year_level = '$yl' OR c.year_level = '$ylOrig')" : '';
+    $ylFilterPlain = ($yl !== '') ? "AND (year_level = '$yl' OR year_level = '$ylOrig')" : '';
+
+    // FIX: Always run ALL sources and take MAX — same logic as computeProgramUnitsLive.
+    // Using only source 1 with source 2 as fallback caused under-counting (e.g. 23 vs 26)
+    // when some courses existed in courses.program but were missing from program_courses.
 
     // Source 1: program_courses junction table
-    // FIX R-02: Use prepared statements for all queries in evaluateTOR
-    $pu_sql = "SELECT COALESCE(SUM(c.credits),0) AS u
+    $pu_sql  = "SELECT COALESCE(SUM(c.credits),0) AS u
         FROM program_courses pc
         JOIN programs pr ON pc.program_id=pr.id
         JOIN courses c   ON pc.course_id=c.id
@@ -842,18 +951,32 @@ function evaluateTOR($conn, $data) {
     $pu_stmt = $conn->prepare($pu_sql);
     $pu_stmt->bind_param("ss", $pn, $pn);
     $pu_stmt->execute();
-    $program_units = (int)(($pu_stmt->get_result()->fetch_assoc()['u'] ?? 0) ?: 0);
+    $pu1 = (int)(($pu_stmt->get_result()->fetch_assoc()['u'] ?? 0) ?: 0);
 
-    if ($program_units <= 0) {
-        $fb_sql  = "SELECT COALESCE(SUM(credits),0) AS u FROM courses WHERE (program=? OR program=?) $ylFilterPlain $semFilterPlain";
-        $fb_stmt = $conn->prepare($fb_sql);
-        $fb_stmt->bind_param("ss", $pc, $pn);
-        $fb_stmt->execute();
-        $program_units = (int)(($fb_stmt->get_result()->fetch_assoc()['u'] ?? 0) ?: 18);
-    }
+    // Source 2: courses.program direct (full name + short code)
+    $fb_sql  = "SELECT COALESCE(SUM(credits),0) AS u FROM courses WHERE (program=? OR program=?) $ylFilterPlain $semFilterPlain";
+    $fb_stmt = $conn->prepare($fb_sql);
+    $fb_stmt->bind_param("ss", $pc, $pn);
+    $fb_stmt->execute();
+    $pu2 = (int)(($fb_stmt->get_result()->fetch_assoc()['u'] ?? 0) ?: 0);
+
+    $program_units = max($pu1, $pu2);
     if ($program_units <= 0) $program_units = 18;
 
-    $approved_units = max(0, $program_units - $credited_units);
+    // FIX: approved_units = units the student must ENROLL in (and pay for).
+    // = current semester's total units MINUS credited units that belong to this semester.
+    // We count credited_units that overlap with this semester's courses, not all credited.
+    $sem_credited_units = 0;
+    if (!empty($course_id_ints) && $semTerm !== '') {
+        $ids_str = implode(',', $course_id_ints);
+        $scRes = $conn->query("SELECT COALESCE(SUM(credits),0) AS u FROM courses
+            WHERE id IN ($ids_str) $semFilterPlain $ylFilterPlain");
+        if ($scRes) $sem_credited_units = (int)($scRes->fetch_assoc()['u'] ?? 0);
+    }
+    // If no semester filter (shouldn't happen), fall back to total credited_units
+    if ($semTerm === '') $sem_credited_units = $credited_units;
+
+    $approved_units = max(0, $program_units - $sem_credited_units);
 
     // ── 1. Upsert tor_evaluations ─────────────────────────────
     // Use INSERT ... ON DUPLICATE KEY UPDATE so it works whether or not
@@ -893,24 +1016,31 @@ function evaluateTOR($conn, $data) {
     $conn->query("UPDATE students SET tor_eval_status = 'Evaluated' WHERE id = $student_id");
 
     // ── 3. Recompute tuition with approved_units ───────────────
-    $u           = $approved_units > 0 ? $approved_units : $program_units;
-    $tuition_fee = $u * 650;
-    $misc_fee    = 6688.00;
-    $reg_fee     = 700.00;
-    $energy_fee  = $u * 21 * 3;
+    $u = $approved_units > 0 ? $approved_units : max(1, $program_units - $sem_credited_units);
 
-    // Count lab subjects — scoped to year_level + semester (same filters as unit count)
-    $lab_cnt_res = $conn->query("
-        SELECT COUNT(DISTINCT c.id) AS cnt FROM courses c
-        WHERE c.room LIKE '%Lab%'
-          $ylFilter
-          $semFilter
-          AND (c.program = '$pc' OR c.program = '$pn'
-            OR c.id IN (SELECT pc2.course_id FROM program_courses pc2 JOIN programs p ON pc2.program_id=p.id WHERE p.name='$pn' OR p.code='$pn' OR p.code='$pc'))
-    ");
-    $lab_cnt = (int)(($lab_cnt_res ? $lab_cnt_res->fetch_assoc()['cnt'] : 0) ?? 0);
-    $lab_fee    = $lab_cnt * 1900;
-    $subtotal   = $tuition_fee + $misc_fee + $reg_fee + $lab_fee + $energy_fee;
+    // Load fee rates from fee_config table (managed by Accounting)
+    $fc_r = loadFeeConfig($conn, 'College');
+    $r_tuition  = (float)($fc_r['tuition_rate_per_unit']['value'] ?? 650);
+    $r_misc     = (float)($fc_r['misc_fee']['value']              ?? 6688);
+    $r_reg      = (float)($fc_r['reg_fee']['value']               ?? 700);
+    $r_lab_room = (float)($fc_r['lab_fee_per_room']['value']      ?? 1900);
+    $r_energy   = (float)($fc_r['energy_rate_per_unit']['value']  ?? 63);
+    $std_keys_r = ['tuition_rate_per_unit','misc_fee','reg_fee','lab_fee_per_room','energy_rate_per_unit','installment_fee'];
+    $extra_r = 0.00;
+    foreach ($fc_r as $fk => $frow) {
+        if (!in_array($fk, $std_keys_r)) $extra_r += (float)$frow['value'] * ($frow['is_per_unit'] ? $u : 1);
+    }
+
+    $tuition_fee = $u * $r_tuition;
+    $misc_fee    = $r_misc;
+    $reg_fee     = $r_reg;
+    $energy_fee  = $u * $r_energy;
+
+    // Lab fee: count Laboratory rooms (same as _buildFees in enrollment.php)
+    $labRoomRes = $conn->query("SELECT COUNT(*) AS cnt FROM rooms WHERE room_type = 'Laboratory'");
+    $lab_cnt    = (int)(($labRoomRes ? $labRoomRes->fetch_assoc()['cnt'] : 0) ?? 0);
+    $lab_fee    = $lab_cnt * $r_lab_room;
+    $subtotal   = $tuition_fee + $misc_fee + $reg_fee + $lab_fee + $energy_fee + $extra_r;
     $total      = max(0, $subtotal - $discount + $inst_fee);
 
     $upd = $conn->prepare("
@@ -934,16 +1064,44 @@ function evaluateTOR($conn, $data) {
         $discount, $inst_fee, $total);
     $upd->execute();
 
-    // ── 4. Permanently block credited courses via enrollments ──
+    // ── 4. Sync credited courses in enrollments ────────────────
     // Strategy: enrollments has UNIQUE KEY(student_id, course_id).
-    // We INSERT IGNORE a 'Dropped' row for every credited course.
-    // This means auto_enroll_all's INSERT IGNORE will silently skip
-    // them forever — the UNIQUE constraint blocks re-enrollment.
+    // We INSERT IGNORE a 'Dropped' row for every credited course so
+    // auto_enroll will never re-enroll them (UNIQUE constraint blocks it).
+    //
+    // FIX: Also DELETE 'Dropped/TOR Credit' rows for courses that were
+    // previously credited but are NOW unchecked (removed from credited list).
+    // Without this, unchecking a subject in the registrar UI has no effect —
+    // the old Dropped row blocks re-enrollment forever.
+
+    $today = date('Y-m-d');
+
+    // Step A: Remove stale TOR-credited Dropped rows for courses NOT in the new list
     if (!empty($course_id_ints)) {
         $ids_str = implode(',', $course_id_ints);
-        $today   = date('Y-m-d');
+        // Delete Dropped rows that were created by TOR but are no longer in the credited list
+        $conn->query("
+            DELETE FROM enrollments
+            WHERE student_id = $student_id
+              AND status = 'Dropped'
+              AND notes = 'Credited via TOR evaluation — permanently excluded'
+              AND course_id NOT IN ($ids_str)
+        ");
+    } else {
+        // All credits removed — clear ALL TOR-credited Dropped rows
+        $conn->query("
+            DELETE FROM enrollments
+            WHERE student_id = $student_id
+              AND status = 'Dropped'
+              AND notes = 'Credited via TOR evaluation — permanently excluded'
+        ");
+    }
 
-        // Update any existing enrollment rows to Dropped
+    // Step B: Add/update Dropped rows for the current credited list
+    if (!empty($course_id_ints)) {
+        $ids_str = implode(',', $course_id_ints);
+
+        // Update any existing enrollment rows to Dropped (catches Enrolled rows too)
         $conn->query("
             UPDATE enrollments
             SET    status = 'Dropped',
@@ -953,7 +1111,6 @@ function evaluateTOR($conn, $data) {
         ");
 
         // Insert Dropped rows for courses not yet in enrollments
-        // UNIQUE KEY prevents duplicates; INSERT IGNORE skips if already exists
         foreach ($course_id_ints as $cid) {
             $conn->query("
                 INSERT IGNORE INTO enrollments

@@ -3,28 +3,71 @@
   <p class="subtitle">Manage system and academic configuration</p>
 </div>
 
-<div class="settings-container">
-  <div *ngFor="let section of settingsSections" class="settings-section">
-    <h3>{{ section.title }}</h3>
-    <div class="settings-list">
-      <div *ngFor="let setting of section.settings" class="setting-item">
-        <label>{{ setting.name }}</label>
-        <div class="setting-value">
-          <span *ngIf="setting.type === 'text'" class="setting-badge">{{ setting.value }}</span>
-          <span *ngIf="setting.type === 'email'" class="setting-badge">{{ setting.value }}</span>
-          <span *ngIf="setting.type === 'date'" class="setting-badge">{{ setting.value }}</span>
-          <span *ngIf="setting.type === 'select'" class="setting-badge">{{ setting.value }}</span>
-          <span *ngIf="setting.type === 'toggle'" class="toggle-badge" [ngClass]="setting.value.toLowerCase()">{{ setting.value }}</span>
-          <button class="btn-edit-setting">Edit</button>
-        </div>
+<!-- ── Enrollment Period Card ─────────────────────────────── -->
+<div class="ep-card">
+  <div class="ep-card-header">
+    <div>
+      <h2>📅 Enrollment Period</h2>
+      <p class="ep-desc">Set the dates when new students can register. Outside this window, the registration form will be locked.</p>
+    </div>
+    <span class="ep-status-badge" [style.background]="statusColor + '22'" [style.color]="statusColor" [style.border]="'1.5px solid ' + statusColor">
+      {{ statusLabel }}
+    </span>
+  </div>
+
+  <div *ngIf="isLoading" class="ep-loading">Loading...</div>
+
+  <div *ngIf="!isLoading" class="ep-form">
+
+    <!-- Toggle -->
+    <div class="ep-row ep-toggle-row">
+      <label class="ep-label">Enrollment Status</label>
+      <div class="ep-toggle-wrap">
+        <label class="ep-switch">
+          <input type="checkbox" [(ngModel)]="period.is_open">
+          <span class="ep-slider"></span>
+        </label>
+        <span class="ep-toggle-label" [style.color]="period.is_open ? '#16a34a' : '#dc2626'">
+          {{ period.is_open ? 'Open — students can register' : 'Closed — registration blocked' }}
+        </span>
       </div>
     </div>
-  </div>
-</div>
 
-<div class="danger-zone">
-  <h3>Danger Zone</h3>
-  <p>Be careful with these actions - they may have serious consequences</p>
-  <button class="btn-danger">Clear Cache</button>
-  <button class="btn-danger">Reset Database</button>
+    <!-- Label -->
+    <div class="ep-row">
+      <label class="ep-label">Period Label <span class="ep-optional">(optional)</span></label>
+      <input class="ep-input" type="text" [(ngModel)]="period.label"
+             placeholder="e.g. 1st Semester AY 2025-2026" maxlength="100">
+    </div>
+
+    <!-- Start -->
+    <div class="ep-row">
+      <label class="ep-label">Start Date & Time <span class="ep-optional">(leave blank = no start limit)</span></label>
+      <input class="ep-input ep-date" type="datetime-local" [(ngModel)]="period.start">
+    </div>
+
+    <!-- End -->
+    <div class="ep-row">
+      <label class="ep-label">End Date & Time <span class="ep-optional">(leave blank = no end limit)</span></label>
+      <input class="ep-input ep-date" type="datetime-local" [(ngModel)]="period.end">
+    </div>
+
+    <!-- Info box -->
+    <div class="ep-info">
+      <strong>How it works:</strong>
+      When enrollment is <b>Open</b> and the current time is within Start–End, students can register.
+      If either date is blank, that boundary is ignored.
+      Toggle to <b>Closed</b> to immediately block all new registrations regardless of dates.
+    </div>
+
+    <!-- Save button + message -->
+    <div class="ep-actions">
+      <button class="ep-btn-save" (click)="savePeriod()" [disabled]="isSaving">
+        {{ isSaving ? 'Saving...' : '💾 Save Enrollment Period' }}
+      </button>
+      <span *ngIf="saveMsg" class="ep-save-msg" [class.ep-success]="saveMsgType === 'success'" [class.ep-error]="saveMsgType === 'error'">
+        {{ saveMsg }}
+      </span>
+    </div>
+  </div>
 </div>

@@ -329,29 +329,16 @@ export class Accounting implements OnInit {
     if (this.modalMode === 'edit') { this.saveEdit(); return; }
     if (this.modalMode === 'editHistory') { this.saveEditHistory(); return; }
 
-    // Validate cash amount: installment = term due only; full = total assessment
+    // Validate cash amount: must be positive and not exceed total assessment (typo guard)
     if (this.isCash(this.selectedPayment) && this.modalMode === 'approve') {
       if (!this.cashAmount || this.cashAmount <= 0) {
         this.cashAmountError = 'Please enter the amount received.';
         return;
       }
-      const isInstallment = this.selectedPayment.paymentPlan === 'installment';
-      if (isInstallment && this.selectedPayment.scheduleAmounts) {
-        const ep  = this.selectedPayment.examPeriod || 'Downpayment';
-        const sa  = this.selectedPayment.scheduleAmounts;
-        const due = ep === 'Prelim'  ? sa.prelim  :
-                    ep === 'Midterm' ? sa.midterm :
-                    ep === 'Finals'  ? sa.finals  : sa.downpayment;
-        if (due > 0 && this.cashAmount !== due) {
-          this.cashAmountError = `${ep} amount must equal ₱${this.formatAmount(due)}. Check for typos.`;
-          return;
-        }
-      } else {
-        const total = this.selectedPayment.totalAssessment || 0;
-        if (total > 0 && this.cashAmount !== total) {
-          this.cashAmountError = `Amount must equal ₱${this.formatAmount(total)} (total assessment). Check for typos.`;
-          return;
-        }
+      const total = this.selectedPayment.totalAssessment || 0;
+      if (total > 0 && this.cashAmount > total) {
+        this.cashAmountError = `Amount ₱${this.formatAmount(this.cashAmount)} exceeds total assessment ₱${this.formatAmount(total)}. Check for typos.`;
+        return;
       }
       this.cashAmountError = '';
     }

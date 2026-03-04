@@ -236,6 +236,67 @@ $migrations = [
 
     // ── Fix legacy Cash payment logs ──────────────────────────────────────
     "UPDATE payment_logs SET payment_method = 'Cash' WHERE gcash_reference = 'CASH-PAYMENT' AND payment_method = 'GCash'",
+
+    // ── FIX: Populate missing BSIT courses in program_courses ─────────────
+    // courses.program stores full name; program 6 = BSIT
+    "INSERT IGNORE INTO `program_courses` (`program_id`, `course_id`)
+     SELECT 6, c.id FROM courses c
+     WHERE c.program = 'Bachelor of Science in Information Technology'
+       AND NOT EXISTS (SELECT 1 FROM program_courses pc WHERE pc.program_id = 6 AND pc.course_id = c.id)",
+
+    // ── FIX: Sync all programs — link courses by full name match ──────────
+    "INSERT IGNORE INTO `program_courses` (`program_id`, `course_id`)
+     SELECT p.id, c.id FROM programs p
+     JOIN courses c ON c.program = p.name
+     WHERE c.id NOT IN (SELECT course_id FROM program_courses WHERE program_id = p.id)",
+
+    // ── FIX: Fix lec_units for courses where both lec and lab are 0 ───────
+    // When lec_units=0 AND lab_units=0 but credits>0, set lec_units=credits
+    "UPDATE courses SET lec_units = credits WHERE lec_units = 0 AND lab_units = 0 AND credits > 0 AND is_lab = 0",
+
+    // ── FIX: Normalize malformed year_level values in courses table ──────
+    // Some courses were imported with 'Year 1', 'Year 2' etc. instead of
+    // '1st Year', '2nd Year' etc. This causes unit-count queries that filter
+    // by year_level = '1st Year' to miss those courses (e.g. AEC105 had 'Year 1',
+    // causing computeProgramUnitsLive to return 23 instead of the correct 26).
+    "UPDATE courses SET year_level = '1st Year' WHERE year_level IN ('Year 1', 'Year-1', '1', 'First Year')",
+    "UPDATE courses SET year_level = '2nd Year' WHERE year_level IN ('Year 2', 'Year-2', '2', 'Second Year')",
+    "UPDATE courses SET year_level = '3rd Year' WHERE year_level IN ('Year 3', 'Year-3', '3', 'Third Year')",
+    "UPDATE courses SET year_level = '4th Year' WHERE year_level IN ('Year 4', 'Year-4', '4', 'Fourth Year')",
+    "UPDATE courses SET year_level = '5th Year' WHERE year_level IN ('Year 5', 'Year-5', '5', 'Fifth Year')",
+
+    // ── FIX: Clean up cross-year auto-enrollments (wrong year_level) ──────
+    // Removes enrollments where course year_level != student year_level
+    // caused by old code that enrolled all years when program_courses was empty
+    "DELETE e FROM enrollments e
+     JOIN courses c  ON e.course_id  = c.id
+     JOIN students s ON e.student_id = s.id
+     WHERE s.student_type = 'Transferee'
+       AND e.status = 'Enrolled'
+       AND c.year_level != s.year_level
+       AND c.year_level NOT IN ('', 'Year 1')
+       AND e.notes LIKE 'Auto-enrolled%'",
+
+    // ── FIX: Reset stale tor_evaluations.approved_units ──────────────────
+    // approved_units was computed when program_courses was incomplete.
+    // Setting to 0 forces computeFeesTransferee to recount live from enrollments.
+    "UPDATE tor_evaluations SET approved_units = 0
+     WHERE status = 'Evaluated' AND approved_units > 0 AND approved_units < credited_units",
+
+    // ── FIX: Drop cross-year/cross-semester auto-enrollments (data corruption) ──
+    // Remove enrollments where the course's year_level does not match the student's
+    // year_level. These were created by the old Source 4 fallback that enrolled
+    // ALL courses with no year filter when program_courses was empty.
+    // Safe: only removes 'Enrolled'/'Pending' rows tagged as 'Auto-enrolled'
+    // and only when c.year_level != s.year_level.
+    "DELETE e FROM enrollments e
+     JOIN courses c  ON e.course_id  = c.id
+     JOIN students s ON e.student_id = s.id
+     WHERE e.status IN ('Enrolled','Pending')
+       AND c.year_level != '' AND c.year_level IS NOT NULL
+       AND s.year_level  != '' AND s.year_level  IS NOT NULL
+       AND c.year_level != s.year_level
+       AND (e.notes LIKE 'Auto-enrolled%' OR e.notes IS NULL OR e.notes = '')",
 ];
 
 $ok = 0; $fail = 0;

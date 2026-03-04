@@ -424,7 +424,15 @@ if ($action === 'get_courses') {
         SELECT c.*,
                COALESCE(CONCAT(f.first_name,' ',f.last_name), c.instructor, '') AS instructor,
                f.faculty_id AS faculty_code,
-               f.id         AS faculty_db_id
+               f.id         AS faculty_db_id,
+               COALESCE(
+                   (SELECT p.level_type FROM programs p
+                    INNER JOIN program_courses pc ON pc.program_id = p.id
+                    WHERE pc.course_id = c.id LIMIT 1),
+                   (SELECT p.level_type FROM programs p
+                    WHERE p.name = c.program OR p.code = c.program LIMIT 1),
+                   'College'
+               ) AS level_type
         FROM courses c
         LEFT JOIN faculty f ON c.faculty_id = f.id
         ORDER BY c.program, c.code ASC");
@@ -458,9 +466,14 @@ if ($action === 'create_course') {
     $fidVal = $fid ?: 'NULL';
     $is_lab = (int)($input['is_lab'] ?? 0) ? 1 : 0;
     $esc = fn($s) => $conn->real_escape_string($s);
-    $conn->query("ALTER TABLE courses ADD COLUMN IF NOT EXISTS is_lab TINYINT(1) DEFAULT 0");
-    $sql = "INSERT INTO courses (code,name,description,credits,department,program,year_level,semester,instructor,day,time,room,capacity,faculty_id,is_lab)
-            VALUES ('{$esc($code)}','{$esc($name)}','{$esc($desc)}',$cred,'{$esc($dept)}','{$esc($prog)}','{$esc($yl)}','{$esc($sem)}','{$esc($instr)}','{$esc($day)}','{$esc($time)}','{$esc($room)}',$cap,$fidVal,$is_lab)";
+    $lec_units = (int)($input['lec_units'] ?? $cred);
+    $lab_units = (int)($input['lab_units'] ?? 0);
+    if ($lec_units + $lab_units > 0) $cred = $lec_units + $lab_units;
+    $conn->query('ALTER TABLE courses ADD COLUMN IF NOT EXISTS is_lab TINYINT(1) DEFAULT 0');
+    $conn->query('ALTER TABLE courses ADD COLUMN IF NOT EXISTS lec_units INT DEFAULT 0');
+    $conn->query('ALTER TABLE courses ADD COLUMN IF NOT EXISTS lab_units INT DEFAULT 0');
+    $sql = "INSERT INTO courses (code,name,description,credits,lec_units,lab_units,department,program,year_level,semester,instructor,day,time,room,capacity,faculty_id,is_lab)
+            VALUES ('{$esc($code)}','{$esc($name)}','{$esc($desc)}',$cred,$lec_units,$lab_units,'{$esc($dept)}','{$esc($prog)}','{$esc($yl)}','{$esc($sem)}','{$esc($instr)}','{$esc($day)}','{$esc($time)}','{$esc($room)}',$cap,$fidVal,$is_lab)";
 
     if ($conn->query($sql)) {
         $cid = $conn->insert_id;
@@ -503,10 +516,16 @@ if ($action === 'update_course') {
     $oldData = $oldRes ? $oldRes->fetch_assoc() : null;
 
     $fidVal = $fid ?: 'NULL';
-    $is_lab = (int)($input['is_lab'] ?? 0) ? 1 : 0;
+    $is_lab    = (int)($input['is_lab']    ?? 0) ? 1 : 0;
+    $lec_units = (int)($input['lec_units'] ?? $cred);
+    $lab_units = (int)($input['lab_units'] ?? 0);
+    if ($lec_units + $lab_units > 0) $cred = $lec_units + $lab_units;
     $esc = fn($s) => $conn->real_escape_string($s);
-    $conn->query("ALTER TABLE courses ADD COLUMN IF NOT EXISTS is_lab TINYINT(1) DEFAULT 0");
+    $conn->query('ALTER TABLE courses ADD COLUMN IF NOT EXISTS is_lab TINYINT(1) DEFAULT 0');
+    $conn->query('ALTER TABLE courses ADD COLUMN IF NOT EXISTS lec_units INT DEFAULT 0');
+    $conn->query('ALTER TABLE courses ADD COLUMN IF NOT EXISTS lab_units INT DEFAULT 0');
     $sql = "UPDATE courses SET code='{$esc($code)}',name='{$esc($name)}',description='{$esc($desc)}',credits=$cred,
+            lec_units=$lec_units,lab_units=$lab_units,
             department='{$esc($dept)}',program='{$esc($prog)}',year_level='{$esc($yl)}',semester='{$esc($sem)}',
             instructor='{$esc($instr)}',day='{$esc($day)}',time='{$esc($time)}',room='{$esc($room)}',
             capacity=$cap,faculty_id=$fidVal,is_lab=$is_lab WHERE id=$id";
@@ -575,7 +594,15 @@ if ($action === 'create_program') {
                 $conn->query("UPDATE courses SET program='".$conn->real_escape_string($name)."' WHERE id=$cid");
             }
         }
-        logAudit($conn, $authUser, 'CREATE_PROGRAM', 'program', $pid, "Created program: $code - $name", null, ['name'=>$name,'code'=>$code,'level_type'=>$lt]);
+        // ── Sync courses.department for all assigned courses ──
+        $esc = fn($s) => $conn->real_escape_string($s);
+        if ($dept !== '' && !empty($cids)) {
+            $conn->query("UPDATE courses c
+                INNER JOIN program_courses pc ON pc.course_id = c.id
+                SET c.department = '{$esc($dept)}'
+                WHERE pc.program_id = $pid");
+        }
+        logAudit($conn, $authUser, 'CREATE_PROGRAM', 'program', $pid, "Created program: $code - $name", null, ['name'=>$name,'code'=>$code,'level_type'=>$lt,'department'=>$dept]);
         ob_end_clean(); echo json_encode(['success'=>true,'program_id'=>$pid]);
     } catch (Exception $e) { ob_end_clean(); echo json_encode(['success'=>false,'message'=>'Code already exists']); }
     exit();
@@ -600,6 +627,23 @@ if ($action === 'update_program') {
     $st->bind_param("sssissi",$name,$code,$lt,$dur,$desc,$dept,$id);
     try {
         $st->execute();
+
+        // FIX: Find courses that are being REMOVED from this program
+        // (they were linked before but won't be in the new $cids list).
+        // Clear their courses.program field so getProgramCourses Source 2
+        // (WHERE program = name) no longer returns them after unlinking.
+        $newCidInts = array_map('intval', $cids);
+        $oldLinkedRes = $conn->query("SELECT course_id FROM program_courses WHERE program_id=$id");
+        if ($oldLinkedRes) {
+            while ($row = $oldLinkedRes->fetch_assoc()) {
+                $oid = (int)$row['course_id'];
+                if (!in_array($oid, $newCidInts, true)) {
+                    // This course is being removed — clear its program field
+                    $conn->query("UPDATE courses SET program='' WHERE id=$oid AND program='".$conn->real_escape_string($name)."'");
+                }
+            }
+        }
+
         $conn->query("DELETE FROM program_courses WHERE program_id=$id");
         if (!empty($cids)) {
             $ins = $conn->prepare("INSERT IGNORE INTO program_courses (program_id,course_id) VALUES (?,?)");
@@ -608,9 +652,23 @@ if ($action === 'update_program') {
                 $conn->query("UPDATE courses SET program='".$conn->real_escape_string($name)."' WHERE id=$cid");
             }
         }
-        logAudit($conn, $authUser, 'UPDATE_PROGRAM', 'program', $id, "Updated program: $code - $name", $oldData, ['name'=>$name,'code'=>$code]);
+
+        // ── Immediately sync courses.department for ALL courses in this program ──
+        // Match by program name OR code so no course is left with a stale dept
+        $esc = fn($s) => $conn->real_escape_string($s);
+        if ($dept !== '') {
+            $conn->query("UPDATE courses SET department='{$esc($dept)}'
+                WHERE program='{$esc($name)}' OR program='{$esc($code)}'");
+            // Also sync via program_courses join (catches courses linked but with different program field)
+            $conn->query("UPDATE courses c
+                INNER JOIN program_courses pc ON pc.course_id = c.id
+                SET c.department = '{$esc($dept)}'
+                WHERE pc.program_id = $id");
+        }
+
+        logAudit($conn, $authUser, 'UPDATE_PROGRAM', 'program', $id, "Updated program: $code - $name", $oldData, ['name'=>$name,'code'=>$code,'department'=>$dept]);
         ob_end_clean(); echo json_encode(['success'=>true]);
-    } catch (Exception $e) { ob_end_clean(); echo json_encode(['success'=>false,'message'=>'Update failed']); }
+    } catch (Exception $e) { ob_end_clean(); echo json_encode(['success'=>false,'message'=>'Update failed: '.$e->getMessage()]); }
     exit();
 }
 
@@ -623,6 +681,93 @@ if ($action === 'delete_program') {
     $conn->query("DELETE FROM programs WHERE id=$id");
     logAudit($conn, $authUser, 'DELETE_PROGRAM', 'program', $id, "Deleted program: ".($oldData ? $oldData['code'] : $id), $oldData, null);
     ob_end_clean(); echo json_encode(['success'=>true]); exit();
+}
+
+// ================================================================
+//  DEPARTMENT MANAGEMENT — sync, rename, delete
+// ================================================================
+
+// Called on every Courses page load to sync course.department from programs.department
+if ($action === 'sync_course_departments') {
+    // Match by program name — always overwrite (no stale dept check)
+    $conn->query("UPDATE courses c
+        INNER JOIN programs p ON c.program = p.name
+        SET c.department = p.department
+        WHERE p.department != ''");
+
+    // Match by program code
+    $conn->query("UPDATE courses c
+        INNER JOIN programs p ON c.program = p.code
+        SET c.department = p.department
+        WHERE p.department != ''");
+
+    // Match via program_courses join (catches courses where program field may differ)
+    $conn->query("UPDATE courses c
+        INNER JOIN program_courses pc ON pc.course_id = c.id
+        INNER JOIN programs p ON p.id = pc.program_id
+        SET c.department = p.department
+        WHERE p.department != ''");
+
+    // Also ensure lec_units / lab_units columns exist
+    $conn->query('ALTER TABLE courses ADD COLUMN IF NOT EXISTS lec_units INT DEFAULT 0');
+    $conn->query('ALTER TABLE courses ADD COLUMN IF NOT EXISTS lab_units INT DEFAULT 0');
+
+    ob_end_clean();
+    echo json_encode(['success' => true, 'message' => 'Course departments synced']);
+    exit();
+}
+
+// Rename a department across ALL programs AND courses
+if ($action === 'rename_department') {
+    $oldName = trim($input['old_name'] ?? '');
+    $newName = trim($input['new_name'] ?? '');
+    if (!$oldName || !$newName) {
+        ob_end_clean(); echo json_encode(['success'=>false,'message'=>'old_name and new_name required']); exit();
+    }
+    $esc = fn($s) => $conn->real_escape_string($s);
+
+    $conn->query("UPDATE programs SET department='{$esc($newName)}' WHERE department='{$esc($oldName)}'");
+    $progUpdated = $conn->affected_rows;
+
+    $conn->query("UPDATE courses SET department='{$esc($newName)}' WHERE department='{$esc($oldName)}'");
+    $courseUpdated = $conn->affected_rows;
+
+    logAudit($conn, $authUser, 'RENAME_DEPARTMENT', 'department', 0,
+        "Renamed department: $oldName → $newName", ['name'=>$oldName], ['name'=>$newName]);
+
+    ob_end_clean();
+    echo json_encode([
+        'success'          => true,
+        'programs_updated' => $progUpdated,
+        'courses_updated'  => $courseUpdated,
+    ]);
+    exit();
+}
+
+// Delete (clear) a department from ALL programs AND courses
+if ($action === 'delete_department') {
+    $deptName = trim($input['dept_name'] ?? '');
+    if (!$deptName) {
+        ob_end_clean(); echo json_encode(['success'=>false,'message'=>'dept_name required']); exit();
+    }
+    $esc = fn($s) => $conn->real_escape_string($s);
+
+    $conn->query("UPDATE programs SET department='' WHERE department='{$esc($deptName)}'");
+    $progUpdated = $conn->affected_rows;
+
+    $conn->query("UPDATE courses SET department='' WHERE department='{$esc($deptName)}'");
+    $courseUpdated = $conn->affected_rows;
+
+    logAudit($conn, $authUser, 'DELETE_DEPARTMENT', 'department', 0,
+        "Deleted department: $deptName", ['name'=>$deptName], null);
+
+    ob_end_clean();
+    echo json_encode([
+        'success'          => true,
+        'programs_updated' => $progUpdated,
+        'courses_updated'  => $courseUpdated,
+    ]);
+    exit();
 }
 
 // ================================================================

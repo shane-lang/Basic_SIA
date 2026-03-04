@@ -881,7 +881,8 @@
   background: #dcfce7; border-radius: 8px;
   padding: 6px 10px; margin-bottom: 10px;
 }
-.am-cash-due-amt { color: #15803d; font-size: 1rem; margin-left: 6px; }
+.am-cash-due-amt  { color: #15803d; font-size: 1rem; margin-left: 6px; }
+.am-cash-due-hint { color: #6b7280; font-size: 0.78rem; margin-left: 4px; font-style: italic; }
 .am-cash-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .am-err { color: #ef4444; font-size: 0.78rem; margin-top: 4px; }
 

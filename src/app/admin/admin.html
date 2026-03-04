@@ -116,11 +116,15 @@
           </ul>
         </div>-->
 
-        <!-- System Management
+     
         <div class="nav-section">
           <h4 class="nav-section-title">SYSTEM</h4>
           <ul class="nav-links-list">
             <li>
+              <a routerLink="/admin/announcements" routerLinkActive="active" class="nav-link" (click)="closeSidebarOnMobile()">
+                <span class="nav-icon">📢</span>
+                <span class="nav-label">Announcements</span>
+              </a>
               <a routerLink="/admin/settings" routerLinkActive="active" class="nav-link" (click)="closeSidebarOnMobile()">
                 <span class="nav-icon">⚙️</span>
                 <span class="nav-label">Settings</span>
@@ -128,7 +132,7 @@
             </li>
             
           </ul>
-        </div> -->
+        </div> 
       </nav>
     </mat-sidenav>
 
