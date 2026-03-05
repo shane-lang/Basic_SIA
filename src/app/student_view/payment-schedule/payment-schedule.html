@@ -144,12 +144,18 @@
             </button>
           </ng-container>
 
-          <!-- Pay button (unpaid/partial — always available to add more payment) -->
+          <!-- Pay button (unpaid/partial — blocked if pending payment exists) -->
           <button class="btn-pay"
             *ngIf="getStatus(period)==='unpaid' || getStatus(period)==='partial'"
+            [disabled]="hasPendingPayment(period)"
+            [style.opacity]="hasPendingPayment(period) ? '0.5' : '1'"
+            [title]="hasPendingPayment(period) ? 'Payment submitted — waiting for Accounting approval' : ''"
             (click)="openPayModal(period)">
-            💳 Pay {{ payPeriod === period ? '' : period }}
-            <span *ngIf="getBalance(period) > 0"> · ₱{{ fmt(getBalance(period)) }} remaining</span>
+            <span *ngIf="hasPendingPayment(period)">⏳ Awaiting Approval</span>
+            <span *ngIf="!hasPendingPayment(period)">
+              💳 Pay {{ payPeriod === period ? '' : period }}
+              <span *ngIf="getBalance(period) > 0"> · ₱{{ fmt(getBalance(period)) }} remaining</span>
+            </span>
           </button>
 
           <!-- Request permit button: show when paid OR partial (any amount paid counts) -->

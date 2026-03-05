@@ -96,7 +96,7 @@ export class StudentDashboard implements OnInit {
   studentType       = '';   // 'New' | 'Old' | 'Transferee'
   yearLevel         = '';
   academicYear      = '2024–2025';
-  semester          = '1st Semester';
+  semester          = '';
   academicStatus    = '';
   enrollmentStatus  = '';
   enrollmentDate    = '';

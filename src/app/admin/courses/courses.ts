@@ -78,8 +78,8 @@ export class Courses implements OnInit {
 
   readonly YEAR_LEVELS_COLLEGE = ['1st Year', '2nd Year', '3rd Year', '4th Year'];
   readonly YEAR_LEVELS_SHS     = ['Grade 11', 'Grade 12'];
-  readonly YEAR_LEVELS_TVET    = ['Year 1'];
-  readonly SEMESTERS = ['1st Semester', '2nd Semester', 'Summer'];
+  readonly YEAR_LEVELS_TVET    = ['Year 1', 'Year 2', 'Year 3', 'Year 4'];
+  readonly SEMESTERS = ['1st Semester', '2nd Semester'];
 
   get currentDepts(): DeptEntry[] {
     return this.deptEntries.filter(d => d.type === this.form._levelType);
@@ -261,6 +261,16 @@ export class Courses implements OnInit {
     this.form.department = '';
     this.form.program    = '';
     this.form.year_level = this.currentYearLevels[0];
+    // SHS doesn't use units
+    if (this.form._levelType === 'SHS') {
+      this.form.lec_units = 0;
+      this.form.lab_units = 0;
+      this.form.credits   = 0;
+    } else if (!this.form.lec_units && !this.form.lab_units) {
+      this.form.lec_units = 3;
+      this.form.lab_units = 0;
+      this.form.credits   = 3;
+    }
     this.cdr.detectChanges();
   }
 
@@ -316,9 +326,10 @@ export class Courses implements OnInit {
 
   save(): void {
     if (!this.form.code || !this.form.name) {
-      this.showToast('error', 'Course code and name are required.'); return;
+      this.showToast('error', 'Code and name are required.'); return;
     }
-    if (!this.form.credits || this.form.credits < 1) {
+    // SHS subjects don't require units
+    if (this.form._levelType !== 'SHS' && (!this.form.credits || this.form.credits < 1)) {
       this.showToast('error', 'Units must be at least 1.'); return;
     }
     // Note: duplicate code is handled server-side — existing courses are reused and linked to new programs

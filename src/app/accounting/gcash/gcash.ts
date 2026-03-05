@@ -33,7 +33,7 @@ export class Gcash implements OnInit {
   studentDbId      = 0;   // actual DB id for API calls
   studentName      = '';
   program          = '';
-  semester         = '1st Semester, AY 2024-2025';
+  semester         = '';
 
   encodedData: any = null;
   processing       = false;
@@ -69,6 +69,7 @@ export class Gcash implements OnInit {
           this.studentDbId  = s.dbId;
           this.studentName  = `${s.firstName} ${s.lastName}`;
           this.program      = s.program;
+          this.semester     = s.semester || '';
           // Pre-fill amount from enrollment fee
           if (!this.amount) this.amount = '25000';
           // Pre-fill today's date

@@ -257,6 +257,13 @@ export class Enrollment implements OnInit, OnDestroy {
           this.isApprovalPending = true;
           this.startApprovalPolling();
 
+        } else if (!isCash && s.paymentStatus === 'Pending') {
+          // GCash submitted but not yet verified — show approval waiting screen
+          this.gcashSubmitted = true;
+          this.route('approval');
+          this.isApprovalPending = true;
+          this.startApprovalPolling();
+
         } else {
           this.route('payment');
         }

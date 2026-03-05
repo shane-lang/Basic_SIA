@@ -149,7 +149,7 @@
          [class.head-college]="form._levelType === 'College'"
          [class.head-shs]="form._levelType === 'SHS'"
          [class.head-tvet]="form._levelType === 'TVET'">
-      <h2>{{ isEditing ? '✏️ Edit Course' : '➕ Add New Course' }}</h2>
+      <h2>{{ isEditing ? '✏️ ' + (form._levelType === 'SHS' ? 'Edit Subject' : 'Edit Course') : '➕ Add New ' + (form._levelType === 'SHS' ? 'Subject' : 'Course') }}</h2>
       <button class="modal-x" (click)="closeModal()">✕</button>
     </div>
 
@@ -175,9 +175,10 @@
       </div>
 
       <!-- Code + Units -->
-      <div class="form-row units-row">
+      <!-- For SHS: only Subject Code, no Lec/Lab/Units -->
+      <div class="form-row units-row" *ngIf="form._levelType !== 'SHS'">
         <div class="form-group form-group-code">
-          <label>Course Code <span class="req">*</span></label>
+          <label>{{ form._levelType === 'TVET' ? 'Course Code' : 'Course Code' }} <span class="req">*</span></label>
           <input class="form-ctrl" type="text" [(ngModel)]="form.code"
                  placeholder="e.g. CS111" style="text-transform:uppercase">
         </div>
@@ -194,18 +195,24 @@
         <div class="form-group form-group-unit">
           <label>Total</label>
           <div class="unit-total-box" [class.total-college]="form._levelType === 'College'"
-               [class.total-shs]="form._levelType === 'SHS'"
                [class.total-tvet]="form._levelType === 'TVET'">
             {{ form.credits || 0 }}
           </div>
         </div>
       </div>
 
-      <!-- Course Name -->
+      <!-- SHS: Subject Code only (no units) -->
+      <div class="form-group" *ngIf="form._levelType === 'SHS'">
+        <label>Subject Code <span class="req">*</span></label>
+        <input class="form-ctrl" type="text" [(ngModel)]="form.code"
+               placeholder="e.g. READO-11" style="text-transform:uppercase">
+      </div>
+
+      <!-- Course / Subject Name -->
       <div class="form-group">
-        <label>Course Name <span class="req">*</span></label>
+        <label>{{ form._levelType === 'SHS' ? 'Subject Name' : 'Course Name' }} <span class="req">*</span></label>
         <input class="form-ctrl" type="text" [(ngModel)]="form.name"
-               placeholder="e.g. Introduction to Programming">
+               [placeholder]="form._levelType === 'SHS' ? 'e.g. Reading and Writing Skills' : 'e.g. Introduction to Programming'">
       </div>
 
       <!-- Description -->
@@ -218,13 +225,16 @@
       <!-- Program + Semester -->
       <div class="form-row two-col">
         <div class="form-group">
-          <label>Program <span class="form-hint-inline">— from Levels &amp; Programs</span></label>
+          <label>
+            {{ form._levelType === 'SHS' ? 'Strand' : 'Program' }}
+            <span class="form-hint-inline">— from Levels &amp; Programs</span>
+          </label>
           <select class="form-ctrl prog-select"
                   [class.prog-select-college]="form._levelType === 'College'"
                   [class.prog-select-shs]="form._levelType === 'SHS'"
                   [class.prog-select-tvet]="form._levelType === 'TVET'"
                   [(ngModel)]="form.program" (change)="onProgramChange()">
-            <option value="">— Select Program —</option>
+            <option value="">— Select {{ form._levelType === 'SHS' ? 'Strand' : 'Program' }} —</option>
             <option *ngFor="let p of currentPrograms" [value]="p.name">{{ p.code }} — {{ p.name }}</option>
           </select>
           <p class="form-hint" *ngIf="currentPrograms.length === 0">

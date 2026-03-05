@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1
--- Generation Time: Mar 05, 2026 at 06:19 AM
+-- Generation Time: Mar 05, 2026 at 07:47 AM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.2.12
 
@@ -151,21 +151,21 @@ CREATE TABLE `courses` (
 --
 
 INSERT INTO `courses` (`id`, `code`, `name`, `credits`, `instructor`, `faculty_id`, `schedule`, `day`, `time`, `room`, `capacity`, `enrolled_count`, `semester`, `description`, `department`, `program`, `year_level`, `created_at`, `lec_units`, `lab_units`, `is_general`, `is_lab`) VALUES
-(1, 'GE109', 'Understanding the Self', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 2, '1st Semester', '', 'Information Communication and Technology (ICTD)', 'Bachelor of Science in Information Technology', '1st Year', '2026-03-04 17:43:03', 3, 0, 0, 0),
-(2, 'GE108', 'Ethics', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 2, '1st Semester', '', 'Information Communication and Technology (ICTD)', 'Bachelor of Science in Information Technology', '1st Year', '2026-03-04 17:43:03', 3, 0, 0, 0),
-(3, 'CC100', 'Introduction to Computing', 3, 'Liza Dela Cruz', 9, NULL, '', '', '', 40, 2, '1st Semester', '', 'Information Communication and Technology (ICTD)', 'Bachelor of Science in Information Technology', '1st Year', '2026-03-04 17:43:03', 2, 1, 0, 1),
-(4, 'CC101', 'Computer Programming 1', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 2, '1st Semester', '', 'Information Communication and Technology (ICTD)', 'Bachelor of Science in Information Technology', '1st Year', '2026-03-04 17:43:03', 2, 1, 0, 1),
-(5, 'IT-CMT', 'Computer Organization and Maintenance', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 2, '1st Semester', '', 'Information Communication and Technology (ICTD)', 'Bachelor of Science in Information Technology', '1st Year', '2026-03-04 17:43:03', 2, 1, 0, 1),
-(6, 'GE105', 'Mathematics in the Modern World', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 2, '1st Semester', '', 'Information Communication and Technology (ICTD)', 'Bachelor of Science in Information Technology', '1st Year', '2026-03-04 17:43:03', 3, 0, 0, 0),
-(7, 'PE1', 'Physical Education 1 (Aquatics)', 2, NULL, NULL, NULL, NULL, NULL, NULL, 40, 2, '1st Semester', '', 'Information Communication and Technology (ICTD)', 'Bachelor of Science in Information Technology', '1st Year', '2026-03-04 17:43:03', 2, 0, 0, 0),
-(8, 'NSTP1', 'National Service Training Program 1', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 2, '1st Semester', '', 'Information Communication and Technology (ICTD)', 'Bachelor of Science in Information Technology', '1st Year', '2026-03-04 17:43:03', 3, 0, 0, 0),
-(9, 'GE101', 'Purposive Communication', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester', '', 'Information Communication and Technology (ICTD)', 'Bachelor of Science in Information Technology', '1st Year', '2026-03-04 17:43:03', 3, 0, 0, 0),
-(10, 'IT100', 'Introduction to Human Computer Interaction', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester', '', 'Information Communication and Technology (ICTD)', 'Bachelor of Science in Information Technology', '1st Year', '2026-03-04 17:43:03', 2, 1, 0, 1),
-(11, 'CC102', 'Computer Programming 2', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester', '', 'Information Communication and Technology (ICTD)', 'Bachelor of Science in Information Technology', '1st Year', '2026-03-04 17:43:03', 2, 1, 0, 1),
-(12, 'IS103', 'IT Infrastructure and Network Technologies', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester', '', 'Information Communication and Technology (ICTD)', 'Bachelor of Science in Information Technology', '1st Year', '2026-03-04 17:43:03', 2, 1, 0, 1),
-(13, 'GE103', 'Art Appreciation', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester', '', 'Information Communication and Technology (ICTD)', 'Bachelor of Science in Information Technology', '1st Year', '2026-03-04 17:43:03', 3, 0, 0, 0),
-(14, 'PE2', 'Physical Education 2 (Outdoor Pursuits)', 2, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester', '', 'Information Communication and Technology (ICTD)', 'Bachelor of Science in Information Technology', '1st Year', '2026-03-04 17:43:03', 2, 0, 0, 0),
-(15, 'NSTP2', 'National Service Training Program 2', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '2nd Semester', '', 'Information Communication and Technology (ICTD)', 'Bachelor of Science in Information Technology', '1st Year', '2026-03-04 17:43:03', 3, 0, 0, 0),
+(1, 'GE109', 'Understanding the Self', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 3, '1st Semester', '', 'Information Communication and Technology (ICTD)', 'Bachelor of Science in Information Technology', '1st Year', '2026-03-04 17:43:03', 3, 0, 0, 0),
+(2, 'GE108', 'Ethics', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 3, '1st Semester', '', 'Information Communication and Technology (ICTD)', 'Bachelor of Science in Information Technology', '1st Year', '2026-03-04 17:43:03', 3, 0, 0, 0),
+(3, 'CC100', 'Introduction to Computing', 3, 'Liza Dela Cruz', 9, NULL, '', '', '', 40, 3, '1st Semester', '', 'Information Communication and Technology (ICTD)', 'Bachelor of Science in Information Technology', '1st Year', '2026-03-04 17:43:03', 2, 1, 0, 1),
+(4, 'CC101', 'Computer Programming 1', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 3, '1st Semester', '', 'Information Communication and Technology (ICTD)', 'Bachelor of Science in Information Technology', '1st Year', '2026-03-04 17:43:03', 2, 1, 0, 1),
+(5, 'IT-CMT', 'Computer Organization and Maintenance', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 3, '1st Semester', '', 'Information Communication and Technology (ICTD)', 'Bachelor of Science in Information Technology', '1st Year', '2026-03-04 17:43:03', 2, 1, 0, 1),
+(6, 'GE105', 'Mathematics in the Modern World', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 3, '1st Semester', '', 'Information Communication and Technology (ICTD)', 'Bachelor of Science in Information Technology', '1st Year', '2026-03-04 17:43:03', 3, 0, 0, 0),
+(7, 'PE1', 'Physical Education 1 (Aquatics)', 2, NULL, NULL, NULL, NULL, NULL, NULL, 40, 3, '1st Semester', '', 'Information Communication and Technology (ICTD)', 'Bachelor of Science in Information Technology', '1st Year', '2026-03-04 17:43:03', 2, 0, 0, 0),
+(8, 'NSTP1', 'National Service Training Program 1', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 3, '1st Semester', '', 'Information Communication and Technology (ICTD)', 'Bachelor of Science in Information Technology', '1st Year', '2026-03-04 17:43:03', 3, 0, 0, 0),
+(9, 'GE101', 'Purposive Communication', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 1, '2nd Semester', '', 'Information Communication and Technology (ICTD)', 'Bachelor of Science in Information Technology', '1st Year', '2026-03-04 17:43:03', 3, 0, 0, 0),
+(10, 'IT100', 'Introduction to Human Computer Interaction', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 1, '2nd Semester', '', 'Information Communication and Technology (ICTD)', 'Bachelor of Science in Information Technology', '1st Year', '2026-03-04 17:43:03', 2, 1, 0, 1),
+(11, 'CC102', 'Computer Programming 2', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 1, '2nd Semester', '', 'Information Communication and Technology (ICTD)', 'Bachelor of Science in Information Technology', '1st Year', '2026-03-04 17:43:03', 2, 1, 0, 1),
+(12, 'IS103', 'IT Infrastructure and Network Technologies', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 1, '2nd Semester', '', 'Information Communication and Technology (ICTD)', 'Bachelor of Science in Information Technology', '1st Year', '2026-03-04 17:43:03', 2, 1, 0, 1),
+(13, 'GE103', 'Art Appreciation', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 1, '2nd Semester', '', 'Information Communication and Technology (ICTD)', 'Bachelor of Science in Information Technology', '1st Year', '2026-03-04 17:43:03', 3, 0, 0, 0),
+(14, 'PE2', 'Physical Education 2 (Outdoor Pursuits)', 2, NULL, NULL, NULL, NULL, NULL, NULL, 40, 1, '2nd Semester', '', 'Information Communication and Technology (ICTD)', 'Bachelor of Science in Information Technology', '1st Year', '2026-03-04 17:43:03', 2, 0, 0, 0),
+(15, 'NSTP2', 'National Service Training Program 2', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 1, '2nd Semester', '', 'Information Communication and Technology (ICTD)', 'Bachelor of Science in Information Technology', '1st Year', '2026-03-04 17:43:03', 3, 0, 0, 0),
 (16, 'CC103', 'Data Structures and Algorithms', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester', '', 'Information Communication and Technology (ICTD)', 'Bachelor of Science in Information Technology', '2nd Year', '2026-03-04 17:43:03', 2, 1, 0, 1),
 (17, 'CC105', 'Application Development and Emerging Technologies', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester', '', 'Information Communication and Technology (ICTD)', 'Bachelor of Science in Information Technology', '2nd Year', '2026-03-04 17:43:03', 2, 1, 0, 1),
 (18, 'IT105', 'Discrete Mathematics', 3, NULL, NULL, NULL, NULL, NULL, NULL, 40, 0, '1st Semester', '', 'Information Communication and Technology (ICTD)', 'Bachelor of Science in Information Technology', '2nd Year', '2026-03-04 17:43:03', 3, 0, 0, 0),
@@ -423,44 +423,6 @@ CREATE TABLE `enrollments` (
   `grade_released_at` datetime DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
---
--- Dumping data for table `enrollments`
---
-
-INSERT INTO `enrollments` (`id`, `student_id`, `course_id`, `enrollment_date`, `status`, `grade`, `semester`, `notes`, `created_at`, `prelim_grade`, `midterm_grade`, `final_grade`, `overall_grade`, `remarks`, `grade_released`, `grade_submitted`, `grade_submitted_at`, `grade_released_at`) VALUES
-(768, 136, 802, '2026-03-04', 'Enrolled', NULL, '1st Semester, AY 2025-2026', 'Auto-enrolled', '2026-03-04 16:28:18', NULL, NULL, NULL, NULL, 'In Progress', 0, 0, NULL, NULL),
-(769, 136, 803, '2026-03-04', 'Enrolled', NULL, '1st Semester, AY 2025-2026', 'Auto-enrolled', '2026-03-04 16:28:18', NULL, NULL, NULL, NULL, 'In Progress', 0, 0, NULL, NULL),
-(770, 136, 804, '2026-03-04', 'Enrolled', NULL, '1st Semester, AY 2025-2026', 'Auto-enrolled', '2026-03-04 16:28:18', NULL, NULL, NULL, NULL, 'In Progress', 0, 0, NULL, NULL),
-(771, 137, 1, '2026-03-04', 'Enrolled', NULL, '1st Semester, AY 2025-2026', 'Auto-enrolled', '2026-03-04 17:12:51', NULL, NULL, NULL, NULL, 'In Progress', 0, 0, NULL, NULL),
-(772, 137, 2, '2026-03-04', 'Enrolled', NULL, '1st Semester, AY 2025-2026', 'Auto-enrolled', '2026-03-04 17:12:51', NULL, NULL, NULL, NULL, 'In Progress', 0, 0, NULL, NULL),
-(773, 137, 3, '2026-03-04', 'Enrolled', NULL, '1st Semester, AY 2025-2026', 'Auto-enrolled', '2026-03-04 17:12:51', NULL, NULL, NULL, NULL, 'In Progress', 0, 0, NULL, NULL),
-(774, 137, 4, '2026-03-04', 'Enrolled', NULL, '1st Semester, AY 2025-2026', 'Auto-enrolled', '2026-03-04 17:12:51', NULL, NULL, NULL, NULL, 'In Progress', 0, 0, NULL, NULL),
-(775, 137, 5, '2026-03-04', 'Enrolled', NULL, '1st Semester, AY 2025-2026', 'Auto-enrolled', '2026-03-04 17:12:51', NULL, NULL, NULL, NULL, 'In Progress', 0, 0, NULL, NULL),
-(776, 137, 6, '2026-03-04', 'Enrolled', NULL, '1st Semester, AY 2025-2026', 'Auto-enrolled', '2026-03-04 17:12:51', NULL, NULL, NULL, NULL, 'In Progress', 0, 0, NULL, NULL),
-(777, 137, 7, '2026-03-04', 'Enrolled', NULL, '1st Semester, AY 2025-2026', 'Auto-enrolled', '2026-03-04 17:12:51', NULL, NULL, NULL, NULL, 'In Progress', 0, 0, NULL, NULL),
-(778, 137, 8, '2026-03-04', 'Enrolled', NULL, '1st Semester, AY 2025-2026', 'Auto-enrolled', '2026-03-04 17:12:51', NULL, NULL, NULL, NULL, 'In Progress', 0, 0, NULL, NULL),
-(779, 136, 1, '2026-03-05', 'Enrolled', NULL, '1st Semester, AY 2025-2026', 'Auto-enrolled', '2026-03-04 23:16:21', NULL, NULL, NULL, NULL, 'In Progress', 0, 0, NULL, NULL),
-(780, 136, 2, '2026-03-05', 'Enrolled', NULL, '1st Semester, AY 2025-2026', 'Auto-enrolled', '2026-03-04 23:16:21', NULL, NULL, NULL, NULL, 'In Progress', 0, 0, NULL, NULL),
-(781, 136, 3, '2026-03-05', 'Enrolled', NULL, '1st Semester, AY 2025-2026', 'Auto-enrolled', '2026-03-04 23:16:21', NULL, NULL, NULL, NULL, 'In Progress', 0, 0, NULL, NULL),
-(782, 136, 4, '2026-03-05', 'Enrolled', NULL, '1st Semester, AY 2025-2026', 'Auto-enrolled', '2026-03-04 23:16:21', NULL, NULL, NULL, NULL, 'In Progress', 0, 0, NULL, NULL),
-(783, 136, 5, '2026-03-05', 'Enrolled', NULL, '1st Semester, AY 2025-2026', 'Auto-enrolled', '2026-03-04 23:16:21', NULL, NULL, NULL, NULL, 'In Progress', 0, 0, NULL, NULL),
-(784, 136, 6, '2026-03-05', 'Enrolled', NULL, '1st Semester, AY 2025-2026', 'Auto-enrolled', '2026-03-04 23:16:21', NULL, NULL, NULL, NULL, 'In Progress', 0, 0, NULL, NULL),
-(785, 136, 7, '2026-03-05', 'Enrolled', NULL, '1st Semester, AY 2025-2026', 'Auto-enrolled', '2026-03-04 23:16:21', NULL, NULL, NULL, NULL, 'In Progress', 0, 0, NULL, NULL),
-(786, 136, 8, '2026-03-05', 'Enrolled', NULL, '1st Semester, AY 2025-2026', 'Auto-enrolled', '2026-03-04 23:16:21', NULL, NULL, NULL, NULL, 'In Progress', 0, 0, NULL, NULL),
-(787, 138, 554, '2026-03-05', 'Dropped', NULL, 'TOR Credit', 'Credited via TOR evaluation — permanently excluded', '2026-03-05 01:45:49', NULL, NULL, NULL, NULL, 'In Progress', 0, 0, NULL, NULL),
-(788, 138, 609, '2026-03-05', 'Dropped', NULL, 'TOR Credit', 'Credited via TOR evaluation — permanently excluded', '2026-03-05 01:45:49', NULL, NULL, NULL, NULL, 'In Progress', 0, 0, NULL, NULL),
-(789, 138, 612, '2026-03-05', 'Dropped', NULL, 'TOR Credit', 'Credited via TOR evaluation — permanently excluded', '2026-03-05 01:45:49', NULL, NULL, NULL, NULL, 'In Progress', 0, 0, NULL, NULL),
-(790, 138, 563, '2026-03-05', 'Dropped', NULL, 'TOR Credit', 'Credited via TOR evaluation — permanently excluded', '2026-03-05 01:45:49', NULL, NULL, NULL, NULL, 'In Progress', 0, 0, NULL, NULL),
-(791, 138, 556, '2026-03-05', 'Enrolled', NULL, '1st Semester, AY 2025-2026', 'Auto-enrolled (Transferee)', '2026-03-05 01:48:19', NULL, NULL, NULL, NULL, 'In Progress', 0, 0, NULL, NULL),
-(792, 139, 1, '2026-03-05', 'Enrolled', NULL, '1st Semester, AY 2025-2026', 'Auto-enrolled', '2026-03-05 04:30:54', NULL, NULL, NULL, NULL, 'In Progress', 0, 0, NULL, NULL),
-(793, 139, 2, '2026-03-05', 'Enrolled', NULL, '1st Semester, AY 2025-2026', 'Auto-enrolled', '2026-03-05 04:30:54', NULL, NULL, NULL, NULL, 'In Progress', 0, 0, NULL, NULL),
-(794, 139, 3, '2026-03-05', 'Enrolled', NULL, '1st Semester, AY 2025-2026', 'Auto-enrolled', '2026-03-05 04:30:54', NULL, NULL, NULL, NULL, 'In Progress', 0, 0, NULL, NULL),
-(795, 139, 4, '2026-03-05', 'Enrolled', NULL, '1st Semester, AY 2025-2026', 'Auto-enrolled', '2026-03-05 04:30:55', NULL, NULL, NULL, NULL, 'In Progress', 0, 0, NULL, NULL),
-(796, 139, 5, '2026-03-05', 'Enrolled', NULL, '1st Semester, AY 2025-2026', 'Auto-enrolled', '2026-03-05 04:30:55', NULL, NULL, NULL, NULL, 'In Progress', 0, 0, NULL, NULL),
-(797, 139, 6, '2026-03-05', 'Enrolled', NULL, '1st Semester, AY 2025-2026', 'Auto-enrolled', '2026-03-05 04:30:55', NULL, NULL, NULL, NULL, 'In Progress', 0, 0, NULL, NULL),
-(798, 139, 7, '2026-03-05', 'Enrolled', NULL, '1st Semester, AY 2025-2026', 'Auto-enrolled', '2026-03-05 04:30:55', NULL, NULL, NULL, NULL, 'In Progress', 0, 0, NULL, NULL),
-(799, 139, 8, '2026-03-05', 'Enrolled', NULL, '1st Semester, AY 2025-2026', 'Auto-enrolled', '2026-03-05 04:30:55', NULL, NULL, NULL, NULL, 'In Progress', 0, 0, NULL, NULL);
-
 -- --------------------------------------------------------
 
 --
@@ -611,7 +573,7 @@ CREATE TABLE `or_ar_sequences` (
 --
 
 INSERT INTO `or_ar_sequences` (`year`, `last_seq`) VALUES
-(2026, 25);
+(2026, 31);
 
 -- --------------------------------------------------------
 
@@ -636,7 +598,8 @@ CREATE TABLE `payment_logs` (
   `scholar_type` varchar(100) DEFAULT NULL,
   `scholar_grantor` varchar(150) DEFAULT NULL,
   `scholarship_amount` decimal(10,2) DEFAULT 0.00,
-  `created_at` timestamp NOT NULL DEFAULT current_timestamp()
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `exam_period` varchar(30) DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- --------------------------------------------------------
@@ -1633,7 +1596,7 @@ ALTER TABLE `announcements`
 -- AUTO_INCREMENT for table `audit_logs`
 --
 ALTER TABLE `audit_logs`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=128;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=139;
 
 --
 -- AUTO_INCREMENT for table `courses`
@@ -1645,13 +1608,13 @@ ALTER TABLE `courses`
 -- AUTO_INCREMENT for table `enrollments`
 --
 ALTER TABLE `enrollments`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=800;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=815;
 
 --
 -- AUTO_INCREMENT for table `exam_permits`
 --
 ALTER TABLE `exam_permits`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=10;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=11;
 
 --
 -- AUTO_INCREMENT for table `faculty`
@@ -1669,31 +1632,31 @@ ALTER TABLE `fee_config`
 -- AUTO_INCREMENT for table `installment_payments`
 --
 ALTER TABLE `installment_payments`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=86;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=92;
 
 --
 -- AUTO_INCREMENT for table `login_attempts`
 --
 ALTER TABLE `login_attempts`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=91;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=99;
 
 --
 -- AUTO_INCREMENT for table `payment_logs`
 --
 ALTER TABLE `payment_logs`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=134;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=140;
 
 --
 -- AUTO_INCREMENT for table `payment_notices`
 --
 ALTER TABLE `payment_notices`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=18;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=27;
 
 --
 -- AUTO_INCREMENT for table `payment_schedules`
 --
 ALTER TABLE `payment_schedules`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=473;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=517;
 
 --
 -- AUTO_INCREMENT for table `programs`
@@ -1723,13 +1686,13 @@ ALTER TABLE `school_events`
 -- AUTO_INCREMENT for table `sessions`
 --
 ALTER TABLE `sessions`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=80;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=88;
 
 --
 -- AUTO_INCREMENT for table `students`
 --
 ALTER TABLE `students`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=140;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=143;
 
 --
 -- AUTO_INCREMENT for table `student_grades`
@@ -1753,13 +1716,13 @@ ALTER TABLE `tor_evaluations`
 -- AUTO_INCREMENT for table `tuition_fees`
 --
 ALTER TABLE `tuition_fees`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=1522;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=1584;
 
 --
 -- AUTO_INCREMENT for table `users`
 --
 ALTER TABLE `users`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=154;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=157;
 
 --
 -- Constraints for dumped tables

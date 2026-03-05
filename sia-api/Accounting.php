@@ -214,6 +214,9 @@ $conn->query("ALTER TABLE payment_logs ADD COLUMN IF NOT EXISTS gcash_reference 
 $conn->query("ALTER TABLE payment_logs ADD COLUMN IF NOT EXISTS payment_method VARCHAR(20) DEFAULT 'GCash'");
 $conn->query("ALTER TABLE payment_logs ADD COLUMN IF NOT EXISTS notes TEXT DEFAULT NULL");
 $conn->query("ALTER TABLE payment_logs ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'Pending'");
+$conn->query("ALTER TABLE payment_logs ADD COLUMN IF NOT EXISTS exam_period VARCHAR(30) DEFAULT NULL");
+$conn->query("ALTER TABLE payment_logs ADD COLUMN IF NOT EXISTS transaction_id VARCHAR(100) DEFAULT NULL");
+$conn->query("ALTER TABLE payment_logs ADD COLUMN IF NOT EXISTS semester VARCHAR(100) DEFAULT NULL");
 // ── Ensure students table has accounting approval columns ──
 $conn->query("ALTER TABLE students ADD COLUMN IF NOT EXISTS accounting_approved_by INT DEFAULT NULL");
 $conn->query("ALTER TABLE students ADD COLUMN IF NOT EXISTS accounting_approved_at DATETIME DEFAULT NULL");
@@ -1177,6 +1180,24 @@ function submitGcash($conn, $data) {
     $stmt->bind_param("sdssi", $reference, $amount, $date, $txn_id, $student_id);
     $stmt->execute();
 
+    // Auto-detect exam_period based on payment_plan and what's already been paid
+    $stPlan = $conn->query("SELECT payment_plan, enrollment_status FROM students WHERE id=$student_id LIMIT 1")->fetch_assoc();
+    $paymentPlan    = $stPlan['payment_plan']    ?? 'full';
+    $enrollmentStatus = $stPlan['enrollment_status'] ?? '';
+    $exam_period    = '';
+    if ($paymentPlan === 'installment') {
+        // Determine which term this payment is for based on what's already paid
+        $paidTerms = $conn->query("SELECT DISTINCT exam_period FROM installment_payments WHERE student_id=$student_id AND amount > 0");
+        $paidList  = [];
+        if ($paidTerms) while ($r = $paidTerms->fetch_assoc()) $paidList[] = $r['exam_period'];
+        if (!in_array('Downpayment', $paidList))      $exam_period = 'Downpayment';
+        elseif (!in_array('Prelim', $paidList))       $exam_period = 'Prelim';
+        elseif (!in_array('Midterm', $paidList))      $exam_period = 'Midterm';
+        else                                           $exam_period = 'Finals';
+    } else {
+        $exam_period = 'Full';
+    }
+
     $checkStmt = $conn->prepare("SELECT id FROM payment_logs WHERE student_id = ? AND status = 'Pending' LIMIT 1");
     $checkStmt->bind_param("i", $student_id);
     $checkStmt->execute();
@@ -1186,23 +1207,23 @@ function submitGcash($conn, $data) {
         $upd = $conn->prepare("
             UPDATE payment_logs
             SET payment_method = 'GCash', gcash_reference = ?, gcash_amount = ?,
-                gcash_date = ?, transaction_id = ?, semester = ?
+                gcash_date = ?, transaction_id = ?, semester = ?, exam_period = ?
             WHERE id = ?
         ");
-        $upd->bind_param("sdsssi", $reference, $amount, $date, $txn_id, $semester, $existing['id']);
+        $upd->bind_param("sdssssi", $reference, $amount, $date, $txn_id, $semester, $exam_period, $existing['id']);
         $upd->execute();
         $log_id = $existing['id'];
     } else {
         $ins = $conn->prepare("
-            INSERT INTO payment_logs (student_id, payment_method, gcash_reference, gcash_amount, gcash_date, transaction_id, semester, status)
-            VALUES (?, 'GCash', ?, ?, ?, ?, ?, 'Pending')
+            INSERT INTO payment_logs (student_id, payment_method, gcash_reference, gcash_amount, gcash_date, transaction_id, semester, exam_period, status)
+            VALUES (?, 'GCash', ?, ?, ?, ?, ?, ?, 'Pending')
         ");
-        $ins->bind_param("isdsss", $student_id, $reference, $amount, $date, $txn_id, $semester);
+        $ins->bind_param("isdssss", $student_id, $reference, $amount, $date, $txn_id, $semester, $exam_period);
         $ins->execute();
         $log_id = $ins->insert_id;
     }
 
-    echo json_encode(['success' => true, 'message' => 'GCash payment submitted. Waiting for accounting verification.', 'log_id' => $log_id]);
+    echo json_encode(['success' => true, 'message' => 'GCash payment submitted. Waiting for accounting verification.', 'log_id' => $log_id, 'exam_period' => $exam_period]);
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -1314,7 +1335,7 @@ function getPendingPayments($conn) {
         SELECT pl.id AS log_id, pl.student_id, pl.payment_method, pl.gcash_reference,
                pl.gcash_amount, pl.gcash_date, pl.transaction_id,
                COALESCE(NULLIF(pl.semester,''), s.semester) AS semester,
-               pl.notes, pl.created_at AS submitted_at,
+               pl.notes, pl.exam_period AS log_exam_period, pl.created_at AS submitted_at,
                s.student_number, s.first_name, s.last_name, s.program, s.year_level,
                s.payment_status, s.approval_status, s.enrollment_status,
                s.student_category,
@@ -1337,12 +1358,30 @@ function getPendingPayments($conn) {
             $pr      = $conn->query("SELECT COALESCE(SUM(amount),0) AS tp FROM installment_payments WHERE student_id = $sid");
             $total_paid = (float)($pr->fetch_assoc()['tp'] ?? 0);
 
-            // Parse exam_period from notes field (format: "Prelim|notes" or "Midterm|notes")
+            // exam_period: dedicated column wins, fall back to notes prefix parsing
             $notesRaw   = $r['notes'] ?? '';
-            $examPeriod = '';
-            if (preg_match('/^(Prelim|Midterm|Finals|Downpayment|Full)\|?/i', $notesRaw, $m)) {
+            $examPeriod = trim($r['log_exam_period'] ?? '');
+            if (!$examPeriod && preg_match('/^(Prelim|Midterm|Finals|Downpayment|Full)\|?/i', $notesRaw, $m)) {
                 $examPeriod = $m[1];
                 $notesRaw   = trim(substr($notesRaw, strlen($m[0])));
+            }
+            // Still empty? Auto-detect from payment plan and what's already been paid
+            if (!$examPeriod) {
+                $planRow = $conn->query("SELECT payment_plan FROM students WHERE id=$sid LIMIT 1")->fetch_assoc();
+                if (($planRow['payment_plan'] ?? 'full') === 'installment') {
+                    $paidTerms = $conn->query("SELECT DISTINCT exam_period FROM installment_payments WHERE student_id=$sid AND amount > 0");
+                    $paidList  = [];
+                    if ($paidTerms) while ($pr2 = $paidTerms->fetch_assoc()) $paidList[] = $pr2['exam_period'];
+                    if (!in_array('Downpayment', $paidList))    $examPeriod = 'Downpayment';
+                    elseif (!in_array('Prelim', $paidList))     $examPeriod = 'Prelim';
+                    elseif (!in_array('Midterm', $paidList))    $examPeriod = 'Midterm';
+                    else                                         $examPeriod = 'Finals';
+                    // Save it back so verifyPayment can use it
+                    $conn->query("UPDATE payment_logs SET exam_period='$examPeriod' WHERE id=" . (int)$r['log_id']);
+                } else {
+                    $examPeriod = 'Full';
+                    $conn->query("UPDATE payment_logs SET exam_period='Full' WHERE id=" . (int)$r['log_id']);
+                }
             }
 
             $rows[] = [
@@ -1410,8 +1449,22 @@ function getPendingPayments($conn) {
 
             $rawSem   = trim($r['semester'] ?? '');
             $semester = $rawSem ?: '1st Semester, AY ' . date('Y') . '-' . (date('Y')+1);
-            $ins = $conn->prepare("INSERT INTO payment_logs (student_id, payment_method, gcash_reference, gcash_amount, semester, status) VALUES (?, 'Cash', '', 0, ?, 'Pending')");
-            $ins->bind_param("is", $sid, $semester);
+
+            // Auto-detect exam_period for this Cash student
+            $noLogPlan = $r['payment_plan'] ?? _getStudentPaymentPlan($conn, $sid);
+            $noLogExamPeriod = 'Full';
+            if ($noLogPlan === 'installment') {
+                $paidTerms2 = $conn->query("SELECT DISTINCT exam_period FROM installment_payments WHERE student_id=$sid AND amount > 0");
+                $paidList2  = [];
+                if ($paidTerms2) while ($pt2 = $paidTerms2->fetch_assoc()) $paidList2[] = $pt2['exam_period'];
+                if (!in_array('Downpayment', $paidList2))    $noLogExamPeriod = 'Downpayment';
+                elseif (!in_array('Prelim', $paidList2))     $noLogExamPeriod = 'Prelim';
+                elseif (!in_array('Midterm', $paidList2))    $noLogExamPeriod = 'Midterm';
+                else                                          $noLogExamPeriod = 'Finals';
+            }
+
+            $ins = $conn->prepare("INSERT INTO payment_logs (student_id, payment_method, gcash_reference, gcash_amount, semester, exam_period, status) VALUES (?, 'Cash', '', 0, ?, ?, 'Pending')");
+            $ins->bind_param("iss", $sid, $semester, $noLogExamPeriod);
             $ins->execute();
             $logId = $ins->insert_id;
 
@@ -1432,7 +1485,7 @@ function getPendingPayments($conn) {
                 'paymentMethod'  => 'Cash',
                 'gcashReference' => '', 'gcashAmount' => 0, 'gcashDate' => '', 'transactionId' => '',
                 'semester'       => $r['semester'] ?: $semester,
-                'examPeriod'     => '',
+                'examPeriod'     => $noLogExamPeriod,
                 'notes'          => '',
                 'status'         => 'Pending',
                 'submittedAt'    => $r['submitted_at'],
@@ -1610,22 +1663,14 @@ function verifyPayment($conn, $data) {
         echo json_encode(['success' => false, 'message' => 'log_id and student_id required']); return;
     }
 
-    // Validate cash_amount: must not exceed the student's total_assessment (typo guard)
-    if ($cash_amount !== null && $cash_amount > 0) {
-        $tfCheck = $conn->query("SELECT total_assessment FROM tuition_fees WHERE student_id=$student_id LIMIT 1");
-        $tfRow   = $tfCheck ? $tfCheck->fetch_assoc() : null;
-        $maxAllowed = $tfRow ? (float)$tfRow['total_assessment'] : 999999;
-        if ($cash_amount > $maxAllowed) {
-            echo json_encode([
-                'success' => false,
-                'message' => "Amount ₱" . number_format($cash_amount, 2) . " exceeds total assessment ₱" . number_format($maxAllowed, 2) . ". Please check for extra zeros."
-            ]);
-            return;
-        }
+    // Validate cash_amount: must be positive
+    if ($cash_amount !== null && $cash_amount <= 0) {
+        echo json_encode(['success' => false, 'message' => 'Cash amount must be greater than zero.']);
+        return;
     }
 
     // Read original notes + amount BEFORE updating (notes will be overwritten by accounting notes)
-    $logRow = $conn->query("SELECT gcash_amount, gcash_date, payment_method, notes, status FROM payment_logs WHERE id = $log_id LIMIT 1")->fetch_assoc();
+    $logRow = $conn->query("SELECT gcash_amount, gcash_date, payment_method, notes, status, exam_period FROM payment_logs WHERE id = $log_id LIMIT 1")->fetch_assoc();
     if (!$logRow) {
         echo json_encode(['success' => false, 'message' => 'Payment log not found']); return;
     }
@@ -1643,9 +1688,9 @@ function verifyPayment($conn, $data) {
         $stmt->bind_param("isi", $acc_user_id, $notes, $log_id);
     }
     $stmt->execute();
-    if ($stmt->affected_rows === 0) {
-        echo json_encode(['success' => false, 'message' => 'Failed to update payment log']); return;
-    }
+    // Note: do NOT block on affected_rows === 0 — MySQL returns 0 when the row values
+    // didn't change (e.g. notes was already blank). The status check above already
+    // guarantees the log was Pending before this call.
 
     // Use pre-UPDATE logRow (has original notes with exam_period prefix)
     $final_amount = ($payment_method === 'cash') ? ($cash_amount ?? 0) : (float)($logRow['gcash_amount'] ?? 0);
@@ -1657,10 +1702,10 @@ function verifyPayment($conn, $data) {
     $paymentPlan = $stRow['payment_plan'] ?? 'full';
     $isEnrolled  = ($stRow['enrollment_status'] ?? '') === 'Enrolled';
 
-    // Parse exam_period from ORIGINAL notes (before accounting overwrote it)
+    // Parse exam_period — first check dedicated column, then fall back to ORIGINAL notes prefix
     $notesRaw   = trim($originalNotes ?? $logRow['notes'] ?? '');
-    $examPeriod = '';
-    if (preg_match('/^(Prelim|Midterm|Finals|Downpayment|Full)\|?/i', $notesRaw, $m)) {
+    $examPeriod = trim($logRow['exam_period'] ?? ''); // dedicated column wins
+    if (!$examPeriod && preg_match('/^(Prelim|Midterm|Finals|Downpayment|Full)\|?/i', $notesRaw, $m)) {
         $examPeriod = $m[1];
         $notes      = $notes ?: trim(substr($notesRaw, strlen($m[0])));
     }
@@ -1670,27 +1715,26 @@ function verifyPayment($conn, $data) {
     $dupCheck = $conn->prepare("SELECT id FROM installment_payments WHERE payment_log_id = ? LIMIT 1");
     $dupCheck->bind_param("i", $log_id);
     $dupCheck->execute();
-    // FIX AC-01: Always record even zero-amount (scholarship fully covered)
     $dupResult = $dupCheck->get_result();
+
+    // Determine OR/AR type and exam period label (needed even if dup, for response message)
+    $year = (int)date('Y');
+    if ($isEnrolled && $examPeriod && in_array($examPeriod, ['Prelim','Midterm','Finals'])) {
+        $or_ar_type = 'AR';
+    } elseif ($paymentPlan === 'installment') {
+        $or_ar_type = 'AR';
+        $examPeriod = $examPeriod ?: 'Downpayment';
+    } else {
+        $or_ar_type = 'OR';
+        $examPeriod = $examPeriod ?: 'Full';
+    }
+
     if ($dupResult->num_rows === 0) {
         // FIX AC-02: Atomic sequence for OR/AR number
-        $year = (int)date('Y');
         $conn->query("INSERT INTO or_ar_sequences (year, last_seq) VALUES ($year, 1) ON DUPLICATE KEY UPDATE last_seq = last_seq + 1");
         $seqRow2 = $conn->query("SELECT last_seq FROM or_ar_sequences WHERE year = $year")->fetch_assoc();
         $seq2    = (int)($seqRow2['last_seq'] ?? 1);
-
-        if ($isEnrolled && $examPeriod && in_array($examPeriod, ['Prelim','Midterm','Finals'])) {
-            $or_ar_type = 'AR';
-            $or_no      = 'AR-' . $year . str_pad($seq2, 4, '0', STR_PAD_LEFT);
-        } elseif ($paymentPlan === 'installment') {
-            $or_ar_type  = 'AR';
-            $examPeriod  = $examPeriod ?: 'Downpayment';
-            $or_no       = 'AR-' . $year . str_pad($seq2, 4, '0', STR_PAD_LEFT);
-        } else {
-            $or_ar_type  = 'OR';
-            $examPeriod  = $examPeriod ?: 'Full';
-            $or_no       = 'OR-' . $year . str_pad($seq2, 4, '0', STR_PAD_LEFT);
-        }
+        $or_no   = $or_ar_type . '-' . $year . str_pad($seq2, 4, '0', STR_PAD_LEFT);
 
         if ($payment_method !== 'cash') {
             $grStmt = $conn->prepare("SELECT gcash_reference FROM payment_logs WHERE id = ? LIMIT 1");
@@ -1708,32 +1752,66 @@ function verifyPayment($conn, $data) {
         ");
         $ins->bind_param("iissdsssssi", $student_id, $log_id, $or_no, $or_ar_type, $final_amount, $final_date, $pm_label, $gcash_ref, $examPeriod, $notes, $acc_user_id);
         $ins->execute();
+    } else {
+        // Already inserted — retrieve existing OR/AR number for response
+        $exRow = $conn->query("SELECT or_ar_number FROM installment_payments WHERE payment_log_id = $log_id LIMIT 1")->fetch_assoc();
+        $or_no = $exRow['or_ar_number'] ?? '';
+    }
 
-        // Sync payment_schedules for this period
-        if ($isEnrolled && in_array($examPeriod, ['Prelim','Midterm','Finals'])) {
-            $ep = strtolower($examPeriod);
-            $schedRes = $conn->query("SELECT {$ep}_due FROM payment_schedules WHERE student_id=$student_id LIMIT 1");
-            $schedRow = $schedRes ? $schedRes->fetch_assoc() : null;
-            $periodDue = $schedRow ? (float)$schedRow[$ep.'_due'] : 0;
-            $paidRes   = $conn->query("SELECT COALESCE(SUM(amount),0) AS paid FROM installment_payments WHERE student_id=$student_id AND exam_period='$examPeriod'");
-            $periodPaid = (float)$paidRes->fetch_assoc()['paid'];
-            $newStatus  = $periodPaid <= 0 ? 'unpaid' : ($periodPaid >= $periodDue ? 'paid' : 'partial');
-            $conn->query("UPDATE payment_schedules SET {$ep}_paid=$periodPaid, {$ep}_status='$newStatus' WHERE student_id=$student_id");
+    // ── Always run post-payment updates (schedule + enrollment status) ──────
+    // Sync payment_schedules for Prelim/Midterm/Finals
+    if ($isEnrolled && in_array($examPeriod, ['Prelim','Midterm','Finals'])) {
+        $ep        = strtolower($examPeriod);
+        $schedRes  = $conn->query("SELECT {$ep}_due FROM payment_schedules WHERE student_id=$student_id LIMIT 1");
+        $schedRow  = $schedRes ? $schedRes->fetch_assoc() : null;
+        $periodDue = $schedRow ? (float)$schedRow[$ep.'_due'] : 0;
+        $paidRes   = $conn->query("SELECT COALESCE(SUM(amount),0) AS paid FROM installment_payments WHERE student_id=$student_id AND exam_period='$examPeriod'");
+        $periodPaid = (float)$paidRes->fetch_assoc()['paid'];
+        $newStatus  = $periodPaid <= 0 ? 'unpaid' : ($periodPaid >= $periodDue ? 'paid' : 'partial');
+        $conn->query("UPDATE payment_schedules SET {$ep}_paid=$periodPaid, {$ep}_status='$newStatus' WHERE student_id=$student_id");
 
-            // Recompute all dues after this payment — redistributes any underpayment
-            // to remaining unpaid terms so balance is always accurate.
-            recomputeSchedule($conn, $student_id);
+        recomputeSchedule($conn, $student_id);
 
-            logAuditShared($conn, $GLOBALS['authUser'] ?? null, 'VERIFY_PAYMENT', 'student', $student_id,
-                "Verified $examPeriod payment ₱" . number_format($final_amount, 2) . " for student ID $student_id (OR: $or_no)");
-            echo json_encode(['success' => true, 'message' => "$examPeriod payment verified. ₱" . number_format($final_amount, 2) . " recorded."]);
-            return;
-        }
+        // Check if fully paid now — update student payment_status accordingly
+        $tfR2      = $conn->query("SELECT total_assessment FROM tuition_fees WHERE student_id=$student_id LIMIT 1")->fetch_assoc();
+        $totalAmt  = $tfR2 ? (float)$tfR2['total_assessment'] : 0;
+        $allPaidR  = $conn->query("SELECT COALESCE(SUM(amount),0) AS paid FROM installment_payments WHERE student_id=$student_id")->fetch_assoc();
+        $allPaid   = (float)$allPaidR['paid'];
+        $newPayStatus = ($totalAmt > 0 && $allPaid >= $totalAmt) ? 'Paid' : 'Partial';
+        $conn->query("UPDATE students SET payment_status='$newPayStatus' WHERE id=$student_id");
+
+        logAuditShared($conn, $GLOBALS['authUser'] ?? null, 'VERIFY_PAYMENT', 'student', $student_id,
+            "Verified $examPeriod payment ₱" . number_format($final_amount, 2) . " for student ID $student_id (OR: $or_no)");
+        echo json_encode(['success' => true, 'message' => "$examPeriod payment verified. ₱" . number_format($final_amount, 2) . " recorded."]);
+        return;
+    }
+
+    // Downpayment for installment plan: enroll and recompute remaining term dues
+    if ($paymentPlan === 'installment' && $examPeriod === 'Downpayment') {
+        recomputeSchedule($conn, $student_id);
+
+        $upd = $conn->prepare("UPDATE students SET payment_status='Partial', approval_status='Approved', enrollment_status='Enrolled', accounting_approved_by=?, accounting_approved_at=NOW(), accounting_notes=? WHERE id=?");
+        $upd->bind_param("isi", $acc_user_id, $notes, $student_id);
+        $upd->execute();
+
+        logAuditShared($conn, $GLOBALS['authUser'] ?? null, 'VERIFY_PAYMENT', 'student', $student_id,
+            "Downpayment verified ₱" . number_format($final_amount, 2) . ", installment enrollment approved for student ID $student_id (AR: $or_no)");
+        echo json_encode(['success' => true, 'message' => "Downpayment verified. ₱" . number_format($final_amount, 2) . " recorded. Student enrolled — remaining balance split across installment terms."]);
+        return;
     }
 
     $upd = $conn->prepare("UPDATE students SET payment_status='Paid', approval_status='Approved', enrollment_status='Enrolled', accounting_approved_by=?, accounting_approved_at=NOW(), accounting_notes=? WHERE id=?");
     $upd->bind_param("isi", $acc_user_id, $notes, $student_id);
     $upd->execute();
+
+    // For full-plan: mark all schedule periods as paid immediately
+    $tfRow = $conn->query("SELECT total_assessment FROM tuition_fees WHERE student_id=$student_id LIMIT 1")->fetch_assoc();
+    if ($tfRow) {
+        $conn->query("UPDATE payment_schedules
+            SET prelim_paid=prelim_due, midterm_paid=midterm_due, finals_paid=finals_due,
+                prelim_status='paid', midterm_status='paid', finals_status='paid'
+            WHERE student_id=$student_id");
+    }
 
     logAuditShared($conn, $GLOBALS['authUser'] ?? null, 'VERIFY_PAYMENT', 'student', $student_id,
         "Full payment verified, enrollment approved for student ID $student_id");

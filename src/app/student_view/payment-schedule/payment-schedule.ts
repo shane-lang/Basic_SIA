@@ -77,7 +77,28 @@ export class PaymentSchedule implements OnInit, OnDestroy {
   isPollingApproval = false;
   private pollTimer: any = null;
 
-  // ── Payment due dates (exam schedule) ───────────────────────────────────
+  // ── Pending payment guard ─────────────────────────────────────────────────
+  // Terms that already have a Pending payment_log — Pay button disabled for these
+  pendingTerms: Set<string> = new Set();
+
+  loadPendingTerms(): void {
+    this.http.get<any>(`${this.apiUrl}?action=get_pending_payments`, this.getHeaders()).subscribe({
+      next: (res) => {
+        this.pendingTerms = new Set();
+        if (res.success && res.payments) {
+          (res.payments as any[])
+            .filter(p => p.studentId === this.studentId && p.status === 'Pending')
+            .forEach(p => { if (p.examPeriod) this.pendingTerms.add(p.examPeriod); });
+        }
+        this.cdr.detectChanges();
+      }
+    });
+  }
+
+  hasPendingPayment(period: string): boolean {
+    return this.pendingTerms.has(period);
+  }
+
   dueDates: Record<string, { label: string; date_range: string }> = {};
 
   // ── Permit viewer ────────────────────────────────────────────────────────
@@ -164,6 +185,7 @@ export class PaymentSchedule implements OnInit, OnDestroy {
         this.isLoading = false;
         this.loadPermits();
         this.loadDueDates();
+        this.loadPendingTerms();
         this.cdr.detectChanges();
       },
       error: () => { this.isLoading = false; this.cdr.detectChanges(); }
@@ -349,7 +371,9 @@ export class PaymentSchedule implements OnInit, OnDestroy {
           this.notices  = res.notices || {};
           // Clear persisted pending state
           sessionStorage.removeItem(`paySchedulePending_${this.studentId}`);
+          this.pendingTerms.delete(this.payPeriod);
           this.loadPermits();
+          this.loadPendingTerms();
           this.closePayModal();
           this.msg     = `✅ Payment approved by Accounting!`;
           this.msgType = 'ok';

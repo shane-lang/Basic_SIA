@@ -606,10 +606,13 @@ export class Levels implements OnInit {
   }
 
   get currYears(): string[] {
-    const dur = Math.min(this.currProgram?.duration ?? 4, 4); // max 4 years
+    const dur = this.currProgram?.duration ?? 4;
     if (this.currProgram?.level_type === 'SHS')  return ['Grade 11', 'Grade 12'];
-    if (this.currProgram?.level_type === 'TVET') return ['Year 1'];
-    return Array.from({ length: dur }, (_, i) =>
+    if (this.currProgram?.level_type === 'TVET') {
+      const tvetDur = Math.min(dur, 4);
+      return Array.from({ length: tvetDur }, (_, i) => `Year ${i + 1}`);
+    }
+    return Array.from({ length: Math.min(dur, 4) }, (_, i) =>
       ['1st Year', '2nd Year', '3rd Year', '4th Year'][i] ?? ('Year ' + (i + 1))
     );
   }

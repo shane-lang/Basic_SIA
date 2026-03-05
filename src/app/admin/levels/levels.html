@@ -330,24 +330,53 @@
       <!-- Row 1: Code + Duration -->
       <div class="form-row">
         <div class="form-group">
-          <label class="form-label">Program Code <span class="req">*</span></label>
-          <input class="form-input" [(ngModel)]="form.code" placeholder="E.g. BSIT" />
+          <ng-container *ngIf="form.level_type === 'College'">
+            <label class="form-label">Program Code <span class="req">*</span></label>
+            <input class="form-input" [(ngModel)]="form.code" placeholder="E.g. BSIT" />
+          </ng-container>
+          <ng-container *ngIf="form.level_type === 'SHS'">
+            <label class="form-label">Strand Code <span class="req">*</span></label>
+            <input class="form-input" [(ngModel)]="form.code" placeholder="E.g. STEM, HUMSS, ABM" />
+          </ng-container>
+          <ng-container *ngIf="form.level_type === 'TVET'">
+            <label class="form-label">Program Offer Code <span class="req">*</span></label>
+            <input class="form-input" [(ngModel)]="form.code" placeholder="E.g. NC2-CSS" />
+          </ng-container>
         </div>
         <div class="form-group">
-          <label class="form-label">Duration (Years)</label>
-          <select class="form-input" [(ngModel)]="form.duration">
-            <option [value]="1">1 Year (TVET)</option>
-            <option [value]="2">2 Years (SHS)</option>
+          <label class="form-label">Duration</label>
+          <select class="form-input" [(ngModel)]="form.duration" *ngIf="form.level_type === 'College'">
+            <option [value]="2">2 Years</option>
             <option [value]="3">3 Years</option>
-            <option [value]="4">4 Years (College)</option>
+            <option [value]="4">4 Years</option>
+          </select>
+          <select class="form-input" [(ngModel)]="form.duration" *ngIf="form.level_type === 'SHS'">
+            <option [value]="1">Grade 11</option>
+            <option [value]="2">Grade 12</option>
+          </select>
+          <select class="form-input" [(ngModel)]="form.duration" *ngIf="form.level_type === 'TVET'">
+            <option [value]="1">1 Year</option>
+            <option [value]="2">2 Years</option>
+            <option [value]="3">3 Years</option>
+            <option [value]="4">4 Years</option>
           </select>
         </div>
       </div>
 
-      <!-- Program Name -->
+      <!-- Program / Strand / Offer Name -->
       <div class="form-group">
-        <label class="form-label">Program Name <span class="req">*</span></label>
-        <input class="form-input" [(ngModel)]="form.name" placeholder="e.g. BS Information Technology" />
+        <ng-container *ngIf="form.level_type === 'College'">
+          <label class="form-label">Program Name <span class="req">*</span></label>
+          <input class="form-input" [(ngModel)]="form.name" placeholder="e.g. BS Information Technology" />
+        </ng-container>
+        <ng-container *ngIf="form.level_type === 'SHS'">
+          <label class="form-label">Strand Name <span class="req">*</span></label>
+          <input class="form-input" [(ngModel)]="form.name" placeholder="e.g. Science, Technology, Engineering and Mathematics" />
+        </ng-container>
+        <ng-container *ngIf="form.level_type === 'TVET'">
+          <label class="form-label">Program Offer Name <span class="req">*</span></label>
+          <input class="form-input" [(ngModel)]="form.name" placeholder="e.g. Computer Systems Servicing NC II" />
+        </ng-container>
       </div>
 
       <!-- Description -->
