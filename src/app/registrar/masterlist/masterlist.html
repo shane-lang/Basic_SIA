@@ -1,0 +1,98 @@
+<!-- ══ PAGE HEADER ══════════════════════════════════════════ -->
+<div class="page-header">
+  <div class="page-header-left">
+    <span class="hdr-icon">🗂️</span>
+    <div>
+      <h1>Masterlist</h1>
+      <p class="hdr-sub">Generate enrollment reports by course or subject</p>
+    </div>
+  </div>
+  <div class="hdr-right">
+    <button class="btn-generate-report" (click)="openReportModal()">
+      📄 Generate Report
+    </button>
+  </div>
+</div>
+
+<!-- ══ REPORT OPTIONS MODAL ══════════════════════════════════ -->
+<div class="rm-overlay" *ngIf="showReportModal" (click)="closeReportModal()">
+  <div class="rm-modal" (click)="$event.stopPropagation()">
+
+    <!-- Header -->
+    <div class="rm-header">
+      <div class="rm-header-left">
+        <span class="rm-icon">📄</span>
+        <div>
+          <h3 class="rm-title">Generate Report</h3>
+          <p class="rm-sub">Select the type of report to generate</p>
+        </div>
+      </div>
+      <button class="rm-x" (click)="closeReportModal()">✕</button>
+    </div>
+
+    <!-- Report options -->
+    <div class="rm-options">
+
+      <!-- Filters -->
+      <div class="rm-course-filters">
+        <div class="rm-cf-row">
+          <div class="rm-cf-group">
+            <label class="rm-cf-label">🏷️ Level</label>
+            <select class="rm-cf-select" [(ngModel)]="courseTab" (change)="switchCourseTab(courseTab)">
+              <option value="College">College</option>
+              <option value="SHS">SHS</option>
+              <option value="TVET">TVET</option>
+            </select>
+          </div>
+          <div class="rm-cf-group">
+            <label class="rm-cf-label">📚 Program</label>
+            <select class="rm-cf-select" [(ngModel)]="rProgId" (change)="rYearLevel='all'">
+              <option value="all">All Programs</option>
+              <option *ngFor="let p of activePrograms" [value]="p.id">{{ p.code }} — {{ p.name }}</option>
+            </select>
+          </div>
+          <div class="rm-cf-group">
+            <label class="rm-cf-label">📅 Year Level</label>
+            <select class="rm-cf-select" [(ngModel)]="rYearLevel">
+              <option value="all">All Year Levels</option>
+              <option *ngFor="let y of rAvailableYears" [value]="y">{{ y }}</option>
+            </select>
+          </div>
+        </div>
+        <div class="rm-cf-preview" *ngIf="rProgId !== 'all' || rYearLevel !== 'all'">
+          <span class="rm-cf-prev-icon">🔍</span>
+          <span>
+            Generating for:
+            <strong>{{ rProgId !== 'all' ? getProgNameById(rProgId) : 'All ' + courseTab + ' Programs' }}</strong>
+            <ng-container *ngIf="rYearLevel !== 'all'"> · <strong>{{ rYearLevel }}</strong></ng-container>
+          </span>
+        </div>
+      </div>
+
+      <button class="rm-opt" (click)="runReport('students-per-year')">
+        <div class="rm-opt-icon" style="background:#fce7f3;color:#be185d">🎓</div>
+        <div class="rm-opt-body">
+          <div class="rm-opt-title">Students Enrolled per Course per Year</div>
+          <div class="rm-opt-desc">How many students enrolled in each program/course — broken down by school year (AY)</div>
+        </div>
+        <span class="rm-opt-arrow">›</span>
+      </button>
+
+      <button class="rm-opt" (click)="runReport('subjects-per-year')">
+        <div class="rm-opt-icon" style="background:#dbeafe;color:#2563eb">📚</div>
+        <div class="rm-opt-body">
+          <div class="rm-opt-title">Students Enrolled per Subject per Year</div>
+          <div class="rm-opt-desc">How many students enrolled in each subject — broken down by school year (AY)</div>
+        </div>
+        <span class="rm-opt-arrow">›</span>
+      </button>
+
+    </div>
+
+    <div class="rm-footer">
+      <span class="rm-footer-note">📌 Reports open in a new tab — use browser Print → Save as PDF</span>
+      <button class="rm-cancel" (click)="closeReportModal()">Cancel</button>
+    </div>
+
+  </div>
+</div>

@@ -67,7 +67,7 @@ export class Grades implements OnInit {
   loadGrades(): void {
     this.isLoading = true;
     const sp = this.selectedSemester ? `&semester=${encodeURIComponent(this.selectedSemester)}` : '';
-    this.http.get<any>(`${this.apiUrl}?action=get_grades&${this.param}${sp}`, this.getHeaders()).subscribe({
+    this.http.get<any>(`${this.apiUrl}?action=get_released_grades&${this.param}${sp}`, this.getHeaders()).subscribe({
       next: (res) => {
         this.isLoading = false;
         if (res.success) { this.grades = res.grades ?? []; this.currentGWA = res.gwa ?? null; this.totalCredits = res.totalCredits ?? 0; }

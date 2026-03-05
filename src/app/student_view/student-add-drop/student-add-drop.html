@@ -77,14 +77,8 @@
         <div class="sad-card sad-card-enrolled" *ngFor="let s of filteredEnrolled">
           <div class="sad-card-top">
             <span class="sad-code">{{ s.code }}</span>
-            <span class="sad-units">{{ s.credits }} units</span>
           </div>
           <div class="sad-name">{{ s.name }}</div>
-          <div class="sad-meta">
-            <span>👨‍🏫 {{ s.instructor || '—' }}</span>
-            <span>📅 {{ s.day || '—' }} {{ s.time || '' }}</span>
-            <span>🚪 {{ s.room || '—' }}</span>
-          </div>
           <div class="sad-card-foot">
             <span class="sad-pending-tag" *ngIf="hasPending(s.course_id, 'Drop')">⏳ Pending request</span>
             <button class="sad-btn-drop"
@@ -111,26 +105,8 @@
         <div class="sad-card sad-card-available" *ngFor="let s of filteredAvailable" [class.sad-full]="s.available_seats===0">
           <div class="sad-card-top">
             <span class="sad-code">{{ s.code }}</span>
-            <span class="sad-units">{{ s.credits }} units</span>
           </div>
           <div class="sad-name">{{ s.name }}</div>
-          <div class="sad-meta">
-            <span>👨‍🏫 {{ s.instructor || '—' }}</span>
-            <span>📅 {{ s.day || '—' }} {{ s.time || '' }}</span>
-            <span>🚪 {{ s.room || '—' }}</span>
-          </div>
-          <div class="sad-seats-row">
-            <div class="sad-seats-bar">
-              <div class="sad-seats-fill"
-                [style.width.%]="seatPct(s)"
-                [class.sad-seats-warn]="s.available_seats <= 5 && s.available_seats > 0"
-                [class.sad-seats-full]="s.available_seats === 0">
-              </div>
-            </div>
-            <span class="sad-seats-txt" [class.sad-full-txt]="s.available_seats===0">
-              {{ s.available_seats === 0 ? 'Full' : s.available_seats + ' seats left' }}
-            </span>
-          </div>
           <div class="sad-card-foot">
             <span class="sad-pending-tag" *ngIf="hasPending(s.id, 'Add')">⏳ Pending request</span>
             <button class="sad-btn-add"
@@ -197,7 +173,7 @@
           <span>{{ modalSubject?.instructor }}</span>
           <span>{{ modalSubject?.day }} {{ modalSubject?.time }}</span>
           <span *ngIf="modalType==='add' && modalSubject?.available_seats !== undefined">
-            {{ modalSubject.available_seats }} seats left
+           <!-- {{ modalSubject.available_seats }} seats left-->
           </span>
         </div>
       </div>

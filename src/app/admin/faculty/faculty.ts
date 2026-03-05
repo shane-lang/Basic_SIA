@@ -40,7 +40,12 @@ export class Faculty implements OnInit {
   deleteTarget: IFaculty | null = null;
   isDeleting = false;
 
-  newSubjectInput = '';
+  newSubjectInput  = '';
+  subjectSearch    = '';
+  showSubjectPanel = false;
+
+  newSpecialtyInput = '';
+  specialties: string[] = [];
 
   form: Partial<IFaculty> & { subjects: string[] } = this.emptyForm();
 
@@ -113,6 +118,10 @@ export class Faculty implements OnInit {
     this.form = this.emptyForm();
     this.isEditing = false;
     this.newSubjectInput = '';
+    this.subjectSearch   = '';
+    this.showSubjectPanel = false;
+    this.specialties = [];
+    this.newSpecialtyInput = '';
     this.showModal = true;
     this.cdr.detectChanges();
   }
@@ -120,12 +129,43 @@ export class Faculty implements OnInit {
   openEdit(f: IFaculty): void {
     this.form = { ...f, subjects: [...(f.subjects ?? [])] };
     this.isEditing = true;
-    this.newSubjectInput = '';
+    this.newSubjectInput  = '';
+    this.subjectSearch    = '';
+    this.showSubjectPanel = false;
+    // Parse specialties from comma-separated string
+    this.specialties = f.specialty
+      ? f.specialty.split(',').map(s => s.trim()).filter(Boolean)
+      : [];
+    this.newSpecialtyInput = '';
     this.showModal = true;
     this.cdr.detectChanges();
   }
 
-  closeModal(): void { this.showModal = false; this.cdr.detectChanges(); }
+  closeModal(): void {
+    this.showModal = false;
+    this.showSubjectPanel = false;
+    this.cdr.detectChanges();
+  }
+
+  /* ── Subject panel helpers ── */
+  get filteredCourses(): { code: string; name: string }[] {
+    const q = this.subjectSearch.toLowerCase();
+    if (!q) return this.coursesFromDb;
+    return this.coursesFromDb.filter(c =>
+      c.code.toLowerCase().includes(q) || c.name.toLowerCase().includes(q)
+    );
+  }
+
+  toggleSubject(code: string): void {
+    const idx = this.form.subjects!.indexOf(code);
+    if (idx === -1) this.form.subjects!.push(code);
+    else            this.form.subjects!.splice(idx, 1);
+    this.cdr.detectChanges();
+  }
+
+  isSubjectSelected(code: string): boolean {
+    return this.form.subjects!.includes(code);
+  }
 
   addSubject(): void {
     const s = this.newSubjectInput.trim().toUpperCase();
@@ -145,10 +185,31 @@ export class Faculty implements OnInit {
     if (e.key === 'Enter') { e.preventDefault(); this.addSubject(); }
   }
 
+  /* ── Specialty tag helpers ── */
+  addSpecialty(): void {
+    const s = this.newSpecialtyInput.trim();
+    if (s && !this.specialties.includes(s)) {
+      this.specialties.push(s);
+      this.newSpecialtyInput = '';
+      this.cdr.detectChanges();
+    }
+  }
+
+  removeSpecialty(i: number): void {
+    this.specialties.splice(i, 1);
+    this.cdr.detectChanges();
+  }
+
+  onSpecialtyKeydown(e: KeyboardEvent): void {
+    if (e.key === 'Enter') { e.preventDefault(); this.addSpecialty(); }
+  }
+
   save(): void {
     if (!this.form.first_name || !this.form.last_name || !this.form.email) {
       this.showToast('error', 'First name, last name, and email are required.'); return;
     }
+    // Merge specialties array into comma-separated string
+    this.form.specialty = this.specialties.join(', ');
     this.isSaving = true;
     const action = this.isEditing ? 'update_faculty' : 'create_faculty';
     this.http.post<any>(`${this.api}?action=${action}`, this.form, this.getHeaders()).subscribe({

@@ -252,7 +252,9 @@ export class LoginComponent implements OnInit, OnDestroy {
       scholarGrantor: this.scholarGrantor, scholarshipAmount: this.scholarshipAmount,
       paymentMethod: this.paymentMethod, paymentPlan: this.paymentPlan,
       torReviewStudentId: this.torReviewStudentId,
-      torReviewPhase: this.torReviewPhase, torEvalResult: this.torEvalResult,
+      // Never save 'sending' — it's transient. If reload happens mid-send, reset to idle.
+      torReviewPhase: this.torReviewPhase === 'sending' ? 'idle' : this.torReviewPhase,
+      torEvalResult: this.torEvalResult,
     };
     sessionStorage.setItem('enrollWizardState', JSON.stringify(state));
   }
@@ -288,8 +290,13 @@ export class LoginComponent implements OnInit, OnDestroy {
         this.paymentMethod       = s.paymentMethod       ?? 'GCash';
         this.paymentPlan         = s.paymentPlan         ?? 'full';
         this.torReviewStudentId  = s.torReviewStudentId  ?? 0;
-        this.torReviewPhase      = s.torReviewPhase      ?? 'idle';
+        // Never restore a mid-flight 'sending' state — if they reloaded during submission
+        // the request was lost; reset to 'idle' so they can re-submit safely
+        const restoredPhase = s.torReviewPhase ?? 'idle';
+        this.torReviewPhase      = (restoredPhase === 'sending') ? 'idle' : restoredPhase;
         this.torEvalResult       = s.torEvalResult       ?? null;
+        // isSubmitting always resets to false on restore — never leave stuck spinner
+        this.isSubmitting        = false;
         // Resume TOR poll if mid-evaluation
         if (this.enrollStep === 'tor-review' && this.torReviewStudentId > 0 && this.torReviewPhase === 'waiting') {
           this.startTorPoll();
@@ -346,6 +353,9 @@ export class LoginComponent implements OnInit, OnDestroy {
   // ══ LOGIN ═════════════════════════════════════════════════════
   login(): void {
     if (!this.email || !this.password) { this.errorMessage = 'Please enter email and password'; return; }
+    // Clear any stale token so the interceptor doesn't attach it to the login request
+    sessionStorage.removeItem('token'); localStorage.removeItem('token');
+    sessionStorage.removeItem('currentUser'); localStorage.removeItem('currentUser');
     this.loading = true; this.errorMessage = ''; this.successMessage = '';
     this.http.post<any>(this.authUrl, { email: this.email, password: this.password }).subscribe({
       next: (res) => {
@@ -365,7 +375,7 @@ export class LoginComponent implements OnInit, OnDestroy {
   }
 
   private redirectByRole(role: string): void {
-    const r: { [k: string]: string } = { student: '/student', admin: '/admin', accounting: '/accounting', registrar: '/registrar', faculty: '/admin' };
+    const r: { [k: string]: string } = { student: '/student', admin: '/admin', accounting: '/accounting', registrar: '/registrar', faculty: '/instructor' };
     this.clearWizardState();
     this.router.navigate([r[role] || '/login']);
   }
@@ -431,6 +441,7 @@ export class LoginComponent implements OnInit, OnDestroy {
     this.selectedProgram = ''; this.selectedProgramName = '';
     this.selectedDept = ''; this.selectedGradeLevel = ''; this.selectedTvetType = '';
     this.shsSelectedTrack = ''; this.tvetSelectedType = '';
+    this.loadPrograms();
     this.cdr.detectChanges();
   }
 

@@ -73,6 +73,17 @@ export class Gcash implements OnInit {
           if (!this.amount) this.amount = '25000';
           // Pre-fill today's date
           if (!this.paymentDate) this.paymentDate = new Date().toISOString().split('T')[0];
+
+          // ── Restore submitted state so reload doesn't allow re-submission ──
+          const savedKey = `gcashSubmitted_${this.studentDbId}`;
+          const savedRaw = sessionStorage.getItem(savedKey);
+          if (savedRaw) {
+            try {
+              this.encodedData = JSON.parse(savedRaw);
+              this.submitted   = true;
+            } catch { sessionStorage.removeItem(savedKey); }
+          }
+
           this.cdr.detectChanges();
         }
       }
@@ -123,6 +134,8 @@ export class Gcash implements OnInit {
             logId:           res.log_id
           };
           this.submitted = true;
+          // Persist so reload shows "already submitted" instead of blank form
+          sessionStorage.setItem(`gcashSubmitted_${this.studentDbId}`, JSON.stringify(this.encodedData));
           this.snackBar.open('Payment submitted! Waiting for accounting verification.', 'Close', { duration: 4000 });
         } else {
           this.snackBar.open(res.message || 'Submission failed.', 'Close', { duration: 3000 });
@@ -149,6 +162,8 @@ export class Gcash implements OnInit {
     this.paymentDate     = new Date().toISOString().split('T')[0];
     this.encodedData     = null;
     this.submitted       = false;
+    // Clear persisted state so form is truly reset
+    if (this.studentDbId) sessionStorage.removeItem(`gcashSubmitted_${this.studentDbId}`);
     this.cdr.detectChanges();
   }
 

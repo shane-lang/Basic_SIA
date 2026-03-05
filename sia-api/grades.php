@@ -1,4 +1,25 @@
 <?php
+
+// ── cleanCode() ──────────────────────────────────────────────────────────────
+// Strips internal disambiguation suffixes from course codes.
+// These suffixes are used in the DB to keep codes unique across programs
+// that share the same subject (e.g. GE103 shared by BSA and BSCA gets
+// stored as GE103-BMD and GE103-CA so they can have separate records).
+// Legitimate curriculum codes with dashes (RE-FUN013, GE-ENG013,
+// BN-MGT013, IT-CSA013, AC-TAX013, etc.) are NOT affected.
+if (!function_exists('cleanCode')) {
+    function cleanCode($code) {
+        if (!$code) return $code;
+        static $suffixes = ['-BMD','-CA','-BSA','-BSCA','-BSE','-CIMT','-BSIT','-BSREM'];
+        $upper = strtoupper($code);
+        foreach ($suffixes as $s) {
+            if (substr($upper, -strlen($s)) === $s) {
+                return substr($code, 0, strlen($code) - strlen($s));
+            }
+        }
+        return $code;
+    }
+}
 error_reporting(0);
 ini_set('display_errors', 0);
 
@@ -98,7 +119,7 @@ case 'get_student_subjects':
         $subjects[] = [
             'enrollmentId' => (int)$r['enrollment_id'],
             'courseId'     => (int)$r['course_id'],
-            'code'         => $r['code'],
+            'code'           => cleanCode($r['code']),
             'name'         => $r['name'],
             'credits'      => (int)$r['credits'],
             'instructor'   => $r['instructor'] ?? '',
@@ -221,7 +242,7 @@ case 'get_grades':
         if ($overall !== null && $final !== null) { $totalW += $overall*$credits; $totalC += $credits; }
         $grades[] = [
             'enrollmentId' => (int)$r['enrollment_id'],
-            'code'    => $r['code'],   'name'       => $r['name'],
+            'code'           => cleanCode($r['code']),   'name'       => $r['name'],
             'credits' => $credits,     'instructor' => $r['instructor'] ?? '',
             'semester'=> $r['semester'] ?? '', 'status' => $r['status'],
             'prelim'  => $prelim,  'midterm' => $midterm,
@@ -262,6 +283,396 @@ case 'get_grade_summary':
     $overallGWA=$totalC>0?round($totalW/$totalC,2):null;
     $status=$overallGWA===null?'No grades yet':($overallGWA<=1.5?'With Honors':($overallGWA<=3.0?'Good Standing':'Academic Concern'));
     echo json_encode(['success'=>true,'overallGWA'=>$overallGWA,'academicStatus'=>$status,'semesterGWA'=>$semGWA]);
+    break;
+
+// ════════════════════════════════════════════════════════════════
+// ADMIN: Get all faculty with their assigned subjects
+// GET ?action=admin_get_faculty
+// ════════════════════════════════════════════════════════════════
+case 'admin_get_faculty':
+    $res = $conn->query("
+        SELECT f.id, f.faculty_id, f.first_name, f.last_name,
+               f.department, f.specialty, f.subjects, f.status
+        FROM faculty f
+        WHERE f.status = 'Active'
+        ORDER BY f.last_name, f.first_name
+    ");
+    $faculty = [];
+    while ($r = $res->fetch_assoc()) {
+        $subjectsArr = json_decode($r['subjects'] ?? '[]', true) ?: [];
+        $r['subjects_arr'] = $subjectsArr;
+        // Count courses that match the faculty's subject codes OR have faculty_id set
+        $courseCount = 0;
+        if (count($subjectsArr) > 0) {
+            $placeholders = implode(',', array_fill(0, count($subjectsArr), '?'));
+            $cntStmt = $conn->prepare(
+                "SELECT COUNT(*) AS cnt FROM courses WHERE code IN ($placeholders)"
+            );
+            $types = str_repeat('s', count($subjectsArr));
+            $cntStmt->bind_param($types, ...$subjectsArr);
+            $cntStmt->execute();
+            $courseCount = (int)$cntStmt->get_result()->fetch_assoc()['cnt'];
+            $cntStmt->close();
+        }
+        $r['course_count'] = $courseCount;
+        $faculty[] = $r;
+    }
+    echo json_encode(['success' => true, 'faculty' => $faculty]);
+    break;
+
+// ════════════════════════════════════════════════════════════════
+// ADMIN: Get subjects (courses) assigned to a specific faculty
+// GET ?action=admin_get_faculty_subjects&faculty_id=X
+// ════════════════════════════════════════════════════════════════
+case 'admin_get_faculty_subjects':
+    $fid = (int)($_GET['faculty_id'] ?? 0);
+    if (!$fid) { echo json_encode(['success'=>false,'message'=>'faculty_id required']); break; }
+
+    // Get the faculty's subject codes from JSON array
+    $fRow = $conn->query("SELECT subjects FROM faculty WHERE id=$fid LIMIT 1")->fetch_assoc();
+    if (!$fRow) { echo json_encode(['success'=>false,'message'=>'Faculty not found']); break; }
+
+    $subjectCodes = json_decode($fRow['subjects'] ?? '[]', true) ?: [];
+
+    // Also include courses where faculty_id is set to this faculty
+    $subjects = [];
+
+    if (count($subjectCodes) > 0) {
+        $placeholders = implode(',', array_fill(0, count($subjectCodes), '?'));
+        $stmt = $conn->prepare("
+            SELECT c.id AS course_id, c.code, c.name, c.credits,
+                   c.semester, c.department, c.program, c.year_level,
+                   COUNT(DISTINCT e.id) AS enrolled_count,
+                   SUM(CASE WHEN e.prelim_grade  IS NOT NULL THEN 1 ELSE 0 END) AS prelim_done,
+                   SUM(CASE WHEN e.midterm_grade IS NOT NULL THEN 1 ELSE 0 END) AS midterm_done,
+                   SUM(CASE WHEN e.final_grade   IS NOT NULL THEN 1 ELSE 0 END) AS final_done
+            FROM courses c
+            LEFT JOIN enrollments e ON e.course_id = c.id AND e.status IN ('Enrolled','Pending')
+            WHERE c.code IN ($placeholders)
+            GROUP BY c.id
+            ORDER BY c.code ASC
+        ");
+        $types = str_repeat('s', count($subjectCodes));
+        $stmt->bind_param($types, ...$subjectCodes);
+        $stmt->execute();
+        $res = $stmt->get_result();
+        while ($r = $res->fetch_assoc()) {
+            $enrolled = (int)$r['enrolled_count'];
+            $subjects[] = [
+                'courseId'        => (int)$r['course_id'],
+                'code'           => cleanCode($r['code']),
+                'name'            => $r['name'],
+                'credits'         => (int)$r['credits'],
+                'semester'        => $r['semester'] ?? '',
+                'department'      => $r['department'] ?? '',
+                'program'         => $r['program'] ?? '',
+                'yearLevel'       => $r['year_level'] ?? '',
+                'enrolledCount'   => $enrolled,
+                'prelimDone'      => (int)$r['prelim_done'],
+                'midtermDone'     => (int)$r['midterm_done'],
+                'finalDone'       => (int)$r['final_done'],
+                'gradeCompletion' => $enrolled > 0
+                    ? round(((int)$r['prelim_done']+(int)$r['midterm_done']+(int)$r['final_done']) / ($enrolled * 3) * 100)
+                    : 0,
+            ];
+        }
+        $stmt->close();
+    }
+
+    // Also auto-update courses.faculty_id so they're properly linked going forward
+    if (count($subjectCodes) > 0) {
+        $placeholders = implode(',', array_fill(0, count($subjectCodes), '?'));
+        $updStmt = $conn->prepare("UPDATE courses SET faculty_id=? WHERE code IN ($placeholders) AND (faculty_id IS NULL OR faculty_id=$fid)");
+        $types = 'i' . str_repeat('s', count($subjectCodes));
+        $updStmt->bind_param($types, $fid, ...$subjectCodes);
+        $updStmt->execute();
+        $updStmt->close();
+    }
+
+    echo json_encode(['success' => true, 'subjects' => $subjects]);
+    break;
+
+// ════════════════════════════════════════════════════════════════
+// ADMIN: Get students enrolled in a specific course + their grades
+// GET ?action=admin_get_course_students&course_id=X
+// ════════════════════════════════════════════════════════════════
+case 'admin_get_course_students':
+    $cid = (int)($_GET['course_id'] ?? 0);
+    if (!$cid) { echo json_encode(['success'=>false,'message'=>'course_id required']); break; }
+
+    // Ensure columns exist
+    $conn->query("ALTER TABLE enrollments ADD COLUMN IF NOT EXISTS grade_released   TINYINT(1) DEFAULT 0");
+    $conn->query("ALTER TABLE enrollments ADD COLUMN IF NOT EXISTS grade_submitted   TINYINT(1) DEFAULT 0");
+
+    $res = $conn->query("
+        SELECT e.id AS enrollment_id, e.semester, e.status AS enrollment_status,
+               s.id AS student_id, s.student_number, s.first_name, s.last_name,
+               s.year_level, s.program,
+               MAX(CASE WHEN sg.term='Prelim'  THEN sg.grade END) AS prelim,
+               MAX(CASE WHEN sg.term='Midterm' THEN sg.grade END) AS midterm,
+               MAX(CASE WHEN sg.term='Final'   THEN sg.grade END) AS final,
+               COALESCE(e.grade_released, 0) AS grade_released
+        FROM enrollments e
+        JOIN students s ON s.id = e.student_id
+        LEFT JOIN student_grades sg ON sg.enrollment_id = e.id
+        WHERE e.course_id = $cid AND e.status IN ('Enrolled','Pending')
+        GROUP BY e.id, s.id
+        ORDER BY s.last_name, s.first_name
+    ");
+    $students = [];
+    while ($r = $res->fetch_assoc()) {
+        $prelim  = $r['prelim']  !== null ? (float)$r['prelim']  : null;
+        $midterm = $r['midterm'] !== null ? (float)$r['midterm'] : null;
+        $final   = $r['final']   !== null ? (float)$r['final']   : null;
+        $vals    = array_filter([$prelim,$midterm,$final], fn($v) => $v !== null);
+        $overall = count($vals) > 0 ? round(array_sum($vals)/count($vals), 2) : null;
+        $remarks = $final !== null ? ($overall <= 3.0 ? 'Passed' : 'Failed') : 'In Progress';
+        $students[] = [
+            'enrollmentId'     => (int)$r['enrollment_id'],
+            'studentId'        => (int)$r['student_id'],
+            'studentNumber'    => $r['student_number'],
+            'firstName'        => $r['first_name'],
+            'lastName'         => $r['last_name'],
+            'yearLevel'        => $r['year_level'] ?? '',
+            'program'          => $r['program'] ?? '',
+            'semester'         => $r['semester'] ?? '',
+            'enrollmentStatus' => $r['enrollment_status'],
+            'prelim'           => $prelim,
+            'midterm'          => $midterm,
+            'final'            => $final,
+            'overall'          => $overall,
+            'remarks'          => $remarks,
+            'gradeReleased'    => (int)$r['grade_released'] === 1,
+        ];
+    }
+    echo json_encode(['success' => true, 'students' => $students]);
+    break;
+
+// ════════════════════════════════════════════════════════════════
+// ADMIN: Save grade for ONE student in ONE subject (1-to-1 input)
+// POST { enrollment_id, student_id, course_id, term, grade, submitted_by }
+// Same endpoint as existing save_grade — already handled above
+// Extra admin alias for clarity:
+// ════════════════════════════════════════════════════════════════
+case 'admin_save_grade':
+    $eid      = (int)($data['enrollment_id'] ?? 0);
+    $sid      = (int)($data['student_id']    ?? 0);
+    $cid      = (int)($data['course_id']     ?? 0);
+    $term     = trim($data['term']           ?? '');
+    $gradeVal = ($data['grade'] !== '' && $data['grade'] !== null) ? (float)$data['grade'] : null;
+    $submittedBy = (int)($data['submitted_by'] ?? 0);
+
+    if (!$eid || !$sid || !$cid || !in_array($term, ['Prelim','Midterm','Final'])) {
+        echo json_encode(['success'=>false,'message'=>'Missing required fields']); break;
+    }
+    if ($gradeVal !== null && ($gradeVal < 1.0 || $gradeVal > 5.0)) {
+        echo json_encode(['success'=>false,'message'=>'Grade must be between 1.00 and 5.00']); break;
+    }
+
+    $semRow   = $conn->query("SELECT semester FROM enrollments WHERE id=$eid LIMIT 1")->fetch_assoc();
+    $semester = $conn->real_escape_string($semRow['semester'] ?? '');
+
+    if ($gradeVal !== null) {
+        $stmt = $conn->prepare("
+            INSERT INTO student_grades (enrollment_id, student_id, course_id, semester, term, grade, submitted_by)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE grade=VALUES(grade), submitted_by=VALUES(submitted_by), updated_at=NOW()
+        ");
+        $stmt->bind_param("iiissdi", $eid, $sid, $cid, $semester, $term, $gradeVal, $submittedBy);
+    } else {
+        $stmt = $conn->prepare("
+            INSERT INTO student_grades (enrollment_id, student_id, course_id, semester, term, grade, submitted_by)
+            VALUES (?, ?, ?, ?, ?, NULL, ?)
+            ON DUPLICATE KEY UPDATE grade=NULL, submitted_by=VALUES(submitted_by), updated_at=NOW()
+        ");
+        $stmt->bind_param("iiissi", $eid, $sid, $cid, $semester, $term, $submittedBy);
+    }
+
+    if ($stmt->execute()) {
+        _updateOverallGrade($conn, $eid);
+        echo json_encode(['success' => true, 'message' => "$term grade saved successfully"]);
+    } else {
+        echo json_encode(['success' => false, 'message' => $conn->error]);
+    }
+    $stmt->close();
+    break;
+
+// ════════════════════════════════════════════════════════════════
+// ADMIN → REGISTRAR: Submit/send grades for a course to registrar
+// Marks all graded enrollments in a course as grade_submitted
+// POST { course_id, submitted_by }
+// ════════════════════════════════════════════════════════════════
+case 'admin_submit_to_registrar':
+    // Ensure column exists
+    $conn->query("ALTER TABLE enrollments ADD COLUMN IF NOT EXISTS grade_submitted TINYINT(1) DEFAULT 0");
+    $conn->query("ALTER TABLE enrollments ADD COLUMN IF NOT EXISTS grade_submitted_at DATETIME DEFAULT NULL");
+    $conn->query("ALTER TABLE enrollments ADD COLUMN IF NOT EXISTS grade_released   TINYINT(1) DEFAULT 0");
+    $conn->query("ALTER TABLE enrollments ADD COLUMN IF NOT EXISTS grade_released_at DATETIME DEFAULT NULL");
+
+    $cid         = (int)($data['course_id']     ?? 0);
+    $submittedBy = (int)($data['submitted_by']  ?? 0);
+    if (!$cid) { echo json_encode(['success'=>false,'message'=>'course_id required']); break; }
+
+    // Only submit enrollments that have at least one grade entered
+    $upd = $conn->prepare("
+        UPDATE enrollments e
+        SET grade_submitted = 1, grade_submitted_at = NOW()
+        WHERE e.course_id = ?
+          AND e.status IN ('Enrolled','Pending')
+          AND e.grade_submitted = 0
+          AND (e.prelim_grade IS NOT NULL OR e.midterm_grade IS NOT NULL OR e.final_grade IS NOT NULL)
+    ");
+    $upd->bind_param("i", $cid);
+    $upd->execute();
+    $affected = $upd->affected_rows;
+    $upd->close();
+
+    echo json_encode([
+        'success'  => true,
+        'message'  => "$affected student grade(s) submitted to registrar",
+        'affected' => $affected,
+    ]);
+    break;
+
+// ════════════════════════════════════════════════════════════════
+// REGISTRAR: Get courses with pending grade submissions
+// GET ?action=registrar_pending_grades
+// ════════════════════════════════════════════════════════════════
+case 'registrar_pending_grades':
+    $conn->query("ALTER TABLE enrollments ADD COLUMN IF NOT EXISTS grade_submitted TINYINT(1) DEFAULT 0");
+    $conn->query("ALTER TABLE enrollments ADD COLUMN IF NOT EXISTS grade_released   TINYINT(1) DEFAULT 0");
+
+    $res = $conn->query("
+        SELECT c.id AS course_id, c.code, c.name,
+               CONCAT(f.first_name,' ',f.last_name) AS faculty_name,
+               c.semester, c.department,
+               COUNT(e.id) AS submitted_count,
+               SUM(CASE WHEN e.grade_released=1 THEN 1 ELSE 0 END) AS released_count
+        FROM enrollments e
+        JOIN courses c ON c.id = e.course_id
+        LEFT JOIN faculty f ON f.id = c.faculty_id
+        WHERE e.grade_submitted = 1
+        GROUP BY c.id
+        ORDER BY c.code ASC
+    ");
+    $courses = [];
+    while ($r = $res->fetch_assoc()) {
+        $courses[] = [
+            'courseId'       => (int)$r['course_id'],
+            'code'           => cleanCode($r['code']),
+            'name'           => $r['name'],
+            'facultyName'    => $r['faculty_name'] ?? 'N/A',
+            'semester'       => $r['semester'] ?? '',
+            'department'     => $r['department'] ?? '',
+            'submittedCount' => (int)$r['submitted_count'],
+            'releasedCount'  => (int)$r['released_count'],
+            'pendingRelease' => (int)$r['submitted_count'] - (int)$r['released_count'],
+        ];
+    }
+    echo json_encode(['success' => true, 'courses' => $courses]);
+    break;
+
+// ════════════════════════════════════════════════════════════════
+// REGISTRAR → STUDENT: Release grades for a course
+// Marks submitted grades as released so students can see them
+// POST { course_id } or { enrollment_id } for single student
+// ════════════════════════════════════════════════════════════════
+case 'registrar_release_grades':
+    $conn->query("ALTER TABLE enrollments ADD COLUMN IF NOT EXISTS grade_released   TINYINT(1) DEFAULT 0");
+    $conn->query("ALTER TABLE enrollments ADD COLUMN IF NOT EXISTS grade_released_at DATETIME DEFAULT NULL");
+
+    $cid = (int)($data['course_id']    ?? 0);
+    $eid = (int)($data['enrollment_id'] ?? 0);
+
+    if (!$cid && !$eid) {
+        echo json_encode(['success'=>false,'message'=>'course_id or enrollment_id required']); break;
+    }
+
+    if ($eid) {
+        // Release single student grade
+        $upd = $conn->prepare("
+            UPDATE enrollments
+            SET grade_released = 1, grade_released_at = NOW()
+            WHERE id = ? AND grade_submitted = 1
+        ");
+        $upd->bind_param("i", $eid);
+    } else {
+        // Release all submitted grades for a course
+        $upd = $conn->prepare("
+            UPDATE enrollments
+            SET grade_released = 1, grade_released_at = NOW()
+            WHERE course_id = ? AND grade_submitted = 1 AND grade_released = 0
+        ");
+        $upd->bind_param("i", $cid);
+    }
+
+    $upd->execute();
+    $affected = $upd->affected_rows;
+    $upd->close();
+
+    echo json_encode([
+        'success'  => true,
+        'message'  => "$affected grade(s) released to students",
+        'affected' => $affected,
+    ]);
+    break;
+
+// ════════════════════════════════════════════════════════════════
+// STUDENT: Get released grades only (visible after registrar releases)
+// GET ?action=get_released_grades&student_id=X (or user_id=X)
+// ════════════════════════════════════════════════════════════════
+case 'get_released_grades':
+    $conn->query("ALTER TABLE enrollments ADD COLUMN IF NOT EXISTS grade_released TINYINT(1) DEFAULT 0");
+
+    $sid = _resolveStudent($conn);
+    if (!$sid) { echo json_encode(['success'=>false,'message'=>'Student not found']); break; }
+
+    $sem = trim($_GET['semester'] ?? '');
+    $semFilter = $sem ? "AND e.semester='".$conn->real_escape_string($sem)."'" : '';
+
+    $res = $conn->query("
+        SELECT e.id AS enrollment_id, e.semester, e.grade_released,
+               c.code, c.name, c.credits, c.instructor,
+               MAX(CASE WHEN sg.term='Prelim'  THEN sg.grade END) AS prelim,
+               MAX(CASE WHEN sg.term='Midterm' THEN sg.grade END) AS midterm,
+               MAX(CASE WHEN sg.term='Final'   THEN sg.grade END) AS final
+        FROM enrollments e
+        JOIN courses c ON e.course_id = c.id
+        LEFT JOIN student_grades sg ON sg.enrollment_id = e.id
+        WHERE e.student_id = $sid
+          AND e.status IN ('Enrolled','Pending','Completed')
+          AND e.grade_released = 1
+          $semFilter
+        GROUP BY e.id, c.id
+        ORDER BY c.code ASC
+    ");
+
+    $grades = []; $totalW = 0; $totalC = 0;
+    while ($r = $res->fetch_assoc()) {
+        $prelim  = $r['prelim']  !== null ? (float)$r['prelim']  : null;
+        $midterm = $r['midterm'] !== null ? (float)$r['midterm'] : null;
+        $final   = $r['final']   !== null ? (float)$r['final']   : null;
+        $vals    = array_filter([$prelim,$midterm,$final], fn($v) => $v !== null);
+        $overall = count($vals) > 0 ? round(array_sum($vals)/count($vals), 2) : null;
+        $remarks = $final !== null ? ($overall <= 3.0 ? 'Passed' : 'Failed') : 'In Progress';
+        $credits = (int)$r['credits'];
+        if ($overall !== null && $final !== null) { $totalW += $overall*$credits; $totalC += $credits; }
+        $grades[] = [
+            'enrollmentId' => (int)$r['enrollment_id'],
+            'code'           => cleanCode($r['code']),
+            'name'         => $r['name'],
+            'credits'      => $credits,
+            'instructor'   => $r['instructor'] ?? '',
+            'semester'     => $r['semester'] ?? '',
+            'prelim'       => $prelim,
+            'midterm'      => $midterm,
+            'final'        => $final,
+            'overall'      => $overall,
+            'remarks'      => $remarks,
+        ];
+    }
+    $gwa = $totalC > 0 ? round($totalW/$totalC, 2) : null;
+    echo json_encode(['success'=>true,'grades'=>$grades,'gwa'=>$gwa,'totalCredits'=>$totalC]);
     break;
 
 default:

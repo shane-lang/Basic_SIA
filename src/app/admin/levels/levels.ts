@@ -14,6 +14,7 @@ interface Course {
   year_level?: string;
   semester?: string;
   is_lab?: number;
+  is_general?: number;
   program?: string;
 }
 
@@ -415,14 +416,23 @@ export class Levels implements OnInit {
 
   get pickerFilteredCourses(): Course[] {
     let list = [...this.allCourses];
+    const programName = (this.form.name ?? '').trim().toLowerCase();
 
-    if (this.form.level_type === 'College') {
-      list = list.filter(c => {
-        const yl = (c.year_level ?? '').toLowerCase();
-        return !yl.includes('grade') && !yl.includes('tvet') && yl !== '';
-      });
-    } else if (this.form.level_type === 'SHS') {
-      list = list.filter(c => (c.year_level ?? '').toLowerCase().includes('grade'));
+    // Primary filter: courses that belong to THIS program only
+    if (programName) {
+      list = list.filter(c =>
+        (c.program ?? '').trim().toLowerCase() === programName
+      );
+    } else {
+      // No program name yet (new form) — filter by level type only
+      if (this.form.level_type === 'College') {
+        list = list.filter(c => {
+          const yl = (c.year_level ?? '').toLowerCase();
+          return !yl.includes('grade') && yl !== '';
+        });
+      } else if (this.form.level_type === 'SHS') {
+        list = list.filter(c => (c.year_level ?? '').toLowerCase().includes('grade'));
+      }
     }
 
     if (this.pickerFilterYear)
@@ -442,13 +452,23 @@ export class Levels implements OnInit {
     return list;
   }
 
+
+  // Base list scoped to current program (before search/year/sem/dept filters)
+  private get pickerProgramScopedList(): Course[] {
+    const programName = (this.form.name ?? '').trim().toLowerCase();
+    if (!programName) return this.allCourses;
+    return this.allCourses.filter(c =>
+      (c.program ?? '').trim().toLowerCase() === programName
+    );
+  }
+
   get pickerYearOptions(): string[] {
-    const set = new Set(this.allCourses.map(c => c.year_level).filter(Boolean)) as Set<string>;
+    const set = new Set(this.pickerProgramScopedList.map(c => c.year_level).filter(Boolean)) as Set<string>;
     return [...set].sort();
   }
 
   get pickerSemOptions(): string[] {
-    const raw = new Set(this.allCourses.map(c => {
+    const raw = new Set(this.pickerProgramScopedList.map(c => {
       const s = (c.semester ?? '').toLowerCase();
       if (s.startsWith('1st')) return '1st Semester';
       if (s.startsWith('2nd')) return '2nd Semester';
@@ -458,7 +478,7 @@ export class Levels implements OnInit {
   }
 
   get pickerDeptOptions(): string[] {
-    const set = new Set(this.allCourses.map(c => c.department).filter(Boolean)) as Set<string>;
+    const set = new Set(this.pickerProgramScopedList.map(c => c.department).filter(Boolean)) as Set<string>;
     return [...set].sort();
   }
 
@@ -586,11 +606,11 @@ export class Levels implements OnInit {
   }
 
   get currYears(): string[] {
-    const dur = this.currProgram?.duration ?? 4;
-    if (this.currProgram?.level_type === 'SHS') return ['Grade 11', 'Grade 12'];
+    const dur = Math.min(this.currProgram?.duration ?? 4, 4); // max 4 years
+    if (this.currProgram?.level_type === 'SHS')  return ['Grade 11', 'Grade 12'];
     if (this.currProgram?.level_type === 'TVET') return ['Year 1'];
     return Array.from({ length: dur }, (_, i) =>
-      ['1st Year', '2nd Year', '3rd Year', '4th Year', '5th Year'][i] ?? ('Year ' + (i + 1))
+      ['1st Year', '2nd Year', '3rd Year', '4th Year'][i] ?? ('Year ' + (i + 1))
     );
   }
 
@@ -624,7 +644,7 @@ export class Levels implements OnInit {
   }
 
   semUnits(year: string, sem: string): number {
-    return this.getCurrCourses(year, sem).reduce((s, c) => s + (c.credits ?? 0), 0);
+    return this.getCurrCourses(year, sem).reduce((s, c) => s + Number(c.credits ?? 0), 0);
   }
 
   semLabCount(year: string, sem: string): number {
@@ -636,7 +656,7 @@ export class Levels implements OnInit {
   }
 
   get currTotalUnits(): number {
-    return this.getProgramCourses().reduce((s, c) => s + (c.credits ?? 0), 0);
+    return this.getProgramCourses().reduce((s, c) => s + Number(c.credits ?? 0), 0);
   }
 
   get currAssignedCount(): number {
@@ -644,7 +664,7 @@ export class Levels implements OnInit {
   }
 
   sumUnits(courses: Course[]): number {
-    return courses.reduce((s, c) => s + (c.credits ?? 0), 0);
+    return courses.reduce((s, c) => s + Number(c.credits ?? 0), 0);
   }
 
   labUnits(c: Course): number {
@@ -654,7 +674,7 @@ export class Levels implements OnInit {
 
   lecUnits(c: Course): number {
     if (c.lec_units !== undefined && c.lec_units !== null) return Number(c.lec_units);
-    return (c.credits ?? 0) - this.labUnits(c);
+    return Number(c.credits ?? 0) - this.labUnits(c);
   }
 
   showToast(type: 'success' | 'error', message: string): void {
@@ -669,8 +689,8 @@ export class Levels implements OnInit {
   }
 
   deptPlaceholder(type: 'College' | 'SHS' | 'TVET'): string {
-    if (type === 'College') return 'e.g. Business, ICTD, Engineering';
-    if (type === 'SHS')     return 'e.g. Academic Track, TVL, Arts and Design';
-    return 'e.g. TVET, Cookery, Welding Technology';
+    if (type === 'College') return 'e.g. BMD, ICTD';
+    if (type === 'SHS')     return 'e.g. Academic Track, TVL';
+    return 'e.g. College Diploma';
   }
 }

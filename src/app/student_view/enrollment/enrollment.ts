@@ -1,4 +1,4 @@
-import { Component, OnInit, ChangeDetectorRef } from '@angular/core';
+import { Component, OnInit, OnDestroy, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
@@ -39,7 +39,7 @@ interface FeeData {
   templateUrl: './enrollment.html',
   styleUrl: './enrollment.css',
 })
-export class Enrollment implements OnInit {
+export class Enrollment implements OnInit, OnDestroy {
   private apiUrl        = 'http://localhost/sia-api/enrollment.php';
   private accountingApi = 'http://localhost/sia-api/accounting.php';
   private registrarApi  = 'http://localhost/sia-api/registrar.php';
@@ -77,6 +77,19 @@ export class Enrollment implements OnInit {
   termBreakdown: { period: string; amountPaid: number; orArNumber: string; orArType: string; paymentDate: string; paymentMethod: string }[] = [];
   paymentReceipts: any[] = [];
 
+  // Payment due dates — loaded from Accounting (sys_config)
+  dueDates: { [key: string]: { label: string; date_range: string } } = {
+    downpayment: { label: 'Downpayment', date_range: '' },
+    prelim:      { label: 'Prelim',      date_range: 'JANUARY 10-16, 2026' },
+    midterm:     { label: 'Midterm',     date_range: 'FEBRUARY 9 - 14, 2026' },
+    finals:      { label: 'Finals',      date_range: 'MARCH 30 - APRIL 4, 2026' },
+  };
+
+  getDueDate(period: string): string {
+    const key = period.toLowerCase();
+    return this.dueDates[key]?.date_range ?? '';
+  }
+
   paymentInfo = { amount: 0, discountedAmount: 0, status: 'Pending' as 'Pending' | 'Paid', dueDate: '2025-02-28', reference: '' };
   isProcessingPayment = false;
   paymentMethod: 'GCash' | 'Cash' = 'GCash';
@@ -96,6 +109,10 @@ export class Enrollment implements OnInit {
   get isFreeStudent(): boolean { return (this.isSHS || this.isTVET) && !this.isTransferee; }
   enrolledCourses: StudentCourse[] = [];
   isAutoEnrolling = false;
+  ngOnDestroy(): void {
+    if (this.pollInterval)    clearInterval(this.pollInterval);
+    if (this.torPollInterval) clearInterval(this.torPollInterval);
+  }
 
   enrollmentSummary: {
     enrollmentDate: string; semester: string; program: string; yearLevel: string;
@@ -103,20 +120,42 @@ export class Enrollment implements OnInit {
     payment: PaymentSummary; termPayments: TermPayment[];
   } | null = null;
 
-  currentView: 'dashboard' | 'enrollment-summary' = 'dashboard';
+  currentView: 'dashboard' | 'enrollment-summary' = 'enrollment-summary';
   showDropModal = false; selectedCourseForDrop: StudentCourse | null = null;
   showEditModal = false; editForm: any = {};
   notifications: EnrollmentNotification[] = [];
   addDropDeadline = '2025-04-15';
 
   // ═══════════════════════════════════════════════════════════════
-  // INIT — one call, one source of truth
+  // INIT — restore state first, then sync with DB
   // ═══════════════════════════════════════════════════════════════
   ngOnInit(): void {
     const storedUser = sessionStorage.getItem('currentUser') || localStorage.getItem('currentUser');
     if (!storedUser) { this.router.navigate(['/login']); return; }
     this.userId = JSON.parse(storedUser).id;
+
+    // ── Restore last known step IMMEDIATELY to prevent flash back to 'payment' ──
+    // This is purely a visual restore — loadContext() will correct it from DB truth.
+    const savedStep = sessionStorage.getItem('enrollmentStep') as typeof this.workflowStep | null;
+    if (savedStep) {
+      this.workflowStep = savedStep;
+    }
+
+    // ── Restore approval polling if student was mid-wait when they reloaded ──
+    // Without this, approved students who reload during polling never get redirected.
+    if (savedStep === 'approval' || savedStep === 'cash-pending') {
+      this.isApprovalPending = true;
+      this.startApprovalPolling();
+    }
+
+    this.loadDueDates();
     this.loadContext();
+  }
+
+  loadDueDates(): void {
+    this.http.get<any>(`${this.accountingApi}?action=get_due_dates`).subscribe({
+      next: res => { if (res.success) this.dueDates = res.dueDates; }
+    });
   }
 
   loadContext(): void {
@@ -163,6 +202,9 @@ export class Enrollment implements OnInit {
         sessionStorage.setItem('studentDbId', String(this.studentDbId));
         localStorage.setItem('studentDbId', String(this.studentDbId));
 
+        // ── Stop any pending approval poll — DB is now the source of truth ──
+        if (this.pollInterval) { clearInterval(this.pollInterval); this.pollInterval = null; }
+
         // ── ROUTING ─────────────────────────────────────────────
         const s        = res.student;
         const cat      = (s.studentCategory ?? '').toUpperCase();
@@ -180,12 +222,14 @@ export class Enrollment implements OnInit {
         if (isFree && !isTransferee && approved) {
           sessionStorage.removeItem('pendingPaymentMethod');
           sessionStorage.removeItem('pendingPaymentPlan');
+          this.isApprovalPending = false;
           this.route('dashboard');
           this.ensureEnrolledThenLoad();
 
         } else if (approved) {
           sessionStorage.removeItem('pendingPaymentMethod');
           sessionStorage.removeItem('pendingPaymentPlan');
+          this.isApprovalPending = false;
           this.route('dashboard');
           this.ensureEnrolledThenLoad();
 
@@ -234,15 +278,20 @@ export class Enrollment implements OnInit {
   setStep(step: typeof this.workflowStep): void { this.route(step); }
 
   ensureEnrolledThenLoad(): void {
+    // Always load dashboard data first so screen isn't blank while auto-enroll runs
+    this.loadDashboard();
+    // Then also trigger auto-enroll in case courses are missing (idempotent - safe to re-run)
     this.http.post<any>(`${this.apiUrl}?action=auto_enroll_all`, {
       student_id: this.studentDbId, semester: this.currentSemester,
     }, this.getHeaders()).subscribe({
-      next:  () => this.loadDashboard(),
-      error: () => this.loadDashboard(),
+      // After auto-enroll finishes, reload courses to pick up any newly enrolled subjects
+      next:  () => { this.loadEnrolledCourses(); this.loadEnrollmentSummary(); },
+      error: () => { /* already loaded above, silently ignore */ },
     });
   }
 
   loadDashboard(): void {
+    // Always reload all dashboard data sources in parallel
     this.loadEnrolledCourses();
     this.loadEnrollmentSummary();
     this.http.get<any>(`${this.apiUrl}?action=get_student_context&user_id=${this.userId}`, this.getHeaders()).subscribe({
@@ -254,7 +303,8 @@ export class Enrollment implements OnInit {
           this.paymentPlan     = res.student.paymentPlan === 'installment' ? 'installment' : 'full';
         }
         this.cdr.detectChanges();
-      }
+      },
+      error: () => { this.cdr.detectChanges(); }
     });
   }
 
@@ -283,9 +333,12 @@ export class Enrollment implements OnInit {
   }
 
   startApprovalPolling(): void {
-    if (this.pollInterval) clearInterval(this.pollInterval);
+    // Clear any existing interval first to prevent duplicates
+    if (this.pollInterval) { clearInterval(this.pollInterval); this.pollInterval = null; }
+    // Check immediately on start (covers the reload-and-already-approved case)
+    this.checkApprovalStatus();
     this.pollInterval = setInterval(() => {
-      if (!this.isApprovalPending) { clearInterval(this.pollInterval); return; }
+      if (!this.isApprovalPending) { clearInterval(this.pollInterval); this.pollInterval = null; return; }
       this.checkApprovalStatus();
     }, 10000);
   }
@@ -295,14 +348,18 @@ export class Enrollment implements OnInit {
     this.http.get<any>(`${this.apiUrl}?action=get_payment_status&user_id=${this.userId}`, this.getHeaders()).subscribe({
       next: (res) => {
         if (res.success && res.approvalStatus === 'Approved') {
-          clearInterval(this.pollInterval);
+          // Stop polling immediately
+          if (this.pollInterval) { clearInterval(this.pollInterval); this.pollInterval = null; }
           sessionStorage.removeItem('pendingPaymentMethod');
           sessionStorage.removeItem('pendingPaymentPlan');
           this.isApprovalPending = false;
           this.approvalMessage = this.paymentMethod === 'Cash'
             ? '💵 Cash payment confirmed by Accounting!'
             : '📱 GCash payment verified by Accounting!';
-          this.addNotification('success', 'Payment approved!');
+          this.addNotification('success', 'Payment approved! Loading your dashboard...');
+          // Pre-set step to dashboard so loadContext doesn't flash 'approval'
+          this.route('dashboard');
+          // Reload full context to get enrolled courses and updated fees
           this.loadContext();
         }
       }
@@ -328,7 +385,7 @@ export class Enrollment implements OnInit {
 
   startTorPolling(): void {
     this.loadTorEvaluation();
-    if (this.torPollInterval) clearInterval(this.torPollInterval);
+    if (this.torPollInterval) { clearInterval(this.torPollInterval); this.torPollInterval = null; }
     this.torPollInterval = setInterval(() => this.loadTorEvaluation(), 15000);
   }
 
@@ -434,40 +491,102 @@ export class Enrollment implements OnInit {
     return total > 0 ? Math.ceil(total / 4) : 0;
   }
 
-  // Actual amount paid as Downpayment (from payment records)
+  // Actual amounts paid per term (from payment records)
   get dpPaid(): number {
     const dp = this.termBreakdown.find(t => t.period === 'Downpayment');
     return dp ? (dp.amountPaid ?? 0) : 0;
   }
-
-  // DP shown in the installment table:
-  // If student already paid DP → show actual amount paid
-  // Otherwise → show scheduled DP amount (total/4)
-  get dpAmount(): number {
-    const paid = this.dpPaid;
-    return paid > 0 ? paid : this.installmentTermAmount;
+  get prelimPaid(): number {
+    const p = this.termBreakdown.find(t => t.period === 'Prelim');
+    return p ? (p.amountPaid ?? 0) : 0;
+  }
+  get midtermPaid(): number {
+    const m = this.termBreakdown.find(t => t.period === 'Midterm');
+    return m ? (m.amountPaid ?? 0) : 0;
+  }
+  get finalsPaid(): number {
+    const f = this.termBreakdown.find(t => t.period === 'Finals');
+    return f ? (f.amountPaid ?? 0) : 0;
   }
 
-  // Remaining balance after DP credit
+  /**
+   * Computes the AMOUNT shown per term in the installment table.
+   *
+   * Rule: whatever was already paid in a term is SHOWN as-is.
+   * The REMAINING balance after each paid term is split EQUALLY
+   * among all unpaid terms that follow — so overpaying one term
+   * reduces ALL remaining terms, and underpaying increases them.
+   *
+   * Example — Total: 33,137
+   *   No payments    → DP: 8,285 | Prelim: 8,284 | Midterm: 8,284 | Finals: 8,284
+   *   DP paid 10,000 → DP: 10,000 | Remaining 23,137÷3 = 7,713 | 7,712 | 7,712
+   *   + Prelim 10,000→ DP: 10,000 | Prelim: 10,000 | Remaining 13,137÷2 = 6,569 | 6,568
+   *   DP paid 5,000  → DP: 5,000  | Remaining 28,137÷3 = 9,379 each
+   */
+  get installmentAmounts(): { dpDue: number; prelimDue: number; midtermDue: number; finalsDue: number } {
+    const total  = this.fees?.totalAssessment ?? 0;
+    if (total <= 0) return { dpDue: 0, prelimDue: 0, midtermDue: 0, finalsDue: 0 };
+
+    const dpPaid  = this.dpPaid;
+    const prPaid  = this.prelimPaid;
+    const midPaid = this.midtermPaid;
+    const finPaid = this.finalsPaid;
+
+    // DP: show scheduled (total/4) if unpaid, actual if paid
+    const quarter   = Math.ceil(total / 4);
+    const dpShow    = dpPaid > 0 ? dpPaid : quarter;
+    const dpCredit  = dpPaid > 0 ? dpPaid : quarter;
+
+    // Remaining after DP → split EQUALLY among all 3 remaining terms
+    const rem1   = Math.max(0, total - dpCredit);
+    const prShare  = rem1 > 0 ? Math.ceil(rem1 / 3) : 0;
+    const prShow   = prPaid > 0 ? prPaid : prShare;
+    const prCredit = prPaid > 0 ? prPaid : prShare;
+
+    // Remaining after Prelim → split EQUALLY among Midterm and Finals
+    const rem2    = Math.max(0, rem1 - prCredit);
+    const midShare = rem2 > 0 ? Math.ceil(rem2 / 2) : 0;
+    const midShow  = midPaid > 0 ? midPaid : midShare;
+    const midCredit= midPaid > 0 ? midPaid : midShare;
+
+    // Finals = whatever is still left
+    const rem3   = Math.max(0, rem2 - midCredit);
+    const finShow= finPaid > 0 ? finPaid : rem3;
+
+    return {
+      dpDue:      dpShow,
+      prelimDue:  prShow,
+      midtermDue: midShow,
+      finalsDue:  finShow,
+    };
+  }
+
+  // Convenience getters used by template + print SOA
+  get dpAmount(): number      { return this.installmentAmounts.dpDue; }
+  get prelimAmount(): number  { return this.installmentAmounts.prelimDue; }
+  get midtermAmount(): number { return this.installmentAmounts.midtermDue; }
+  get finalsAmount(): number  { return this.installmentAmounts.finalsDue; }
+
+  /**
+   * Examination Covered = the latest exam period with a recorded payment.
+   * Order: Finals > Midterm > Prelim > Downpayment
+   * If nothing paid yet, defaults to 'PRELIM'.
+   */
+  get currentExamCovered(): string {
+    const order = ['Finals', 'Midterm', 'Prelim', 'Downpayment'];
+    for (const period of order) {
+      if (this.termBreakdown.some(t => t.period === period)) return period.toUpperCase();
+    }
+    return 'PRELIM';
+  }
+
+  // Remaining balance after DP credit (kept for compatibility)
   get remainingAfterDP(): number {
     const total = this.fees?.totalAssessment ?? 0;
     const dp    = this.dpPaid > 0 ? this.dpPaid : this.installmentTermAmount;
     return Math.max(0, total - dp);
   }
 
-  // Each of the 3 remaining periods gets equal share of what's still owed
-  get prelimAmount(): number {
-    const rem = this.remainingAfterDP;
-    return rem > 0 ? Math.ceil(rem / 3) : 0;
-  }
-  get midtermAmount(): number {
-    return this.prelimAmount;
-  }
-  get finalsAmount(): number {
-    const rem = this.remainingAfterDP;
-    const p   = this.prelimAmount;
-    return rem > 0 ? Math.max(0, rem - p * 2) : 0;
-  }
 
   get installmentSchedule(): { term: string; label: string; amount: number; paid: boolean; amountPaid: number; orNo: string; paymentDate: string }[] {
     const terms = [
@@ -793,7 +912,7 @@ export class Enrollment implements OnInit {
   <div class="info-row">
     <div class="info-field"><span>Course:</span><span class="info-val">${s.program || ''}</span></div>
     <div class="info-field"><span>Semester:</span><span class="info-val">${s.semester || ''}</span></div>
-    <div class="info-field"><span>Academic Year:</span><span class="info-val">${new Date().getFullYear()}-${new Date().getFullYear()+1}</span></div>
+    <div class="info-field"><span>Academic Year:</span><span class="info-val">${(()=>{ const m=(s.semester||'').match(/(\d{4})-(\d{4})/); if(m) return m[0]; const y=new Date().getFullYear(); return y+'-'+(y+1); })()}</span></div>
   </div>
 </div>
 
@@ -848,17 +967,26 @@ export class Enrollment implements OnInit {
     const finAmt = this.finalsAmount;
     const totalAmountToBePaid = this.fees?.totalAssessment ?? 0;
 
-    // Due dates (hardcoded like actual SOA — can be made dynamic later)
+    // Due dates — loaded from Accounting (sys_config via get_due_dates)
     const dueDates: any = {
-      Downpayment: '', Prelim: 'JANUARY 10-16, 2026',
-      Midterm: 'FEBRUARY 9 - 14, 2026', Finals: 'MARCH 30 - APRIL 4, 2026'
+      Downpayment: this.getDueDate('downpayment'),
+      Prelim:      this.getDueDate('prelim'),
+      Midterm:     this.getDueDate('midterm'),
+      Finals:      this.getDueDate('finals'),
     };
 
     const scheduleRow = (label: string, period: string, amount: number, paid: any) => {
       const highlight = !paid && period === 'Prelim' ? 'style="color:#c00;font-weight:700;"' : '';
+      const dueRange = dueDates[period] || '';
+      const paidDateStr = paid?.paymentDate
+        ? new Date(paid.paymentDate).toLocaleDateString('en-PH', { month:'2-digit', day:'2-digit', year:'2-digit' })
+        : '';
+      const dateCell = dueRange
+        ? `${dueRange}${paidDateStr ? `<br><span style="color:#166534;font-size:9px;">Paid: ${paidDateStr}</span>` : ''}`
+        : (paidDateStr || '');
       return `<tr>
         <td style="padding:3px 6px;">${label}</td>
-        <td style="padding:3px 6px;" ${highlight}>${dueDates[period] || ''}</td>
+        <td style="padding:3px 6px;" ${highlight}>${dateCell}</td>
         <td style="padding:3px 6px;text-align:right;">${paid ? fmt(paid.amountPaid) : ''}</td>
         <td style="padding:3px 6px;text-align:center;">${paid ? (paid.orArNumber || '') : ''}</td>
       </tr>`;
@@ -958,7 +1086,7 @@ export class Enrollment implements OnInit {
 <div class="info-bar2">
   <div class="info-cell">
     <div class="info-label">EXAMINATION COVERED</div>
-    <div class="info-val">PRELIM</div>
+    <div class="info-val">${this.currentExamCovered}</div>
   </div>
   <div class="info-cell">
     <div class="info-label">Semester:</div>

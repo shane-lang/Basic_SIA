@@ -1,0 +1,113 @@
+<div class="page-wrap">
+
+  <!-- Header -->
+  <div class="page-header">
+    <div class="ph-left">
+      <span class="ph-icon">📚</span>
+      <div>
+        <h1>My Courses</h1>
+        <p class="ph-sub" *ngIf="facultyInfo">
+          {{ facultyInfo.name }} · {{ facultyInfo.department }}
+        </p>
+      </div>
+    </div>
+    <button class="btn-refresh" (click)="loadCourses()">🔄 Refresh</button>
+  </div>
+
+  <!-- Stats -->
+  <div class="stats-row" *ngIf="!isLoading && courses.length > 0">
+    <div class="stat-card stat-blue">
+      <span class="stat-val">{{ courses.length }}</span>
+      <span class="stat-lbl">Courses Handled</span>
+    </div>
+    <div class="stat-card stat-teal">
+      <span class="stat-val">{{ totalStudents }}</span>
+      <span class="stat-lbl">Total Students</span>
+    </div>
+    <div class="stat-card stat-green">
+      <span class="stat-val">{{ totalGraded }}</span>
+      <span class="stat-lbl">Fully Graded</span>
+    </div>
+  </div>
+
+  <!-- Loading -->
+  <div class="loading-state" *ngIf="isLoading">
+    <div class="spinner"></div>
+    <p>Loading your courses…</p>
+  </div>
+
+  <!-- Empty -->
+  <div class="empty-state" *ngIf="!isLoading && courses.length === 0">
+    <div class="es-icon">📚</div>
+    <h3>No courses assigned yet</h3>
+    <p>Contact your admin to assign courses to your account.</p>
+  </div>
+
+  <!-- Course Cards Grid -->
+  <div class="courses-grid" *ngIf="!isLoading && courses.length > 0">
+    <div class="course-card" *ngFor="let c of courses" (click)="openGrading(c)">
+
+      <!-- Course Header -->
+      <div class="cc-head">
+        <div class="cc-code-wrap">
+          <span class="cc-code">{{ c.code }}</span>
+          <span class="cc-lab" *ngIf="c.isLab">🔬 Lab</span>
+        </div>
+        <span class="cc-credits">{{ c.credits }} units</span>
+      </div>
+
+      <!-- Course Name -->
+      <div class="cc-name">{{ c.name }}</div>
+
+      <!-- Meta -->
+      <div class="cc-meta">
+        <span class="cc-meta-item" *ngIf="c.program">🎓 {{ c.program }}</span>
+        <span class="cc-meta-item" *ngIf="c.yearLevel">📅 {{ c.yearLevel }}</span>
+        <span class="cc-meta-item" *ngIf="c.semester">🗓 {{ c.semester }}</span>
+      </div>
+
+      <!-- Stats Row -->
+      <div class="cc-stats">
+        <div class="cc-stat">
+          <span class="cc-stat-val">{{ c.enrolledCount }}</span>
+          <span class="cc-stat-lbl">Students</span>
+        </div>
+        <div class="cc-stat">
+          <span class="cc-stat-val">{{ c.prelimDone }}</span>
+          <span class="cc-stat-lbl">Prelim ✓</span>
+        </div>
+        <div class="cc-stat">
+          <span class="cc-stat-val">{{ c.midtermDone }}</span>
+          <span class="cc-stat-lbl">Midterm ✓</span>
+        </div>
+        <div class="cc-stat">
+          <span class="cc-stat-val">{{ c.finalDone }}</span>
+          <span class="cc-stat-lbl">Final ✓</span>
+        </div>
+      </div>
+
+      <!-- Progress Bar -->
+      <div class="cc-progress-wrap">
+        <div class="cc-progress-label">
+          <span>Grade Completion</span>
+          <span [style.color]="completionColor(c.gradeCompletion)">{{ c.gradeCompletion }}%</span>
+        </div>
+        <div class="cc-progress-bar">
+          <div class="cc-progress-fill"
+            [style.width.%]="c.gradeCompletion"
+            [style.background]="completionColor(c.gradeCompletion)">
+          </div>
+        </div>
+      </div>
+
+      <!-- Submission Status -->
+      <div class="cc-footer">
+        <span class="cc-status" [class.status-released]="c.releasedCount > 0" [class.status-submitted]="c.submittedCount > 0 && c.releasedCount === 0" [class.status-pending]="c.submittedCount === 0">
+          {{ c.releasedCount > 0 ? '✅ Released' : c.submittedCount > 0 ? '📨 Submitted to Registrar' : '⏳ Pending Submission' }}
+        </span>
+        <span class="cc-action-hint">Click to grade →</span>
+      </div>
+    </div>
+  </div>
+
+</div>

@@ -147,7 +147,13 @@
   width: 100%;
   border-collapse: collapse;
   font-size: 13px;
+  table-layout: fixed;
 }
+.course-table col.col-code   { width: 110px; }
+.course-table col.col-name   { width: auto; }
+.course-table col.col-units  { width: 80px; }
+.course-table col.col-status { width: 140px; }
+
 .course-table thead th {
   padding: 10px 14px;
   text-align: left;
@@ -176,11 +182,11 @@
 .row-credited  { background: #f0fdf4; }
 
 .course-table td { padding: 10px 14px; vertical-align: middle; }
-.td-code  { font-family: monospace; font-size: 12px; font-weight: 700; color: #4338ca; white-space: nowrap; }
-.td-name  { color: #111827; font-weight: 500; }
+.td-code  { font-family: monospace; font-size: 12px; font-weight: 700; color: #4338ca; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.td-name  { color: #111827; font-weight: 500; word-break: break-word; }
 .td-units { text-align: center; font-weight: 700; color: #374151; }
 .td-grade { text-align: center; }
-.td-status{ text-align: center; }
+.td-status{ text-align: center; white-space: nowrap; }
 
 .course-desc {
   display: block;

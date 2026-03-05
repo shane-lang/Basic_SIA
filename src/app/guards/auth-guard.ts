@@ -31,7 +31,7 @@ export class AuthGuard implements CanActivate {
         admin:      '/admin',
         accounting: '/accounting',
         registrar:  '/registrar',
-        faculty:    '/admin',
+        faculty:    '/instructor',
       };
       this.router.navigate([roleMap[user.role] || '/login']);
       return false;

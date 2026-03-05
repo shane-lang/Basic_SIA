@@ -201,7 +201,7 @@ export class StudentDashboard implements OnInit {
 
           this.dashboardCards = [
             { title: 'Courses', value: String(this.enrolledCourses.length), icon: '📖', color: '#667eea' },
-            { title: 'Credits', value: String(this.totalCredits),            icon: '⏰', color: '#48bb78' },
+            // Credits card removed
           ];
 
           sessionStorage.setItem('studentDbId', String(s.dbId));

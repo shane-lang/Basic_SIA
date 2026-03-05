@@ -11,6 +11,7 @@ interface EnrolledStudent {
   program: string;
   yearLevel: string;
   semester: string;
+  studentCategory: string;  // 'COLLEGE' | 'SHS' | 'TVET'
   totalAssessment: number;
   prelimDue: number; midtermDue: number; finalsDue: number;
   prelimPaid: number; midtermPaid: number; finalsPaid: number;
@@ -47,8 +48,22 @@ export class PermitGeneration implements OnInit {
   // Notice sending
   students: EnrolledStudent[] = [];
   isLoadingStudents = false;
-  searchStudents = '';
-  showNoticeModal = false;
+  searchStudents   = '';
+  filterCategory: 'ALL'|'COLLEGE'|'SHS'|'TVET' = 'ALL';
+  filterProgram  = 'ALL';
+  filterYear     = 'ALL';
+
+  // Bulk send notice
+  showBulkModal    = false;
+  bulkPeriod: 'Prelim'|'Midterm'|'Finals' = 'Prelim';
+  bulkCategory: 'ALL'|'COLLEGE'|'SHS'|'TVET' = 'ALL';
+  bulkDueDate      = '';
+  bulkMsgTemplate  = '';
+  isSendingBulk    = false;
+  bulkResult       = '';
+  bulkResultType: 'success'|'error' = 'success';
+
+  showNoticeModal  = false;
   noticeStudent: EnrolledStudent | null = null;
   noticeForm = { exam_period: 'Prelim', amount_due: 0, due_date: '', message: '' };
   isSendingNotice = false;
@@ -119,10 +134,72 @@ export class PermitGeneration implements OnInit {
   }
 
   get filteredStudents(): EnrolledStudent[] {
-    const q = this.searchStudents.toLowerCase();
-    return this.students.filter(s =>
-      !q || (s.firstName+' '+s.lastName).toLowerCase().includes(q) || s.studentNumber.toLowerCase().includes(q)
-    );
+    const q    = this.searchStudents.toLowerCase();
+    const cat  = this.filterCategory;
+    const prog = this.filterProgram;
+    const yr   = this.filterYear;
+    return this.students.filter(s => {
+      const matchQ    = !q    || (s.firstName+' '+s.lastName).toLowerCase().includes(q) || s.studentNumber.toLowerCase().includes(q);
+      const matchCat  = cat  === 'ALL' || (s.studentCategory || 'COLLEGE').toUpperCase() === cat;
+      const matchProg = prog === 'ALL' || s.program === prog;
+      const matchYr   = yr   === 'ALL' || s.yearLevel === yr;
+      return matchQ && matchCat && matchProg && matchYr;
+    });
+  }
+
+  get uniquePrograms(): string[] {
+    const s = new Set(this.students.map(s => s.program).filter(Boolean));
+    return ['ALL', ...Array.from(s).sort()];
+  }
+
+  get uniqueYears(): string[] {
+    const s = new Set(this.students.map(s => s.yearLevel).filter(Boolean));
+    return ['ALL', ...Array.from(s).sort()];
+  }
+
+  get categoryCounts(): Record<string, number> {
+    const counts: Record<string, number> = { ALL: this.students.length, COLLEGE: 0, SHS: 0, TVET: 0 };
+    for (const s of this.students) {
+      const c = (s.studentCategory || 'COLLEGE').toUpperCase();
+      if (c in counts) counts[c]++;
+      else { counts['COLLEGE']++; }
+    }
+    return counts;
+  }
+
+  openBulkModal(period: 'Prelim'|'Midterm'|'Finals'): void {
+    this.bulkPeriod       = period;
+    this.bulkCategory     = this.filterCategory === 'ALL' ? 'ALL' : this.filterCategory;
+    this.bulkDueDate      = '';
+    this.bulkMsgTemplate  = `Dear {name}, your {period} payment of {amount} is now due. Please settle at the Accounting office.`;
+    this.bulkResult       = '';
+    this.showBulkModal    = true;
+    this.cdr.detectChanges();
+  }
+
+  closeBulkModal(): void { this.showBulkModal = false; this.cdr.detectChanges(); }
+
+  sendBulkNotice(): void {
+    this.isSendingBulk = true;
+    this.http.post<any>(`${this.apiUrl}?action=send_bulk_notice`, {
+      exam_period:        this.bulkPeriod,
+      category:           this.bulkCategory,
+      due_date:           this.bulkDueDate,
+      message_template:   this.bulkMsgTemplate,
+      accounting_user_id: this.accountingUserId
+    }, this.getHeaders()).subscribe({
+      next: (res) => {
+        this.isSendingBulk    = false;
+        this.bulkResult       = res.message;
+        this.bulkResultType   = res.success ? 'success' : 'error';
+        if (res.success) {
+          this.loadStudents();
+          setTimeout(() => { this.closeBulkModal(); }, 2000);
+        }
+        this.cdr.detectChanges();
+      },
+      error: () => { this.isSendingBulk = false; this.cdr.detectChanges(); }
+    });
   }
 
   // ── Send Notice Modal ─────────────────────────────────────────────────────

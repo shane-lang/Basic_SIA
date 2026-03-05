@@ -1,0 +1,210 @@
+<!-- Toast -->
+<div class="toast" [class.toast-show]="toast.show" [class.toast-ok]="toast.type==='success'" [class.toast-err]="toast.type==='error'">
+  {{ toast.type==='success' ? '✅' : '❌' }} {{ toast.message }}
+</div>
+
+<!-- Breadcrumb -->
+<div class="breadcrumb">
+  <span class="bc-item" [class.bc-active]="step==='courses'" (click)="goToCourses()">📚 My Courses</span>
+  <span class="bc-sep" *ngIf="step==='students'">›</span>
+  <span class="bc-item bc-active" *ngIf="step==='students'">
+    {{ selectedCourse?.code }} — {{ selectedCourse?.name }}
+  </span>
+</div>
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- STEP 1: COURSE LIST                          -->
+<!-- ═══════════════════════════════════════════ -->
+<ng-container *ngIf="step==='courses'">
+  <div class="page-header">
+    <div class="ph-left">
+      <span class="ph-icon">📝</span>
+      <div>
+        <h1>Grading System</h1>
+        <p class="ph-sub">Select a course to enter and submit grades</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="search-bar">
+    <span class="s-icon">🔍</span>
+    <input type="text" class="s-input" placeholder="Search by course code or name…" [(ngModel)]="courseSearch">
+    <button class="s-clear" *ngIf="courseSearch" (click)="courseSearch=''">✕</button>
+  </div>
+
+  <div class="loading-state" *ngIf="isLoadingCourses">
+    <div class="spinner"></div><p>Loading courses…</p>
+  </div>
+
+  <div class="empty-state" *ngIf="!isLoadingCourses && filteredCourses.length===0">
+    <div class="es-icon">📚</div>
+    <p>No courses assigned to you yet.</p>
+  </div>
+
+  <div class="course-list" *ngIf="!isLoadingCourses && filteredCourses.length > 0">
+    <div class="course-row" *ngFor="let c of filteredCourses" (click)="selectCourse(c)">
+      <div class="cr-left">
+        <span class="cr-code">{{ c.code }}</span>
+        <div class="cr-info">
+          <span class="cr-name">{{ c.name }}</span>
+          <span class="cr-sub">{{ c.program }} · {{ c.yearLevel }} · {{ c.semester }}</span>
+        </div>
+      </div>
+      <div class="cr-right">
+        <div class="cr-stat">
+          <span class="cr-stat-val">{{ c.enrolledCount }}</span>
+          <span class="cr-stat-lbl">Students</span>
+        </div>
+        <div class="cr-progress">
+          <div class="cr-pct" [style.color]="completionColor(c.gradeCompletion)">{{ c.gradeCompletion }}%</div>
+          <div class="cr-bar"><div class="cr-bar-fill" [style.width.%]="c.gradeCompletion" [style.background]="completionColor(c.gradeCompletion)"></div></div>
+        </div>
+        <span class="cr-arrow">→</span>
+      </div>
+    </div>
+  </div>
+</ng-container>
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- STEP 2: STUDENTS + GRADE TABLE              -->
+<!-- ═══════════════════════════════════════════ -->
+<ng-container *ngIf="step==='students'">
+  <div class="page-header">
+    <button class="btn-back" (click)="goToCourses()">← Back</button>
+    <div class="ph-course">
+      <span class="ph-course-code">{{ selectedCourse?.code }}</span>
+      <div>
+        <h1>{{ selectedCourse?.name }}</h1>
+        <p class="ph-sub">{{ selectedCourse?.program }} · {{ selectedCourse?.yearLevel }} · {{ selectedCourse?.semester }}</p>
+      </div>
+    </div>
+    <button class="btn-submit"
+      *ngIf="hasUnsubmitted"
+      [disabled]="isSubmitting"
+      (click)="submitToRegistrar()">
+      {{ isSubmitting ? '⏳ Submitting…' : '📨 Send to Registrar' }}
+    </button>
+    <span class="badge-submitted" *ngIf="!hasUnsubmitted && students.length > 0">✅ All Submitted</span>
+  </div>
+
+  <div class="loading-state" *ngIf="isLoadingStudents">
+    <div class="spinner"></div><p>Loading students…</p>
+  </div>
+
+  <div class="empty-state" *ngIf="!isLoadingStudents && students.length===0">
+    <div class="es-icon">👥</div>
+    <p>No enrolled students found for this subject.</p>
+  </div>
+
+  <div class="grade-table-wrap" *ngIf="!isLoadingStudents && students.length > 0">
+    <div class="gt-hint">
+      <span>💡 Enter grade (1.00–5.00) then click away or press Tab to save automatically.</span>
+      <span class="gt-count">{{ students.length }} student{{ students.length > 1 ? 's' : '' }}</span>
+    </div>
+    <table class="grade-table">
+      <thead>
+        <tr>
+          <th class="th-num">#</th>
+          <th>Student</th>
+          <th>Program / Year</th>
+          <th class="th-grade">Prelim</th>
+          <th class="th-grade">Midterm</th>
+          <th class="th-grade">Final</th>
+          <th class="th-grade">Overall</th>
+          <th>Remarks</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr *ngFor="let s of students; let i = index"
+          [class.row-released]="s.gradeReleased"
+          [class.row-submitted]="s.gradeSubmitted && !s.gradeReleased">
+          <td class="td-num">{{ i + 1 }}</td>
+          <td class="td-student">
+            <div class="s-avatar">{{ initials(s.firstName, s.lastName) }}</div>
+            <div class="s-info">
+              <span class="s-name">{{ s.lastName }}, {{ s.firstName }}</span>
+              <span class="s-num">{{ s.studentNumber }}</span>
+            </div>
+          </td>
+          <td class="td-prog">
+            <span class="prog-label">{{ s.program }}</span>
+            <span class="yr-label">{{ s.yearLevel }}</span>
+          </td>
+          <!-- Prelim -->
+          <td class="td-grade">
+            <ng-container *ngIf="!s.gradeReleased; else showPrelim">
+              <input class="grade-input" [class]="gradeClass(s.prelim)"
+                type="number" min="1" max="5" step="0.25"
+                [(ngModel)]="s.editPrelim"
+                [disabled]="s.savingPrelim"
+                (blur)="saveGrade(s,'Prelim')"
+                (keydown.enter)="saveGrade(s,'Prelim')"
+                placeholder="—">
+              <span class="saving-dot" *ngIf="s.savingPrelim">⏳</span>
+            </ng-container>
+            <ng-template #showPrelim>
+              <span class="grade-display" [class]="gradeClass(s.prelim)">{{ s.prelim ?? '—' }}</span>
+            </ng-template>
+          </td>
+          <!-- Midterm -->
+          <td class="td-grade">
+            <ng-container *ngIf="!s.gradeReleased; else showMidterm">
+              <input class="grade-input" [class]="gradeClass(s.midterm)"
+                type="number" min="1" max="5" step="0.25"
+                [(ngModel)]="s.editMidterm"
+                [disabled]="s.savingMidterm"
+                (blur)="saveGrade(s,'Midterm')"
+                (keydown.enter)="saveGrade(s,'Midterm')"
+                placeholder="—">
+              <span class="saving-dot" *ngIf="s.savingMidterm">⏳</span>
+            </ng-container>
+            <ng-template #showMidterm>
+              <span class="grade-display" [class]="gradeClass(s.midterm)">{{ s.midterm ?? '—' }}</span>
+            </ng-template>
+          </td>
+          <!-- Final -->
+          <td class="td-grade">
+            <ng-container *ngIf="!s.gradeReleased; else showFinal">
+              <input class="grade-input" [class]="gradeClass(s.final)"
+                type="number" min="1" max="5" step="0.25"
+                [(ngModel)]="s.editFinal"
+                [disabled]="s.savingFinal"
+                (blur)="saveGrade(s,'Final')"
+                (keydown.enter)="saveGrade(s,'Final')"
+                placeholder="—">
+              <span class="saving-dot" *ngIf="s.savingFinal">⏳</span>
+            </ng-container>
+            <ng-template #showFinal>
+              <span class="grade-display" [class]="gradeClass(s.final)">{{ s.final ?? '—' }}</span>
+            </ng-template>
+          </td>
+          <!-- Overall -->
+          <td class="td-grade">
+            <span class="grade-overall" [class]="gradeClass(s.overall)">
+              {{ s.overall !== null ? s.overall.toFixed(2) : '—' }}
+            </span>
+          </td>
+          <!-- Remarks -->
+          <td>
+            <span class="remarks-pill"
+              [class.pill-pass]="s.remarks==='Passed'"
+              [class.pill-fail]="s.remarks==='Failed'"
+              [class.pill-prog]="s.remarks==='In Progress'">
+              {{ s.remarks }}
+            </span>
+          </td>
+          <!-- Status -->
+          <td>
+            <span class="status-tag"
+              [class.st-released]="s.gradeReleased"
+              [class.st-submitted]="s.gradeSubmitted && !s.gradeReleased"
+              [class.st-pending]="!s.gradeSubmitted && !s.gradeReleased">
+              {{ s.gradeReleased ? '✅ Released' : s.gradeSubmitted ? '📨 Submitted' : '⏳ Pending' }}
+            </span>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</ng-container>

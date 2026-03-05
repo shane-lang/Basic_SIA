@@ -48,27 +48,33 @@
             <li>
               <a routerLink="/admin/courses" routerLinkActive="active" class="nav-link" (click)="closeSidebarOnMobile()">
                 <span class="nav-icon">📚</span>
-                <span class="nav-label">Courses</span>
+                <span class="nav-label">Subjects</span>
               </a>
             </li>
             <li>
               <a routerLink="/admin/levels" routerLinkActive="active" class="nav-link" (click)="closeSidebarOnMobile()">
                 <span class="nav-icon">🎓</span>
-                <span class="nav-label">Levels & Programs</span>
+                <span class="nav-label">Programs & Courses</span>
               </a>
             </li>
-            <li>
+            <!--<li>
               <a routerLink="/admin/rooms" routerLinkActive="active" class="nav-link" (click)="closeSidebarOnMobile()">
                 <span class="nav-icon">🏫</span>
                 <span class="nav-label">Rooms</span>
               </a>
-            </li>
+            </li>-->
             <li>
               <a routerLink="/admin/audit-logs" routerLinkActive="active" class="nav-link" (click)="closeSidebarOnMobile()">
                 <span class="nav-icon">📝</span>
                 <span class="nav-label">Audit Logs</span>
               </a>
             </li>
+            <!--<li>
+              <a routerLink="/admin/grading" routerLinkActive="active" class="nav-link" (click)="closeSidebarOnMobile()">
+                <span class="nav-icon">📈</span>
+                <span class="nav-label">Grading System</span>
+              </a>
+            </li>-->
            <!-- <li>
               <a routerLink="/admin/class-sections" routerLinkActive="active" class="nav-link" (click)="closeSidebarOnMobile()">
                 <span class="nav-icon">👥</span>
@@ -82,12 +88,7 @@
         <!--<div class="nav-section">
           <h4 class="nav-section-title">GRADING & ASSESSMENT</h4>
           <ul class="nav-links-list">
-            <li>
-              <a routerLink="/admin/grading" routerLinkActive="active" class="nav-link" (click)="closeSidebarOnMobile()">
-                <span class="nav-icon">📈</span>
-                <span class="nav-label">Grading System</span>
-              </a>
-            </li>
+            
             <li>
               <a routerLink="/admin/grade-submission" routerLinkActive="active" class="nav-link" (click)="closeSidebarOnMobile()">
                 <span class="nav-icon">✏️</span>
@@ -97,7 +98,7 @@
           </ul>
         </div>
 
-        <!-- Reports & Analytics 
+         Reports & Analytics 
         <div class="nav-section">
           <h4 class="nav-section-title">REPORTS & ANALYTICS</h4>
           <ul class="nav-links-list">
@@ -121,10 +122,10 @@
           <h4 class="nav-section-title">SYSTEM</h4>
           <ul class="nav-links-list">
             <li>
-              <a routerLink="/admin/announcements" routerLinkActive="active" class="nav-link" (click)="closeSidebarOnMobile()">
+            <!--  <a routerLink="/admin/announcements" routerLinkActive="active" class="nav-link" (click)="closeSidebarOnMobile()">
                 <span class="nav-icon">📢</span>
                 <span class="nav-label">Announcements</span>
-              </a>
+              </a>-->
               <a routerLink="/admin/settings" routerLinkActive="active" class="nav-link" (click)="closeSidebarOnMobile()">
                 <span class="nav-icon">⚙️</span>
                 <span class="nav-label">Settings</span>

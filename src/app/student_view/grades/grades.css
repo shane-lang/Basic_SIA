@@ -132,3 +132,9 @@
 
 @media (max-width: 1024px) { .grades-summary { grid-template-columns: 1fr 1fr; } .legend-grid { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 640px)  { .grades-summary { grid-template-columns: 1fr; } .legend-grid { grid-template-columns: 1fr; } .sem-row { grid-template-columns: 1fr 1fr; } }
+/* ── Released grades note ─────────────────────────────────── */
+.grades-note {
+  margin: 0.35rem 0 0; font-size: 0.8rem;
+  color: #6366f1; background: #eef2ff; display: inline-block;
+  padding: 0.2rem 0.6rem; border-radius: 10px;
+}

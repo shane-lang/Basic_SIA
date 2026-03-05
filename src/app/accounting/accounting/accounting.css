@@ -826,6 +826,7 @@
 .am-sched-active .am-term-amt { color: #fff !important; }
 .am-term-label { font-size: 0.7rem; color: #92400e; font-weight: 600; margin-bottom: 3px; }
 .am-term-amt   { font-size: 0.82rem; font-weight: 700; color: #78350f; }
+.am-term-paid  { font-size: 0.68rem; color: #166534; font-weight: 500; margin-top: 2px; display: block; }
 .am-current-pay {
   display: flex; justify-content: space-between; align-items: center;
   padding: 10px 14px;
@@ -840,6 +841,7 @@
   padding: 8px 14px; font-size: 0.8rem; color: #6b7280;
 }
 .am-balance-val { font-weight: 700; color: #dc2626; }
+.am-balance-zero { color: #059669 !important; }
 
 /* Full payment box */
 .am-full-box {

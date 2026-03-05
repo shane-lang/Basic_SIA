@@ -1,0 +1,53 @@
+<div class="page-wrap">
+  <div class="page-header">
+    <span class="ph-icon">👤</span>
+    <div>
+      <h1>My Profile</h1>
+      <p class="ph-sub">Faculty information on record</p>
+    </div>
+  </div>
+
+  <div class="loading-state" *ngIf="isLoading">
+    <div class="spinner"></div><p>Loading profile…</p>
+  </div>
+
+  <div class="profile-card" *ngIf="!isLoading && faculty">
+    <!-- Avatar + Name -->
+    <div class="profile-hero">
+      <div class="profile-avatar">{{ initials }}</div>
+      <div class="profile-identity">
+        <h2>{{ fullName }}</h2>
+        <span class="fid-badge">{{ faculty.faculty_id }}</span>
+        <span class="status-badge" [class.active]="faculty.status==='Active'">{{ faculty.status }}</span>
+      </div>
+    </div>
+
+    <div class="info-grid">
+      <div class="info-item">
+        <span class="info-label">Department</span>
+        <span class="info-val">{{ faculty.department || '—' }}</span>
+      </div>
+      <div class="info-item">
+        <span class="info-label">Specialization</span>
+        <span class="info-val">{{ faculty.specialty || '—' }}</span>
+      </div>
+      <div class="info-item full">
+        <span class="info-label">Program Levels Handled</span>
+        <div class="level-pills">
+          <span class="lp lp-college" *ngIf="faculty.program_levels?.includes('College')">🎓 College</span>
+          <span class="lp lp-shs"     *ngIf="faculty.program_levels?.includes('SHS')">📚 SHS</span>
+          <span class="lp lp-tvet"    *ngIf="faculty.program_levels?.includes('TVET')">🔧 TVET</span>
+          <span class="info-val" *ngIf="!faculty.program_levels?.length">—</span>
+        </div>
+      </div>
+      <div class="info-item full">
+        <span class="info-label">Assigned Subjects</span>
+        <div class="subject-chips">
+          <span class="subject-chip" *ngFor="let s of faculty.subjects">{{ s }}</span>
+          <span class="info-val" *ngIf="!faculty.subjects?.length">No subjects assigned yet</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>

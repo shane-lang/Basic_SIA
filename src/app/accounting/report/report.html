@@ -8,11 +8,75 @@
     </div>
   </div>
 
-  <!-- Period Toggle -->
-  <div class="period-toggle">
-    <button class="pt-btn" [class.pt-active]="activePeriod==='weekly'"  (click)="onPeriodChange('weekly')">Weekly</button>
-    <button class="pt-btn" [class.pt-active]="activePeriod==='monthly'" (click)="onPeriodChange('monthly')">Monthly</button>
-    <button class="pt-btn" [class.pt-active]="activePeriod==='yearly'"  (click)="onPeriodChange('yearly')">Yearly</button>
+  <div class="header-right">
+    <!-- Period Toggle -->
+    <div class="period-toggle">
+      <button class="pt-btn" [class.pt-active]="activePeriod==='weekly'"  (click)="onPeriodChange('weekly')">Weekly</button>
+      <button class="pt-btn" [class.pt-active]="activePeriod==='monthly'" (click)="onPeriodChange('monthly')">Monthly</button>
+      <button class="pt-btn" [class.pt-active]="activePeriod==='yearly'"  (click)="onPeriodChange('yearly')">Yearly</button>
+    </div>
+    <!-- Generate Report Button -->
+    <button class="gen-report-btn" (click)="openReportModal()" [disabled]="isGenerating">
+      <span *ngIf="!isGenerating">🖨️ Generate Report</span>
+      <span *ngIf="isGenerating">⏳ Generating…</span>
+    </button>
+  </div>
+</div>
+
+<!-- ═══ GENERATE REPORT MODAL ════════════════════════════════ -->
+<div class="modal-overlay" *ngIf="showReportModal" (click)="closeReportModal()">
+  <div class="modal-box" (click)="$event.stopPropagation()">
+    <div class="modal-header">
+      <span>🖨️ Generate Report</span>
+      <button class="modal-close" (click)="closeReportModal()">✕</button>
+    </div>
+    <div class="modal-body">
+
+      <!-- Period Type -->
+      <div class="modal-field">
+        <label class="modal-label">Report Period</label>
+        <div class="modal-period-toggle">
+          <button class="mpt-btn" [class.mpt-active]="modalPeriod==='weekly'"  (click)="modalPeriod='weekly'">Weekly</button>
+          <button class="mpt-btn" [class.mpt-active]="modalPeriod==='monthly'" (click)="modalPeriod='monthly'">Monthly</button>
+          <button class="mpt-btn" [class.mpt-active]="modalPeriod==='yearly'"  (click)="modalPeriod='yearly'">Yearly</button>
+        </div>
+      </div>
+
+      <!-- Weekly: pick week start -->
+      <div class="modal-field" *ngIf="modalPeriod==='weekly'">
+        <label class="modal-label">Week Starting (Monday)</label>
+        <input class="modal-input" type="date" [(ngModel)]="modalWeekStart" />
+      </div>
+
+      <!-- Monthly: pick month + year -->
+      <div class="modal-field" *ngIf="modalPeriod==='monthly'">
+        <label class="modal-label">Month & Year</label>
+        <div class="modal-row">
+          <select class="modal-select" [(ngModel)]="modalMonth">
+            <option *ngFor="let m of months" [value]="m.value">{{ m.label }}</option>
+          </select>
+          <select class="modal-select" [(ngModel)]="modalYear">
+            <option *ngFor="let y of years" [value]="y">{{ y }}</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Yearly: pick year -->
+      <div class="modal-field" *ngIf="modalPeriod==='yearly'">
+        <label class="modal-label">Year</label>
+        <select class="modal-select" [(ngModel)]="modalYear">
+          <option *ngFor="let y of years" [value]="y">{{ y }}</option>
+        </select>
+      </div>
+
+    </div>
+    <div class="modal-footer">
+      <button class="modal-cancel-btn" (click)="closeReportModal()">Cancel</button>
+      <button class="modal-generate-btn" (click)="generateReport()" [disabled]="isGenerating">
+        <span *ngIf="!isGenerating">🖨️ Generate & Print</span>
+        <span *ngIf="isGenerating">⏳ Generating…</span>
+      </button>
+    </div>
   </div>
 </div>
 
@@ -93,7 +157,6 @@
   <button class="ct-btn" [class.ct-active]="activeTab==='overview'"  (click)="activeTab='overview'">📊 Overview</button>
   <button class="ct-btn" [class.ct-active]="activeTab==='breakdown'" (click)="activeTab='breakdown'">📋 Period Breakdown</button>
   <button class="ct-btn" [class.ct-active]="activeTab==='programs'"  (click)="activeTab='programs'">🎓 By Program</button>
-  <button class="ct-btn" [class.ct-active]="activeTab==='top'"       (click)="activeTab='top'">🏆 Top Students</button>
 </div>
 
 <!-- Loading -->
@@ -270,46 +333,5 @@
 
   <div class="empty-state" *ngIf="!isLoadingProgram && programData.length === 0">
     <div class="es-icon">🎓</div><p>No income data by program for this period.</p>
-  </div>
-</ng-container>
-
-<!-- ═══ TAB: TOP STUDENTS ════════════════════════════════════ -->
-<ng-container *ngIf="!isLoadingReport && report && activeTab==='top'">
-  <div class="top-students-section">
-    <div class="table-container">
-      <table class="report-table">
-        <thead>
-          <tr>
-            <th class="tc">#</th>
-            <th>Student</th>
-            <th>Student No.</th>
-            <th>Program</th>
-            <th class="tr">Transactions</th>
-            <th class="tr">Total Paid</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr *ngFor="let s of report.topStudents; let i=index">
-            <td class="tc rank-cell">
-              <span class="rank" [class.rank-1]="i===0" [class.rank-2]="i===1" [class.rank-3]="i===2">{{ i + 1 }}</span>
-            </td>
-            <td>
-              <div class="student-cell">
-                <div class="stu-avatar">{{ getNameInitials(s.name) }}</div>
-                <span class="stu-name">{{ s.name }}</span>
-              </div>
-            </td>
-            <td class="mono">{{ s.studentNumber }}</td>
-            <td>{{ s.program }}</td>
-            <td class="tr">{{ s.txnCount }}</td>
-            <td class="tr strong-col">{{ fmt(s.totalPaid) }}</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-
-    <div class="empty-state mt-16" *ngIf="!report.topStudents.length">
-      <div class="es-icon">🏆</div><p>No student payment data for this period.</p>
-    </div>
   </div>
 </ng-container>

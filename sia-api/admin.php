@@ -1,9 +1,29 @@
 <?php
+
+// ── cleanCode() ──────────────────────────────────────────────────────────────
+// Strips internal disambiguation suffixes from course codes.
+// These suffixes are used in the DB to keep codes unique across programs
+// that share the same subject (e.g. GE103 shared by BSA and BSCA gets
+// stored as GE103-BMD and GE103-CA so they can have separate records).
+// Legitimate curriculum codes with dashes (RE-FUN013, GE-ENG013,
+// BN-MGT013, IT-CSA013, AC-TAX013, etc.) are NOT affected.
+if (!function_exists('cleanCode')) {
+    function cleanCode($code) {
+        if (!$code) return $code;
+        static $suffixes = ['-BMD','-CA','-BSA','-BSCA','-BSE','-CIMT','-BSIT','-BSREM'];
+        $upper = strtoupper($code);
+        foreach ($suffixes as $s) {
+            if (substr($upper, -strlen($s)) === $s) {
+                return substr($code, 0, strlen($code) - strlen($s));
+            }
+        }
+        return $code;
+    }
+}
 error_reporting(0);
 ini_set('display_errors', 0);
 mysqli_report(MYSQLI_REPORT_OFF);
 
-// FIX A-02: Restrict CORS to trusted origins only
 $allowedOrigin = $_SERVER['HTTP_ORIGIN'] ?? '';
 $trustedOrigins = [
     'http://localhost:4200',
@@ -16,6 +36,7 @@ if (in_array($allowedOrigin, $trustedOrigins, true)) {
     header('Access-Control-Allow-Credentials: true');
 } else {
     header('Access-Control-Allow-Origin: http://localhost:4200');
+    header('Access-Control-Allow-Credentials: true');
 }
 
 header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
@@ -24,12 +45,15 @@ header('Content-Type: application/json');
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { http_response_code(200); exit(); }
 
+ob_start();
+
 $conn = new mysqli('localhost', 'root', '', 'sia_db');
 if ($conn->connect_error) {
     echo json_encode(['success' => false, 'message' => 'DB connection failed: ' . $conn->connect_error]);
     exit();
 }
 $conn->set_charset("utf8mb4");
+require_once __DIR__ . '/audit_helper.php';
 
 $action = $_GET['action'] ?? '';
 
@@ -70,13 +94,10 @@ if (!$_sfRes || $_sfRes->num_rows === 0) {
                 SELECT DISTINCT program, program, 'College', COALESCE(department,'')
                 FROM courses WHERE program IS NOT NULL AND program <> ''");
         }
+        // Single INSERT matching by code OR name (avoids duplicate rows from two separate INSERTs)
         $conn->query("INSERT IGNORE INTO program_courses (program_id, course_id)
             SELECT p.id, c.id FROM courses c
-            JOIN programs p ON p.code = c.program
-            WHERE c.program IS NOT NULL AND c.program <> ''");
-        $conn->query("INSERT IGNORE INTO program_courses (program_id, course_id)
-            SELECT p.id, c.id FROM courses c
-            JOIN programs p ON p.name = c.program
+            JOIN programs p ON (p.code = c.program OR p.name = c.program)
             WHERE c.program IS NOT NULL AND c.program <> ''");
     }
     $conn->query("INSERT IGNORE INTO seed_flags (name) VALUES ('program_courses')");
@@ -88,18 +109,8 @@ $input = json_decode(file_get_contents('php://input'), true) ?? [];
 //  AUDIT LOG HELPER
 // ================================================================
 function logAudit(mysqli $conn, array $authUser = null, string $action, string $targetType = '', int $targetId = 0, string $description = '', $oldValues = null, $newValues = null): void {
-    $userId    = $authUser ? (int)($authUser['user_id'] ?? 0) : null;
-    $userEmail = $authUser ? ($authUser['email'] ?? '') : '';
-    $userRole  = $authUser ? ($authUser['role']  ?? '') : '';
-    $ip        = $_SERVER['REMOTE_ADDR'] ?? '';
-    $ua        = substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 255);
-    $oldJson   = $oldValues !== null ? json_encode($oldValues) : null;
-    $newJson   = $newValues !== null ? json_encode($newValues) : null;
-
-    $st = $conn->prepare("INSERT INTO audit_logs (user_id, user_email, user_role, action, target_type, target_id, description, old_values, new_values, ip_address, user_agent) VALUES (?,?,?,?,?,?,?,?,?,?,?)");
-    $st->bind_param("issssisssss", $userId, $userEmail, $userRole, $action, $targetType, $targetId, $description, $oldJson, $newJson, $ip, $ua);
-    $st->execute();
-    $st->close();
+    // Delegate to shared helper so all roles log to the same table
+    logAuditShared($conn, $authUser, $action, $targetType, $targetId, $description, $oldValues, $newValues);
 }
 
 // ================================================================
@@ -370,6 +381,15 @@ if ($action === 'create_faculty') {
     try {
         $st->execute();
         $newId = $st->insert_id;
+        // Sync courses.faculty_id for the assigned subject codes
+        $subjArr = $input['subjects'] ?? [];
+        if ($newId && count($subjArr) > 0) {
+            $full = $conn->real_escape_string("$fn $ln");
+            foreach ($subjArr as $code) {
+                $esc = $conn->real_escape_string(trim($code));
+                $conn->query("UPDATE courses SET faculty_id=$newId, instructor='$full' WHERE code='$esc' AND (faculty_id IS NULL OR faculty_id=$newId)");
+            }
+        }
         logAudit($conn, $authUser, 'CREATE_FACULTY', 'faculty', $newId, "Created faculty: $fn $ln", null, ['faculty_id'=>$fid,'name'=>"$fn $ln",'email'=>$em]);
         ob_end_clean(); echo json_encode(['success'=>true,'id'=>$newId,'faculty_id'=>$fid]);
     }
@@ -398,6 +418,13 @@ if ($action === 'update_faculty') {
         $st->execute();
         $full = $conn->real_escape_string("$fn $ln");
         $conn->query("UPDATE courses SET instructor='$full' WHERE faculty_id=$id");
+        // Re-sync subject codes: clear old links, apply new ones
+        $conn->query("UPDATE courses SET faculty_id=NULL, instructor='' WHERE faculty_id=$id");
+        $subjArr = $input['subjects'] ?? [];
+        foreach ($subjArr as $code) {
+            $esc = $conn->real_escape_string(trim($code));
+            $conn->query("UPDATE courses SET faculty_id=$id, instructor='$full' WHERE code='$esc' AND (faculty_id IS NULL OR faculty_id=$id)");
+        }
         logAudit($conn, $authUser, 'UPDATE_FACULTY', 'faculty', $id, "Updated faculty: $fn $ln", $oldData, ['name'=>"$fn $ln",'email'=>$em,'status'=>$stat]);
         ob_end_clean(); echo json_encode(['success'=>true]);
     } catch (Exception $e) { ob_end_clean(); echo json_encode(['success'=>false,'message'=>'Update failed']); }
@@ -435,13 +462,14 @@ if ($action === 'get_courses') {
                ) AS level_type
         FROM courses c
         LEFT JOIN faculty f ON c.faculty_id = f.id
+        GROUP BY c.id
         ORDER BY c.program, c.code ASC");
-    while ($r = $res->fetch_assoc()) $rows[] = $r;
+    while ($r = $res->fetch_assoc()) { $r['code'] = cleanCode($r['code']); $rows[] = $r; }
     ob_end_clean(); echo json_encode(['success'=>true,'courses'=>$rows]); exit();
 }
 
 if ($action === 'create_course') {
-    $code  = trim($input['code']        ?? '');
+    $code  = strtoupper(trim($input['code']        ?? ''));
     $name  = trim($input['name']        ?? '');
     $desc  = trim($input['description'] ?? '');
     $cred  = (int)($input['credits']    ?? 3);
@@ -452,7 +480,7 @@ if ($action === 'create_course') {
     $day   = trim($input['day']         ?? '');
     $time  = trim($input['time']        ?? '');
     $room  = trim($input['room']        ?? '');
-    $cap   = (int)($input['capacity']   ?? 40);
+    $cap   = 40;
     $fid   = !empty($input['faculty_id']) ? (int)$input['faculty_id'] : null;
     $instr = trim($input['instructor']  ?? '');
 
@@ -463,35 +491,64 @@ if ($action === 'create_course') {
 
     if (!$code||!$name) { ob_end_clean(); echo json_encode(['success'=>false,'message'=>'Code and name required']); exit(); }
 
-    $fidVal = $fid ?: 'NULL';
-    $is_lab = (int)($input['is_lab'] ?? 0) ? 1 : 0;
     $esc = fn($s) => $conn->real_escape_string($s);
-    $lec_units = (int)($input['lec_units'] ?? $cred);
-    $lab_units = (int)($input['lab_units'] ?? 0);
-    if ($lec_units + $lab_units > 0) $cred = $lec_units + $lab_units;
-    $conn->query('ALTER TABLE courses ADD COLUMN IF NOT EXISTS is_lab TINYINT(1) DEFAULT 0');
-    $conn->query('ALTER TABLE courses ADD COLUMN IF NOT EXISTS lec_units INT DEFAULT 0');
-    $conn->query('ALTER TABLE courses ADD COLUMN IF NOT EXISTS lab_units INT DEFAULT 0');
-    $sql = "INSERT INTO courses (code,name,description,credits,lec_units,lab_units,department,program,year_level,semester,instructor,day,time,room,capacity,faculty_id,is_lab)
-            VALUES ('{$esc($code)}','{$esc($name)}','{$esc($desc)}',$cred,$lec_units,$lab_units,'{$esc($dept)}','{$esc($prog)}','{$esc($yl)}','{$esc($sem)}','{$esc($instr)}','{$esc($day)}','{$esc($time)}','{$esc($room)}',$cap,$fidVal,$is_lab)";
 
-    if ($conn->query($sql)) {
-        $cid = $conn->insert_id;
+    // If course code already exists, reuse it — just link to the new programs (no duplicate row)
+    $existing = $conn->query("SELECT id FROM courses WHERE UPPER(code)=UPPER('{$esc($code)}') LIMIT 1")->fetch_assoc();
+    if ($existing) {
+        $cid = (int)$existing['id'];
+        // Link to primary program if not yet linked
         if ($prog) {
             $pr = $conn->query("SELECT id FROM programs WHERE name='{$esc($prog)}' LIMIT 1")->fetch_assoc();
             if ($pr) $conn->query("INSERT IGNORE INTO program_courses (program_id,course_id) VALUES ({$pr['id']},$cid)");
         }
+        // Link to additional shared programs
+        $sharedIds = $input['shared_program_ids'] ?? [];
+        if (is_array($sharedIds)) {
+            $ins = $conn->prepare("INSERT IGNORE INTO program_courses (program_id,course_id) VALUES (?,?)");
+            foreach ($sharedIds as $pid) { $pid=(int)$pid; if($pid>0){$ins->bind_param("ii",$pid,$cid);$ins->execute();}}
+        }
+        logAudit($conn, $authUser, 'REUSE_COURSE', 'course', $cid, "Reused existing course: $code - linked to new program(s)", null, ['code'=>$code,'program'=>$prog]);
+        ob_end_clean(); echo json_encode(['success'=>true,'course_id'=>$cid,'reused'=>true]); exit();
+    }
+
+    $fidVal = $fid ?: 'NULL';
+    $is_general = (int)($input['is_general'] ?? 0) ? 1 : 0;
+    $lec_units = (int)($input['lec_units'] ?? $cred);
+    $lab_units = (int)($input['lab_units'] ?? 0);
+    if ($lec_units + $lab_units > 0) $cred = $lec_units + $lab_units;
+
+    $conn->query('ALTER TABLE courses ADD COLUMN IF NOT EXISTS is_general TINYINT(1) DEFAULT 0');
+    $conn->query('ALTER TABLE courses ADD COLUMN IF NOT EXISTS lec_units INT DEFAULT 0');
+    $conn->query('ALTER TABLE courses ADD COLUMN IF NOT EXISTS lab_units INT DEFAULT 0');
+
+    $sql = "INSERT INTO courses (code,name,description,credits,lec_units,lab_units,department,program,year_level,semester,instructor,day,time,room,capacity,faculty_id,is_general)
+            VALUES ('{$esc($code)}','{$esc($name)}','{$esc($desc)}',$cred,$lec_units,$lab_units,'{$esc($dept)}','{$esc($prog)}','{$esc($yl)}','{$esc($sem)}','{$esc($instr)}','{$esc($day)}','{$esc($time)}','{$esc($room)}',$cap,$fidVal,$is_general)";
+
+    if ($conn->query($sql)) {
+        $cid = $conn->insert_id;
+        // Link to primary program
+        if ($prog) {
+            $pr = $conn->query("SELECT id FROM programs WHERE name='{$esc($prog)}' LIMIT 1")->fetch_assoc();
+            if ($pr) $conn->query("INSERT IGNORE INTO program_courses (program_id,course_id) VALUES ({$pr['id']},$cid)");
+        }
+        // Link to additional shared programs
+        $sharedIds = $input['shared_program_ids'] ?? [];
+        if (is_array($sharedIds)) {
+            $ins = $conn->prepare("INSERT IGNORE INTO program_courses (program_id,course_id) VALUES (?,?)");
+            foreach ($sharedIds as $pid) { $pid=(int)$pid; if($pid>0){$ins->bind_param("ii",$pid,$cid);$ins->execute();}}
+        }
         logAudit($conn, $authUser, 'CREATE_COURSE', 'course', $cid, "Created course: $code - $name", null, ['code'=>$code,'name'=>$name,'program'=>$prog]);
         ob_end_clean(); echo json_encode(['success'=>true,'course_id'=>$cid]);
     } else {
-        ob_end_clean(); echo json_encode(['success'=>false,'message'=>'Course code already exists or DB error: '.$conn->error]);
+        ob_end_clean(); echo json_encode(['success'=>false,'message'=>'DB error: '.$conn->error]);
     }
     exit();
 }
 
 if ($action === 'update_course') {
     $id    = (int)($input['id']         ?? 0);
-    $code  = trim($input['code']        ?? '');
+    $code  = strtoupper(trim($input['code']        ?? ''));
     $name  = trim($input['name']        ?? '');
     $desc  = trim($input['description'] ?? '');
     $cred  = (int)($input['credits']    ?? 3);
@@ -502,7 +559,7 @@ if ($action === 'update_course') {
     $day   = trim($input['day']         ?? '');
     $time  = trim($input['time']        ?? '');
     $room  = trim($input['room']        ?? '');
-    $cap   = (int)($input['capacity']   ?? 40);
+    $cap   = 40;
     $fid   = !empty($input['faculty_id']) ? (int)$input['faculty_id'] : null;
     $instr = trim($input['instructor']  ?? '');
 
@@ -512,29 +569,45 @@ if ($action === 'update_course') {
     }
     if (!$id) { ob_end_clean(); echo json_encode(['success'=>false,'message'=>'Invalid ID']); exit(); }
 
+    $esc = fn($s) => $conn->real_escape_string($s);
+
+    // Duplicate check (excluding self)
+    $dupCheck = $conn->query("SELECT id FROM courses WHERE (UPPER(code)=UPPER('{$esc($code)}') OR LOWER(name)=LOWER('{$esc($name)}')) AND id<>$id LIMIT 1");
+    if ($dupCheck && $dupCheck->num_rows > 0) {
+        ob_end_clean(); echo json_encode(['success'=>false,'message'=>'Course code or name already exists.']); exit();
+    }
+
     $oldRes  = $conn->query("SELECT * FROM courses WHERE id=$id LIMIT 1");
     $oldData = $oldRes ? $oldRes->fetch_assoc() : null;
 
     $fidVal = $fid ?: 'NULL';
-    $is_lab    = (int)($input['is_lab']    ?? 0) ? 1 : 0;
+    $is_general = (int)($input['is_general'] ?? 0) ? 1 : 0;
     $lec_units = (int)($input['lec_units'] ?? $cred);
     $lab_units = (int)($input['lab_units'] ?? 0);
     if ($lec_units + $lab_units > 0) $cred = $lec_units + $lab_units;
-    $esc = fn($s) => $conn->real_escape_string($s);
-    $conn->query('ALTER TABLE courses ADD COLUMN IF NOT EXISTS is_lab TINYINT(1) DEFAULT 0');
+
+    $conn->query('ALTER TABLE courses ADD COLUMN IF NOT EXISTS is_general TINYINT(1) DEFAULT 0');
     $conn->query('ALTER TABLE courses ADD COLUMN IF NOT EXISTS lec_units INT DEFAULT 0');
     $conn->query('ALTER TABLE courses ADD COLUMN IF NOT EXISTS lab_units INT DEFAULT 0');
+
     $sql = "UPDATE courses SET code='{$esc($code)}',name='{$esc($name)}',description='{$esc($desc)}',credits=$cred,
             lec_units=$lec_units,lab_units=$lab_units,
             department='{$esc($dept)}',program='{$esc($prog)}',year_level='{$esc($yl)}',semester='{$esc($sem)}',
             instructor='{$esc($instr)}',day='{$esc($day)}',time='{$esc($time)}',room='{$esc($room)}',
-            capacity=$cap,faculty_id=$fidVal,is_lab=$is_lab WHERE id=$id";
+            capacity=$cap,faculty_id=$fidVal,is_general=$is_general WHERE id=$id";
 
     if ($conn->query($sql)) {
         $conn->query("DELETE FROM program_courses WHERE course_id=$id");
+        // Link to primary program
         if ($prog) {
             $pr = $conn->query("SELECT id FROM programs WHERE name='{$esc($prog)}' LIMIT 1")->fetch_assoc();
             if ($pr) $conn->query("INSERT IGNORE INTO program_courses (program_id,course_id) VALUES ({$pr['id']},$id)");
+        }
+        // Link to additional shared programs
+        $sharedIds = $input['shared_program_ids'] ?? [];
+        if (is_array($sharedIds)) {
+            $ins = $conn->prepare("INSERT IGNORE INTO program_courses (program_id,course_id) VALUES (?,?)");
+            foreach ($sharedIds as $pid) { $pid=(int)$pid; if($pid>0){$ins->bind_param("ii",$pid,$id);$ins->execute();}}
         }
         logAudit($conn, $authUser, 'UPDATE_COURSE', 'course', $id, "Updated course: $code - $name", $oldData, ['code'=>$code,'name'=>$name,'program'=>$prog]);
         ob_end_clean(); echo json_encode(['success'=>true]);
@@ -776,14 +849,14 @@ if ($action === 'delete_department') {
 if ($action === 'get_rooms') {
     $rows = [];
     $res  = $conn->query("SELECT * FROM rooms ORDER BY building, room_name ASC");
-    while ($r = $res->fetch_assoc()) $rows[] = $r;
+    while ($r = $res->fetch_assoc()) { $r['code'] = cleanCode($r['code']); $rows[] = $r; }
     ob_end_clean(); echo json_encode(['success'=>true,'rooms'=>$rows]); exit();
 }
 
 if ($action === 'create_room') {
     $rn  = trim($input['room_name'] ?? '');
     $bld = trim($input['building']  ?? '');
-    $cap = (int)($input['capacity'] ?? 40);
+    $cap = (int)($input['capacity'] ?? '');
     $rt  = trim($input['room_type'] ?? 'Classroom');
     $st2 = trim($input['status']    ?? 'Available');
     if (!$rn) { ob_end_clean(); echo json_encode(['success'=>false,'message'=>'Room name required']); exit(); }
@@ -803,7 +876,7 @@ if ($action === 'update_room') {
     $id  = (int)($input['id']       ?? 0);
     $rn  = trim($input['room_name'] ?? '');
     $bld = trim($input['building']  ?? '');
-    $cap = (int)($input['capacity'] ?? 40);
+    $cap = (int)($input['capacity'] ?? '');
     $rt  = trim($input['room_type'] ?? 'Classroom');
     $st2 = trim($input['status']    ?? 'Available');
     if (!$id) { ob_end_clean(); echo json_encode(['success'=>false,'message'=>'Invalid ID']); exit(); }
@@ -828,6 +901,25 @@ if ($action === 'delete_room') {
     ob_end_clean(); echo json_encode(['success'=>true]); exit();
 }
 
+// ================================================================
+//  UTILITY — remove duplicate program_courses rows (keep lowest id)
+// ================================================================
+if ($action === 'deduplicate_program_courses') {
+    $conn->query("
+        DELETE pc1 FROM program_courses pc1
+        INNER JOIN program_courses pc2
+            ON pc1.program_id = pc2.program_id
+           AND pc1.course_id  = pc2.course_id
+           AND pc1.id > pc2.id
+    ");
+    $deleted = $conn->affected_rows;
+    logAudit($conn, $authUser, 'DEDUP_PROGRAM_COURSES', 'program_courses', 0,
+        "Removed $deleted duplicate program_courses rows", null, ['deleted' => $deleted]);
+    ob_end_clean();
+    echo json_encode(['success' => true, 'duplicates_removed' => $deleted]);
+    exit();
+}
+
 echo json_encode(['success'=>false,'message'=>'Unknown action: '.$action]);
 $conn->close();
-?>
+?>  

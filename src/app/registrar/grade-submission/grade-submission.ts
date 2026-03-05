@@ -4,7 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
 
 type ViewMode = 'thumbnail' | 'list';
-type TabMode  = 'by-student' | 'by-course';
+type TabMode  = 'by-student' | 'by-course' | 'pending-release';
 
 interface GradeStudent {
   id: number;
@@ -38,6 +38,19 @@ interface GradeCourse {
   gradeCompletion: number;
 }
 
+interface PendingCourse {
+  courseId: number;
+  code: string;
+  name: string;
+  facultyName: string;
+  semester: string;
+  department: string;
+  submittedCount: number;
+  releasedCount: number;
+  pendingRelease: number;
+  isReleasing?: boolean;
+}
+
 interface Subject {
   enrollmentId: number; courseId: number;
   code: string; name: string; credits: number;
@@ -45,8 +58,6 @@ interface Subject {
   prelim: number | null; midterm: number | null; final: number | null;
   overall: number | null; remarks: string;
   prelimAt: string | null; midtermAt: string | null; finalAt: string | null;
-  editPrelim: string; editMidterm: string; editFinal: string;
-  savingPrelim: boolean; savingMidterm: boolean; savingFinal: boolean;
 }
 
 @Component({
@@ -57,31 +68,27 @@ interface Subject {
   styleUrl: './grade-submission.css',
 })
 export class GradeSubmission implements OnInit {
-  private gradesApi   = 'http://localhost/sia-api/grades.php';
+  private gradesApi    = 'http://localhost/sia-api/grades.php';  // used for release only
   private registrarApi = 'http://localhost/sia-api/registrar.php';
 
   private getHeaders(): { headers: HttpHeaders } {
     const token = sessionStorage.getItem('token') || localStorage.getItem('token') || '';
     return { headers: new HttpHeaders({ Authorization: `Bearer ${token}` }) };
   }
-  get registrarId(): number {
-    const u = sessionStorage.getItem('currentUser') || localStorage.getItem('currentUser') || '{}';
-    return JSON.parse(u).id ?? 0;
-  }
-
   constructor(private http: HttpClient, private cdr: ChangeDetectorRef) {}
 
   // View state
   viewMode: ViewMode = 'thumbnail';
-  tabMode:  TabMode  = 'by-student';
+  tabMode:  TabMode  = 'pending-release';
 
   // Student list
   students: GradeStudent[] = [];
   isLoadingStudents = false;
-  searchQuery   = '';
-  filterProgram = '';
+  searchQuery     = '';
+  filterProgram   = '';
   filterYearLevel = '';
   filterSemester  = '';
+  filterCategory  = '';   // 'College' | 'SHS' | 'TVET' | ''
   currentPage   = 1;
   totalPages    = 1;
   totalStudents = 0;
@@ -89,8 +96,13 @@ export class GradeSubmission implements OnInit {
   searchTimeout: any;
 
   // Course list
-  courses: GradeCourse[]  = [];
+  courses: GradeCourse[] = [];
   isLoadingCourses = false;
+  filterCourseCategory = '';  // 'College' | 'SHS' | 'TVET' | ''
+
+  // Pending release
+  pendingCourses: PendingCourse[] = [];
+  isLoadingPending = false;
 
   // Grade entry (student detail pane)
   selectedStudent: GradeStudent | null = null;
@@ -103,8 +115,64 @@ export class GradeSubmission implements OnInit {
   toast = { show: false, type: 'success' as 'success' | 'error', message: '' };
 
   ngOnInit(): void {
+    this.loadPendingRelease();
     this.loadStudents();
     this.loadCourses();
+  }
+
+  /* ─── Pending Release Tab ────────────────────────────── */
+
+  loadPendingRelease(): void {
+    this.isLoadingPending = true;
+    this.http.get<any>(`${this.gradesApi}?action=registrar_pending_grades`, this.getHeaders()).subscribe({
+      next: (res) => {
+        this.isLoadingPending = false;
+        this.pendingCourses = res.success ? (res.courses || []) : [];
+        this.cdr.detectChanges();
+      },
+      error: () => { this.isLoadingPending = false; this.cdr.detectChanges(); }
+    });
+  }
+
+  viewCourse(course: PendingCourse): void {
+    const fakeCourse: GradeCourse = {
+      id: course.courseId, code: course.code, name: course.name,
+      instructor: course.facultyName, program: course.department,
+      credits: 0, enrolledCount: course.submittedCount,
+      prelimDone: 0, midtermDone: 0, finalDone: 0, gradeCompletion: 0,
+    };
+    this.selectCourse(fakeCourse);
+  }
+
+  releaseCourse(course: PendingCourse): void {
+    if (course.pendingRelease === 0) {
+      this.showToast('error', 'All grades in this course are already released.'); return;
+    }
+    course.isReleasing = true;
+    this.http.post<any>(`${this.gradesApi}?action=registrar_release_grades`, {
+      course_id: course.courseId,
+    }, this.getHeaders()).subscribe({
+      next: (res) => {
+        course.isReleasing = false;
+        if (res.success) {
+          this.showToast('success', `✅ ${res.message}`);
+          course.releasedCount  += res.affected;
+          course.pendingRelease -= res.affected;
+        } else {
+          this.showToast('error', res.message || 'Release failed');
+        }
+        this.cdr.detectChanges();
+      },
+      error: () => {
+        course.isReleasing = false;
+        this.showToast('error', 'Server error during release.');
+        this.cdr.detectChanges();
+      }
+    });
+  }
+
+  get totalPendingRelease(): number {
+    return this.pendingCourses.reduce((n, c) => n + c.pendingRelease, 0);
   }
 
   /* ─── Student Tab ─────────────────────────────────────── */
@@ -115,10 +183,11 @@ export class GradeSubmission implements OnInit {
     const p = new URLSearchParams({
       action: 'get_grade_students',
       page: String(page), limit: '24',
-      ...(this.searchQuery    && { q: this.searchQuery }),
-      ...(this.filterProgram  && { program: this.filterProgram }),
-      ...(this.filterYearLevel && { year_level: this.filterYearLevel }),
-      ...(this.filterSemester  && { semester: this.filterSemester }),
+      ...(this.searchQuery       && { q: this.searchQuery }),
+      ...(this.filterProgram     && { program: this.filterProgram }),
+      ...(this.filterYearLevel   && { year_level: this.filterYearLevel }),
+      ...(this.filterSemester    && { semester: this.filterSemester }),
+      ...(this.filterCategory    && { category: this.filterCategory }),
     });
 
     this.http.get<any>(`${this.registrarApi}?${p}`, this.getHeaders()).subscribe({
@@ -128,7 +197,6 @@ export class GradeSubmission implements OnInit {
           this.students     = res.students || [];
           this.totalPages   = res.totalPages || 1;
           this.totalStudents = res.total || 0;
-          // collect programs for filter
           const progs = new Set(this.students.map((s: GradeStudent) => s.program).filter(Boolean));
           if (this.programs.length === 0) this.programs = [...progs];
         }
@@ -145,7 +213,7 @@ export class GradeSubmission implements OnInit {
 
   clearFilters(): void {
     this.searchQuery = ''; this.filterProgram = '';
-    this.filterYearLevel = ''; this.filterSemester = '';
+    this.filterYearLevel = ''; this.filterSemester = ''; this.filterCategory = '';
     this.loadStudents(1);
   }
 
@@ -165,10 +233,6 @@ export class GradeSubmission implements OnInit {
         if (res.success) {
           this.subjects = (res.subjects || []).map((sub: any) => ({
             ...sub,
-            editPrelim:  sub.prelim  !== null ? String(sub.prelim)  : '',
-            editMidterm: sub.midterm !== null ? String(sub.midterm) : '',
-            editFinal:   sub.final   !== null ? String(sub.final)   : '',
-            savingPrelim: false, savingMidterm: false, savingFinal: false,
           }));
         }
         this.cdr.detectChanges();
@@ -181,7 +245,9 @@ export class GradeSubmission implements OnInit {
 
   loadCourses(): void {
     this.isLoadingCourses = true;
-    this.http.get<any>(`${this.registrarApi}?action=get_grade_courses`, this.getHeaders()).subscribe({
+    const p = new URLSearchParams({ action: 'get_grade_courses' });
+    if (this.filterCourseCategory) p.set('category', this.filterCourseCategory);
+    this.http.get<any>(`${this.registrarApi}?${p}`, this.getHeaders()).subscribe({
       next: (res) => {
         this.isLoadingCourses = false;
         this.courses = res.success ? (res.courses || []) : [];
@@ -211,55 +277,6 @@ export class GradeSubmission implements OnInit {
     });
   }
 
-  /* ─── Grade Saving ────────────────────────────────────── */
-
-  saveGrade(subject: Subject, term: 'Prelim' | 'Midterm' | 'Final'): void {
-    const rawVal = term === 'Prelim' ? subject.editPrelim
-                : term === 'Midterm' ? subject.editMidterm : subject.editFinal;
-    const grade  = rawVal !== '' ? parseFloat(rawVal) : null;
-    if (grade !== null && (isNaN(grade) || grade < 1.0 || grade > 5.0)) {
-      this.showToast('error', 'Grade must be 1.00–5.00'); return;
-    }
-    const savingKey = ('saving' + term) as keyof Subject;
-    (subject as any)[savingKey] = true;
-
-    this.http.post<any>(`${this.gradesApi}?action=save_grade`, {
-      enrollment_id: subject.enrollmentId,
-      student_id:    this.selectedStudent?.id,
-      course_id:     subject.courseId,
-      term, grade, submitted_by: this.registrarId,
-    }, this.getHeaders()).subscribe({
-      next: (res) => {
-        (subject as any)[savingKey] = false;
-        if (res.success) {
-          if (term === 'Prelim')  { subject.prelim  = grade; subject.prelimAt  = new Date().toISOString(); }
-          if (term === 'Midterm') { subject.midterm = grade; subject.midtermAt = new Date().toISOString(); }
-          if (term === 'Final')   { subject.final   = grade; subject.finalAt   = new Date().toISOString(); }
-          this._recomputeOverall(subject);
-          this.showToast('success', `${subject.code} ${term} saved ✓`);
-          // Update student card completion
-          if (this.selectedStudent) this.selectedStudent.gradeCompletion = this._calcCompletion();
-        } else { this.showToast('error', res.message || 'Save failed'); }
-        this.cdr.detectChanges();
-      },
-      error: () => { (subject as any)[savingKey] = false; this.showToast('error', 'Server error'); this.cdr.detectChanges(); }
-    });
-  }
-
-  private _recomputeOverall(s: Subject): void {
-    const vals = [s.prelim, s.midterm, s.final].filter(v => v !== null) as number[];
-    s.overall  = vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length * 100) / 100 : null;
-    s.remarks  = s.final !== null ? (s.overall !== null && s.overall <= 3.0 ? 'Passed' : 'Failed') : 'In Progress';
-  }
-
-  private _calcCompletion(): number {
-    const total = this.subjects.length * 3;
-    if (!total) return 0;
-    const done = this.subjects.reduce((n, s) =>
-      n + (s.prelim !== null ? 1 : 0) + (s.midterm !== null ? 1 : 0) + (s.final !== null ? 1 : 0), 0);
-    return Math.round(done / total * 100);
-  }
-
   closeDetailPane(): void {
     this.showDetailPane  = false;
     this.selectedStudent = null;
@@ -267,6 +284,7 @@ export class GradeSubmission implements OnInit {
     this.subjects = []; this.courseStudents = [];
     this.loadStudents(this.currentPage);
     this.loadCourses();
+    this.loadPendingRelease();
   }
 
   /* ─── Helpers ─────────────────────────────────────────── */

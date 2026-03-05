@@ -11,8 +11,8 @@
     <div class="page-header-left">
       <div class="page-icon">🎓</div>
       <div>
-        <h1>Year Levels & Programs</h1>
-        <p class="page-sub">Manage college degree programs, SHS strands, and TVET offerings</p>
+        <h1>Courses & Programs</h1>
+        <p class="page-sub">Manage college programs, SHS strands, and TVET offerings</p>
       </div>
     </div>
     <div class="header-actions">
@@ -20,7 +20,7 @@
         ⚙️ Manage Departments
       </button>
       <button class="btn-add" (click)="openAdd()">
-        <span>＋</span> Add Program
+        <span>＋</span> Add Course
       </button>
     </div>
   </div>
@@ -336,11 +336,10 @@
         <div class="form-group">
           <label class="form-label">Duration (Years)</label>
           <select class="form-input" [(ngModel)]="form.duration">
-            <option [value]="1">1 Year</option>
+            <option [value]="1">1 Year (TVET)</option>
             <option [value]="2">2 Years (SHS)</option>
             <option [value]="3">3 Years</option>
             <option [value]="4">4 Years (College)</option>
-            <option [value]="5">5 Years</option>
           </select>
         </div>
       </div>
@@ -716,4 +715,3 @@
       <button class="btn-edit-curr" (click)="closeCurrModal(); openEdit(currProgram!)">✏️ Edit Program</button>
     </div>
   </div>
-

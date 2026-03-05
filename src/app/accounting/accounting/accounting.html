@@ -36,6 +36,9 @@
     <button class="tab-btn" [class.active]="currentTab === 'liquidation'" (click)="switchTab('liquidation')">
       📊 Liquidation / Audit
     </button>-->
+    <button class="tab-btn" [class.active]="currentTab === 'duedates'" (click)="switchTab('duedates')">
+      📅 Payment Due Dates
+    </button>
   </div>
 
   <!-- ══ PENDING TAB ══ -->
@@ -321,6 +324,33 @@
       </table>
     </div>
   </div>
+  <div *ngIf="currentTab === 'duedates'" style="padding:16px;">
+  <div class="dd-container">
+    <div class="dd-header">
+      <div class="dd-title">Payment Due Dates</div>
+      <div class="dd-subtitle">Set the installment payment due date ranges shown on the student SOA. Changes apply immediately to all students.</div>
+    </div>
+
+    <div *ngIf="dueDatesLoading" style="text-align:center;color:#9ca3af;padding:24px;font-size:.83rem;">Loading...</div>
+
+    <ng-container *ngIf="!dueDatesLoading">
+      <div class="dd-fields">
+        <div class="dd-row" *ngFor="let period of ['downpayment','prelim','midterm','finals']">
+          <span class="dd-label">{{ dueDates[period]?.label || (period | titlecase) }}</span>
+          <input class="dd-input" type="text"
+                 [(ngModel)]="dueDates[period].date_range"
+                 [placeholder]="period === 'downpayment' ? 'e.g. Upon enrollment' : 'e.g. JANUARY 10-16, 2026'" />
+        </div>
+      </div>
+
+      <button class="dd-save-btn" (click)="saveDueDates()" [disabled]="dueDatesSaving">
+        {{ dueDatesSaving ? 'Saving...' : '💾 Save Due Dates' }}
+      </button>
+      <div class="dd-saved" *ngIf="dueDatesSaved">✓ Due dates saved successfully</div>
+      <div class="dd-note">These dates will appear on the Installment Payment table of every student's SOA.</div>
+    </ng-container>
+  </div>
+</div>
 </div>
 
 <!-- ══ MODAL ══ -->
@@ -368,14 +398,23 @@
             <div class="am-sched-term" [class.am-sched-active]="selectedPayment.examPeriod === 'Prelim'">
               <span class="am-term-label">Prelim</span>
               <span class="am-term-amt">₱{{ formatAmount(selectedPayment.scheduleAmounts!.prelim) }}</span>
+              <span class="am-term-paid" *ngIf="($any(selectedPayment.termPaidAmounts)?.prelim ?? 0) > 0">
+                paid ₱{{ formatAmount(selectedPayment.termPaidAmounts!.prelim) }}
+              </span>
             </div>
             <div class="am-sched-term" [class.am-sched-active]="selectedPayment.examPeriod === 'Midterm'">
               <span class="am-term-label">Midterm</span>
               <span class="am-term-amt">₱{{ formatAmount(selectedPayment.scheduleAmounts!.midterm) }}</span>
+              <span class="am-term-paid" *ngIf="($any(selectedPayment.termPaidAmounts)?.midterm ?? 0) > 0">
+                paid ₱{{ formatAmount(selectedPayment.termPaidAmounts!.midterm) }}
+              </span>
             </div>
             <div class="am-sched-term" [class.am-sched-active]="selectedPayment.examPeriod === 'Finals'">
               <span class="am-term-label">Finals</span>
               <span class="am-term-amt">₱{{ formatAmount(selectedPayment.scheduleAmounts!.finals) }}</span>
+              <span class="am-term-paid" *ngIf="($any(selectedPayment.termPaidAmounts)?.finals ?? 0) > 0">
+                paid ₱{{ formatAmount(selectedPayment.termPaidAmounts!.finals) }}
+              </span>
             </div>
           </div>
           <div class="am-current-pay">
@@ -387,7 +426,12 @@
           </div>
           <div class="am-balance-row">
             <span>Remaining balance after this payment:</span>
-            <span class="am-balance-val">₱{{ formatAmount(selectedPayment.scheduleAmounts!.total - selectedPayment.totalPaid - (selectedPayment.gcashAmount || cashAmount || 0)) }}</span>
+            <ng-container *ngIf="(selectedPayment.scheduleAmounts!.total - selectedPayment.totalPaid - (selectedPayment.gcashAmount || cashAmount || 0)) <= 0; else showBalance">
+              <span class="am-balance-val am-balance-zero">₱0.00 — Fully Paid</span>
+            </ng-container>
+            <ng-template #showBalance>
+              <span class="am-balance-val">₱{{ formatAmount(selectedPayment.scheduleAmounts!.total - selectedPayment.totalPaid - (selectedPayment.gcashAmount || cashAmount || 0)) }}</span>
+            </ng-template>
           </div>
         </div>
 
@@ -815,4 +859,51 @@
 .inst-method-badge { font-size:0.72rem; padding:2px 7px; border-radius:4px; display:inline-block; margin-top:3px; }
 .inst-badge-cash { background:#fef3c7; color:#92400e; }
 .inst-badge-gcash { background:#eff6ff; color:#1d4ed8; }
+
+/* Due Dates Panel */
+.dd-container { max-width: 520px; margin: 24px auto; }
+.dd-header { margin-bottom: 20px; }
+.dd-title { font-size: 1rem; font-weight: 700; color: #111827; margin-bottom: 4px; }
+.dd-subtitle { font-size: 0.8rem; color: #9ca3af; line-height: 1.5; }
+.dd-fields { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; overflow: hidden; margin-bottom: 14px; }
+.dd-row { display: flex; align-items: center; gap: 0; border-bottom: 1px solid #f3f4f6; }
+.dd-row:last-child { border-bottom: none; }
+.dd-label { width: 130px; flex-shrink: 0; font-weight: 600; font-size: 0.83rem; color: #374151; padding: 12px 16px; background: #fafafa; border-right: 1px solid #f3f4f6; }
+.dd-input { flex: 1; border: none; padding: 12px 14px; font-size: 0.83rem; color: #111827; background: #fff; outline: none; }
+.dd-input:focus { background: #f9fafb; }
+.dd-input::placeholder { color: #d1d5db; }
+.dd-save-btn { width: 100%; padding: 10px; background: #111827; color: #fff; border: none; border-radius: 8px; font-size: 0.85rem; font-weight: 600; cursor: pointer; transition: background .15s; }
+.dd-save-btn:hover:not(:disabled) { background: #1f2937; }
+.dd-save-btn:disabled { opacity: .5; cursor: not-allowed; }
+.dd-saved { color: #16a34a; font-size: 0.8rem; text-align: center; margin-top: 10px; font-weight: 500; }
+.dd-note { font-size: 0.75rem; color: #9ca3af; margin-top: 12px; text-align: center; }
 </style>
+
+<!-- Due Dates Tab Panel 
+<div *ngIf="currentTab === 'duedates'" style="padding:16px;">
+  <div class="dd-container">
+    <div class="dd-header">
+      <div class="dd-title">Payment Due Dates</div>
+      <div class="dd-subtitle">Set the installment payment due date ranges shown on the student SOA. Changes apply immediately to all students.</div>
+    </div>
+
+    <div *ngIf="dueDatesLoading" style="text-align:center;color:#9ca3af;padding:24px;font-size:.83rem;">Loading...</div>
+
+    <ng-container *ngIf="!dueDatesLoading">
+      <div class="dd-fields">
+        <div class="dd-row" *ngFor="let period of ['downpayment','prelim','midterm','finals']">
+          <span class="dd-label">{{ dueDates[period]?.label || (period | titlecase) }}</span>
+          <input class="dd-input" type="text"
+                 [(ngModel)]="dueDates[period].date_range"
+                 [placeholder]="period === 'downpayment' ? 'e.g. Upon enrollment' : 'e.g. JANUARY 10-16, 2026'" />
+        </div>
+      </div>
+
+      <button class="dd-save-btn" (click)="saveDueDates()" [disabled]="dueDatesSaving">
+        {{ dueDatesSaving ? 'Saving...' : '💾 Save Due Dates' }}
+      </button>
+      <div class="dd-saved" *ngIf="dueDatesSaved">✓ Due dates saved successfully</div>
+      <div class="dd-note">These dates will appear on the Installment Payment table of every student's SOA.</div>
+    </ng-container>
+  </div>
+</div>-->

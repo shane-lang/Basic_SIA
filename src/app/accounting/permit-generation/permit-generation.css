@@ -99,3 +99,43 @@ button:disabled { opacity: .6; cursor: not-allowed; }
 .button-group { display: flex; gap: 4px; flex-wrap: wrap; }
 .btn-unlock { padding: 4px 10px; border: none; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; background: #10b981; color: white; white-space: nowrap; }
 .btn-unlock:hover { background: #059669; }
+/* ── Category filter chips ── */
+.cat-chips { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
+.cat-chip {
+  border:1.5px solid #d1d5db; background:#f9fafb; color:#374151;
+  border-radius:20px; padding:4px 12px; font-size:12px; font-weight:600;
+  cursor:pointer; transition:all .15s; display:flex; align-items:center; gap:5px;
+}
+.cat-chip.active         { border-color:#1a4fa0; background:#1a4fa0; color:#fff; }
+.cat-chip.college.active { border-color:#1a4fa0; background:#1a4fa0; }
+.cat-chip.shs.active     { border-color:#0d9488; background:#0d9488; }
+.cat-chip.tvet.active    { border-color:#b45309; background:#b45309; }
+.chip-cnt {
+  background:rgba(0,0,0,.12); color:inherit; border-radius:10px;
+  padding:0 6px; font-size:11px;
+}
+
+/* ── Bulk send buttons ── */
+.bulk-actions { display:flex; align-items:center; gap:8px; margin-top:10px; flex-wrap:wrap; }
+.bulk-label { font-size:12px; font-weight:700; color:#374151; }
+.btn-bulk {
+  border:none; border-radius:6px; padding:5px 14px; font-size:12px;
+  font-weight:700; cursor:pointer; transition:background .15s;
+}
+.prelim-bulk  { background:#dbeafe; color:#1d4ed8; }
+.prelim-bulk:hover  { background:#bfdbfe; }
+.midterm-bulk { background:#fce7f3; color:#9d174d; }
+.midterm-bulk:hover { background:#fbcfe8; }
+.finals-bulk  { background:#d1fae5; color:#065f46; }
+.finals-bulk:hover  { background:#a7f3d0; }
+
+/* ── Bulk modal ── */
+.modal-bulk { max-width:500px; }
+.bulk-summary {
+  background:#eff6ff; border:1px solid #bfdbfe; border-radius:8px;
+  padding:10px 14px; font-size:13px; margin-bottom:14px; color:#1e40af;
+}
+
+/* ── Course & Year filter dropdowns ── */
+.filter-dropdowns { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
+.filter-dropdowns .fselect { min-width:160px; }

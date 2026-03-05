@@ -175,3 +175,61 @@
   .detail-header { flex-direction:column; align-items:flex-start; }
   .filters-bar { flex-direction:column; }
 }
+/* ── Pending Release Tab ───────────────────────────────────── */
+.tab-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  background: #ef4444; color: white; font-size: 0.7rem; font-weight: 800;
+  width: 18px; height: 18px; border-radius: 50%; margin-left: 4px;
+}
+.results-bar { display: flex; justify-content: space-between; align-items: center; }
+
+.pending-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 1rem;
+}
+.pending-card {
+  background: white; border-radius: 12px; padding: 1.25rem;
+  box-shadow: 0 2px 10px rgba(0,0,0,.08); border: 1.5px solid #fee2e2;
+}
+.pending-card.pc-all-released { border-color: #d1fae5; opacity: 0.8; }
+
+.pc-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem; }
+.pc-code { font-weight: 800; color: #00838f; font-size: 1rem; }
+.pc-dept { font-size: 0.75rem; color: #888; background: #f0f9ff; padding: 0.2rem 0.5rem; border-radius: 10px; }
+.pc-name { font-weight: 700; color: #1a1a2e; margin-bottom: 0.35rem; }
+.pc-faculty { font-size: 0.8rem; color: #555; margin-bottom: 0.2rem; }
+.pc-sem { font-size: 0.78rem; color: #888; margin-bottom: 0.75rem; }
+
+.pc-stats { display: flex; gap: 0.75rem; margin-bottom: 0.75rem; }
+.pc-stat { text-align: center; flex: 1; }
+.pcs-val { display: block; font-size: 1.3rem; font-weight: 800; color: #1a1a2e; }
+.pcs-lbl { font-size: 0.7rem; color: #888; text-transform: uppercase; }
+.pcs-released .pcs-val { color: #10b981; }
+.pcs-pending .pcs-val { color: #ef4444; }
+
+.pc-progress { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem; }
+.pcp-bar { flex: 1; height: 8px; background: #f0f0f0; border-radius: 4px; overflow: hidden; }
+.pcp-fill { height: 100%; background: linear-gradient(90deg, #10b981, #059669); border-radius: 4px; transition: width .4s; }
+.pcp-pct { font-size: 0.75rem; color: #888; white-space: nowrap; }
+
+.btn-release {
+  width: 100%; padding: 0.65rem; border: none; border-radius: 8px;
+  background: linear-gradient(135deg, #10b981, #059669);
+  color: white; font-weight: 700; font-size: 0.875rem;
+  cursor: pointer; transition: all .2s;
+}
+.btn-release:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(16,185,129,.35); }
+.btn-release:disabled { background: #e5e7eb; color: #9ca3af; cursor: not-allowed; transform: none; box-shadow: none; }
+/* ── Pending card button row ─────────────────────────────── */
+.pc-btn-row { display:flex; flex-direction:column; gap:8px; margin-top:12px; }
+.btn-view-grades { width:100%; padding:9px 16px; border-radius:8px; font-size:.84rem; font-weight:700; cursor:pointer; border:1.5px solid #3b82f6; background:#eff6ff; color:#1d4ed8; transition:all .2s; }
+.btn-view-grades:hover { background:#dbeafe; transform:translateY(-1px); }
+
+/* ── Category Filter Tabs ────────────────────────────────── */
+.category-tabs { display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap; }
+.cat-btn { padding:8px 20px; border-radius:20px; font-size:.83rem; font-weight:700; border:1.5px solid #e2e8f0; background:#f8fafc; color:#64748b; cursor:pointer; transition:all .2s; }
+.cat-btn:hover { border-color:#94a3b8; color:#1e293b; }
+.cat-btn.cat-active { background:#1a1a2e; color:#fff; border-color:#1a1a2e; }
+.cat-btn.college.cat-active { background:#1d4ed8; border-color:#1d4ed8; color:#fff; }
+.cat-btn.shs.cat-active     { background:#059669; border-color:#059669; color:#fff; }
+.cat-btn.tvet.cat-active    { background:#d97706; border-color:#d97706; color:#fff; }

@@ -18,8 +18,43 @@
        NOTICES TAB
        ════════════════════════════════ -->
   <ng-container *ngIf="mainTab==='notices'">
+    <!-- Filter bar: search + category chips + bulk send buttons -->
     <div class="filter-bar">
       <input class="search" type="text" placeholder="Search student..." [(ngModel)]="searchStudents">
+
+      <!-- Course & Year dropdowns -->
+      <div class="filter-dropdowns">
+        <select class="fselect" [(ngModel)]="filterProgram">
+          <option *ngFor="let p of uniquePrograms" [value]="p">{{ p === 'ALL' ? 'All Courses' : p }}</option>
+        </select>
+        <select class="fselect" [(ngModel)]="filterYear">
+          <option *ngFor="let y of uniqueYears" [value]="y">{{ y === 'ALL' ? 'All Year Levels' : y }}</option>
+        </select>
+      </div>
+
+      <!-- Category filter chips -->
+      <div class="cat-chips">
+        <button class="cat-chip" [class.active]="filterCategory==='ALL'"     (click)="filterCategory='ALL'">
+          All <span class="chip-cnt">{{ categoryCounts['ALL'] }}</span>
+        </button>
+        <button class="cat-chip college" [class.active]="filterCategory==='COLLEGE'" (click)="filterCategory='COLLEGE'">
+          🎓 College <span class="chip-cnt">{{ categoryCounts['COLLEGE'] }}</span>
+        </button>
+        <button class="cat-chip shs"     [class.active]="filterCategory==='SHS'"     (click)="filterCategory='SHS'">
+          📘 SHS <span class="chip-cnt">{{ categoryCounts['SHS'] }}</span>
+        </button>
+        <button class="cat-chip tvet"    [class.active]="filterCategory==='TVET'"    (click)="filterCategory='TVET'">
+          🔧 TVET <span class="chip-cnt">{{ categoryCounts['TVET'] }}</span>
+        </button>
+      </div>
+
+      <!-- Bulk send buttons -->
+      <div class="bulk-actions">
+        <span class="bulk-label">Send All Notice:</span>
+        <button class="btn-bulk prelim-bulk" (click)="openBulkModal('Prelim')">📢 Prelim</button>
+        <button class="btn-bulk midterm-bulk" (click)="openBulkModal('Midterm')">📢 Midterm</button>
+        <button class="btn-bulk finals-bulk" (click)="openBulkModal('Finals')">📢 Finals</button>
+      </div>
     </div>
 
     <div *ngIf="isLoadingStudents" class="loading"><div class="spin"></div><p>Loading students...</p></div>
@@ -177,6 +212,50 @@
     </div>
   </ng-container>
 
+</div>
+
+<!-- ── Bulk Send Notice Modal ─────────────────────────── -->
+<div class="overlay" *ngIf="showBulkModal" (click)="closeBulkModal()">
+  <div class="modal modal-bulk" (click)="$event.stopPropagation()">
+    <h3>📢 Send {{ bulkPeriod }} Notice to All</h3>
+    <div class="modal-body">
+      <div class="bulk-summary">
+        Will send <strong>{{ bulkPeriod }}</strong> payment notice to
+        <strong>{{ bulkCategory === 'ALL' ? 'all categories' : bulkCategory }}</strong>
+        installment students who haven't paid yet.
+      </div>
+
+      <div class="form-row">
+        <label>Category</label>
+        <select class="finput" [(ngModel)]="bulkCategory">
+          <option value="ALL">All Categories</option>
+          <option value="COLLEGE">College</option>
+          <option value="SHS">SHS</option>
+          <option value="TVET">TVET</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <label>Deadline Date <span style="color:#9ca3af;font-weight:400">(optional)</span></label>
+        <input type="date" class="finput" [(ngModel)]="bulkDueDate" />
+      </div>
+      <div class="form-row">
+        <label>Message Template
+          <span style="color:#9ca3af;font-size:11px;font-weight:400">
+            — use <code>{{ '{' }}name{{ '}' }}</code>, <code>{{ '{' }}period{{ '}' }}</code>, <code>{{ '{' }}amount{{ '}' }}</code>
+          </span>
+        </label>
+        <textarea class="finput" rows="3" [(ngModel)]="bulkMsgTemplate"></textarea>
+      </div>
+      <div class="alert alert-ok"  *ngIf="bulkResult && bulkResultType==='success'">{{ bulkResult }}</div>
+      <div class="alert alert-err" *ngIf="bulkResult && bulkResultType==='error'">{{ bulkResult }}</div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" (click)="closeBulkModal()" [disabled]="isSendingBulk">Cancel</button>
+      <button class="btn-send" (click)="sendBulkNotice()" [disabled]="isSendingBulk">
+        {{ isSendingBulk ? 'Sending...' : '📢 Send to All' }}
+      </button>
+    </div>
+  </div>
 </div>
 
 <!-- ── Send / Resend Notice Modal ──────────────────────── -->

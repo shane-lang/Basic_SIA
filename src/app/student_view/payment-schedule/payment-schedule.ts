@@ -1,4 +1,4 @@
-import { Component, OnInit, ChangeDetectorRef } from '@angular/core';
+import { Component, OnInit, OnDestroy, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
@@ -10,6 +10,7 @@ interface Schedule {
   prelim_paid: number; midterm_paid: number; finals_paid: number;
   prelim_status: string; midterm_status: string; finals_status: string;
   downpayment_paid: number;
+  total_paid?: number;  // server-side sum of all installment_payments — always accurate
 }
 
 interface Notice {
@@ -35,7 +36,7 @@ interface Permit {
   templateUrl: './payment-schedule.html',
   styleUrl: './payment-schedule.css'
 })
-export class PaymentSchedule implements OnInit {
+export class PaymentSchedule implements OnInit, OnDestroy {
   private apiUrl      = 'http://localhost/sia-api/accounting.php';
   private enrollApi   = 'http://localhost/sia-api/enrollment.php';
 
@@ -76,6 +77,9 @@ export class PaymentSchedule implements OnInit {
   isPollingApproval = false;
   private pollTimer: any = null;
 
+  // ── Payment due dates (exam schedule) ───────────────────────────────────
+  dueDates: Record<string, { label: string; date_range: string }> = {};
+
   // ── Permit viewer ────────────────────────────────────────────────────────
   showPermitViewer  = false;
   viewingPermit: Permit | null = null;
@@ -98,6 +102,23 @@ export class PaymentSchedule implements OnInit {
     if (dbId) this.studentId = parseInt(dbId, 10);
 
     this.payDate = new Date().toISOString().split('T')[0];
+
+    // ── Restore payment-submitted state so reload doesn't clear "awaiting approval" screen ──
+    const pendingKey = `paySchedulePending_${this.studentId}`;
+    const pendingRaw = sessionStorage.getItem(pendingKey);
+    if (pendingRaw) {
+      try {
+        const pending = JSON.parse(pendingRaw);
+        this.paySubmitted      = true;
+        this.payPeriod         = pending.period   || '';
+        this.payOrArNumber     = pending.orArNumber || '';
+        this.payAmount         = pending.amount   || 0;
+        this.showPayModal      = true;
+        this.isPollingApproval = true;
+        // Restart polling — if already approved since last load, poll will close modal
+        this.startApprovalPolling();
+      } catch { sessionStorage.removeItem(pendingKey); }
+    }
 
     // Always fetch fresh from API — do not rely on sessionStorage cache
     // load() is called inside the callback so category is set before rendering
@@ -142,6 +163,7 @@ export class PaymentSchedule implements OnInit {
         this.notices  = res.notices  || {};
         this.isLoading = false;
         this.loadPermits();
+        this.loadDueDates();
         this.cdr.detectChanges();
       },
       error: () => { this.isLoading = false; this.cdr.detectChanges(); }
@@ -151,6 +173,12 @@ export class PaymentSchedule implements OnInit {
   loadPermits(): void {
     this.http.get<any>(`${this.apiUrl}?action=get_student_permit_status&student_id=${this.studentId}`, this.getHeaders()).subscribe({
       next: (res) => { this.permits = res.success ? res.permits : []; this.cdr.detectChanges(); }
+    });
+  }
+
+  loadDueDates(): void {
+    this.http.get<any>(`${this.apiUrl}?action=get_due_dates`).subscribe({
+      next: (res) => { if (res.success && res.dueDates) { this.dueDates = res.dueDates; this.cdr.detectChanges(); } }
     });
   }
 
@@ -165,7 +193,12 @@ export class PaymentSchedule implements OnInit {
 
   get totalPaid(): number {
     if (!this.schedule) return 0;
-    // Each component is already capped server-side; just sum them up.
+    // Use server-computed total_paid (sum of all installment_payments) — accurate even
+    // when a student overpays a term or pays into a not-yet-unlocked period.
+    if (this.schedule.total_paid !== undefined && this.schedule.total_paid > 0) {
+      return this.schedule.total_paid;
+    }
+    // Fallback: sum period fields (less accurate but safe)
     return (this.schedule.downpayment_paid || 0)
          + (this.schedule.prelim_paid  || 0)
          + (this.schedule.midterm_paid || 0)
@@ -181,7 +214,9 @@ export class PaymentSchedule implements OnInit {
   getPermit(period: string): Permit | undefined { return this.permits.find(p => p.exam_period === period); }
 
   canRequest(period: string): boolean {
-    if (this.getStatus(period) !== 'paid') return false;
+    const status = this.getStatus(period);
+    // Allow permit request if paid OR partial (any amount paid counts)
+    if (status !== 'paid' && status !== 'partial') return false;
     const permit = this.getPermit(period);
     if (permit && (permit.status === 'pending' || permit.status === 'approved')) return false;
     return true;
@@ -227,6 +262,8 @@ export class PaymentSchedule implements OnInit {
   closePayModal(): void {
     if (this.isSubmitting) return;
     if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = null; }
+    // Clear persisted pending state when user manually closes the modal
+    sessionStorage.removeItem(`paySchedulePending_${this.studentId}`);
     this.showPayModal = false;
     this.paySubmitted = false;
     this.isPollingApproval = false;
@@ -262,6 +299,13 @@ export class PaymentSchedule implements OnInit {
           this.paySubmitted  = true;
           this.payOrArNumber = res.orArNumber || '';
           this.payMsg        = '';
+          // Persist state so reload doesn't clear "awaiting approval" screen
+          const pendingKey = `paySchedulePending_${this.studentId}`;
+          sessionStorage.setItem(pendingKey, JSON.stringify({
+            period:      this.payPeriod,
+            orArNumber:  this.payOrArNumber,
+            amount:      this.payAmount,
+          }));
           // Start polling for accounting approval
           this.startApprovalPolling();
         } else {
@@ -281,31 +325,39 @@ export class PaymentSchedule implements OnInit {
 
   // Poll accounting API every 5s to check if payment was approved
   startApprovalPolling(): void {
+    // Prevent duplicate intervals
+    if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = null; }
     this.isPollingApproval = true;
-    this.pollTimer = setInterval(() => {
-      this.http.get<any>(`${this.apiUrl}?action=get_payment_schedule&student_id=${this.studentId}`, this.getHeaders()).subscribe({
-        next: (res) => {
-          if (!res.success) return;
-          const sched = res.schedule;
-          const p = this.payPeriod.toLowerCase();
-          const newStatus = sched ? sched[p + '_status'] : null;
-          // If status changed from unpaid → paid or partial, accounting approved it
-          if (newStatus === 'paid' || newStatus === 'partial') {
-            clearInterval(this.pollTimer);
-            this.pollTimer = null;
-            this.isPollingApproval = false;
-            this.schedule = sched;
-            this.notices  = res.notices || {};
-            this.loadPermits();
-            this.closePayModal();
-            this.msg     = `✅ Payment approved by Accounting!`;
-            this.msgType = 'ok';
-            setTimeout(() => { this.msg = ''; this.cdr.detectChanges(); }, 6000);
-            this.cdr.detectChanges();
-          }
+    // Check immediately on start
+    this.checkApprovalPoll();
+    this.pollTimer = setInterval(() => this.checkApprovalPoll(), 5000);
+  }
+
+  private checkApprovalPoll(): void {
+    this.http.get<any>(`${this.apiUrl}?action=get_payment_schedule&student_id=${this.studentId}`, this.getHeaders()).subscribe({
+      next: (res) => {
+        if (!res.success) return;
+        const sched = res.schedule;
+        const p = this.payPeriod.toLowerCase();
+        const newStatus = sched ? sched[p + '_status'] : null;
+        // If status changed from unpaid → paid or partial, accounting approved it
+        if (newStatus === 'paid' || newStatus === 'partial') {
+          clearInterval(this.pollTimer);
+          this.pollTimer = null;
+          this.isPollingApproval = false;
+          this.schedule = sched;
+          this.notices  = res.notices || {};
+          // Clear persisted pending state
+          sessionStorage.removeItem(`paySchedulePending_${this.studentId}`);
+          this.loadPermits();
+          this.closePayModal();
+          this.msg     = `✅ Payment approved by Accounting!`;
+          this.msgType = 'ok';
+          setTimeout(() => { this.msg = ''; this.cdr.detectChanges(); }, 6000);
+          this.cdr.detectChanges();
         }
-      });
-    }, 5000);
+      }
+    });
   }
 
   // ── Permit viewer ─────────────────────────────────────────────────────────
@@ -337,6 +389,7 @@ export class PaymentSchedule implements OnInit {
   printPermit(): void {
     const p = this.viewingPermit;
     if (!p) return;
+    const examDate = this.dueDates[p.exam_period.toLowerCase()]?.date_range || '';
     const courses = (p.courses || []).map(c =>
       `<tr><td>${c.code} — ${c.name}</td><td></td></tr>`
     ).join('');
@@ -427,7 +480,7 @@ export class PaymentSchedule implements OnInit {
     </div>
     <div class="info-row">
       <span class="info-label">Date of Exam:</span>
-      <span class="info-value"></span>
+      <span class="info-value">${examDate}</span>
     </div>
     <div class="info-row" style="grid-column:1/-1;">
       <span class="info-label">Name:</span>

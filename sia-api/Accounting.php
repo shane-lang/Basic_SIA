@@ -1,6 +1,23 @@
 <?php
 error_reporting(0);
 ini_set('display_errors', 0);
+
+// ── cleanCode() — strips program-disambiguation suffixes from course codes ──
+// e.g. GE103-BMD → GE103, PE1-BMD → PE1, NSTP1-CA → NSTP1
+if (!function_exists('cleanCode')) {
+    function cleanCode($code) {
+        if (!$code) return $code;
+        static $suffixes = ['-BMD','-CA','-BSA','-BSCA','-BSE','-CIMT','-BSIT','-BSREM','-ICTD','-HMD','-CED','-CAS'];
+        $upper = strtoupper($code);
+        foreach ($suffixes as $s) {
+            if (substr($upper, -strlen($s)) === $s) {
+                return substr($code, 0, strlen($code) - strlen($s));
+            }
+        }
+        return $code;
+    }
+}
+
 // FIX A-02: Restrict CORS to trusted origins only
 $allowedOrigin = $_SERVER['HTTP_ORIGIN'] ?? '';
 $trustedOrigins = [
@@ -27,6 +44,7 @@ if ($conn->connect_error) {
     echo json_encode(['success' => false, 'message' => 'DB error: ' . $conn->connect_error]); exit();
 }
 $conn->set_charset("utf8mb4");
+require_once __DIR__ . '/audit_helper.php';
 
 // ================================================================
 // FEE CONFIG HELPER — shared by all fee computation functions.
@@ -216,7 +234,8 @@ switch ($method) {
     case 'GET':
         switch ($action) {
             case 'get_pending_payments':  getPendingPayments($conn);  break;
-            case 'get_payment_history':   getPaymentHistory($conn);   break;
+            case 'get_payment_history':          getPaymentHistory($conn);             break;
+            case 'get_student_payment_history':  getStudentPaymentHistory($conn);      break;
             case 'get_tuition_fees':      getTuitionFees($conn);      break;
             case 'get_liquidation':       getLiquidation($conn);      break;
             case 'get_student_receipts':  getStudentReceipts($conn);  break;
@@ -226,6 +245,7 @@ switch ($method) {
             case 'get_student_permit_status': getStudentPermitStatus($conn);  break;
             case 'get_payment_notices':       getPaymentNotices($conn);       break;
             case 'get_all_enrolled_students': getAllEnrolledStudents($conn); break;
+            case 'recalc_payment_schedules':  recalcAllPaymentSchedules($conn); break;
             case 'get_student_installment':   getStudentInstallment($conn); break;
             case 'get_permit_details':         getPermitDetails($conn);      break;
             case 'get_installment_students':   getInstallmentStudents($conn); break;
@@ -236,6 +256,8 @@ switch ($method) {
             case 'get_income_report':         getIncomeReport($conn);        break;
             case 'get_income_summary':        getIncomeSummary($conn);       break;
             case 'get_income_by_program':     getIncomeByProgram($conn);     break;
+            // ── Payment Due Dates ──
+            case 'get_due_dates':             getPaymentDueDates($conn);     break;
             default: echo json_encode(['success' => false, 'message' => 'Unknown action']);
         }
         break;
@@ -252,12 +274,15 @@ switch ($method) {
             case 'delete_fee_config':   deleteFeeConfig($conn, $data);    break;
             case 'record_installment':  recordInstallment($conn, $data);  break;
             case 'send_payment_notice':  sendPaymentNotice($conn, $data);  break;
+            case 'send_bulk_notice':      sendBulkNotice($conn, $data);      break;
             case 'request_exam_permit':  requestExamPermit($conn, $data);  break;
             case 'process_exam_permit':  processExamPermit($conn, $data);  break;
             case 'unlock_payment_period': unlockPaymentPeriod($conn, $data); break;
             case 'submit_installment_payment': submitInstallmentPayment($conn, $data); break;
             case 'edit_payment':              editPayment($conn, $data);              break;
             case 'correct_verified_payment': correctVerifiedPayment($conn, $data); break;
+            // ── Payment Due Dates ──
+            case 'save_due_dates':            savePaymentDueDates($conn, $data); break;
             default: echo json_encode(['success' => false, 'message' => 'Unknown action']);
         }
         break;
@@ -768,16 +793,25 @@ function recordInstallment($conn, $data) {
     $total_paid = (float)($paid_res->fetch_assoc()['tp'] ?? 0);
     $is_fully_paid = $total_assessment > 0 && $total_paid >= $total_assessment;
 
-    $pay_status = $is_fully_paid ? 'Paid' : 'Pending';
-    $updStmt = $conn->prepare("UPDATE students SET payment_status = ? WHERE id = ?");
-    $updStmt->bind_param("si", $pay_status, $student_id);
-    $updStmt->execute();
+    $pay_status = $is_fully_paid ? 'Paid' : ($total_paid > 0 ? 'Partially Paid' : 'Pending');
+    if ($is_fully_paid) {
+        // Fully paid via cash installment — auto-approve and enroll
+        $conn->prepare("UPDATE students SET payment_status='Paid', approval_status='Approved', enrollment_status='Enrolled' WHERE id=?")->bind_param("i", $student_id) ?: null;
+        $updFull = $conn->prepare("UPDATE students SET payment_status='Paid', approval_status='Approved', enrollment_status='Enrolled' WHERE id=?");
+        $updFull->bind_param("i", $student_id);
+        $updFull->execute();
+        // Auto-enroll in courses
+        $semRow = $conn->query("SELECT semester FROM students WHERE id=$student_id LIMIT 1")->fetch_assoc();
+        $semester = trim($semRow['semester'] ?? '');
+        autoEnrollAll($conn, ['student_id' => $student_id, 'semester' => $semester], false);
+    } else {
+        // Partially paid — mark Approved so student can see SOA, but not fully enrolled yet
+        $conn->query("UPDATE students SET payment_status='$pay_status', approval_status='Approved', enrollment_status='Enrolled' WHERE id=$student_id");
+    }
 
-    // ── Sync payment_schedules with DP-aware carry-over redistribution ─────
-    // Rule: student pays any amount for DP. Term dues are recomputed from actual DP.
-    //   - DP < scheduled (total/4) → remaining increases, so term dues go up
-    //   - DP > scheduled           → remaining shrinks, so term dues go down
-    // Within terms (Prelim→Midterm→Finals): overflow carries forward as usual.
+    // ── Sync payment_schedules — recompute dues from actual DP, actual paid per period ──
+    // Rule: DP can be any amount. Term dues = (total - dpPaid) / 3.
+    // Each period's paid = actual SUM from installment_payments. No carry-over between terms.
     $schedChkStmt = $conn->prepare("SELECT id FROM payment_schedules WHERE student_id = ? LIMIT 1");
     $schedChkStmt->bind_param("i", $student_id);
     $schedChkStmt->execute();
@@ -794,43 +828,15 @@ function recordInstallment($conn, $data) {
         // Fall back to scheduled quarter if no DP recorded yet
         $dpEff = $dpPd > 0 ? $dpPd : ($tot > 0 ? round($tot / 4, 2) : 0);
 
-        // Step 3: Recompute term dues based on actual DP
-        $rem   = max(0.0, $tot - $dpEff);
-        $new_pd = $rem > 0 ? (ceil($rem / 3 * 100) / 100) : 0;
-        $new_md = $new_pd;
-        $new_fd = $rem > 0 ? round(max(0, $rem - $new_pd * 2), 2) : 0;
-        $conn->query("UPDATE payment_schedules SET prelim_due=$new_pd, midterm_due=$new_md, finals_due=$new_fd WHERE student_id=$student_id");
-
-        // Step 4: Carry-over redistribution across terms
-        $raw_paid = ['Prelim' => 0.0, 'Midterm' => 0.0, 'Finals' => 0.0];
-        $paid_res = $conn->query("SELECT exam_period, COALESCE(SUM(amount),0) AS paid
-            FROM installment_payments
-            WHERE student_id = $student_id AND exam_period IN ('Prelim','Midterm','Finals')
-            GROUP BY exam_period");
-        if ($paid_res) {
-            while ($pr = $paid_res->fetch_assoc()) {
-                $raw_paid[$pr['exam_period']] = (float)$pr['paid'];
-            }
-        }
-        $sched_row = $conn->query("SELECT * FROM payment_schedules WHERE student_id=$student_id LIMIT 1")->fetch_assoc();
-        $carry = 0.0; $credited = [];
-        foreach (['Prelim'=>$new_pd, 'Midterm'=>$new_md, 'Finals'=>$new_fd] as $period => $due) {
-            $p = strtolower($period);
-            if (($sched_row[$p.'_status'] ?? '') === 'locked') { $carry = 0.0; $credited[$period] = 0.0; continue; }
-            $total_for_period  = $raw_paid[$period] + $carry;
-            $credited[$period] = min($total_for_period, $due);
-            $carry             = max(0.0, $total_for_period - $due);
-        }
-        foreach (['Prelim'=>$new_pd, 'Midterm'=>$new_md, 'Finals'=>$new_fd] as $period => $due) {
-            $p      = strtolower($period);
-            if (($sched_row[$p.'_status'] ?? '') === 'locked') continue;
-            $paid_c = round($credited[$period], 2);
-            $status = $paid_c <= 0 ? 'unpaid' : ($paid_c >= $due ? 'paid' : 'partial');
-            $conn->query("UPDATE payment_schedules SET {$p}_paid=$paid_c, {$p}_status='$status' WHERE student_id=$student_id");
-        }
+        // Steps 3+4: Recompute all dues and paid amounts dynamically.
+        // recomputeSchedule() redistributes remaining balance across unpaid terms
+        // and stores actual paid per period from installment_payments.
+        recomputeSchedule($conn, $student_id);
     }
     // ─────────────────────────────────────────────────────────────────────
 
+    logAuditShared($conn, $GLOBALS['authUser'] ?? null, 'RECORD_PAYMENT', 'student', $student_id,
+        "Recorded $exam_period ₱" . number_format($amount, 2) . " for student ID $student_id (OR: $or_ar_no)");
     echo json_encode([
         'success'     => true,
         'message'     => 'Payment recorded.',
@@ -1206,12 +1212,98 @@ function _getStudentPaymentPlan($conn, $sid) {
     $r = $conn->query("SELECT payment_plan FROM students WHERE id=$sid LIMIT 1");
     return $r ? ($r->fetch_assoc()['payment_plan'] ?? 'full') : 'full';
 }
+// ─────────────────────────────────────────────────────────────────────────────
+// SHARED HELPER: Compute installment term dues based on actual payments.
+//
+//   Rule (mirrors Angular enrollment.ts installmentAmounts getter):
+//     - After each paid term, remaining balance is split EQUALLY among ALL
+//       subsequent terms (paid or not — uses actual credit, not scheduled due)
+//     - Overpay → all later terms get cheaper
+//     - Underpay → all later terms get more expensive
+//
+//   Returns: ['downpayment'=>N, 'prelim'=>N, 'midterm'=>N, 'finals'=>N, 'total'=>N]
+//   where each value is the DUE for that term (show actual paid if paid, else
+//   the recomputed share).
+// ─────────────────────────────────────────────────────────────────────────────
+function _calcInstallmentDues(float $total, array $paid): array {
+    // ─────────────────────────────────────────────────────────────────────────
+    // Computes the DUE amount for each installment term given what was actually
+    // paid per period.
+    //
+    //   Logic:
+    //     - DP due = total / 4  (scheduled quarter)
+    //     - DP credit = actual dpPaid (could be less OR more than scheduled)
+    //     - Remaining after DP credit is split equally among remaining terms
+    //     - This means underpayment at any term increases future term dues,
+    //       and overpayment decreases them — balance always preserved.
+    //
+    //   Returns:
+    //     'downpayment' => the scheduled DP due (not what was paid)
+    //     'prelim'      => computed due for prelim (after DP credit)
+    //     'midterm'     => computed due for midterm (after DP+Prelim credit)
+    //     'finals'      => whatever is left after all prior credits
+    //     'balance'     => total - sum of all actual payments
+    // ─────────────────────────────────────────────────────────────────────────
+    if ($total <= 0) return ['downpayment'=>0.0,'prelim'=>0.0,'midterm'=>0.0,'finals'=>0.0,'total'=>0.0,'balance'=>0.0];
+
+    $dpPaid  = (float)($paid['Downpayment'] ?? 0.0);
+    $prPaid  = (float)($paid['Prelim']      ?? 0.0);
+    $midPaid = (float)($paid['Midterm']     ?? 0.0);
+    $finPaid = (float)($paid['Finals']      ?? 0.0);
+    $allPaid = $dpPaid + $prPaid + $midPaid + $finPaid;
+
+    $quarter = round($total / 4, 2);
+
+    // ── Downpayment ───────────────────────────────────────────────────────────
+    // Due = scheduled quarter. Credit = what was actually paid (may be less or more).
+    $dpDue    = $quarter;
+    $dpCredit = $dpPaid > 0 ? $dpPaid : $dpDue;  // use scheduled if nothing paid yet
+
+    // ── Prelim ────────────────────────────────────────────────────────────────
+    // Remaining after DP credit, split among 3 terms
+    $rem1   = max(0.0, $total - $dpCredit);
+    $prDue  = $rem1 > 0 ? ceil($rem1 / 3 * 100) / 100 : 0.0;
+    // Actual credit used = what was actually paid (may be less → leftover carried to next terms)
+    $prCredit = $prPaid > 0 ? $prPaid : $prDue;
+
+    // ── Midterm ───────────────────────────────────────────────────────────────
+    // Remaining after DP + Prelim credit, split among 2 remaining terms
+    $rem2    = max(0.0, $rem1 - $prCredit);
+    $midDue  = $rem2 > 0 ? ceil($rem2 / 2 * 100) / 100 : 0.0;
+    $midCredit = $midPaid > 0 ? $midPaid : $midDue;
+
+    // ── Finals ────────────────────────────────────────────────────────────────
+    // Whatever is left after all prior credits
+    $rem3   = max(0.0, $rem2 - $midCredit);
+    $finDue = round($rem3, 2);
+
+    return [
+        'downpayment' => round($dpDue,  2),
+        'prelim'      => round($prDue,  2),
+        'midterm'     => round($midDue, 2),
+        'finals'      => round($finDue, 2),
+        'total'       => round($total,  2),
+        'balance'     => round(max(0.0, $total - $allPaid), 2),
+    ];
+}
+
 function _getScheduleAmounts($conn, $sid) {
-    $tf = $conn->query("SELECT total_assessment FROM tuition_fees WHERE student_id=$sid LIMIT 1");
+    $tf    = $conn->query("SELECT total_assessment FROM tuition_fees WHERE student_id=$sid LIMIT 1");
     $total = $tf ? (float)($tf->fetch_assoc()['total_assessment'] ?? 0) : 0;
-    if ($total <= 0) return ['downpayment'=>0,'prelim'=>0,'midterm'=>0,'finals'=>0,'total'=>0];
-    $dp = round($total/4,2);
-    return ['downpayment'=>$dp,'prelim'=>$dp,'midterm'=>$dp,'finals'=>round($total-$dp*3,2),'total'=>$total];
+
+    $paidRes = $conn->query("SELECT exam_period, COALESCE(SUM(amount),0) AS paid FROM installment_payments WHERE student_id=$sid GROUP BY exam_period");
+    $paid = ['Downpayment'=>0.0,'Prelim'=>0.0,'Midterm'=>0.0,'Finals'=>0.0];
+    if ($paidRes) while ($r = $paidRes->fetch_assoc()) $paid[$r['exam_period']] = (float)$r['paid'];
+
+    $dues = _calcInstallmentDues($total, $paid);
+    // Also expose per-term paid amounts so accounting modal can show correct remaining balance
+    $dues['termPaid'] = [
+        'downpayment' => round($paid['Downpayment'], 2),
+        'prelim'      => round($paid['Prelim'],      2),
+        'midterm'     => round($paid['Midterm'],      2),
+        'finals'      => round($paid['Finals'],       2),
+    ];
+    return $dues;
 }
 function getPendingPayments($conn) {
     $rows = [];
@@ -1220,7 +1312,8 @@ function getPendingPayments($conn) {
     // AND installment term payments (Prelim/Midterm/Finals) from enrolled students
     $sql = "
         SELECT pl.id AS log_id, pl.student_id, pl.payment_method, pl.gcash_reference,
-               pl.gcash_amount, pl.gcash_date, pl.transaction_id, pl.semester,
+               pl.gcash_amount, pl.gcash_date, pl.transaction_id,
+               COALESCE(NULLIF(pl.semester,''), s.semester) AS semester,
                pl.notes, pl.created_at AS submitted_at,
                s.student_number, s.first_name, s.last_name, s.program, s.year_level,
                s.payment_status, s.approval_status, s.enrollment_status,
@@ -1279,7 +1372,14 @@ function getPendingPayments($conn) {
                 'totalPaid'      => $total_paid,
                 'balance'        => max(0, (float)($r['total_assessment'] ?? 0) - $total_paid),
                 'paymentPlan'    => _getStudentPaymentPlan($conn, $sid),
-                'scheduleAmounts'=> _getScheduleAmounts($conn, $sid),
+                'scheduleAmounts'=> (function() use ($conn, $sid) {
+                    $sa = _getScheduleAmounts($conn, $sid);
+                    return ['downpayment'=>$sa['downpayment'],'prelim'=>$sa['prelim'],'midterm'=>$sa['midterm'],'finals'=>$sa['finals'],'total'=>$sa['total']];
+                })(),
+                'termPaidAmounts'=> (function() use ($conn, $sid) {
+                    $sa = _getScheduleAmounts($conn, $sid);
+                    return $sa['termPaid'] ?? ['downpayment'=>0,'prelim'=>0,'midterm'=>0,'finals'=>0];
+                })(),
             ];
         }
     }
@@ -1331,7 +1431,7 @@ function getPendingPayments($conn) {
                 'enrollmentStatus'=> 'Pending',
                 'paymentMethod'  => 'Cash',
                 'gcashReference' => '', 'gcashAmount' => 0, 'gcashDate' => '', 'transactionId' => '',
-                'semester'       => $semester,
+                'semester'       => $r['semester'] ?: $semester,
                 'examPeriod'     => '',
                 'notes'          => '',
                 'status'         => 'Pending',
@@ -1342,7 +1442,14 @@ function getPendingPayments($conn) {
                 'totalPaid'      => $total_paid,
                 'balance'        => max(0, (float)($r['total_assessment'] ?? 0) - $total_paid),
                 'paymentPlan'    => _getStudentPaymentPlan($conn, $sid),
-                'scheduleAmounts'=> _getScheduleAmounts($conn, $sid),
+                'scheduleAmounts'=> (function() use ($conn, $sid) {
+                    $sa = _getScheduleAmounts($conn, $sid);
+                    return ['downpayment'=>$sa['downpayment'],'prelim'=>$sa['prelim'],'midterm'=>$sa['midterm'],'finals'=>$sa['finals'],'total'=>$sa['total']];
+                })(),
+                'termPaidAmounts'=> (function() use ($conn, $sid) {
+                    $sa = _getScheduleAmounts($conn, $sid);
+                    return $sa['termPaid'] ?? ['downpayment'=>0,'prelim'=>0,'midterm'=>0,'finals'=>0];
+                })(),
             ];
         }
     }
@@ -1353,6 +1460,71 @@ function getPendingPayments($conn) {
 // ─────────────────────────────────────────────────────────────
 // ACCOUNTING: Payment history
 // ─────────────────────────────────────────────────────────────
+// GET ?action=get_student_payment_history&student_id=X
+// Returns verified payments for a single student (student view)
+function getStudentPaymentHistory($conn) {
+    $student_id = (int)($_GET['student_id'] ?? 0);
+    if (!$student_id) { echo json_encode(['success'=>false,'message'=>'student_id required']); return; }
+
+    // Support user_id fallback
+    $stRes = $conn->query("SELECT id FROM students WHERE id=$student_id LIMIT 1");
+    if (!$stRes || $stRes->num_rows === 0) {
+        $stRes2 = $conn->query("SELECT id FROM students WHERE user_id=$student_id LIMIT 1");
+        $row2   = $stRes2 ? $stRes2->fetch_assoc() : null;
+        if ($row2) $student_id = (int)$row2['id'];
+        else { echo json_encode(['success'=>true,'history'=>[]]); return; }
+    }
+
+    $result = $conn->query("
+        SELECT ip.id, ip.or_ar_number, ip.or_ar_type, ip.amount, ip.payment_date,
+               ip.payment_method, ip.gcash_reference, ip.exam_period, ip.notes,
+               ip.created_at,
+               u.first_name AS verified_by_fname, u.last_name AS verified_by_lname,
+               tf.total_assessment
+        FROM installment_payments ip
+        LEFT JOIN users u ON ip.recorded_by = u.id
+        LEFT JOIN tuition_fees tf ON tf.student_id = ip.student_id
+        WHERE ip.student_id = $student_id
+        ORDER BY ip.payment_date DESC, ip.created_at DESC
+    ");
+
+    $rows = [];
+    if ($result) {
+        while ($r = $result->fetch_assoc()) {
+            $rows[] = [
+                'id'           => (int)$r['id'],
+                'orArNumber'   => $r['or_ar_number'] ?? '',
+                'orArType'     => $r['or_ar_type']   ?? 'AR',
+                'amount'       => (float)$r['amount'],
+                'paymentDate'  => $r['payment_date']  ?? '',
+                'paymentMethod'=> $r['payment_method'] ?? '',
+                'gcashRef'     => $r['gcash_reference'] ?? '',
+                'examPeriod'   => $r['exam_period']  ?? '',
+                'notes'        => $r['notes']         ?? '',
+                'createdAt'    => $r['created_at']    ?? '',
+                'verifiedBy'   => trim(($r['verified_by_fname'] ?? '') . ' ' . ($r['verified_by_lname'] ?? '')) ?: 'Accounting',
+                'totalAssessment' => (float)($r['total_assessment'] ?? 0),
+            ];
+        }
+    }
+
+    // Compute running totals
+    $totalPaid = array_sum(array_column($rows, 'amount'));
+    $totalAssessment = $rows[0]['totalAssessment'] ?? 0;
+
+    // Student info for SOA header
+    $sRow = $conn->query("SELECT first_name, last_name, student_number, program, year_level, semester FROM students WHERE id=$student_id LIMIT 1")->fetch_assoc();
+
+    echo json_encode([
+        'success'         => true,
+        'history'         => $rows,
+        'totalPaid'       => $totalPaid,
+        'totalAssessment' => $totalAssessment,
+        'balance'         => max(0, $totalAssessment - $totalPaid),
+        'student'         => $sRow,
+    ]);
+}
+
 function getPaymentHistory($conn) {
     $result = $conn->query("
         SELECT pl.id AS log_id, pl.student_id, pl.payment_method, pl.gcash_reference,
@@ -1548,7 +1720,12 @@ function verifyPayment($conn, $data) {
             $newStatus  = $periodPaid <= 0 ? 'unpaid' : ($periodPaid >= $periodDue ? 'paid' : 'partial');
             $conn->query("UPDATE payment_schedules SET {$ep}_paid=$periodPaid, {$ep}_status='$newStatus' WHERE student_id=$student_id");
 
-            // Don't change enrollment/approval status for term payments — student already enrolled
+            // Recompute all dues after this payment — redistributes any underpayment
+            // to remaining unpaid terms so balance is always accurate.
+            recomputeSchedule($conn, $student_id);
+
+            logAuditShared($conn, $GLOBALS['authUser'] ?? null, 'VERIFY_PAYMENT', 'student', $student_id,
+                "Verified $examPeriod payment ₱" . number_format($final_amount, 2) . " for student ID $student_id (OR: $or_no)");
             echo json_encode(['success' => true, 'message' => "$examPeriod payment verified. ₱" . number_format($final_amount, 2) . " recorded."]);
             return;
         }
@@ -1558,6 +1735,8 @@ function verifyPayment($conn, $data) {
     $upd->bind_param("isi", $acc_user_id, $notes, $student_id);
     $upd->execute();
 
+    logAuditShared($conn, $GLOBALS['authUser'] ?? null, 'VERIFY_PAYMENT', 'student', $student_id,
+        "Full payment verified, enrollment approved for student ID $student_id");
     echo json_encode(['success' => true, 'message' => 'Payment verified. Student enrollment approved.']);
 }
 
@@ -1580,8 +1759,92 @@ function rejectPayment($conn, $data) {
     $upd->bind_param("i", $student_id);
     $upd->execute();
 
+    logAuditShared($conn, $GLOBALS['authUser'] ?? null, 'REJECT_PAYMENT', 'student', $student_id,
+        "Payment rejected for student ID $student_id. Log: $log_id. Reason: $notes");
     echo json_encode(['success' => true, 'message' => 'Payment rejected.']);
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SHARED HELPER: Recompute and save payment_schedules for one installment student
+// Call this after any payment is recorded or on page load.
+//
+// Algorithm:
+//   remaining = total - sum(ALL installment_payments for this student)
+//   For each period in [Prelim, Midterm, Finals]:
+//     - If locked: due unchanged, paid=0
+//     - If paid (actual_paid >= due):
+//         actual_paid = SUM from installment_payments
+//         due = original due (unchanged once paid)
+//         status = 'paid'
+//     - If unpaid/partial:
+//         Redistribute remaining balance equally across these unpaid terms
+//         due (updated) = ceil(remaining_for_unpaid_terms / count_unpaid_terms)
+//         paid = actual from installment_payments
+//         status = 'unpaid'|'partial'
+//
+// This means: if student overpays Prelim, the extra reduces remaining balance,
+// which shrinks Midterm+Finals dues proportionally.
+// ═══════════════════════════════════════════════════════════════════════════════
+function recomputeSchedule(mysqli $conn, int $student_id): void {
+    // ── Get total assessment ──────────────────────────────────────────────────
+    $tfR   = $conn->query("SELECT total_assessment FROM tuition_fees WHERE student_id=$student_id LIMIT 1");
+    $total = $tfR ? (float)($tfR->fetch_assoc()['total_assessment'] ?? 0) : 0;
+    if ($total <= 0) return;
+
+    // ── Get current schedule row ──────────────────────────────────────────────
+    $schRes = $conn->query("SELECT * FROM payment_schedules WHERE student_id=$student_id LIMIT 1");
+    $sch    = $schRes ? $schRes->fetch_assoc() : null;
+    if (!$sch || ($sch['payment_type'] ?? '') !== 'installment') return;
+
+    // ── Actual paid per period from installment_payments ─────────────────────
+    $paidRes = $conn->query("
+        SELECT exam_period, COALESCE(SUM(amount),0) AS paid
+        FROM installment_payments WHERE student_id=$student_id GROUP BY exam_period
+    ");
+    $paid = ['Downpayment'=>0.0, 'Prelim'=>0.0, 'Midterm'=>0.0, 'Finals'=>0.0];
+    if ($paidRes) while ($r = $paidRes->fetch_assoc()) $paid[$r['exam_period']] = (float)$r['paid'];
+
+    // ── Use shared helper to compute correct dues ────────────────────────────
+    $dues    = _calcInstallmentDues($total, $paid);
+    $newDue  = ['Prelim' => $dues['prelim'], 'Midterm' => $dues['midterm'], 'Finals' => $dues['finals']];
+
+    // ── Build UPDATE ──────────────────────────────────────────────────────────
+    $periods = ['Prelim', 'Midterm', 'Finals'];
+    $updates = [];
+    foreach ($periods as $p) {
+        $col        = strtolower($p);
+        $curStatus  = $sch[$col.'_status'] ?? 'locked';
+        $newD       = round($newDue[$p], 2);
+        $actualPaid = round($paid[$p], 2);
+
+        // Determine status from actual paid vs recomputed due
+        $totalPaid  = array_sum($paid);
+        $fullyPaid  = ($totalPaid >= $total && $total > 0);
+
+        if ($newD <= 0 && $fullyPaid) {
+            // Zero due because everything was covered by prior payments
+            $st = 'paid';
+        } elseif ($actualPaid >= $newD && $newD > 0) {
+            // Paid at least the recomputed due for this term
+            $st = 'paid';
+        } elseif ($actualPaid > 0) {
+            // Some payment recorded but less than due = partial
+            $st = 'partial';
+        } elseif ($curStatus === 'locked') {
+            // Not yet unlocked by accounting
+            $st = 'locked';
+        } else {
+            $st = 'unpaid';
+        }
+
+        $updates[] = "{$col}_due=$newD, {$col}_paid=$actualPaid, {$col}_status='$st'";
+    }
+
+    $conn->query("UPDATE payment_schedules SET total_assessment=$total, "
+        . implode(', ', $updates) . " WHERE student_id=$student_id");
+}
+
+
 function getPaymentSchedule($conn) {
     $student_id = (int)($_GET['student_id'] ?? 0);
     if (!$student_id) { echo json_encode(['success'=>false,'message'=>'student_id required']); return; }
@@ -1678,32 +1941,12 @@ function getPaymentSchedule($conn) {
         $sumPeriods = (float)$schedule['prelim_paid'] + (float)$schedule['midterm_paid'] + (float)$schedule['finals_paid'];
         $schedule['downpayment_paid'] = max(0, min($totalPaidAll, (float)$schedule['total_assessment']) - $sumPeriods);
     } else {
-        // Installment: apply same carry-over redistribution for display.
-        // Any DP paid beyond the scheduled DP reduces Prelim due (and chains forward).
-        // Any DP shortfall increases Prelim due.
-        // The $pd/$md/$fd already reflect this since they are computed from actual dpPaid above.
-        // Now compute effective credited amounts per term using carry-over:
-        $raw_p = $paidByPeriod['Prelim']  ?? 0;
-        $raw_m = $paidByPeriod['Midterm'] ?? 0;
-        $raw_f = $paidByPeriod['Finals']  ?? 0;
-
-        // Re-fetch updated dues (just upserted above)
-        $schRow = $conn->query("SELECT prelim_due,midterm_due,finals_due,prelim_status,midterm_status,finals_status FROM payment_schedules WHERE student_id=$student_id LIMIT 1")->fetch_assoc();
-        $due_p  = (float)($schRow['prelim_due']   ?? $pd);
-        $due_m  = (float)($schRow['midterm_due']  ?? $md);
-        $due_f  = (float)($schRow['finals_due']   ?? $fd);
-
-        $carry = 0.0;
-        foreach (['Prelim'=>[$raw_p,$due_p], 'Midterm'=>[$raw_m,$due_m], 'Finals'=>[$raw_f,$due_f]] as $period => [$raw,$due]) {
-            $p = strtolower($period);
-            if (($schRow[$p.'_status'] ?? '') === 'locked') { $carry = 0.0; continue; }
-            $effective = min($raw + $carry, $due);
-            $carry     = max(0.0, $raw + $carry - $due);
-            $status    = $effective <= 0 ? 'unpaid' : ($effective >= $due ? 'paid' : 'partial');
-            $effective = round($effective, 2);
-            $conn->query("UPDATE payment_schedules SET {$p}_paid=$effective,{$p}_status='$status' WHERE student_id=$student_id");
-            $schedule[$p.'_paid']   = $effective;
-            $schedule[$p.'_status'] = $status;
+        // Installment: use recomputeSchedule() to dynamically redistribute dues and sync paid amounts.
+        recomputeSchedule($conn, $student_id);
+        // Re-fetch updated schedule after recompute
+        $refetchRes = $conn->query("SELECT * FROM payment_schedules WHERE student_id=$student_id LIMIT 1");
+        if ($refetchRes) {
+            $schedule = $refetchRes->fetch_assoc();
         }
         $schedule['downpayment_paid'] = $dpPaid;
     }
@@ -1719,6 +1962,8 @@ function getPaymentSchedule($conn) {
               'prelim_paid','midterm_paid','finals_paid','downpayment_paid'] as $f) {
         if (isset($schedule[$f])) $schedule[$f] = (float)$schedule[$f];
     }
+    // total_paid = authoritative sum from installment_payments (never sum of period fields)
+    $schedule['total_paid'] = round($totalPaidAll, 2);
 
     echo json_encode(['success'=>true,'schedule'=>$schedule,'notices'=>$notices]);
 }
@@ -1777,7 +2022,129 @@ function sendPaymentNotice($conn, $data) {
             VALUES ($student_id,'installment',$total,$pd,$md,$fd,'unpaid',NOW())");
     }
 
+    logAuditShared($conn, $GLOBALS['authUser'] ?? null, 'SEND_NOTICE', 'student', $student_id,
+        "Sent $exam_period notice to student ID $student_id (₱" . number_format($amount_due,2) . ")");
     echo json_encode(['success'=>true,'message'=>"$exam_period notice sent. Payment period is now unlocked for the student."]);
+}
+
+
+// ─────────────────────────────────────────────────────────────
+// BULK NOTICE — send payment notice to all matching students
+// POST ?action=send_bulk_notice
+// Body: { exam_period, category (College|SHS|TVET|all), due_date, message_template, accounting_user_id }
+// ─────────────────────────────────────────────────────────────
+function sendBulkNotice($conn, $data) {
+    $exam_period  = trim($data['exam_period']        ?? '');
+    $category     = strtoupper(trim($data['category'] ?? 'ALL'));
+    $due_date     = trim($data['due_date']            ?? '');
+    $msg_template = trim($data['message_template']   ?? '');
+    $acc_user_id  = (int)($data['accounting_user_id'] ?? 0);
+
+    if (!in_array($exam_period, ['Prelim','Midterm','Finals'])) {
+        echo json_encode(['success'=>false,'message'=>'Invalid exam_period']); return;
+    }
+
+    // Build WHERE clause for category filter
+    $cat_where = '';
+    if ($category !== 'ALL') {
+        $cat_esc   = $conn->real_escape_string($category);
+        $cat_where = "AND UPPER(COALESCE(s.student_category,'College')) = '$cat_esc'";
+    }
+
+    $p = strtolower($exam_period);
+    $res = $conn->query("
+        SELECT s.id, s.first_name, s.last_name,
+               COALESCE(ps.{$p}_due, ROUND(COALESCE(tf.total_assessment,0)/4,2)) AS period_due,
+               COALESCE(ps.{$p}_paid, 0) AS period_paid
+        FROM students s
+        LEFT JOIN tuition_fees      tf ON tf.student_id = s.id
+        LEFT JOIN payment_schedules ps ON ps.student_id = s.id
+        WHERE s.approval_status   = 'Approved'
+          AND s.enrollment_status = 'Enrolled'
+          AND s.payment_plan      = 'installment'
+          $cat_where
+        ORDER BY s.last_name ASC
+    ");
+
+    $sent = 0; $skipped = 0;
+    $unlocked_col = $p.'_unlocked_at';
+    $due_val = $due_date ? "'$due_date'" : 'NULL';
+
+    if ($res) {
+        while ($row = $res->fetch_assoc()) {
+            $sid       = (int)$row['id'];
+            $fname     = $row['first_name'];
+            $lname     = $row['last_name'];
+            $amount    = (float)$row['period_due'] - (float)$row['period_paid'];
+            if ($amount <= 0) { $skipped++; continue; } // already paid
+
+            $message = $msg_template
+                ? str_replace(['{name}','{period}','{amount}'],
+                              [$fname, $exam_period, '₱'.number_format($amount,2)],
+                              $msg_template)
+                : "Dear $fname, your $exam_period payment of ₱".number_format($amount,2)." is now due. Please settle at the Accounting office.";
+            $msg_esc = $conn->real_escape_string($message);
+
+            $conn->query("INSERT INTO payment_notices (student_id,exam_period,amount_due,due_date,message,sent_by)
+                VALUES ($sid,'$exam_period',$amount,$due_val,'$msg_esc',$acc_user_id)
+                ON DUPLICATE KEY UPDATE amount_due=$amount,due_date=$due_val,message='$msg_esc',sent_by=$acc_user_id,sent_at=NOW(),is_read=0");
+
+            // Unlock the period
+            $conn->query("UPDATE payment_schedules
+                SET {$p}_status = IF({$p}_status='locked','unpaid',{$p}_status),
+                    $unlocked_col = IF($unlocked_col IS NULL, NOW(), $unlocked_col)
+                WHERE student_id = $sid");
+
+            // Create payment_schedules row if missing
+            $chk = $conn->query("SELECT id FROM payment_schedules WHERE student_id=$sid");
+            if (!$chk || $chk->num_rows === 0) {
+                $tfRes = $conn->query("SELECT total_assessment FROM tuition_fees WHERE student_id=$sid LIMIT 1");
+                $tfRow = $tfRes ? $tfRes->fetch_assoc() : null;
+                $total = $tfRow ? (float)$tfRow['total_assessment'] : 0;
+                $dpR   = $conn->query("SELECT COALESCE(SUM(amount),0) AS paid FROM installment_payments WHERE student_id=$sid AND exam_period='Downpayment'");
+                $dpPd  = $dpR ? (float)$dpR->fetch_assoc()['paid'] : 0;
+                $dpCr  = $dpPd > 0 ? $dpPd : round($total/4,2);
+                $rem   = max(0, $total - $dpCr);
+                $pd = ceil($rem/3*100)/100; $md = $pd; $fd = round($rem-$pd*2,2);
+                $conn->query("INSERT INTO payment_schedules
+                    (student_id,payment_type,total_assessment,prelim_due,midterm_due,finals_due,{$p}_status,{$unlocked_col})
+                    VALUES ($sid,'installment',$total,$pd,$md,$fd,'unpaid',NOW())");
+            }
+            $sent++;
+        }
+    }
+
+    logAuditShared($conn, $GLOBALS['authUser'] ?? null, 'BULK_SEND_NOTICE', 'notice', 0,
+        "Bulk $exam_period notice: $sent sent, $skipped skipped. Category: $category");
+    echo json_encode(['success'=>true,'sent'=>$sent,'skipped'=>$skipped,
+        'message'=>"Notice sent to $sent student(s). $skipped already paid/skipped."]);
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RECALC ALL PAYMENT SCHEDULES
+// GET ?action=recalc_payment_schedules
+// Corrects any stale carry-over data in payment_schedules.
+// For every installment student: sets period_paid = actual SUM(installment_payments)
+// and period_status based on that, for unlocked periods only.
+// ─────────────────────────────────────────────────────────────────────────────
+function recalcAllPaymentSchedules($conn) {
+    // Get all installment students who have a payment_schedules row
+    $res = $conn->query("
+        SELECT s.id AS student_id
+        FROM students s
+        INNER JOIN payment_schedules ps ON ps.student_id = s.id
+        WHERE s.payment_plan = 'installment'
+    ");
+
+    $fixed = 0;
+    if ($res) {
+        while ($row = $res->fetch_assoc()) {
+            recomputeSchedule($conn, (int)$row['student_id']);
+            $fixed++;
+        }
+    }
+    echo json_encode(['success'=>true,'message'=>"Recalculated $fixed student payment schedules.",'fixed'=>$fixed]);
 }
 
 function getExamPermits($conn) {
@@ -1883,9 +2250,10 @@ function requestExamPermit($conn, $data) {
         $paidRes = $conn->query("SELECT COALESCE(SUM(amount),0) AS paid FROM installment_payments WHERE student_id=$student_id AND exam_period='$exam_period'");
         $paid = $paidRes ? (float)$paidRes->fetch_assoc()['paid'] : 0;
         $due  = (float)($sch[$p.'_due'] ?? 0);
-        if ($paid < $due) {
-            $bal = number_format($due - $paid, 2);
-            echo json_encode(['success'=>false,'message'=>"$exam_period balance ₱$bal must be paid first."]); return;
+        // Allow permit request even for partial payment — balance will appear on permit
+        // Only block if NO payment has been recorded at all for this period
+        if ($paid <= 0) {
+            echo json_encode(['success'=>false,'message'=>"No payment recorded for $exam_period yet. Please pay at the Accounting office first."]); return;
         }
     }
 
@@ -1906,6 +2274,8 @@ function processExamPermit($conn, $data) {
     if (!$permit_id) { echo json_encode(['success'=>false,'message'=>'permit_id required']); return; }
     $conn->query("UPDATE exam_permits SET status='$action',approved_at=NOW(),
         approved_by=$approved_by,remarks='$remarks' WHERE id=$permit_id");
+    logAuditShared($conn, $GLOBALS['authUser'] ?? null, strtoupper($action).'_PERMIT', 'exam_permit', $permit_id,
+        "Exam permit {$action}d. ID: $permit_id. Remarks: $remarks");
     echo json_encode(['success'=>true,'message'=>"Permit $action."]);
 }
 function getAllEnrolledStudents($conn) {
@@ -1922,6 +2292,7 @@ function getAllEnrolledStudents($conn) {
             s.payment_plan,
             s.approval_status,
             s.enrollment_status,
+            UPPER(COALESCE(s.student_category, 'College')) AS student_category,
             COALESCE(tf.total_assessment, 0) AS total_assessment,
             COALESCE(ps.prelim_due,   ROUND(COALESCE(tf.total_assessment,0) / 4, 2)) AS prelim_due,
             COALESCE(ps.midterm_due,  ROUND(COALESCE(tf.total_assessment,0) / 4, 2)) AS midterm_due,
@@ -1986,7 +2357,8 @@ function buildStudentRow($row) {
         'paymentMethod'  => $row['payment_method'],
         'paymentPlan'    => $row['payment_plan'],
         'approvalStatus' => $row['approval_status'] ?? '',
-        'enrollmentStatus'=> $row['enrollment_status'] ?? '',
+        'enrollmentStatus'  => $row['enrollment_status'] ?? '',
+        'studentCategory'   => strtoupper($row['student_category'] ?? 'College'),
         'totalAssessment'=> (float)$row['total_assessment'],
         'prelimDue'      => (float)$row['prelim_due'],
         'midtermDue'     => (float)$row['midterm_due'],
@@ -2111,6 +2483,8 @@ function unlockPaymentPeriod($conn, $data) {
         'success' => true,
         'message' => "$exam_period payment period has been unlocked.",
     ]);
+    logAuditShared($conn, $GLOBALS['authUser'] ?? null, 'UNLOCK_PERIOD', 'student', $student_id,
+        "Unlocked $exam_period payment period for student ID $student_id");
 }
 // ─────────────────────────────────────────────────────────────
 // GET STUDENT INSTALLMENT BREAKDOWN
@@ -2396,7 +2770,7 @@ function getPermitDetails($conn) {
     $courses = [];
     if ($cRes) {
         while ($r = $cRes->fetch_assoc()) {
-            $courses[] = ['code' => $r['code'], 'name' => $r['name'], 'instructor' => $r['instructor']];
+            $courses[] = ['code' => cleanCode($r['code']), 'name' => $r['name'], 'instructor' => $r['instructor']];
         }
     }
 
@@ -2411,7 +2785,7 @@ function getPermitDetails($conn) {
         ");
         if ($cRes2) {
             while ($r = $cRes2->fetch_assoc()) {
-                $courses[] = ['code' => $r['code'], 'name' => $r['name'], 'instructor' => $r['instructor']];
+                $courses[] = ['code' => cleanCode($r['code']), 'name' => $r['name'], 'instructor' => $r['instructor']];
             }
         }
     }
@@ -2684,6 +3058,8 @@ function saveFeeConfig(mysqli $conn, array $data): void {
         $conn->query("UPDATE fee_config SET value=$val, fee_label='$lbl', description='$desc', is_per_unit=$isPerUnit WHERE id=$id");
         $saved++;
     }
+    logAuditShared($conn, $GLOBALS['authUser'] ?? null, 'SAVE_FEE_CONFIG', 'fee_config', 0,
+        "$saved fee config(s) updated");
     echo json_encode(['success' => true, 'saved' => $saved, 'message' => "$saved fee(s) updated. New rates apply to all future enrollments."]);
 }
 
@@ -2704,6 +3080,8 @@ function addFeeConfig(mysqli $conn, array $data): void {
     $conn->query("INSERT INTO fee_config (category,fee_key,fee_label,value,is_per_unit,applies_to,description,sort_order)
                   VALUES ('$cat','$key','$label',$val,$perUnit,'$appTo','$desc',$maxSort)");
     if ($conn->insert_id) {
+        logAuditShared($conn, $GLOBALS['authUser'] ?? null, 'ADD_FEE_CONFIG', 'fee_config', $conn->insert_id,
+            "Added fee config '$label' (₱$val) for category '$cat'");
         echo json_encode(['success' => true, 'id' => $conn->insert_id, 'message' => 'Fee added successfully.']);
     } else {
         echo json_encode(['success' => false, 'message' => 'Failed to add fee (key may already exist): ' . $conn->error]);
@@ -2715,6 +3093,8 @@ function deleteFeeConfig(mysqli $conn, array $data): void {
     $id = (int)($data['id'] ?? 0);
     if (!$id) { echo json_encode(['success' => false, 'message' => 'id required']); return; }
     $conn->query("UPDATE fee_config SET is_active=0 WHERE id=$id");
+    logAuditShared($conn, $GLOBALS['authUser'] ?? null, 'DELETE_FEE_CONFIG', 'fee_config', $id,
+        "Deactivated fee config ID $id");
     echo json_encode(['success' => true, 'message' => 'Fee removed.']);
 }
 
@@ -3034,6 +3414,69 @@ function getIncomeByProgram($conn) {
         'grandTotal' => round($grandTotal, 2),
         'programs'   => $programs,
     ]);
+}
+
+// ─────────────────────────────────────────────────────────────
+// GET PAYMENT DUE DATES
+// GET ?action=get_due_dates
+// Returns the installment due date ranges set by Accounting.
+// Stored in sys_config as JSON under key 'payment_due_dates'.
+// Public — no auth needed (SOA needs to show it to students).
+// ─────────────────────────────────────────────────────────────
+function getPaymentDueDates(mysqli $conn): void {
+    $conn->query("CREATE TABLE IF NOT EXISTS sys_config (
+        config_key   VARCHAR(100) PRIMARY KEY,
+        config_value TEXT DEFAULT NULL,
+        updated_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+    $res = $conn->query("SELECT config_value FROM sys_config WHERE config_key = 'payment_due_dates' LIMIT 1");
+    $row = $res ? $res->fetch_assoc() : null;
+
+    $defaults = [
+        'downpayment' => ['label' => 'Downpayment', 'date_range' => ''],
+        'prelim'      => ['label' => 'Prelim',      'date_range' => 'JANUARY 10-16, 2026'],
+        'midterm'     => ['label' => 'Midterm',      'date_range' => 'FEBRUARY 9 - 14, 2026'],
+        'finals'      => ['label' => 'Finals',       'date_range' => 'MARCH 30 - APRIL 4, 2026'],
+    ];
+
+    $dates = $defaults;
+    if ($row && !empty($row['config_value'])) {
+        $saved = json_decode($row['config_value'], true);
+        if (is_array($saved)) $dates = array_merge($defaults, $saved);
+    }
+
+    echo json_encode(['success' => true, 'dueDates' => $dates]);
+}
+
+// ─────────────────────────────────────────────────────────────
+// SAVE PAYMENT DUE DATES
+// POST ?action=save_due_dates
+// Body: { downpayment, prelim, midterm, finals }
+// Each period: { label, date_range }
+// Only Accounting role can call this.
+// ─────────────────────────────────────────────────────────────
+function savePaymentDueDates(mysqli $conn): void {
+    $data = json_decode(file_get_contents('php://input'), true);
+    if (!$data) { echo json_encode(['success' => false, 'message' => 'Invalid JSON']); return; }
+
+    $allowed = ['downpayment', 'prelim', 'midterm', 'finals'];
+    $toSave  = [];
+    foreach ($allowed as $period) {
+        if (isset($data[$period])) {
+            $toSave[$period] = [
+                'label'      => trim($data[$period]['label']      ?? ucfirst($period)),
+                'date_range' => trim($data[$period]['date_range'] ?? ''),
+            ];
+        }
+    }
+
+    $json = $conn->real_escape_string(json_encode($toSave));
+    $conn->query("INSERT INTO sys_config (config_key, config_value)
+                  VALUES ('payment_due_dates', '$json')
+                  ON DUPLICATE KEY UPDATE config_value = '$json', updated_at = NOW()");
+
+    echo json_encode(['success' => true, 'message' => 'Due dates saved successfully.', 'dueDates' => $toSave]);
 }
 
 ?>

@@ -50,6 +50,23 @@ function loadFeeConfig(mysqli $conn, string $category): array {
 }
 }
 
+// ── cleanCode() — strips program-disambiguation suffixes from course codes ──
+// e.g. GE103-BMD → GE103, PE1-BMD → PE1, NSTP1-CA → NSTP1
+// Legitimate dash-codes (RE-FUN013, GE-ENG013, BN-MGT013) are NOT affected.
+if (!function_exists('cleanCode')) {
+    function cleanCode($code) {
+        if (!$code) return $code;
+        static $suffixes = ['-BMD','-CA','-BSA','-BSCA','-BSE','-CIMT','-BSIT','-BSREM','-ICTD','-HMD','-CED','-CAS','-GEN'];
+        $upper = strtoupper($code);
+        foreach ($suffixes as $s) {
+            if (substr($upper, -strlen($s)) === $s) {
+                return substr($code, 0, strlen($code) - strlen($s));
+            }
+        }
+        return $code;
+    }
+}
+
 $action = $_GET['action'] ?? '';
 
 require_once __DIR__ . '/auth_middleware.php';
@@ -97,6 +114,15 @@ switch ($action) {
     case 'get_grade_student_detail': getGradeStudentDetail($conn);     exit();
     case 'get_grade_courses':      getGradeCourses($conn);             exit();
     case 'get_course_students':    getCourseStudents($conn);           exit();
+    // ── Masterlist ──
+    case 'masterlist_students':    getMasterlistStudents($conn);       exit();
+    case 'masterlist_subjects':    getMasterlistSubjects($conn);       exit();
+    case 'masterlist_courses':     getMasterlistCourses($conn);        exit();
+    case 'masterlist_programs':    getMasterlistPrograms($conn);       exit();
+    case 'masterlist_program_subjects': getMasterlistProgramSubjects($conn); exit();
+    case 'report_students_per_year':   reportStudentsPerYear($conn);         exit();
+    case 'report_subjects_per_year':   reportSubjectsPerYear($conn);         exit();
+    case 'masterlist_course_students': getMasterlistCourseStudents($conn); exit();
 }
 
 // Write actions (POST body required)
@@ -136,9 +162,11 @@ function getGradeStudents($conn) {
         $sq = '%' . $conn->real_escape_string($search) . '%';
         $where[] = "(s.student_number LIKE '$sq' OR s.first_name LIKE '$sq' OR s.last_name LIKE '$sq' OR CONCAT(s.first_name,' ',s.last_name) LIKE '$sq')";
     }
-    if ($program)   { $where[] = 's.program = ?';    $params[] = $program;   $types .= 's'; }
-    if ($yearLevel) { $where[] = 's.year_level = ?'; $params[] = $yearLevel; $types .= 's'; }
-    if ($semester)  { $where[] = 's.semester = ?';   $params[] = $semester;  $types .= 's'; }
+    if ($program)   { $where[] = 's.program = ?';          $params[] = $program;   $types .= 's'; }
+    if ($yearLevel) { $where[] = 's.year_level = ?';       $params[] = $yearLevel; $types .= 's'; }
+    if ($semester)  { $where[] = 's.semester = ?';         $params[] = $semester;  $types .= 's'; }
+    $category = trim($_GET['category'] ?? '');
+    if ($category)  { $where[] = 's.student_category = ?'; $params[] = $category;  $types .= 's'; }
 
     $whereStr = implode(' AND ', $where);
 
@@ -243,7 +271,7 @@ function getGradeStudentDetail($conn) {
         $subjects[] = [
             'enrollmentId' => (int)$r['enrollment_id'],
             'courseId'     => (int)$r['course_id'],
-            'code'         => $r['code'],
+            'code'         => cleanCode($r['code']),
             'name'         => $r['name'],
             'credits'      => (int)$r['credits'],
             'instructor'   => $r['instructor'] ?? '',
@@ -279,6 +307,11 @@ function getGradeCourses($conn) {
     $where = ['e.status IN ("Enrolled","Pending")'];
     if ($semester) $where[] = "e.semester='".$conn->real_escape_string($semester)."'";
     if ($program)  $where[] = "c.program='".$conn->real_escape_string($program)."'";
+    $courseCategory = trim($_GET['category'] ?? '');
+    if ($courseCategory) {
+        $cc = $conn->real_escape_string($courseCategory);
+        $where[] = "EXISTS (SELECT 1 FROM students s2 JOIN enrollments e2 ON e2.student_id=s2.id WHERE e2.course_id=c.id AND s2.student_category='$cc' LIMIT 1)";
+    }
     $whereStr = implode(' AND ', $where);
 
     $res = $conn->query("
@@ -298,7 +331,7 @@ function getGradeCourses($conn) {
         $enrolled = (int)$r['enrolled_count'];
         $courses[] = [
             'id'           => (int)$r['id'],
-            'code'         => $r['code'],
+            'code'         => cleanCode($r['code']),
             'name'         => $r['name'],
             'instructor'   => $r['instructor'] ?? '',
             'program'      => $r['program'],
@@ -856,7 +889,7 @@ function getProgramCourses($conn) {
         $sem = normalizeSem($r['semester']);
         $out[] = [
             'courseId'   => (int)$r['id'],
-            'code'       => $r['code'],
+            'code'       => cleanCode($r['code']),
             'name'       => $r['name'],
             'credits'    => (int)$r['credits'],
             'yearLevel'  => $yr,
@@ -1279,7 +1312,7 @@ function getStudentCurriculum($conn) {
 
             $courses[] = [
                 'courseId'     => $cid,
-                'code'         => $r['code'],
+                'code'         => cleanCode($r['code']),
                 'name'         => $r['name'],
                 'credits'      => (int)$r['credits'],
                 'yearLevel'    => $r['year_level']  ?: '1st Year',
@@ -1383,5 +1416,588 @@ function uploadDocument($conn) {
         'file_name'    => $filename,
         'file_url'     => $baseUrl . $filename,
         'document_type'=> $document_type,
+    ]);
+}
+// ================================================================
+// STUDENT MASTERLIST
+// ================================================================
+function getMasterlistStudents($conn) {
+    $page      = max(1, (int)($_GET['page']       ?? 1));
+    $limit     = min(100, max(10, (int)($_GET['limit'] ?? 20)));
+    $offset    = ($page - 1) * $limit;
+    $search     = trim($_GET['q']          ?? '');
+    $category   = trim($_GET['category']   ?? '');
+    $program    = trim($_GET['program']    ?? '');
+    $yearLevel  = trim($_GET['year_level'] ?? '');
+    $status     = trim($_GET['status']     ?? '');
+    $department = trim($_GET['department'] ?? '');
+    $strand     = trim($_GET['strand']     ?? '');
+
+    $where  = ['1=1'];
+    $params = [];
+    $types  = '';
+
+    if ($search) {
+        $sq = '%' . $conn->real_escape_string($search) . '%';
+        $where[] = "(s.student_number LIKE '$sq' OR s.first_name LIKE '$sq' OR s.last_name LIKE '$sq' OR CONCAT(s.first_name,' ',s.last_name) LIKE '$sq' OR s.email LIKE '$sq')";
+    }
+    if ($category)  { $where[] = 's.student_category = ?'; $params[] = $category;  $types .= 's'; }
+    if ($program)   { $where[] = 's.program = ?';          $params[] = $program;   $types .= 's'; }
+    if ($yearLevel) { $where[] = 's.year_level = ?';       $params[] = $yearLevel; $types .= 's'; }
+    if ($status)     { $where[] = 's.enrollment_status = ?'; $params[] = $status;     $types .= 's'; }
+    if ($department) { $where[] = 'p_dept.department = ?';   $params[] = $department; $types .= 's'; }
+    if ($strand)     { $where[] = 's.strand = ?';            $params[] = $strand;     $types .= 's'; }
+
+    $whereStr = implode(' AND ', $where);
+
+    // Count (LEFT JOIN programs to allow department filter)
+    $countStmt = $conn->prepare("SELECT COUNT(*) AS total FROM students s LEFT JOIN programs p_dept ON p_dept.name = s.program WHERE $whereStr");
+    if ($params) $countStmt->bind_param($types, ...$params);
+    $countStmt->execute();
+    $total = (int)$countStmt->get_result()->fetch_assoc()['total'];
+    $countStmt->close();
+
+    // Data — derive department from programs table (students table has no department column)
+    $dataStmt = $conn->prepare("
+        SELECT s.id, s.student_number, s.first_name, s.last_name, s.middle_name, s.suffix,
+               s.email, s.phone, s.date_of_birth, s.age, s.sex, s.religion,
+               s.place_of_birth, s.citizenship, s.mother_tongue, s.address,
+               s.lrn_no, s.psa_birth_cert_no, s.is_indigenous,
+               s.has_special_needs, s.special_needs_details,
+               s.has_assistive_tech, s.assistive_tech_details,
+               s.strand, COALESCE(p_dept.department,'') AS department,
+               s.learning_delivery, s.last_school_attended,
+               s.guardian_name, s.guardian_address, s.guardian_contact,
+               s.program, s.year_level, s.semester, s.student_type,
+               s.student_category, s.enrollment_status, s.payment_status,
+               s.approval_status, s.is_scholar, s.scholar_type,
+               DATE_FORMAT(s.enrollment_date,'%Y-%m-%d') AS enrollment_date
+        FROM students s
+        LEFT JOIN programs p_dept ON p_dept.name = s.program
+        WHERE $whereStr
+        ORDER BY s.last_name, s.first_name
+        LIMIT ? OFFSET ?
+    ");
+    $allP = array_merge($params, [$limit, $offset]);
+    $allT = $types . 'ii';
+    $dataStmt->bind_param($allT, ...$allP);
+    $dataStmt->execute();
+    $res = $dataStmt->get_result();
+
+    $students = [];
+    while ($r = $res->fetch_assoc()) {
+        $students[] = [
+            'id'                  => (int)$r['id'],
+            'studentNumber'       => $r['student_number'],
+            'firstName'           => $r['first_name'],
+            'lastName'            => $r['last_name'],
+            'middleName'          => $r['middle_name'] ?? '',
+            'suffix'              => $r['suffix'] ?? '',
+            'fullName'            => $r['first_name'] . ' ' . $r['last_name'],
+            'email'               => $r['email'] ?? '',
+            'phone'               => $r['phone'] ?? '',
+            'dateOfBirth'         => $r['date_of_birth'] ?? '',
+            'age'                 => $r['age'] ?? '',
+            'sex'                 => $r['sex'] ?? '',
+            'religion'            => $r['religion'] ?? '',
+            'placeOfBirth'        => $r['place_of_birth'] ?? '',
+            'citizenship'         => $r['citizenship'] ?? '',
+            'motherTongue'        => $r['mother_tongue'] ?? '',
+            'address'             => $r['address'] ?? '',
+            'lrnNo'               => $r['lrn_no'] ?? '',
+            'psaBirthCertNo'      => $r['psa_birth_cert_no'] ?? '',
+            'isIndigenous'        => $r['is_indigenous'] ?? '',
+            'hasSpecialNeeds'     => $r['has_special_needs'] ?? '',
+            'specialNeedsDetails' => $r['special_needs_details'] ?? '',
+            'hasAssistiveTech'    => $r['has_assistive_tech'] ?? '',
+            'assistiveTechDetails'=> $r['assistive_tech_details'] ?? '',
+            'strand'              => $r['strand'] ?? '',
+            'department'          => $r['department'] ?? '',
+            'learningDelivery'    => $r['learning_delivery'] ?? '',
+            'lastSchoolAttended'  => $r['last_school_attended'] ?? '',
+            'guardianName'        => $r['guardian_name'] ?? '',
+            'guardianAddress'     => $r['guardian_address'] ?? '',
+            'guardianContact'     => $r['guardian_contact'] ?? '',
+            'program'             => $r['program'],
+            'yearLevel'           => $r['year_level'],
+            'semester'            => $r['semester'] ?? '',
+            'studentType'         => $r['student_type'] ?? '',
+            'studentCategory'     => $r['student_category'] ?? 'College',
+            'enrollmentStatus'    => $r['enrollment_status'] ?? '',
+            'paymentStatus'       => $r['payment_status'] ?? '',
+            'approvalStatus'      => $r['approval_status'] ?? '',
+            'isScholar'           => (int)$r['is_scholar'],
+            'scholarType'         => $r['scholar_type'] ?? '',
+            'enrollmentDate'      => $r['enrollment_date'] ?? '',
+            'initials'            => strtoupper(substr($r['first_name'],0,1) . substr($r['last_name'],0,1)),
+        ];
+    }
+    $dataStmt->close();
+
+    // Programs list for filter dropdown
+    $progRes  = $conn->query("SELECT DISTINCT program FROM students ORDER BY program");
+    $programs = [];
+    while ($p = $progRes->fetch_assoc()) { if ($p['program']) $programs[] = $p['program']; }
+
+    // Departments list for College filter — derived from programs table
+    $deptRes  = $conn->query("SELECT DISTINCT p2.department FROM students s2 JOIN programs p2 ON p2.name = s2.program WHERE s2.student_category='College' AND p2.department IS NOT NULL AND p2.department != '' ORDER BY p2.department");
+    $departments = [];
+    while ($d = $deptRes->fetch_assoc()) { if ($d['department']) $departments[] = $d['department']; }
+
+    echo json_encode([
+        'success'     => true,
+        'students'    => $students,
+        'total'       => $total,
+        'page'        => $page,
+        'limit'       => $limit,
+        'totalPages'  => (int)ceil($total / $limit),
+        'programs'    => $programs,
+        'departments' => $departments,
+    ]);
+}
+
+// ================================================================
+// SUBJECTS MASTERLIST
+// ================================================================
+function getMasterlistSubjects($conn) {
+    $search   = trim($_GET['q']        ?? '');
+    $category = trim($_GET['category'] ?? '');
+    $semester = trim($_GET['semester'] ?? '');
+    $course   = trim($_GET['course']   ?? '');
+
+    $where = ['e.status IN ("Enrolled","Pending","Completed")'];
+    if ($search) {
+        $sq = '%' . $conn->real_escape_string($search) . '%';
+        $where[] = "(s.first_name LIKE '$sq' OR s.last_name LIKE '$sq' OR CONCAT(s.first_name,' ',s.last_name) LIKE '$sq' OR s.student_number LIKE '$sq' OR c.code LIKE '$sq' OR c.name LIKE '$sq')";
+    }
+    if ($category) { $cat = $conn->real_escape_string($category); $where[] = "s.student_category='$cat'"; }
+    if ($semester) { $sem = $conn->real_escape_string($semester); $where[] = "e.semester LIKE '%$sem%'"; }
+    if ($course)   { $crs = $conn->real_escape_string($course);   $where[] = "c.code='$crs'"; }
+
+    $whereStr = implode(' AND ', $where);
+
+    $res = $conn->query("
+        SELECT s.student_number, s.first_name, s.last_name, s.program, s.year_level,
+               c.code AS course_code, c.name AS course_name, c.credits, c.instructor,
+               e.semester, e.prelim_grade, e.midterm_grade, e.final_grade, e.status
+        FROM enrollments e
+        JOIN students s ON s.id = e.student_id
+        JOIN courses c  ON c.id = e.course_id
+        WHERE $whereStr
+        ORDER BY s.last_name, s.first_name, c.code
+        LIMIT 1000
+    ");
+
+    $records = [];
+    $courseSet = [];
+    while ($r = $res->fetch_assoc()) {
+        $prelim  = $r['prelim_grade']  !== null ? (float)$r['prelim_grade']  : null;
+        $midterm = $r['midterm_grade'] !== null ? (float)$r['midterm_grade'] : null;
+        $final   = $r['final_grade']   !== null ? (float)$r['final_grade']   : null;
+        $vals    = array_filter([$prelim,$midterm,$final], fn($v) => $v !== null);
+        $overall = count($vals) > 0 ? round(array_sum($vals)/count($vals), 2) : null;
+        $records[] = [
+            'studentNumber' => $r['student_number'],
+            'fullName'      => $r['first_name'] . ' ' . $r['last_name'],
+            'program'       => $r['program'],
+            'yearLevel'     => $r['year_level'],
+            'courseCode'    => $r['course_code'],
+            'courseName'    => $r['course_name'],
+            'credits'       => (int)$r['credits'],
+            'instructor'    => $r['instructor'] ?? '',
+            'semester'      => $r['semester'] ?? '',
+            'prelimGrade'   => $prelim,
+            'midtermGrade'  => $midterm,
+            'finalGrade'    => $final,
+            'overall'       => $overall,
+            'remarks'       => $final !== null ? ($overall <= 3.0 ? 'Passed' : 'Failed') : 'In Progress',
+            'status'        => $r['status'],
+        ];
+        $courseSet[$r['course_code']] = true;
+    }
+
+    echo json_encode([
+        'success' => true,
+        'records' => $records,
+        'courses' => array_keys($courseSet),
+    ]);
+}
+
+// ================================================================
+// COURSES MASTERLIST — list all courses with enrollment counts
+// ================================================================
+function getMasterlistCourses($conn) {
+    $search   = trim($_GET['q']          ?? '');
+    $semester = trim($_GET['semester']   ?? '');
+    $dept     = trim($_GET['department'] ?? '');
+
+    $where = ['1=1'];
+    if ($search) {
+        $sq = '%' . $conn->real_escape_string($search) . '%';
+        $where[] = "(c.code LIKE '$sq' OR c.name LIKE '$sq' OR c.instructor LIKE '$sq')";
+    }
+    if ($semester) { $s = $conn->real_escape_string($semester); $where[] = "c.semester LIKE '%$s%'"; }
+    if ($dept)     { $d = $conn->real_escape_string($dept);     $where[] = "c.department = '$d'"; }
+    $whereStr = implode(' AND ', $where);
+
+    $res = $conn->query("
+        SELECT c.id, c.code, c.name, c.credits, c.instructor,
+               COALESCE(c.department,'') AS department,
+               COALESCE(c.program,'') AS program,
+               COALESCE(c.year_level,'') AS year_level,
+               COALESCE(c.semester,'') AS semester,
+               COALESCE(c.schedule,'') AS schedule,
+               COALESCE(c.day,'') AS day,
+               COALESCE(c.time,'') AS time,
+               COALESCE(c.room,'') AS room,
+               COALESCE(c.capacity,40) AS capacity,
+               COUNT(e.id) AS enrolled_count,
+               SUM(CASE WHEN e.prelim_grade  IS NOT NULL THEN 1 ELSE 0 END) AS prelim_done,
+               SUM(CASE WHEN e.midterm_grade IS NOT NULL THEN 1 ELSE 0 END) AS midterm_done,
+               SUM(CASE WHEN e.final_grade   IS NOT NULL THEN 1 ELSE 0 END) AS final_done
+        FROM courses c
+        LEFT JOIN enrollments e ON e.course_id = c.id AND e.status IN ('Enrolled','Pending','Completed')
+        WHERE $whereStr
+        GROUP BY c.id
+        ORDER BY c.code
+    ");
+
+    $courses = [];
+    $deptSet = [];
+    while ($r = $res->fetch_assoc()) {
+        $courses[] = [
+            'id'           => (int)$r['id'],
+            'code'         => cleanCode($r['code']),
+            'name'         => $r['name'],
+            'credits'      => (int)$r['credits'],
+            'instructor'   => $r['instructor'] ?? '',
+            'department'   => $r['department'],
+            'program'      => $r['program'],
+            'yearLevel'    => $r['year_level'],
+            'semester'     => $r['semester'],
+            'schedule'     => $r['schedule'],
+            'day'          => $r['day'],
+            'time'         => $r['time'],
+            'room'         => $r['room'],
+            'capacity'     => (int)$r['capacity'],
+            'enrolledCount'=> (int)$r['enrolled_count'],
+            'prelimDone'   => (int)$r['prelim_done'],
+            'midtermDone'  => (int)$r['midterm_done'],
+            'finalDone'    => (int)$r['final_done'],
+        ];
+        if ($r['department']) $deptSet[$r['department']] = true;
+    }
+
+    echo json_encode([
+        'success'     => true,
+        'courses'     => $courses,
+        'departments' => array_keys($deptSet),
+    ]);
+}
+
+// ================================================================
+// COURSE STUDENTS — enrolled students for one course (lazy load)
+// ================================================================
+function getMasterlistCourseStudents($conn) {
+    $courseId = (int)($_GET['course_id'] ?? 0);
+    if (!$courseId) { echo json_encode(['success'=>false,'message'=>'Missing course_id']); return; }
+
+    $stmt = $conn->prepare("
+        SELECT s.student_number, s.first_name, s.last_name, s.program, s.year_level,
+               e.prelim_grade, e.midterm_grade, e.final_grade, e.overall_grade, e.remarks
+        FROM enrollments e
+        JOIN students s ON s.id = e.student_id
+        WHERE e.course_id = ? AND e.status IN ('Enrolled','Pending','Completed')
+        ORDER BY s.last_name, s.first_name
+    ");
+    $stmt->bind_param('i', $courseId);
+    $stmt->execute();
+    $res = $stmt->get_result();
+
+    $students = [];
+    while ($r = $res->fetch_assoc()) {
+        $p  = $r['prelim_grade']  !== null ? (float)$r['prelim_grade']  : null;
+        $m  = $r['midterm_grade'] !== null ? (float)$r['midterm_grade'] : null;
+        $f  = $r['final_grade']   !== null ? (float)$r['final_grade']   : null;
+        $ov = $r['overall_grade'] !== null ? (float)$r['overall_grade'] : null;
+        if ($ov === null && ($p||$m||$f)) {
+            $vals = array_filter([$p,$m,$f], fn($v) => $v !== null);
+            $ov = count($vals) ? round(array_sum($vals)/count($vals),2) : null;
+        }
+        $remarks = $r['remarks'] ?: ($f !== null ? ($ov <= 3.0 ? 'Passed':'Failed') : 'In Progress');
+        $students[] = [
+            'studentNumber' => $r['student_number'],
+            'fullName'      => $r['first_name'] . ' ' . $r['last_name'],
+            'program'       => $r['program'],
+            'yearLevel'     => $r['year_level'],
+            'prelimGrade'   => $p,
+            'midtermGrade'  => $m,
+            'finalGrade'    => $f,
+            'overall'       => $ov,
+            'remarks'       => $remarks,
+        ];
+    }
+    $stmt->close();
+    echo json_encode(['success'=>true,'students'=>$students]);
+}
+
+// ================================================================
+// PROGRAMS LIST (College / SHS / TVET) with enrolled count
+// ================================================================
+function getMasterlistPrograms($conn) {
+    $level = trim($_GET['level'] ?? 'College');
+    $allowed = ['College','SHS','TVET'];
+    if (!in_array($level, $allowed)) $level = 'College';
+
+    $res = $conn->prepare("
+        SELECT p.id, p.name, p.code, p.level_type, p.department,
+               COALESCE(p.description,'') AS description,
+               COALESCE(p.duration,0) AS duration,
+               COUNT(DISTINCT s.id) AS total_enrolled
+        FROM programs p
+        LEFT JOIN students s ON s.program = p.name
+            AND s.enrollment_status IN ('Enrolled','Approved','Pending')
+        WHERE p.level_type = ?
+        GROUP BY p.id
+        ORDER BY p.name
+    ");
+    $res->bind_param('s', $level);
+    $res->execute();
+    $result = $res->get_result();
+
+    $programs = [];
+    while ($r = $result->fetch_assoc()) {
+        $programs[] = [
+            'id'            => (int)$r['id'],
+            'name'          => $r['name'],
+            'code'          => cleanCode($r['code']),
+            'levelType'     => $r['level_type'],
+            'department'    => $r['department'] ?? '',
+            'description'   => $r['description'],
+            'duration'      => (int)$r['duration'],
+            'totalEnrolled' => (int)$r['total_enrolled'],
+        ];
+    }
+    $res->close();
+    echo json_encode(['success' => true, 'programs' => $programs]);
+}
+
+// ================================================================
+// SUBJECTS FOR A PROGRAM (via courses.program name match)
+// ================================================================
+function getMasterlistProgramSubjects($conn) {
+    $programId = (int)($_GET['program_id'] ?? 0);
+    if (!$programId) { echo json_encode(['success'=>false,'message'=>'Missing program_id']); return; }
+
+    // Get program name first
+    $pStmt = $conn->prepare("SELECT name FROM programs WHERE id = ?");
+    $pStmt->bind_param('i', $programId);
+    $pStmt->execute();
+    $pRow = $pStmt->get_result()->fetch_assoc();
+    $pStmt->close();
+    if (!$pRow) { echo json_encode(['success'=>false,'message'=>'Program not found']); return; }
+    $progName = $pRow['name'];
+
+    // Try program_courses join first, fall back to courses.program match; also include general subjects
+    $res = $conn->query("
+        SELECT DISTINCT c.id, c.code, c.name, c.credits,
+               COALESCE(c.instructor,'') AS instructor,
+               COALESCE(c.semester,'') AS semester,
+               COALESCE(c.day,'') AS day,
+               COALESCE(c.time,'') AS time,
+               COALESCE(c.room,'') AS room,
+               COALESCE(c.year_level,'') AS year_level,
+               COALESCE(c.is_general,0) AS is_general,
+               (SELECT COUNT(*) FROM enrollments e
+                WHERE e.course_id = c.id
+                AND e.status IN ('Enrolled','Pending','Completed')) AS enrolled_count
+        FROM courses c
+        LEFT JOIN program_courses pc ON pc.course_id = c.id
+        LEFT JOIN programs p2 ON p2.id = pc.program_id
+        WHERE p2.name = '" . $conn->real_escape_string($progName) . "'
+           OR c.program = '" . $conn->real_escape_string($progName) . "'
+           OR c.is_general = 1
+        ORDER BY c.is_general, c.year_level, c.semester, c.code
+    ");
+
+    $subjects = [];
+    while ($r = $res->fetch_assoc()) {
+        $subjects[] = [
+            'id'           => (int)$r['id'],
+            'code'         => cleanCode($r['code']),
+            'name'         => $r['name'],
+            'credits'      => (int)$r['credits'],
+            'instructor'   => $r['instructor'],
+            'semester'     => $r['semester'],
+            'day'          => $r['day'],
+            'time'         => $r['time'],
+            'room'         => $r['room'],
+            'capacity'     => (int)$r['capacity'],
+            'yearLevel'    => $r['year_level'],
+            'isGeneral'    => (bool)$r['is_general'],
+            'enrolledCount'=> (int)$r['enrolled_count'],
+        ];
+    }
+    echo json_encode(['success' => true, 'subjects' => $subjects]);
+}
+// ================================================================
+// REPORT: Students enrolled per program per school year
+// Returns rows: { program, ay, count, yearLevel }
+// ================================================================
+function reportStudentsPerYear($conn) {
+    $level    = trim($_GET['level']      ?? 'College');
+    $progId   = (int)($_GET['program_id'] ?? 0);
+    $yearLvl  = trim($_GET['year_level'] ?? '');
+
+    // Build program filter
+    $progFilter = '';
+    if ($progId > 0) {
+        $pStmt = $conn->prepare("SELECT name FROM programs WHERE id = ?");
+        $pStmt->bind_param('i', $progId);
+        $pStmt->execute();
+        $pRow = $pStmt->get_result()->fetch_assoc();
+        $pStmt->close();
+        if ($pRow) {
+            $pn = $conn->real_escape_string($pRow['name']);
+            $progFilter = "AND s.program = '$pn'";
+        }
+    } else {
+        // Filter by level_type via join
+        $lv = $conn->real_escape_string($level);
+        $progFilter = "AND EXISTS (SELECT 1 FROM programs p WHERE p.name = s.program AND p.level_type = '$lv')";
+    }
+
+    $ylFilter = '';
+    if ($yearLvl) {
+        $yl = $conn->real_escape_string($yearLvl);
+        $ylFilter = "AND s.year_level = '$yl'";
+    }
+
+    // Extract AY from semester string: "1st Semester, AY 2025-2026" → "AY 2025-2026"
+    // Also group by program and year_level
+    $res = $conn->query("
+        SELECT
+            s.program,
+            s.year_level,
+            CASE
+                WHEN s.semester REGEXP 'AY [0-9]{4}-[0-9]{4}'
+                THEN REGEXP_SUBSTR(s.semester, 'AY [0-9]{4}-[0-9]{4}')
+                WHEN s.enrollment_date IS NOT NULL
+                THEN CONCAT('AY ', YEAR(s.enrollment_date), '-', YEAR(s.enrollment_date)+1)
+                ELSE 'AY Unknown'
+            END AS school_year,
+            COUNT(*) AS student_count
+        FROM students s
+        WHERE s.enrollment_status IN ('Enrolled','Approved','Completed','Pending')
+        $progFilter
+        $ylFilter
+        GROUP BY s.program, s.year_level, school_year
+        ORDER BY school_year DESC, s.program, s.year_level
+    ");
+
+    $rows = [];
+    $years   = [];
+    $programs = [];
+    while ($r = $res->fetch_assoc()) {
+        $rows[] = [
+            'program'     => $r['program'],
+            'yearLevel'   => $r['year_level'],
+            'schoolYear'  => $r['school_year'],
+            'count'       => (int)$r['student_count'],
+        ];
+        $years[$r['school_year']]  = true;
+        $programs[$r['program']] = true;
+    }
+
+    echo json_encode([
+        'success'  => true,
+        'rows'     => $rows,
+        'years'    => array_keys($years),
+        'programs' => array_keys($programs),
+    ]);
+}
+
+// ================================================================
+// REPORT: Students enrolled per subject per school year
+// Returns rows: { subjectCode, subjectName, program, ay, count }
+// ================================================================
+function reportSubjectsPerYear($conn) {
+    $level   = trim($_GET['level']       ?? 'College');
+    $progId  = (int)($_GET['program_id'] ?? 0);
+    $yearLvl = trim($_GET['year_level']  ?? '');
+
+    $progFilter = '';
+    $progJoin   = '';
+    if ($progId > 0) {
+        $pStmt = $conn->prepare("SELECT name FROM programs WHERE id = ?");
+        $pStmt->bind_param('i', $progId);
+        $pStmt->execute();
+        $pRow = $pStmt->get_result()->fetch_assoc();
+        $pStmt->close();
+        if ($pRow) {
+            $pn = $conn->real_escape_string($pRow['name']);
+            $progFilter = "AND s.program = '$pn'";
+        }
+    } else {
+        $lv = $conn->real_escape_string($level);
+        $progFilter = "AND EXISTS (SELECT 1 FROM programs p WHERE p.name = s.program AND p.level_type = '$lv')";
+    }
+
+    $ylFilter = '';
+    if ($yearLvl) {
+        $yl = $conn->real_escape_string($yearLvl);
+        $ylFilter = "AND c.year_level = '$yl'";
+    }
+
+    // Extract AY from enrollments.semester or students.semester
+    $res = $conn->query("
+        SELECT
+            c.code   AS subject_code,
+            c.name   AS subject_name,
+            c.credits,
+            COALESCE(c.year_level,'') AS year_level,
+            s.program,
+            CASE
+                WHEN e.semester REGEXP 'AY [0-9]{4}-[0-9]{4}'
+                THEN REGEXP_SUBSTR(e.semester, 'AY [0-9]{4}-[0-9]{4}')
+                WHEN s.semester REGEXP 'AY [0-9]{4}-[0-9]{4}'
+                THEN REGEXP_SUBSTR(s.semester, 'AY [0-9]{4}-[0-9]{4}')
+                WHEN e.enrollment_date IS NOT NULL
+                THEN CONCAT('AY ', YEAR(e.enrollment_date), '-', YEAR(e.enrollment_date)+1)
+                ELSE 'AY Unknown'
+            END AS school_year,
+            COUNT(DISTINCT e.student_id) AS student_count
+        FROM enrollments e
+        JOIN students s  ON s.id  = e.student_id
+        JOIN courses  c  ON c.id  = e.course_id
+        WHERE e.status IN ('Enrolled','Pending','Completed')
+        $progFilter
+        $ylFilter
+        GROUP BY c.id, school_year, s.program
+        ORDER BY school_year DESC, c.code, s.program
+    ");
+
+    $rows    = [];
+    $years   = [];
+    $subjects = [];
+    while ($r = $res->fetch_assoc()) {
+        $rows[] = [
+            'subjectCode' => $r['subject_code'],
+            'subjectName' => $r['subject_name'],
+            'credits'     => (int)$r['credits'],
+            'yearLevel'   => $r['year_level'],
+            'program'     => $r['program'],
+            'schoolYear'  => $r['school_year'],
+            'count'       => (int)$r['student_count'],
+        ];
+        $years[$r['school_year']]   = true;
+        $subjects[$r['subject_code']] = true;
+    }
+
+    echo json_encode([
+        'success'  => true,
+        'rows'     => $rows,
+        'years'    => array_keys($years),
+        'subjects' => array_keys($subjects),
     ]);
 }

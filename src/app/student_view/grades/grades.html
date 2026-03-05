@@ -2,7 +2,8 @@
 <div class="grades-header">
   <div>
     <h1>📊 Academic Grades</h1>
-    <p class="grades-sub">Prelim · Midterm · Final · GWA · Academic Standing</p>
+    <p class="grades-sub">Prelim · Midterm · Final · Academic Standing</p>
+    <p class="grades-note">🔒 Grades are visible only after the registrar releases them.</p>
   </div>
   <div class="sem-wrap">
     <label class="sem-label">📅 View Semester</label>
@@ -24,7 +25,7 @@
 
   <ng-container *ngIf="!isLoading && !error">
 
-  <!-- SUMMARY CARDS -->
+  <!-- SUMMARY CARDS 
   <section class="grades-summary">
     <div class="gsc overall" [class]="statusClass(overallGWA)">
       <div class="gsc-label">Overall GWA</div>
@@ -53,15 +54,15 @@
       <div class="gsc-sub">{{ grades.length }} subjects total</div>
     </div>
   </section>
-
+-->
   <!-- GRADES TABLE -->
   <section class="grades-table-section">
     <div class="section-header">
       <h2>📋 Subject Grades — {{ selectedSemester || 'All Semesters' }}</h2>
     </div>
     <div *ngIf="grades.length === 0" class="grades-empty">
-      <div>📚</div><h3>No subjects found</h3>
-      <p>Enlist subjects in the Enrollment section to see grades here.</p>
+      <div>📚</div><h3>No grades available yet</h3>
+      <p>Your grades will appear here once the registrar releases them.</p>
     </div>
     <div *ngIf="grades.length > 0" class="table-wrap">
       <table class="grades-table">
@@ -96,7 +97,7 @@
     </div>
   </section>
 
-  <!-- GWA HISTORY -->
+  <!-- GWA HISTORY 
   <section class="sem-history" *ngIf="semesterGWA.length > 0">
     <div class="section-header">
       <h2>📈 GWA by Semester</h2>
@@ -115,10 +116,10 @@
       </div>
     </div>
   </section>
-
+-->
   <!-- GRADE SCALE -->
   <section class="legend-section">
-    <div class="section-header"><h2>📖 Philippine Grading Scale</h2></div>
+    <div class="section-header"><h2>📖Grading Scale</h2></div>
     <div class="legend-grid">
       <div class="leg-item"><span class="gpill g-excel">1.00</span><div><strong>Excellent</strong><span>1.00 – 1.25</span></div></div>
       <div class="leg-item"><span class="gpill g-excel">1.50</span><div><strong>Very Good</strong><span>1.50 – 1.75</span></div></div>

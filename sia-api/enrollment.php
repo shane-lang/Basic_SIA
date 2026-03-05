@@ -1,4 +1,25 @@
 <?php
+
+// ── cleanCode() ──────────────────────────────────────────────────────────────
+// Strips internal disambiguation suffixes from course codes.
+// These suffixes are used in the DB to keep codes unique across programs
+// that share the same subject (e.g. GE103 shared by BSA and BSCA gets
+// stored as GE103-BMD and GE103-CA so they can have separate records).
+// Legitimate curriculum codes with dashes (RE-FUN013, GE-ENG013,
+// BN-MGT013, IT-CSA013, AC-TAX013, etc.) are NOT affected.
+if (!function_exists('cleanCode')) {
+    function cleanCode($code) {
+        if (!$code) return $code;
+        static $suffixes = ['-BMD','-CA','-BSA','-BSCA','-BSE','-CIMT','-BSIT','-BSREM','-ICTD','-HMD','-CED','-CAS','-GEN'];
+        $upper = strtoupper($code);
+        foreach ($suffixes as $s) {
+            if (substr($upper, -strlen($s)) === $s) {
+                return substr($code, 0, strlen($code) - strlen($s));
+            }
+        }
+        return $code;
+    }
+}
 // Prevent HTML error output from breaking JSON - must be FIRST line
 error_reporting(0);
 ini_set('display_errors', 0);
@@ -36,6 +57,7 @@ if ($conn->connect_error) {
     exit();
 }
 $conn->set_charset("utf8mb4");
+require_once __DIR__ . '/audit_helper.php';
 
 // Fee config helper — reads rates from fee_config table (managed by Accounting)
 if (!function_exists('loadFeeConfig')) {
@@ -393,7 +415,7 @@ function getSchedule($conn) {
                     'day'        => $day,
                     'time'       => $row['time'],
                     'courseName' => $row['name'],
-                    'courseCode' => $row['code'],
+                    'courseCode' => cleanCode($row['code']),
                     'instructor' => $row['instructor'],
                     'room'       => $row['room'],
                     'semester'   => $row['semester'],
@@ -477,7 +499,7 @@ function getAvailableCourses($conn) {
 
             $courses[] = [
                 'id'          => (int)$r['id'],
-                'code'        => $r['code'],
+                'code'           => cleanCode($r['code']),
                 'name'        => $r['name'],
                 'credits'     => (int)$r['credits'],
                 'instructor'  => $r['instructor'],
@@ -599,7 +621,7 @@ function getEnrollments($conn) {
             $enrollments[] = [
                 'id'             => (int)$r['id'],
                 'courseId'       => (int)$r['course_id'],
-                'code'           => $r['code'],
+                'code'           => cleanCode($r['code']),
                 'name'           => $r['name'],
                 'credits'        => $cred,
                 'lecUnits'       => $lec,
@@ -1271,6 +1293,8 @@ function approveEnrollment($conn, $data) {
     $semester = trim($semRow['semester'] ?? '');
 
     $enrolled = autoEnrollAll($conn, ['student_id' => $student_id, 'semester' => $semester], false);
+    logAuditShared($conn, $GLOBALS['authUser'] ?? null, 'APPROVE_ENROLLMENT', 'student', $student_id,
+        "Enrollment approved for student ID $student_id. Auto-enrolled $enrolled subjects.");
     echo json_encode(['success' => true, 'message' => 'Enrollment approved', 'auto_enrolled' => $enrolled]);
 }
 // ─────────────────────────────────────────────────────────────
@@ -1303,6 +1327,7 @@ function getEnrollmentSummary($conn) {
     $cResult = $cStmt->get_result();
     $courses = []; $totalCredits = 0;
     while ($r = $cResult->fetch_assoc()) {
+        $r['code']  = cleanCode($r['code']);
         $courses[]     = $r;
         $totalCredits += (int)$r['credits'];
     }
@@ -1974,6 +1999,8 @@ function updateProfile($conn, $data) {
     $stmt->bind_param("sssssi", $phone, $address, $emergencyContact, $emergencyPhone, $dateOfBirth, $student_id);
     $stmt->execute();
 
+    logAuditShared($conn, $GLOBALS['authUser'] ?? null, 'UPDATE_PROFILE', 'student', $student_id ?? 0,
+        "Profile updated for student ID " . ($student_id ?? 0));
     echo json_encode(['success' => true, 'message' => 'Profile updated successfully.']);
 }
 
@@ -2012,6 +2039,8 @@ function updatePaymentPlan($conn, $data) {
     $stmt->bind_param("ssi", $payment_plan, $payment_method, $student_id);
     $stmt->execute();
 
+    logAuditShared($conn, $GLOBALS['authUser'] ?? null, 'UPDATE_PAYMENT_PLAN', 'student', $student_id,
+        "Payment plan updated to '$payment_plan' ($payment_method) for student ID $student_id");
     echo json_encode(['success' => true, 'paymentPlan' => $payment_plan, 'paymentMethod' => $payment_method]);
 }
 
@@ -2207,9 +2236,19 @@ function _buildFees($conn, $student_id, $programName, $semester, $yearLevel, $un
     $r_energy   = (float)($fc['energy_rate_per_unit']['value']  ?? 63);
     $r_install  = (float)($fc['installment_fee']['value']       ?? 750);
     $std_keys   = ['tuition_rate_per_unit','misc_fee','reg_fee','lab_fee_per_room','energy_rate_per_unit','installment_fee'];
-    $extra_fees = 0.00;
+    $extra_fees      = 0.00;
+    $extra_fees_list = [];
     foreach ($fc as $fk => $frow) {
-        if (!in_array($fk, $std_keys)) $extra_fees += (float)$frow['value'] * ($frow['is_per_unit'] ? $units : 1);
+        if (!in_array($fk, $std_keys)) {
+            $amt           = (float)$frow['value'] * ($frow['is_per_unit'] ? $units : 1);
+            $extra_fees   += $amt;
+            $extra_fees_list[] = [
+                'fee_label'   => $frow['fee_label'],
+                'rate'        => (float)$frow['value'],
+                'is_per_unit' => (bool)$frow['is_per_unit'],
+                'amount'      => $amt,
+            ];
+        }
     }
 
     $tuition_fee = $units * $r_tuition;
@@ -2243,6 +2282,7 @@ function _buildFees($conn, $student_id, $programName, $semester, $yearLevel, $un
         'registrationFee'  => $reg_fee,
         'laboratoryFee'    => $lab_fee,
         'energyFee'        => $energy_fee,
+        'extraFees'        => $extra_fees_list,
         'subtotal'         => $subtotal,
         'discount'         => $discount,
         'installmentFee'   => $inst_fee,
@@ -2344,6 +2384,19 @@ function getStudentContext($conn) {
         }
     } else {
         $fees = computeFeesNew($conn, $student_id, $programName, $semester, $yearLevel, $paymentPlan, $discount);
+
+        // Auto-approve installment students who are fully paid but still Pending/stuck
+        // This fixes students who paid cash in full but approval_status was never updated.
+        if ($approvalStatus !== 'Approved' && $paymentPlan === 'installment') {
+            $paidChk = $conn->query("SELECT COALESCE(SUM(amount),0) AS tp FROM installment_payments WHERE student_id=$student_id");
+            $totalPaidChk = $paidChk ? (float)$paidChk->fetch_assoc()['tp'] : 0;
+            if ($totalPaidChk >= (float)$fees['totalAssessment'] && $fees['totalAssessment'] > 0) {
+                $conn->query("UPDATE students SET approval_status='Approved', payment_status='Paid', enrollment_status='Enrolled' WHERE id=$student_id");
+                $approvalStatus = 'Approved';
+                $paymentStatus  = 'Paid';
+                $enrollStatus   = 'Enrolled';
+            }
+        }
     }
 
     $total = $fees['totalAssessment'];
@@ -2418,6 +2471,7 @@ function getStudentContext($conn) {
         'success' => true,
         'student' => [
             'id'               => $s['student_number'],
+            'studentNumber'    => $s['student_number'],
             'dbId'             => (int)$s['id'],
             'firstName'        => $s['first_name']       ?? '',
             'lastName'         => $s['last_name']        ?? '',
@@ -2548,7 +2602,10 @@ function getStudentEnrollments($conn) {
         ORDER BY c.code
     ");
     $enrolled = [];
-    while ($r = $res->fetch_assoc()) { $enrolled[] = $r; }
+    while ($r = $res->fetch_assoc()) {
+        $r['code'] = cleanCode($r['code']);
+        $enrolled[] = $r;
+    }
 
     // Available courses (not already enrolled)
     // Get student program so we can prioritize relevant courses
@@ -2556,6 +2613,8 @@ function getStudentEnrollments($conn) {
     $stuRow = $stuRes ? $stuRes->fetch_assoc() : [];
     $stuProg = $conn->real_escape_string($stuRow['program'] ?? '');
 
+    // Available = courses from student's own program only, not yet enrolled
+    $progFilter = $stuProg ? "AND (c.program = '$stuProg' OR c.is_general = 1)" : "";
     $avRes = $conn->query("
         SELECT c.id, c.code, c.name, c.credits, c.instructor,
                c.day, c.time, c.room, c.semester,
@@ -2567,11 +2626,13 @@ function getStudentEnrollments($conn) {
             SELECT course_id FROM enrollments
             WHERE student_id=$sid AND status IN ('Enrolled','Pending')
         )
+        $progFilter
         GROUP BY c.id
         ORDER BY c.code
     ");
     $available = [];
     while ($r = $avRes->fetch_assoc()) {
+        $r['code'] = cleanCode($r['code']);
         $r['available_seats'] = max(0, (int)$r['capacity'] - (int)$r['enrolled_count']);
         $available[] = $r;
     }
@@ -2727,6 +2788,8 @@ function submitAddDropRequest($conn, $data) {
     $stmtErr  = $stmt->error;
     $stmt->close();
     if ($affected > 0) {
+        logAuditShared($conn, $GLOBALS['authUser'] ?? null, 'SUBMIT_ADD_DROP', 'enrollment', $cid,
+            "$type request submitted by student ID $sid for course ID $cid. Reason: $reason");
         echo json_encode(['success'=>true,'message'=>ucfirst(strtolower($type)).' request submitted. Awaiting registrar approval.','id'=>$insertId]);
     } else {
         echo json_encode(['success'=>false,'message'=>'Failed to submit request: '.$stmtErr]);
@@ -2762,7 +2825,10 @@ function getMyAddDrop($conn) {
         ORDER BY r.created_at DESC
     ");
     $rows = [];
-    while ($r = $res->fetch_assoc()) $rows[] = $r;
+    while ($r = $res->fetch_assoc()) {
+        $r['code'] = cleanCode($r['code']);
+        $rows[] = $r;
+    }
     echo json_encode(['success'=>true,'requests'=>$rows]);
 }
 
@@ -2786,12 +2852,12 @@ function getAddDropRequests($conn) {
         ORDER BY r.created_at DESC
     ");
     $rows = [];
-    while ($r = $res->fetch_assoc()) $rows[] = $r;
+    while ($r = $res->fetch_assoc()) {
+        $r['code'] = cleanCode($r['code']);
+        $rows[] = $r;
+    }
     echo json_encode(['success'=>true,'requests'=>$rows]);
 }
-
-// ----------------------------------------------------------------
-// REGISTRAR: Approve or Reject an add/drop request
 // POST { request_id, action:'Approved'|'Rejected', remarks, processed_by }
 // ----------------------------------------------------------------
 function processAddDropRequest($conn, $data) {
@@ -2842,6 +2908,8 @@ function processAddDropRequest($conn, $data) {
         recalcTuitionAfterAddDrop($conn, $sid);
     }
 
+    logAuditShared($conn, $GLOBALS['authUser'] ?? null, 'PROCESS_ADD_DROP', 'enrollment', $rid,
+        "Add/Drop request #$rid {$action} by registrar. Student: $sid, Type: $type");
     echo json_encode(['success'=>true,'message'=>'Request '.$action.' successfully']);
 }
 // ----------------------------------------------------------------
@@ -3189,7 +3257,7 @@ function getCurriculum($conn) {
 
         $yearData[$yr][$sem][] = [
             'courseId'    => $cid,
-            'code'        => $c['code'],
+            'code'           => cleanCode($c['code']),
             'name'        => $c['name'],
             'credits'     => (int)$c['credits'],
             'lecUnits'    => (int)$c['lec_units'],

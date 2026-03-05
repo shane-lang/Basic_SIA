@@ -17,7 +17,7 @@ interface Course {
   semester: string;
   instructor?: string;
   room?: string;
-  is_lab?: number;
+  is_general?: number;
   enrolled_count?: number;
   created_at?: string;
   level_type?: 'College' | 'SHS' | 'TVET';
@@ -74,10 +74,11 @@ export class Courses implements OnInit {
 
   deptEntries: DeptEntry[] = [];
   allPrograms: Program[]   = [];
+  sharedProgramIds: number[] = [];
 
-  readonly YEAR_LEVELS_COLLEGE = ['1st Year', '2nd Year', '3rd Year', '4th Year', '5th Year'];
+  readonly YEAR_LEVELS_COLLEGE = ['1st Year', '2nd Year', '3rd Year', '4th Year'];
   readonly YEAR_LEVELS_SHS     = ['Grade 11', 'Grade 12'];
-  readonly YEAR_LEVELS_TVET    = ['Year 1', 'Year 2'];
+  readonly YEAR_LEVELS_TVET    = ['Year 1'];
   readonly SEMESTERS = ['1st Semester', '2nd Semester', 'Summer'];
 
   get currentDepts(): DeptEntry[] {
@@ -174,7 +175,7 @@ export class Courses implements OnInit {
       code: '', name: '', description: '', credits: 3,
       lec_units: 3, lab_units: 0,
       department: '', program: '', year_level: '1st Year',
-      semester: '', is_lab: 0, _levelType: 'College',
+      semester: '', is_general: 0, _levelType: 'College',
     };
   }
 
@@ -273,13 +274,13 @@ export class Courses implements OnInit {
     const lec = Number(this.form.lec_units) || 0;
     const lab = Number(this.form.lab_units) || 0;
     this.form.credits = lec + lab;
-    this.form.is_lab  = lab > 0 ? 1 : 0;
     this.cdr.detectChanges();
   }
 
   openAdd(): void {
     const lt = (this.filterLevel === 'All' ? 'College' : this.filterLevel) as 'College' | 'SHS' | 'TVET';
     this.form = { ...this.emptyForm(), _levelType: lt };
+    this.sharedProgramIds = [];
     this.isEditing = false;
     this.showModal = true;
     this.cdr.detectChanges();
@@ -287,9 +288,17 @@ export class Courses implements OnInit {
 
   openEdit(c: Course): void {
     const levelType = this.getLevelType(c);
-    const labU = Number(c.lab_units) || (c.is_lab ? 1 : 0);
+    const labU = Number(c.lab_units) || 0;
     const lecU = Number(c.lec_units) || ((c.credits || 0) - labU);
     this.form = { ...c, lec_units: lecU, lab_units: labU, _levelType: levelType };
+    // Load current shared programs from program_courses (via course_ids in allPrograms)
+    this.sharedProgramIds = this.allPrograms
+      .filter(p => (p.course_ids ?? []).includes(Number(c.id)))
+      .map(p => Number(p.id))
+      .filter(pid => {
+        const primary = this.allPrograms.find(p => p.name === this.form.program);
+        return !primary || pid !== Number(primary.id);
+      });
     this.isEditing = true;
     this.showModal = true;
     this.cdr.detectChanges();
@@ -312,7 +321,10 @@ export class Courses implements OnInit {
     if (!this.form.credits || this.form.credits < 1) {
       this.showToast('error', 'Units must be at least 1.'); return;
     }
+    // Note: duplicate code is handled server-side — existing courses are reused and linked to new programs
+
     const { _levelType, ...payload } = this.form as any;
+    payload.shared_program_ids = this.sharedProgramIds;
     this.isSaving = true;
     const action = this.isEditing ? 'update_course' : 'create_course';
     this.http.post<any>(`${this.api}?action=${action}`, payload, this.getHeaders()).subscribe({
@@ -348,6 +360,15 @@ export class Courses implements OnInit {
       },
       error: () => { this.isDeleting = false; this.showToast('error', 'Server error.'); this.cdr.detectChanges(); }
     });
+  }
+
+  toggleSharedProgram(pid: number, event: Event): void {
+    const checked = (event.target as HTMLInputElement).checked;
+    if (checked) {
+      if (!this.sharedProgramIds.includes(pid)) this.sharedProgramIds.push(pid);
+    } else {
+      this.sharedProgramIds = this.sharedProgramIds.filter(id => id !== pid);
+    }
   }
 
   showToast(type: 'success' | 'error', message: string): void {

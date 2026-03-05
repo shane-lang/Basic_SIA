@@ -121,8 +121,6 @@
         <th>Action</th>
         <th>Target</th>
         <th>Description</th>
-        <th>IP</th>
-        <th class="tc">Details</th>
       </tr>
     </thead>
     <tbody>
@@ -133,7 +131,7 @@
         </td>
         <td class="td-user">
           <div class="user-email">{{ log.user_email || 'System' }}</div>
-          <div class="user-id" *ngIf="log.user_id">ID: {{ log.user_id }}</div>
+          <!--<div class="user-id" *ngIf="log.user_id">ID: {{ log.user_id }}</div>-->
         </td>
         <td>
           <span class="role-badge" [ngClass]="roleClass(log.user_role)">{{ log.user_role || 'system' }}</span>
@@ -143,17 +141,8 @@
         </td>
         <td class="td-target">
           <span *ngIf="log.target_type" class="target-type">{{ log.target_type }}</span>
-          <span *ngIf="log.target_id" class="target-id">#{{ log.target_id }}</span>
         </td>
         <td class="td-desc">{{ log.description || '—' }}</td>
-        <td class="td-ip mono">{{ log.ip_address || '—' }}</td>
-        <td class="tc">
-          <button class="btn-detail" (click)="openDetail(log)"
-            *ngIf="log.old_values || log.new_values">
-            Diff
-          </button>
-          <span *ngIf="!log.old_values && !log.new_values" class="no-diff">—</span>
-        </td>
       </tr>
     </tbody>
   </table>
@@ -194,7 +183,6 @@
     </div>
 
     <div class="modal-footer">
-      <span class="modal-ip">IP: {{ selectedLog.ip_address || '—' }}</span>
     </div>
   </div>
 </div>

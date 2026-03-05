@@ -1,0 +1,326 @@
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- TAB BAR                                                 -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<div class="page-header">
+  <div class="page-header-left">
+    <span class="hdr-icon">🗂️</span>
+    <div>
+      <h1>Student Records</h1>
+      <p class="hdr-sub">View student information, masterlist, and subject records</p>
+    </div>
+  </div>
+  <div class="tab-toggle" *ngIf="activeTab !== 'info'">
+    <button class="tab-btn" [class.tab-active]="activeTab==='student-masterlist'"
+      (click)="activeTab='student-masterlist'; loadStudents(1)">
+      👤 Student Masterlist
+    </button>
+    <button class="tab-btn" [class.tab-active]="activeTab==='subject-masterlist'"
+      (click)="switchToSubjects()">
+      📚 Subjects Masterlist
+    </button>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- STUDENT INFO TAB                                        -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<ng-container *ngIf="activeTab === 'info' && selectedStudent">
+  <div class="info-back-bar">
+    <button class="btn-back" (click)="backToMasterlist()">← Back to Masterlist</button>
+    <div class="info-badges">
+      <span class="cat-badge" [ngClass]="categoryClass(selectedStudent.studentCategory)">
+        {{ selectedStudent.studentCategory }}
+      </span>
+      <span class="st-badge" [ngClass]="statusClass(selectedStudent.enrollmentStatus)">
+        {{ selectedStudent.enrollmentStatus }}
+      </span>
+    </div>
+  </div>
+
+  <div class="info-layout">
+
+    <!-- LEFT: Profile Card -->
+    <div class="profile-card">
+      <div class="profile-avatar">{{ selectedStudent.initials }}</div>
+      <div class="profile-name">{{ selectedStudent.lastName }}, {{ selectedStudent.firstName }}
+        <span *ngIf="selectedStudent.middleName"> {{ selectedStudent.middleName }}</span>
+        <span *ngIf="selectedStudent.suffix"> {{ selectedStudent.suffix }}</span>
+      </div>
+      <div class="profile-num">{{ selectedStudent.studentNumber }}</div>
+      <div class="profile-prog">{{ selectedStudent.program }}</div>
+      <div class="profile-meta">
+        <span>{{ selectedStudent.yearLevel }}</span>
+        <span class="sep">·</span>
+        <span>{{ selectedStudent.studentType }}</span>
+      </div>
+      <div class="profile-sem">{{ selectedStudent.semester }}</div>
+      <hr class="divider">
+      <div class="profile-stat-row">
+        <div class="pstat"><span class="pstat-lbl">Scholar</span><span class="pstat-val">{{ selectedStudent.isScholar ? '✅ Yes' : 'No' }}</span></div>
+        <div class="pstat" *ngIf="selectedStudent.isScholar"><span class="pstat-lbl">Type</span><span class="pstat-val">{{ selectedStudent.scholarType || '—' }}</span></div>
+      </div>
+    </div>
+
+    <!-- RIGHT: Detail Sections -->
+    <div class="info-sections">
+
+      <!-- Personal Data -->
+      <div class="info-section">
+        <div class="section-title">👤 Personal Information</div>
+        <div class="info-grid">
+          <div class="info-row"><span class="lbl">Last Name</span><span class="val">{{ selectedStudent.lastName }}</span></div>
+          <div class="info-row"><span class="lbl">First Name</span><span class="val">{{ selectedStudent.firstName }}</span></div>
+          <div class="info-row"><span class="lbl">Middle Name</span><span class="val">{{ selectedStudent.middleName || '—' }}</span></div>
+          <div class="info-row"><span class="lbl">Suffix</span><span class="val">{{ selectedStudent.suffix || '—' }}</span></div>
+          <div class="info-row"><span class="lbl">Date of Birth</span><span class="val">{{ selectedStudent.dateOfBirth || '—' }}</span></div>
+          <div class="info-row"><span class="lbl">Age</span><span class="val">{{ selectedStudent.age || '—' }}</span></div>
+          <div class="info-row"><span class="lbl">Sex</span><span class="val">{{ selectedStudent.sex || '—' }}</span></div>
+          <div class="info-row"><span class="lbl">Religion</span><span class="val">{{ selectedStudent.religion || '—' }}</span></div>
+          <div class="info-row"><span class="lbl">Place of Birth</span><span class="val">{{ selectedStudent.placeOfBirth || '—' }}</span></div>
+          <div class="info-row"><span class="lbl">Citizenship</span><span class="val">{{ selectedStudent.citizenship || '—' }}</span></div>
+          <div class="info-row"><span class="lbl">Mother Tongue</span><span class="val">{{ selectedStudent.motherTongue || '—' }}</span></div>
+          <div class="info-row full"><span class="lbl">Home Address</span><span class="val">{{ selectedStudent.address || '—' }}</span></div>
+          <div class="info-row"><span class="lbl">Contact No.</span><span class="val">{{ selectedStudent.phone || '—' }}</span></div>
+          <div class="info-row"><span class="lbl">Email</span><span class="val">{{ selectedStudent.email || '—' }}</span></div>
+          <div class="info-row"><span class="lbl">LRN No.</span><span class="val">{{ selectedStudent.lrnNo || '—' }}</span></div>
+          <div class="info-row"><span class="lbl">PSA Birth Cert No.</span><span class="val">{{ selectedStudent.psaBirthCertNo || '—' }}</span></div>
+          <div class="info-row"><span class="lbl">Indigenous People</span><span class="val">{{ selectedStudent.isIndigenous || '—' }}</span></div>
+          <div class="info-row"><span class="lbl">Special Needs</span><span class="val">{{ selectedStudent.hasSpecialNeeds || '—' }}{{ selectedStudent.specialNeedsDetails ? ' — ' + selectedStudent.specialNeedsDetails : '' }}</span></div>
+          <div class="info-row"><span class="lbl">Assistive Tech</span><span class="val">{{ selectedStudent.hasAssistiveTech || '—' }}{{ selectedStudent.assistiveTechDetails ? ' — ' + selectedStudent.assistiveTechDetails : '' }}</span></div>
+          <div class="info-row" *ngIf="selectedStudent.strand"><span class="lbl">Strand</span><span class="val">{{ selectedStudent.strand }}</span></div>
+          <div class="info-row" *ngIf="selectedStudent.learningDelivery"><span class="lbl">Learning Delivery</span><span class="val">{{ selectedStudent.learningDelivery }}</span></div>
+        </div>
+      </div>
+
+      <!-- Guardian -->
+      <div class="info-section">
+        <div class="section-title">👨‍👩‍👧 Parent / Guardian</div>
+        <div class="info-grid">
+          <div class="info-row"><span class="lbl">Name</span><span class="val">{{ selectedStudent.guardianName || '—' }}</span></div>
+          <div class="info-row full"><span class="lbl">Address</span><span class="val">{{ selectedStudent.guardianAddress || '—' }}</span></div>
+          <div class="info-row"><span class="lbl">Contact No.</span><span class="val">{{ selectedStudent.guardianContact || '—' }}</span></div>
+        </div>
+      </div>
+
+      <!-- Previous Schools -->
+      <div class="info-section">
+        <div class="section-title">🏫 Previous School(s) Attended</div>
+        <div *ngIf="previousSchools.length === 0" class="no-schools">No previous school records.</div>
+        <table class="school-table" *ngIf="previousSchools.length > 0">
+          <thead>
+            <tr><th>Level</th><th>School Name</th><th>School Year</th></tr>
+          </thead>
+          <tbody>
+            <tr *ngFor="let s of previousSchools">
+              <td>{{ s.level }}</td>
+              <td>{{ s.school }}</td>
+              <td>{{ s.year }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+    </div><!-- /info-sections -->
+  </div><!-- /info-layout -->
+</ng-container>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- STUDENT MASTERLIST TAB                                  -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<ng-container *ngIf="activeTab === 'student-masterlist'">
+
+  <!-- Category Pills -->
+  <div class="category-tabs">
+    <button class="cat-btn" [class.cat-active]="filterCategory===''" (click)="filterCategory='';loadStudents(1)">🏫 All</button>
+    <button class="cat-btn college" [class.cat-active]="filterCategory==='College'" (click)="filterCategory='College';loadStudents(1)">🎓 College</button>
+    <button class="cat-btn shs" [class.cat-active]="filterCategory==='SHS'" (click)="filterCategory='SHS';loadStudents(1)">📚 SHS</button>
+    <button class="cat-btn tvet" [class.cat-active]="filterCategory==='TVET'" (click)="filterCategory='TVET';loadStudents(1)">🔧 TVET</button>
+  </div>
+
+  <!-- Filters -->
+  <div class="filters-bar">
+    <div class="search-wrap">
+      <span class="s-icon">🔍</span>
+      <input type="text" class="s-input" placeholder="Search by name or student number…"
+        [(ngModel)]="searchQuery" (input)="onSearch()">
+      <button class="s-clear" *ngIf="searchQuery" (click)="searchQuery='';loadStudents(1)">✕</button>
+    </div>
+    <select class="filter-select" [(ngModel)]="filterProgram" (change)="loadStudents(1)">
+      <option value="">All Programs</option>
+      <option *ngFor="let p of programs" [value]="p">{{ p }}</option>
+    </select>
+    <select class="filter-select" [(ngModel)]="filterYearLevel" (change)="loadStudents(1)">
+      <option value="">All Year Levels</option>
+      <option value="1st Year">1st Year</option>
+      <option value="2nd Year">2nd Year</option>
+      <option value="3rd Year">3rd Year</option>
+      <option value="4th Year">4th Year</option>
+      <option value="Grade 11">Grade 11</option>
+      <option value="Grade 12">Grade 12</option>
+    </select>
+    <select class="filter-select" [(ngModel)]="filterStatus" (change)="loadStudents(1)">
+      <option value="">All Statuses</option>
+      <option value="Enrolled">Enrolled</option>
+      <option value="Pending">Pending</option>
+      <option value="Approved">Approved</option>
+      <option value="Completed">Completed</option>
+    </select>
+    <button class="btn-clear-all" *ngIf="searchQuery||filterCategory||filterProgram||filterYearLevel||filterStatus" (click)="clearFilters()">Clear</button>
+  </div>
+
+  <div class="results-bar">
+    <span><strong>{{ totalStudents }}</strong> student{{ totalStudents !== 1 ? 's' : '' }} found</span>
+  </div>
+
+  <div class="loading-state" *ngIf="isLoadingStudents">
+    <div class="spinner"></div><p>Loading students…</p>
+  </div>
+
+  <div class="empty-state" *ngIf="!isLoadingStudents && students.length === 0">
+    <div class="es-icon">👤</div><p>No students match your search.</p>
+  </div>
+
+  <div class="table-container" *ngIf="!isLoadingStudents && students.length > 0">
+    <table class="master-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Student No.</th>
+          <th>Name</th>
+          <th>Category</th>
+          <th>Program</th>
+          <th>Year Level</th>
+          <th>Type</th>
+          <th>Status</th>
+          <th>Enrollment Date</th>
+          <th class="tc">Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr *ngFor="let s of students; let i = index">
+          <td class="mono light">{{ (currentPage - 1) * 20 + i + 1 }}</td>
+          <td class="mono">{{ s.studentNumber }}</td>
+          <td>
+            <div class="student-cell">
+              <div class="avatar">{{ s.initials }}</div>
+              <div>
+                <div class="s-name">{{ s.lastName }}, {{ s.firstName }}</div>
+                <div class="s-email">{{ s.email }}</div>
+              </div>
+            </div>
+          </td>
+          <td><span class="cat-pill" [ngClass]="categoryClass(s.studentCategory)">{{ s.studentCategory }}</span></td>
+          <td class="prog-cell">{{ s.program }}</td>
+          <td>{{ s.yearLevel }}</td>
+          <td><span class="type-pill">{{ s.studentType }}</span></td>
+          <td><span class="status-pill" [ngClass]="statusClass(s.enrollmentStatus)">{{ s.enrollmentStatus }}</span></td>
+          <td class="mono light">{{ s.enrollmentDate || '—' }}</td>
+          <td class="tc">
+            <button class="btn-view" (click)="viewStudentInfo(s)">👁 View</button>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="pagination" *ngIf="totalPages > 1 && !isLoadingStudents">
+    <button class="pg-btn" [disabled]="currentPage===1" (click)="prevPage()">‹</button>
+    <button class="pg-btn" *ngFor="let p of [].constructor(totalPages); let i=index"
+      [class.pg-active]="i+1===currentPage" (click)="loadStudents(i+1)">{{ i + 1 }}</button>
+    <button class="pg-btn" [disabled]="currentPage===totalPages" (click)="nextPage()">›</button>
+  </div>
+
+</ng-container>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- SUBJECTS MASTERLIST TAB                                 -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<ng-container *ngIf="activeTab === 'subject-masterlist'">
+
+  <div class="category-tabs">
+    <button class="cat-btn" [class.cat-active]="filterCategory===''" (click)="filterCategory='';loadSubjectMasterlist()">🏫 All</button>
+    <button class="cat-btn college" [class.cat-active]="filterCategory==='College'" (click)="filterCategory='College';loadSubjectMasterlist()">🎓 College</button>
+    <button class="cat-btn shs" [class.cat-active]="filterCategory==='SHS'" (click)="filterCategory='SHS';loadSubjectMasterlist()">📚 SHS</button>
+    <button class="cat-btn tvet" [class.cat-active]="filterCategory==='TVET'" (click)="filterCategory='TVET';loadSubjectMasterlist()">🔧 TVET</button>
+  </div>
+
+  <div class="filters-bar">
+    <div class="search-wrap">
+      <span class="s-icon">🔍</span>
+      <input type="text" class="s-input" placeholder="Search by student name or subject…"
+        [(ngModel)]="subjectSearch" (input)="onSubjectSearch()">
+      <button class="s-clear" *ngIf="subjectSearch" (click)="subjectSearch='';loadSubjectMasterlist()">✕</button>
+    </div>
+    <select class="filter-select" [(ngModel)]="subjectFilterCourse" (change)="loadSubjectMasterlist()">
+      <option value="">All Subjects</option>
+      <option *ngFor="let c of courses" [value]="c">{{ c }}</option>
+    </select>
+    <select class="filter-select" [(ngModel)]="filterSemester" (change)="loadSubjectMasterlist()">
+      <option value="">All Semesters</option>
+      <option value="1st Semester">1st Semester</option>
+      <option value="2nd Semester">2nd Semester</option>
+      <option value="Midyear">Midyear</option>
+    </select>
+  </div>
+
+  <div class="loading-state" *ngIf="isLoadingSubjects">
+    <div class="spinner"></div><p>Loading subject records…</p>
+  </div>
+
+  <div class="empty-state" *ngIf="!isLoadingSubjects && subjectRecords.length === 0">
+    <div class="es-icon">📚</div><p>No subject records found.</p>
+  </div>
+
+  <div class="table-container" *ngIf="!isLoadingSubjects && subjectRecords.length > 0">
+    <div class="results-bar" style="padding:8px 0 6px">
+      <span><strong>{{ subjectRecords.length }}</strong> record{{ subjectRecords.length !== 1 ? 's' : '' }}</span>
+    </div>
+    <table class="master-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Student No.</th>
+          <th>Student Name</th>
+          <th>Program</th>
+          <th>Year</th>
+          <th>Subject Code</th>
+          <th>Subject Name</th>
+          <th class="tc">Units</th>
+          <th>Instructor</th>
+          <th>Semester</th>
+          <th class="tc">Prelim</th>
+          <th class="tc">Midterm</th>
+          <th class="tc">Final</th>
+          <th class="tc">Overall</th>
+          <th class="tc">Remarks</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr *ngFor="let r of subjectRecords; let i = index"
+          [class.row-pass]="r.remarks==='Passed'" [class.row-fail]="r.remarks==='Failed'">
+          <td class="mono light">{{ i + 1 }}</td>
+          <td class="mono">{{ r.studentNumber }}</td>
+          <td class="s-name">{{ r.fullName }}</td>
+          <td class="prog-cell">{{ r.program }}</td>
+          <td>{{ r.yearLevel }}</td>
+          <td class="mono code-cell">{{ r.courseCode }}</td>
+          <td>{{ r.courseName }}</td>
+          <td class="tc">{{ r.credits }}</td>
+          <td class="light">{{ r.instructor || '—' }}</td>
+          <td class="light">{{ r.semester }}</td>
+          <td class="tc"><span class="gpill" [ngClass]="gradeClass(r.prelimGrade)">{{ fmtGrade(r.prelimGrade) }}</span></td>
+          <td class="tc"><span class="gpill" [ngClass]="gradeClass(r.midtermGrade)">{{ fmtGrade(r.midtermGrade) }}</span></td>
+          <td class="tc"><span class="gpill" [ngClass]="gradeClass(r.finalGrade)">{{ fmtGrade(r.finalGrade) }}</span></td>
+          <td class="tc"><span class="gpill" [ngClass]="gradeClass(r.overall)">{{ fmtGrade(r.overall) }}</span></td>
+          <td class="tc">
+            <span class="rtag"
+              [class.rtag-pass]="r.remarks==='Passed'"
+              [class.rtag-fail]="r.remarks==='Failed'"
+              [class.rtag-prog]="r.remarks==='In Progress'">{{ r.remarks }}</span>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+</ng-container>

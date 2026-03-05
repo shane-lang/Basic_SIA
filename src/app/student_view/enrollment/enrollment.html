@@ -349,7 +349,6 @@
   </div>
 
   <div class="nav-tabs">
-    <button class="nav-tab" [class.active]="currentView === 'dashboard'" (click)="currentView = 'dashboard'">📊 My Info & Subjects</button>
     <button class="nav-tab" [class.active]="currentView === 'enrollment-summary'" (click)="currentView = 'enrollment-summary'; loadEnrollmentSummary()">
       🧾 Enrollment & Fees
     </button>
@@ -466,7 +465,7 @@
             <span class="sgt-col sgt-name">Subject</span>
             <span class="sgt-col sgt-units">Units</span>
             <span class="sgt-col sgt-instructor">Instructor</span>
-            <span class="sgt-col sgt-room">Room</span>
+           <!-- <span class="sgt-col sgt-room">Room</span>-->
             <span class="sgt-col sgt-status">Status</span>
           </div>
           <!-- Rows -->
@@ -528,7 +527,7 @@
         <div class="soa-info-bar soa-info-bar2">
           <div class="soa-info-cell">
             <div class="soa-info-label">Examination Covered:</div>
-            <div class="soa-info-val">PRELIM</div>
+            <div class="soa-info-val">{{ currentExamCovered }}</div>
           </div>
           <div class="soa-info-cell">
             <div class="soa-info-label">Semester:</div>
@@ -592,7 +591,8 @@
                   <tr>
                     <td class="soa-period-label">{{ t.label.split('—')[1]?.trim() || t.term }}</td>
                     <td class="soa-due-date" [class.soa-red]="!t.paid && t.term === 'Prelim'">
-                      {{ t.paid ? (t.paymentDate | date:'MM-dd-yy') : '' }}
+                      <span class="soa-due-range">{{ getDueDate(t.term) }}</span>
+                      <span *ngIf="t.paid" class="soa-paid-date"> — {{ t.paymentDate | date:'MM dd yy' }}</span>
                     </td>
                     <td class="soa-paid-amt" [class.soa-paid-green]="t.paid">
                       {{ t.paid ? (t.amountPaid | number:'1.2-2') : '' }}
@@ -633,10 +633,18 @@
                 </tr>
               </thead>
               <tbody>
-                <tr><td>Downpayment :</td><td></td><td>{{ dpAmount | number:'1.2-2' }}</td></tr>
-                <tr class="soa-red-row"><td>Prelim :</td><td>JANUARY 10-16, 2026</td><td>{{ prelimAmount | number:'1.2-2' }}</td></tr>
-                <tr><td>Midterm:</td><td>FEBRUARY 9 - 14, 2026</td><td>{{ midtermAmount | number:'1.2-2' }}</td></tr>
-                <tr><td>Final:</td><td>MARCH 30 - APRIL 4, 2026</td><td>{{ finalsAmount | number:'1.2-2' }}</td></tr>
+                <ng-container *ngFor="let t of installmentSchedule">
+                  <tr [class.soa-red-row]="!t.paid && t.term === 'Prelim'" [class.soa-paid-row]="t.paid">
+                    <td>{{ t.term === 'Downpayment' ? 'Downpayment :' : t.term === 'Finals' ? 'Final:' : t.term + ' :' }}</td>
+                    <td>
+                      <span class="soa-due-range">{{ getDueDate(t.term) }}</span>
+                      <span *ngIf="t.paid" class="soa-paid-date"> — {{ t.paymentDate | date:'MM dd yy' }}</span>
+                    </td>
+                    <td [class.soa-paid-green]="t.paid">
+                      {{ t.paid ? (t.amountPaid | number:'1.2-2') : (t.amount | number:'1.2-2') }}
+                    </td>
+                  </tr>
+                </ng-container>
               </tbody>
             </table>
             <div class="soa-total-to-pay" *ngIf="paymentPlan === 'installment'">
@@ -886,6 +894,7 @@
 .soa-install-table th { background:#f0c040; color:#000; font-weight:700; padding:3px 8px; border:1px solid #999; }
 .soa-install-table td { border:1px solid #ddd; padding:3px 8px; }
 .soa-red-row td { color:#c00; font-weight:700; }
+.soa-paid-row td { background:#f0fff4; }
 .soa-total-to-pay { text-align:right; font-size:11px; font-weight:700; margin-top:6px; }
 .soa-total-to-pay-amt { background:#add8e6; padding:2px 10px; border-radius:4px; }
 .soa-print-bar { display:flex; justify-content:space-between; align-items:center; padding:10px 16px; background:#f8f9fa; border-top:1px solid #ddd; }

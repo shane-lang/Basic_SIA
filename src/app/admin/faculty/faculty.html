@@ -93,7 +93,10 @@
           <td class="email-cell">{{ f.email }}</td>
           <td>{{ f.department }}</td>
           <td class="specialty-cell">
-            <span class="specialty-tag" *ngIf="f.specialty">{{ f.specialty }}</span>
+            <ng-container *ngIf="f.specialty">
+              <span class="specialty-tag" *ngFor="let sp of f.specialty.split(',')">{{ sp.trim() }}</span>
+            </ng-container>
+            <span *ngIf="!f.specialty" class="no-subjects">—</span>
           </td>
           <td class="subjects-cell">
             <span class="subj-chip" *ngFor="let s of f.subjects.slice(0,3)">{{ s }}</span>
@@ -156,40 +159,63 @@
       </div>
       <div class="form-group">
         <label>Specialization / Expertise</label>
-        <input class="form-ctrl" type="text" [(ngModel)]="form.specialty" placeholder="e.g. Artificial Intelligence, Web Development">
+        <!-- Tag chips display -->
+        <div class="tag-input-wrap" [class.tag-wrap-focus]="newSpecialtyInput.length > 0">
+          <span class="spec-tag" *ngFor="let s of specialties; let i = index">
+            {{ s }}<button class="tag-remove" type="button" (click)="removeSpecialty(i)">×</button>
+          </span>
+          <input class="tag-input" type="text" [(ngModel)]="newSpecialtyInput"
+            placeholder="{{ specialties.length === 0 ? 'e.g. Web Development, AI, Database Systems' : 'Add more…' }}"
+            (keydown)="onSpecialtyKeydown($event)"
+            (blur)="addSpecialty()">
+        </div>
+        <p class="form-hint">Press <kbd>Enter</kbd> or click away to add each specialization</p>
       </div>
 
       <!-- Subjects -->
       <div class="form-group">
-        <label>Subjects Handled</label>
-        <div class="subject-input-row">
-          <input class="form-ctrl" type="text" [(ngModel)]="newSubjectInput"
-                 placeholder="Type subject code (e.g. CS111) then press Enter or +"
-                 (keydown)="onSubjectKeydown($event)" list="courses-list">
-          <datalist id="courses-list">
-            <option *ngFor="let c of coursesFromDb" [value]="c.code">{{ c.code }} — {{ c.name }}</option>
-          </datalist>
-          <button class="btn-add-subj" type="button" (click)="addSubject()">＋ Add</button>
+        <label>
+          Subjects Handled
+          <span class="subj-count-badge" *ngIf="form.subjects!.length > 0">{{ form.subjects!.length }} selected</span>
+        </label>
+
+        <!-- Search + toggle panel -->
+        <div class="subj-search-row">
+          <div class="subj-search-wrap">
+            <span class="ss-icon">🔍</span>
+            <input class="ss-input" type="text" [(ngModel)]="subjectSearch"
+              placeholder="Search subject code or name…"
+              (focus)="showSubjectPanel=true">
+            <button class="ss-clear" *ngIf="subjectSearch" (click)="subjectSearch=''">✕</button>
+          </div>
+          <button class="btn-toggle-panel" type="button" (click)="showSubjectPanel=!showSubjectPanel">
+            {{ showSubjectPanel ? '▲ Hide' : '▼ Browse All' }}
+          </button>
         </div>
-        <!-- Quick-add from existing courses -->
-        <div class="quick-courses" *ngIf="coursesFromDb.length > 0 && !newSubjectInput">
-          <p class="form-hint">Quick-add from existing courses:</p>
-          <div class="quick-chips">
-            <button class="quick-chip" type="button"
-                    *ngFor="let c of coursesFromDb.slice(0,12)"
-                    [class.chip-added]="form.subjects!.includes(c.code)"
-                    (click)="newSubjectInput=c.code; addSubject()">
-              {{ c.code }}
-            </button>
+
+        <!-- Searchable checkbox list -->
+        <div class="subj-panel" *ngIf="showSubjectPanel || subjectSearch">
+          <div class="subj-panel-inner">
+            <div class="subj-option"
+              *ngFor="let c of filteredCourses"
+              [class.subj-opt-selected]="isSubjectSelected(c.code)"
+              (click)="toggleSubject(c.code)">
+              <span class="subj-opt-check">{{ isSubjectSelected(c.code) ? '☑' : '☐' }}</span>
+              <span class="subj-opt-code">{{ c.code }}</span>
+              <span class="subj-opt-name">{{ c.name }}</span>
+            </div>
+            <div class="subj-panel-empty" *ngIf="filteredCourses.length === 0">No courses match "{{ subjectSearch }}"</div>
           </div>
         </div>
+
+        <!-- Selected chips -->
         <div class="subjects-chips" *ngIf="form.subjects!.length > 0">
           <div class="subj-chip-edit" *ngFor="let s of form.subjects; let i = index">
             {{ s }}
             <button class="chip-remove" (click)="removeSubject(i)">×</button>
           </div>
         </div>
-        <p class="form-hint" *ngIf="form.subjects!.length === 0">No subjects added yet. Type a subject code above.</p>
+        <p class="form-hint" *ngIf="form.subjects!.length === 0">Search or browse to select subjects above.</p>
       </div>
     </div>
     <div class="modal-foot">

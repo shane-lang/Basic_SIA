@@ -133,7 +133,7 @@
         <span class="meta-pill meta-dept" *ngIf="c.department">{{ c.department }}</span>
         <span class="meta-pill meta-level" *ngIf="c.year_level">{{ c.year_level }}</span>
         <span class="meta-pill meta-program" *ngIf="c.program">{{ c.program }}</span>
-        <span class="meta-pill meta-lab" *ngIf="c.is_lab">🔬 Lab</span>
+
       </div>
     </div>
   </div>
@@ -240,6 +240,22 @@
         </div>
       </div>
 
+      <!-- Also share with other programs -->
+      <div class="form-group" *ngIf="form.program && currentPrograms.length > 1">
+        <label>Also assign to other programs <span class="form-hint-inline">— shared subject</span></label>
+        <div class="shared-programs-list">
+          <label class="shared-prog-item"
+                 *ngFor="let p of currentPrograms"
+                 [style.display]="p.name === form.program ? 'none' : 'flex'">
+            <input type="checkbox"
+                   [value]="p.id"
+                   [checked]="sharedProgramIds.includes(+p.id)"
+                   (change)="toggleSharedProgram(+p.id, $event)">
+            <span>{{ p.code }} — {{ p.name }}</span>
+          </label>
+        </div>
+      </div>
+
       <!-- Dept/Strand + Year Level -->
       <div class="form-row two-col">
         <div class="form-group">
@@ -264,17 +280,7 @@
         </div>
       </div>
 
-      <!-- Lab checkbox -->
-      <div class="form-group">
-        <label class="lab-checkbox-label">
-          <input type="checkbox" [checked]="!!form.is_lab"
-                 (change)="form.is_lab = $any($event.target).checked ? 1 : 0"
-                 style="width:18px;height:18px;cursor:pointer;accent-color:#7c3aed;">
-          <span>🔬 This is a Laboratory subject
-            <span style="font-weight:400;color:#6b7280;">(adds ₱1,900 lab fee per student)</span>
-          </span>
-        </label>
-      </div>
+
 
     </div>
 
@@ -321,6 +327,7 @@
         <div class="view-item"><label>Semester</label><p>{{ viewTarget.semester || '—' }}</p></div>
         <div class="view-item"><label>Enrolled</label><p>{{ viewTarget.enrolled_count ?? 0 }} students</p></div>
         <div class="view-item"><label>Instructor</label><p>{{ viewTarget.instructor || '—' }}</p></div>
+
       </div>
     </div>
     <div class="modal-foot">

@@ -45,6 +45,12 @@ import { Reports } from './admin/reports/reports';
 import { Accounting } from './accounting/accounting/accounting';
 import { TorEvaluation } from './registrar/tor-evaluation/tor-evaluation';
 import { AddDropComponent } from './registrar/add-drop/add-drop';
+import { MasterlistComponent } from './registrar/masterlist/masterlist';
+import { StudentInfoComponent } from './registrar/student-info/student-info';
+import { InstructorLayout }  from './instructor/instructor-layout/instructor-layout';
+import { InstructorCourses } from './instructor/courses/courses';
+import { InstructorGrading } from './instructor/grading/grading';
+import { InstructorProfile } from './instructor/profile/profile';
 import { StudentAddDropComponent } from './student_view/student-add-drop/student-add-drop';
 import { Curriculum } from './student_view/curriculum/curriculum';
 import { AnnouncementsAdmin } from './admin/announcements/announcements';
@@ -93,7 +99,7 @@ export const routes: Routes = [
       { path: 'levels',          component: Levels },
       { path: 'rooms',  component: Rooms },
       { path: 'announcements', component: AnnouncementsAdmin },
-      { path: '', redirectTo: 'courses', pathMatch: 'full' }
+      { path: '', redirectTo: 'students', pathMatch: 'full' }
     ]
   },
 
@@ -110,7 +116,7 @@ export const routes: Routes = [
       { path: 'permits',    component: PermitGeneration },
       { path: 'report',     component: Report },
       { path: 'fee-config',     component: FeeConfigComponent },
-      { path: '', redirectTo: 'asr', pathMatch: 'full' }
+      { path: '', redirectTo: 'accounting', pathMatch: 'full' }
     ]
   },
 
@@ -130,7 +136,23 @@ export const routes: Routes = [
       { path: 'tor-evaluation',             component: TorEvaluation },
       { path: 'add-drop',                   component: AddDropComponent },
       { path: 'grade-submission',           component: GradeSubmission },
-      { path: '', redirectTo: 'dashboard', pathMatch: 'full' }
+      { path: 'masterlist',                 component: MasterlistComponent },
+      { path: 'student-info',               component: StudentInfoComponent },
+      { path: '', redirectTo: 'tor-evaluation', pathMatch: 'full' }
+    ]
+  },
+
+  // Instructor Routes
+  {
+    path: 'instructor',
+    component: InstructorLayout,
+    canActivate: [AuthGuard],
+    data: { role: 'faculty' },
+    children: [
+      { path: 'courses', component: InstructorCourses },
+      { path: 'grading', component: InstructorGrading },
+      { path: 'profile', component: InstructorProfile },
+      { path: '', redirectTo: 'courses', pathMatch: 'full' }
     ]
   },
 

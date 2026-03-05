@@ -76,10 +76,10 @@
       <div class="dp-row dp-hint" *ngIf="schedule.downpayment_paid < (schedule.total_assessment / 4) && schedule.downpayment_paid > 0">
         <span>⚠️ Below scheduled DP (₱{{ fmt(schedule.total_assessment / 4) }}) — unpaid portion added to term dues</span>
       </div>
-      <div class="dp-row dp-hint dp-hint-good" *ngIf="schedule.downpayment_paid > (schedule.total_assessment / 4)">
+     <!-- <div class="dp-row dp-hint dp-hint-good" *ngIf="schedule.downpayment_paid > (schedule.total_assessment / 4)">
         <span>✅ Above scheduled DP — term dues reduced accordingly</span>
       </div>
-    </div>
+    </div>-->
 
     <!-- Period cards -->
     <div class="cards">
@@ -144,7 +144,7 @@
             </button>
           </ng-container>
 
-          <!-- Pay button (unpaid/partial) -->
+          <!-- Pay button (unpaid/partial — always available to add more payment) -->
           <button class="btn-pay"
             *ngIf="getStatus(period)==='unpaid' || getStatus(period)==='partial'"
             (click)="openPayModal(period)">
@@ -152,9 +152,9 @@
             <span *ngIf="getBalance(period) > 0"> · ₱{{ fmt(getBalance(period)) }} remaining</span>
           </button>
 
-          <!-- Request permit button (paid, no active permit) -->
+          <!-- Request permit button: show when paid OR partial (any amount paid counts) -->
           <button class="btn-permit"
-            *ngIf="getStatus(period)==='paid' && (!getPermit(period) || getPermit(period)?.status==='rejected')"
+            *ngIf="(getStatus(period)==='paid' || getStatus(period)==='partial') && (!getPermit(period) || getPermit(period)?.status==='rejected')"
             [disabled]="!canRequest(period) || isRequesting"
             (click)="requestPermit(period)">
             🎫 Request {{ period }} Permit
@@ -300,7 +300,7 @@
             </div>
             <div class="pp-field">
               <span class="pp-label">Date of Exam:</span>
-              <span class="pp-val"></span>
+              <span class="pp-val">{{ dueDates[viewingPermit.exam_period.toLowerCase()]?.date_range || '' }}</span>
             </div>
             <div class="pp-field pp-full">
               <span class="pp-label">Name:</span>

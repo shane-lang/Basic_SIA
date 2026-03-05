@@ -1,0 +1,94 @@
+<ng-container *ngIf="student">
+  <div class="info-back-bar">
+    <button class="btn-back" (click)="goBack()">← Back to Masterlist</button>
+    <div class="info-badges">
+      <span class="cat-badge" [ngClass]="categoryClass(student.studentCategory)">{{ student.studentCategory }}</span>
+      <span class="st-badge" [ngClass]="statusClass(student.enrollmentStatus)">{{ student.enrollmentStatus }}</span>
+    </div>
+  </div>
+
+  <div class="info-layout">
+
+    <!-- Profile Card -->
+    <div class="profile-card">
+      <div class="profile-avatar">{{ student.initials }}</div>
+      <div class="profile-name">
+        {{ student.lastName }}, {{ student.firstName }}
+        <span *ngIf="student.middleName"> {{ student.middleName }}</span>
+        <span *ngIf="student.suffix"> {{ student.suffix }}</span>
+      </div>
+      <div class="profile-num">{{ student.studentNumber }}</div>
+      <div class="profile-prog">{{ student.program }}</div>
+      <div class="profile-meta">
+        <span>{{ student.yearLevel }}</span><span class="sep">·</span><span>{{ student.studentType }}</span>
+      </div>
+      <div class="profile-sem">{{ student.semester }}</div>
+      <hr class="divider">
+      <div class="profile-stat-row">
+        <div class="pstat"><span class="pstat-lbl">Scholar</span><span class="pstat-val">{{ student.isScholar ? '✅ Yes' : 'No' }}</span></div>
+        <div class="pstat" *ngIf="student.isScholar"><span class="pstat-lbl">Type</span><span class="pstat-val">{{ student.scholarType || '—' }}</span></div>
+        <div class="pstat"><span class="pstat-lbl">Payment</span><span class="pstat-val">{{ student.paymentStatus || '—' }}</span></div>
+        <div class="pstat"><span class="pstat-lbl">Enrolled</span><span class="pstat-val">{{ student.enrollmentDate || '—' }}</span></div>
+      </div>
+    </div>
+
+    <!-- Sections -->
+    <div class="info-sections">
+
+      <div class="info-section">
+        <div class="section-title">👤 Personal Information</div>
+        <div class="info-grid">
+          <div class="info-row"><span class="lbl">Last Name</span><span class="val">{{ student.lastName }}</span></div>
+          <div class="info-row"><span class="lbl">First Name</span><span class="val">{{ student.firstName }}</span></div>
+          <div class="info-row"><span class="lbl">Middle Name</span><span class="val">{{ student.middleName || '—' }}</span></div>
+          <div class="info-row"><span class="lbl">Suffix</span><span class="val">{{ student.suffix || '—' }}</span></div>
+          <div class="info-row"><span class="lbl">Date of Birth</span><span class="val">{{ student.dateOfBirth || '—' }}</span></div>
+          <div class="info-row"><span class="lbl">Age</span><span class="val">{{ student.age || '—' }}</span></div>
+          <div class="info-row"><span class="lbl">Sex</span><span class="val">{{ student.sex || '—' }}</span></div>
+          <div class="info-row"><span class="lbl">Religion</span><span class="val">{{ student.religion || '—' }}</span></div>
+          <div class="info-row"><span class="lbl">Place of Birth</span><span class="val">{{ student.placeOfBirth || '—' }}</span></div>
+          <div class="info-row"><span class="lbl">Citizenship</span><span class="val">{{ student.citizenship || '—' }}</span></div>
+          <div class="info-row"><span class="lbl">Mother Tongue</span><span class="val">{{ student.motherTongue || '—' }}</span></div>
+          <div class="info-row full"><span class="lbl">Home Address</span><span class="val">{{ student.address || '—' }}</span></div>
+          <div class="info-row"><span class="lbl">Contact No.</span><span class="val">{{ student.phone || '—' }}</span></div>
+          <div class="info-row"><span class="lbl">Email</span><span class="val">{{ student.email || '—' }}</span></div>
+          <div class="info-row"><span class="lbl">LRN No.</span><span class="val">{{ student.lrnNo || '—' }}</span></div>
+          <div class="info-row"><span class="lbl">PSA Birth Cert No.</span><span class="val">{{ student.psaBirthCertNo || '—' }}</span></div>
+          <div class="info-row"><span class="lbl">Indigenous People</span><span class="val">{{ student.isIndigenous || '—' }}</span></div>
+          <div class="info-row"><span class="lbl">Special Needs</span><span class="val">{{ student.hasSpecialNeeds || '—' }}{{ student.specialNeedsDetails ? ' — ' + student.specialNeedsDetails : '' }}</span></div>
+          <div class="info-row"><span class="lbl">Assistive Tech</span><span class="val">{{ student.hasAssistiveTech || '—' }}{{ student.assistiveTechDetails ? ' — ' + student.assistiveTechDetails : '' }}</span></div>
+          <div class="info-row" *ngIf="student.strand"><span class="lbl">Strand</span><span class="val">{{ student.strand }}</span></div>
+          <div class="info-row" *ngIf="student.learningDelivery"><span class="lbl">Learning Delivery</span><span class="val">{{ student.learningDelivery }}</span></div>
+        </div>
+      </div>
+
+      <div class="info-section">
+        <div class="section-title">👨‍👩‍👧 Parent / Guardian</div>
+        <div class="info-grid">
+          <div class="info-row"><span class="lbl">Name</span><span class="val">{{ student.guardianName || '—' }}</span></div>
+          <div class="info-row full"><span class="lbl">Address</span><span class="val">{{ student.guardianAddress || '—' }}</span></div>
+          <div class="info-row"><span class="lbl">Contact No.</span><span class="val">{{ student.guardianContact || '—' }}</span></div>
+        </div>
+      </div>
+
+      <div class="info-section">
+        <div class="section-title">🏫 Previous School(s) Attended</div>
+        <div *ngIf="previousSchools.length === 0" class="no-schools">No previous school records.</div>
+        <table class="school-table" *ngIf="previousSchools.length > 0">
+          <thead><tr><th>Level</th><th>School Name</th><th>School Year</th></tr></thead>
+          <tbody>
+            <tr *ngFor="let s of previousSchools">
+              <td>{{ s.level }}</td><td>{{ s.school }}</td><td>{{ s.year }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+    </div>
+  </div>
+</ng-container>
+
+<div class="empty-state" *ngIf="!student">
+  <div class="es-icon">👤</div>
+  <p>No student selected. <a (click)="goBack()" style="cursor:pointer;color:#3b82f6">Go back to masterlist.</a></p>
+</div>

@@ -735,3 +735,9 @@
 .picker-selected-info { font-size: 0.9rem; color: #6b7280; }
 .picker-selected-info strong { color: #7c3aed; font-size: 1.1rem; }
 .picker-done-btn { box-shadow: 0 4px 14px rgba(124,58,237,0.4); }
+/* General subject tag in course picker */
+.picker-general-tag {
+  font-size: 0.7rem; font-weight: 700; color: #7c3aed;
+  background: #f3e8ff; padding: 1px 8px; border-radius: 5px;
+  white-space: nowrap;
+}

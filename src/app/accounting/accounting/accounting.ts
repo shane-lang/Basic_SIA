@@ -35,6 +35,8 @@ interface PendingPayment {
   // Payment plan
   paymentPlan?:      string;  // 'full' | 'installment'
   scheduleAmounts?:  { downpayment: number; prelim: number; midterm: number; finals: number; total: number };
+  // Actual amount paid per term (from installment_payments) — for showing balance in modal
+  termPaidAmounts?:  { downpayment: number; prelim: number; midterm: number; finals: number };
 }
 
 interface PaymentHistory extends PendingPayment {
@@ -84,7 +86,7 @@ interface LiquidationReport {
 export class Accounting implements OnInit {
   private apiUrl = 'http://localhost/sia-api/accounting.php';
 
-  currentTab: 'pending' | 'history' | 'installment' | 'liquidation' = 'pending';
+  currentTab: 'pending' | 'history' | 'installment' | 'liquidation' | 'duedates' = 'pending';
 
   pendingPayments: PendingPayment[] = [];
   paymentHistory:  PaymentHistory[] = [];
@@ -141,6 +143,17 @@ export class Accounting implements OnInit {
   isLoadingLiquidation = false;
 
   accountingUserId = 0;
+
+  // ── Due Dates ─────────────────────────────────────────────
+  dueDatesLoading = false;
+  dueDatesSaving  = false;
+  dueDatesSaved   = false;
+  dueDates: Record<string, { label: string; date_range: string }> = {
+    downpayment: { label: 'Downpayment', date_range: '' },
+    prelim:      { label: 'Prelim',      date_range: '' },
+    midterm:     { label: 'Midterm',     date_range: '' },
+    finals:      { label: 'Finals',      date_range: '' },
+  };
 
   
   /** Returns HTTP headers with the auth token. Call this in every API request. */
@@ -211,12 +224,13 @@ export class Accounting implements OnInit {
     });
   }
 
-  switchTab(tab: 'pending' | 'history' | 'installment' | 'liquidation'): void {
+  switchTab(tab: 'pending' | 'history' | 'installment' | 'liquidation' | 'duedates'): void {
     this.currentTab = tab;
     this.searchQuery = '';
     if (tab === 'history')      this.loadPaymentHistory();
     if (tab === 'installment')  this.loadInstallmentStudents();
     if (tab === 'liquidation')  this.loadLiquidation();
+    if (tab === 'duedates')     this.loadDueDates();
     this.cdr.detectChanges();
   }
 
@@ -227,13 +241,20 @@ export class Accounting implements OnInit {
     this.modalNotes = '';
     this.cashDate   = new Date().toISOString().split('T')[0];
     this.cashAmountError = '';
-    // Pre-fill cash amount: installment = term due; full = total assessment
+    // Pre-fill cash amount: remaining balance for the term (due - already paid this term)
     if (payment.paymentPlan === 'installment' && payment.scheduleAmounts) {
       const ep = payment.examPeriod || 'Downpayment';
       const sa = payment.scheduleAmounts;
-      this.cashAmount = ep === 'Prelim'  ? sa.prelim  :
-                        ep === 'Midterm' ? sa.midterm :
-                        ep === 'Finals'  ? sa.finals  : sa.downpayment;
+      const tp = payment.termPaidAmounts;
+      const due = ep === 'Prelim'  ? sa.prelim  :
+                  ep === 'Midterm' ? sa.midterm :
+                  ep === 'Finals'  ? sa.finals  : sa.downpayment;
+      const alreadyPaid = tp
+        ? (ep === 'Prelim'  ? tp.prelim  :
+           ep === 'Midterm' ? tp.midterm :
+           ep === 'Finals'  ? tp.finals  : tp.downpayment)
+        : 0;
+      this.cashAmount = Math.max(0, due - alreadyPaid);
     } else {
       this.cashAmount = payment.totalAssessment || 0;
     }
@@ -329,7 +350,7 @@ export class Accounting implements OnInit {
     if (this.modalMode === 'edit') { this.saveEdit(); return; }
     if (this.modalMode === 'editHistory') { this.saveEditHistory(); return; }
 
-    // Validate cash amount: must be positive and not exceed total assessment (typo guard)
+    // Validate cash amount -- overpayment allowed (excess carries over to next term)
     if (this.isCash(this.selectedPayment) && this.modalMode === 'approve') {
       if (!this.cashAmount || this.cashAmount <= 0) {
         this.cashAmountError = 'Please enter the amount received.';
@@ -337,10 +358,11 @@ export class Accounting implements OnInit {
       }
       const total = this.selectedPayment.totalAssessment || 0;
       if (total > 0 && this.cashAmount > total) {
-        this.cashAmountError = `Amount ₱${this.formatAmount(this.cashAmount)} exceeds total assessment ₱${this.formatAmount(total)}. Check for typos.`;
-        return;
+        // Warning only -- backend will carry over excess to next term automatically
+        this.cashAmountError = 'Warning: Overpayment of P' + this.formatAmount(this.cashAmount - total) + ' -- excess will carry over to the next term.';
+      } else {
+        this.cashAmountError = '';
       }
-      this.cashAmountError = '';
     }
 
     this.isProcessing = true;
@@ -474,6 +496,35 @@ export class Accounting implements OnInit {
         this.cdr.detectChanges();
       },
       error: () => { this.isLoadingLiquidation = false; this.cdr.detectChanges(); }
+    });
+  }
+
+  // ── Due Dates ─────────────────────────────────────────────
+  loadDueDates(): void {
+    this.dueDatesLoading = true;
+    this.http.get<any>(`${this.apiUrl}?action=get_due_dates`, this.getHeaders()).subscribe({
+      next: res => {
+        if (res.success && res.dueDates) this.dueDates = res.dueDates;
+        this.dueDatesLoading = false;
+        this.cdr.detectChanges();
+      },
+      error: () => { this.dueDatesLoading = false; this.cdr.detectChanges(); }
+    });
+  }
+
+  saveDueDates(): void {
+    this.dueDatesSaving = true;
+    this.dueDatesSaved  = false;
+    this.http.post<any>(`${this.apiUrl}?action=save_due_dates`, this.dueDates, this.getHeaders()).subscribe({
+      next: res => {
+        this.dueDatesSaving = false;
+        if (res.success) {
+          this.dueDatesSaved = true;
+          setTimeout(() => { this.dueDatesSaved = false; this.cdr.detectChanges(); }, 3000);
+        }
+        this.cdr.detectChanges();
+      },
+      error: () => { this.dueDatesSaving = false; this.cdr.detectChanges(); }
     });
   }
 
@@ -747,7 +798,7 @@ export class Accounting implements OnInit {
   <div class="info-row">
     <div class="info-field"><span>Course:</span><span class="info-val">${h.program || ''}</span></div>
     <div class="info-field"><span>Semester:</span><span class="info-val">${h.semester || ''}</span></div>
-    <div class="info-field"><span>Academic Year:</span><span class="info-val">${new Date().getFullYear()}-${new Date().getFullYear()+1}</span></div>
+    <div class="info-field"><span>Academic Year:</span><span class="info-val">${(()=>{ const m=(h.semester||'').match(/(\d{4})-(\d{4})/); if(m) return m[0]; const y=new Date(h.gcashDate||h.verifiedAt||Date.now()).getFullYear(); return y+'-'+(y+1); })()}</span></div>
   </div>
 </div>
 <div class="sig-area">
