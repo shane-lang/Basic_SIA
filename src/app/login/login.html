@@ -1,5 +1,55 @@
+<!-- ══ OTP 2FA MODAL (student portal) ══ -->
+<div class="otp-overlay" *ngIf="showOtpModal">
+  <div class="otp-modal-card">
+    <div class="otp-modal-icon">🔐</div>
+    <h2>Two-Factor Authentication</h2>
+    <p class="otp-modal-sub">Check your authenticator app for the 6-digit code.</p>
+
+    <!-- Dev mode: show OTP code in-app -->
+    <div class="otp-dev-preview" *ngIf="otpCode">
+      <span>Dev mode — OTP: <strong>{{ otpCode }}</strong></span>
+    </div>
+
+    <div class="otp-countdown" *ngIf="otpCountdown > 0">
+      Expires in <strong>{{ otpCountdown }}</strong>s
+    </div>
+
+    <div class="error-message" *ngIf="otpError"><strong>Error:</strong> {{ otpError }}</div>
+
+    <div class="otp-input-wrap">
+      <input
+        type="text"
+        class="otp-input-field"
+        [(ngModel)]="otpInput"
+        maxlength="6"
+        placeholder="000000"
+        autocomplete="one-time-code"
+        inputmode="numeric"
+        (keyup.enter)="verifyStudentOtp()"
+      />
+    </div>
+
+    <div class="otp-modal-actions">
+      <button class="btn-otp-verify" (click)="verifyStudentOtp()" [disabled]="otpVerifying || otpInput.length !== 6">
+        <span *ngIf="!otpVerifying">✓ Verify</span>
+        <span *ngIf="otpVerifying">Verifying...</span>
+      </button>
+      <button class="btn-otp-cancel" (click)="cancelStudentOtp()">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <!-- ══ LOGIN VIEW ══ -->
-<div class="login-container" *ngIf="view === 'login'">
+<!-- ══ SESSION REDIRECT OVERLAY ══ -->
+<div class="session-checking-overlay" *ngIf="redirectingToDashboard">
+  <div class="session-checking-card">
+    <div class="session-spinner"></div>
+    <p class="redirect-title">Welcome back!</p>
+    <p class="redirect-sub">Redirecting to dashboard in <strong>{{ redirectCountdown }}</strong>...</p>
+  </div>
+</div>
+
+<div class="login-container" *ngIf="view === 'login' && !redirectingToDashboard">
   <mat-card class="login-card">
     <mat-card-header>
       <div class="header-content">
@@ -19,6 +69,9 @@
           <mat-label>Password</mat-label>
           <input matInput type="password" [(ngModel)]="password" name="password" [disabled]="loading" required>
         </mat-form-field>
+        <div class="forgot-pw-row">
+          <a href="#" class="forgot-pw-link" (click)="view='forgot'; $event.preventDefault()">Forgot Password?</a>
+        </div>
         <button mat-raised-button color="primary" type="submit" class="login-button" [disabled]="loading">
           {{ loading ? 'Logging in...' : 'Login' }}
         </button>
@@ -27,14 +80,12 @@
         <p class="enroll-divider">New to our school?</p>
         <button mat-stroked-button class="enroll-button"
           (click)="openEnrollment()"
-          [disabled]="loading || isCheckingPeriod || !!enrollmentClosedMsg"
-          [class.enroll-closed]="!!enrollmentClosedMsg && !isCheckingPeriod">
+          [disabled]="loading || isCheckingPeriod">
           <span *ngIf="isCheckingPeriod">⏳ Checking enrollment...</span>
-          <span *ngIf="!isCheckingPeriod && enrollmentClosedMsg">🔒 Enrollment Closed</span>
-          <span *ngIf="!isCheckingPeriod && !enrollmentClosedMsg">🎓 New Student Enrollment</span>
+          <span *ngIf="!isCheckingPeriod">🎓 New Student Enrollment</span>
         </button>
         <p class="enroll-closed-hint" *ngIf="enrollmentClosedMsg && !isCheckingPeriod">
-          {{ enrollmentClosedMsg }}
+          ⚠️ {{ enrollmentClosedMsg }}
         </p>
       </div>
       <!--<div class="demo-credentials">
@@ -44,6 +95,74 @@
         <p>💼 Accounting: accounting&#64;example.com / acc123</p>
         <p>🎓 Registrar: registrar&#64;example.com / registrar123</p>
       </div>-->
+    </mat-card-content>
+  </mat-card>
+</div>
+
+<!-- ══ FORGOT PASSWORD — Step 1: Email ══ -->
+<div class="login-container" *ngIf="view === 'forgot' && !redirectingToDashboard">
+  <mat-card class="login-card">
+    <mat-card-header>
+      <div class="header-content">
+        <h1>Reset Password</h1>
+        <p>Enter your email to receive a reset code</p>
+      </div>
+    </mat-card-header>
+    <mat-card-content>
+      <div *ngIf="fpError"   class="error-message"><strong>Error:</strong> {{ fpError }}</div>
+      <div *ngIf="fpSuccess" class="success-message"><strong>✓</strong> {{ fpSuccess }}</div>
+      <div class="login-form">
+        <mat-form-field class="full-width">
+          <mat-label>Email Address</mat-label>
+          <input matInput type="email" [(ngModel)]="fpEmail" name="fpEmail" [disabled]="fpLoading" placeholder="your@email.com">
+        </mat-form-field>
+        <button mat-raised-button color="primary" class="login-button" [disabled]="fpLoading" (click)="sendForgotOtp()">
+          {{ fpLoading ? 'Sending...' : 'Send Reset Code' }}
+        </button>
+      </div>
+      <div class="enroll-section">
+        <a href="#" class="forgot-pw-link" (click)="view='login'; fpError=''; fpSuccess=''; $event.preventDefault()">← Back to Login</a>
+      </div>
+    </mat-card-content>
+  </mat-card>
+</div>
+
+<!-- ══ FORGOT PASSWORD — Step 2: OTP + New Password ══ -->
+<div class="login-container" *ngIf="view === 'reset' && !redirectingToDashboard">
+  <mat-card class="login-card">
+    <mat-card-header>
+      <div class="header-content">
+        <h1>Enter Reset Code</h1>
+        <p>Check your email for the 6-digit code</p>
+      </div>
+    </mat-card-header>
+    <mat-card-content>
+      <div *ngIf="fpError"   class="error-message"><strong>Error:</strong> {{ fpError }}</div>
+      <div *ngIf="fpSuccess" class="success-message"><strong>✓</strong> {{ fpSuccess }}</div>
+      <div class="login-form">
+        <mat-form-field class="full-width">
+          <mat-label>6-Digit Code</mat-label>
+          <input matInput type="text" [(ngModel)]="fpOtp" name="fpOtp" maxlength="6" inputmode="numeric" placeholder="000000" [disabled]="fpLoading">
+        </mat-form-field>
+        <mat-form-field class="full-width">
+          <mat-label>New Password</mat-label>
+          <input matInput type="password" [(ngModel)]="fpNewPassword" name="fpNewPassword" [disabled]="fpLoading" placeholder="Min. 6 characters">
+        </mat-form-field>
+        <mat-form-field class="full-width">
+          <mat-label>Confirm New Password</mat-label>
+          <input matInput type="password" [(ngModel)]="fpConfirmPassword" name="fpConfirmPassword" [disabled]="fpLoading">
+        </mat-form-field>
+        <button mat-raised-button color="primary" class="login-button" [disabled]="fpLoading" (click)="submitResetPassword()">
+          {{ fpLoading ? 'Resetting...' : 'Reset Password' }}
+        </button>
+        <div class="forgot-pw-row" style="margin-top:12px;text-align:center;">
+          <span *ngIf="fpResendCountdown > 0" style="font-size:13px;color:#6b7280;">Resend code in <strong>{{ fpResendCountdown }}s</strong></span>
+          <a *ngIf="fpResendCountdown === 0" href="#" class="forgot-pw-link" (click)="sendForgotOtp(true); $event.preventDefault()">Resend Code</a>
+        </div>
+      </div>
+      <div class="enroll-section">
+        <a href="#" class="forgot-pw-link" (click)="view='forgot'; fpError=''; fpSuccess=''; $event.preventDefault()">← Back</a>
+      </div>
     </mat-card-content>
   </mat-card>
 </div>
@@ -221,7 +340,7 @@
 
       <div class="wiz-actions">
         <span></span>
-        <button class="btn-next" (click)="proceedFromProgram()" [disabled]="!selectedProgram || !!enrollmentClosedMsg">
+        <button class="btn-next" (click)="proceedFromProgram()" [disabled]="!selectedProgram">
           Next: Personal Information →
         </button>
       </div>
@@ -302,11 +421,13 @@
           </div>
           <div class="form-group">
             <label>Date of Birth <span class="req">*</span></label>
-            <input type="date" class="form-control" [(ngModel)]="regForm.dateOfBirth">
+            <input type="date" class="form-control" [(ngModel)]="regForm.dateOfBirth" (change)="computeAgeFromDOB()">
           </div>
           <div class="form-group">
-            <label>Age <span class="req">*</span></label>
-            <input type="number" class="form-control" [(ngModel)]="regForm.age" placeholder="18" min="10" max="99">
+            <label>Age</label>
+            <input type="text" class="form-control" [value]="regForm.age || '—'" readonly
+                   style="background:#f8fafc;color:#64748b;cursor:default;">
+            <small class="field-hint">Auto-computed from Date of Birth.</small>
           </div>
           <div class="form-group full-col">
             <label>Previous Schools Attended <span class="req">*</span></label>
@@ -429,33 +550,30 @@
 
       <!-- Enrollment Year & Semester -->
       <div class="form-section">
-        <h3 class="section-heading">📅 Year Level & Semester</h3>
+        <h3 class="section-heading">📅 Year Level{{ isSHS ? '' : ' & Semester' }}</h3>
         <div class="form-grid">
           <div class="form-group">
-            <label>Year Level <span class="req">*</span></label>
+            <label>{{ isSHS ? 'Grade Level' : 'Year Level' }} <span class="req">*</span></label>
             <select class="form-control" [(ngModel)]="regForm.yearLevel">
-              <option value="" disabled>Select Year Level</option>
+              <option value="" disabled>Select {{ isSHS ? 'Grade Level' : 'Year Level' }}</option>
               <option *ngFor="let y of yearLevelOptions" [value]="y">{{ y }}</option>
             </select>
           </div>
-          <div class="form-group">
-            <label>Semester <span class="req">*</span></label>
-            <select class="form-control" [(ngModel)]="regForm.semesterEnroll">
-              <option value="">-- Select Semester --</option>
-              <option value="1st Semester">1st Semester</option>
-              <option value="2nd Semester">2nd Semester</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label>Academic Year <span class="req">*</span></label>
-            <select class="form-control" [(ngModel)]="regForm.ayYear">
-              <option value="" disabled>-- Select AY --</option>
-              <option *ngFor="let ay of ayYearOptions" [value]="ay">AY {{ ay }}</option>
-            </select>
-            <small class="field-hint" *ngIf="regForm.semesterEnroll && regForm.ayYear">
-              → {{ regForm.semesterEnroll }}, AY {{ regForm.ayYear }}
-            </small>
-          </div>
+          <!-- Semester & AY — hidden for SHS (not applicable in PH K-12) -->
+          <ng-container *ngIf="!isSHS">
+            <div class="form-group">
+              <label>Semester</label>
+              <input type="text" class="form-control" [value]="regForm.semesterEnroll || '—'" readonly
+                     style="background:#f8fafc;color:#64748b;cursor:default;">
+              <small class="field-hint">Set by the school from the active enrollment period.</small>
+            </div>
+            <div class="form-group">
+              <label>Academic Year</label>
+              <input type="text" class="form-control" [value]="regForm.ayYear ? 'AY ' + regForm.ayYear : '—'" readonly
+                     style="background:#f8fafc;color:#64748b;cursor:default;">
+              <small class="field-hint">Set by the school from the active enrollment period.</small>
+            </div>
+          </ng-container>
         </div>
       </div>
 
@@ -474,6 +592,23 @@
           <div class="form-group">
             <label>Contact Number of Parent/Guardian <span class="req">*</span></label>
             <input type="tel" class="form-control" [(ngModel)]="regForm.guardianContact" placeholder="09XXXXXXXXX">
+          </div>
+          <div class="form-group">
+            <label>Email of Parent/Guardian <span class="req">*</span> <small style="color:#6b7280;font-weight:400">(for enrollment reports &amp; SOA)</small></label>
+            <input type="email" class="form-control" [(ngModel)]="regForm.guardianEmail" placeholder="parent@gmail.com">
+          </div>
+          <div class="form-group">
+            <label>Relationship to Student <span class="req">*</span></label>
+            <select class="form-control" [(ngModel)]="regForm.guardianRelationship">
+              <option value="">— Select —</option>
+              <option>Mother</option>
+              <option>Father</option>
+              <option>Guardian</option>
+              <option>Sibling</option>
+              <option>Grandparent</option>
+              <option>Spouse</option>
+              <option>Others</option>
+            </select>
           </div>
         </div>
       </div>
@@ -513,7 +648,7 @@
             </div>
           </div>
           <!-- Fee breakdown for transferee -->
-          <div class="fee-breakdown-card" *ngIf="shsFeeResult && !isSHSFeeLoading" style="margin-top:1rem;">
+          <div class="fee-breakdown-card" *ngIf="shsFeeResult && !isSHSFeeLoading && !isFullScholarship" style="margin-top:1rem;">
             <div class="fee-breakdown-header">Fee Assessment — {{ selectedProgramName }}</div>
             <div class="fee-breakdown-table">
               <div class="fb-row"><span>SHS Flat Rate</span><span>₱{{ shsFeeResult.fees.tuitionFee | number:'1.2-2' }}</span></div>
@@ -592,7 +727,7 @@
             </div>
           </div>
           <!-- Fee breakdown -->
-          <div class="fee-breakdown-card" *ngIf="tvetFeeResult && !isTVETFeeLoading" style="margin-top:1rem;">
+          <div class="fee-breakdown-card" *ngIf="tvetFeeResult && !isTVETFeeLoading && !isFullScholarship" style="margin-top:1rem;">
             <div class="fee-breakdown-header">Fee Assessment — {{ selectedProgramName }}</div>
             <div class="fee-breakdown-table">
               <ng-container *ngIf="tvetFeeResult.fees.tvetFlatRate; else tvetLineItems">
@@ -706,31 +841,74 @@
       </div>
 
       <!-- Scholarship — hidden for SHS New/Old (free via voucher) -->
-      <div class="form-section scholar-section" *ngIf="!(isSHS && !isTransfereeEnrolling)">
+                  <div class="form-section scholar-section" *ngIf="!(isSHS && !isTransfereeEnrolling)">
         <h3 class="section-heading">🎓 Scholarship / Discount</h3>
         <label class="toggle-label">
           <input type="checkbox" [(ngModel)]="isScholar" class="toggle-check" (change)="onScholarshipChange()" (ngModelChange)="onScholarshipChange()">
           I am a scholar or have a tuition discount
         </label>
         <div *ngIf="isScholar" class="scholar-form">
-          <div class="info-note">ℹ️ Scholarship will be validated by the <strong>Registrar and Cashier</strong> before discount is applied.</div>
+
           <div class="form-grid">
             <div class="form-group">
               <label>Scholarship Type <span class="req">*</span></label>
-              <select [(ngModel)]="scholarType" class="form-control">
+              <select [(ngModel)]="scholarType" class="form-control" (change)="onScholarshipChange()">
                 <option value="">-- Select Type --</option>
                 <option *ngFor="let t of scholarTypes" [value]="t">{{ t }}</option>
               </select>
             </div>
-            <div class="form-group">
+            <div class="form-group" *ngIf="!isFullScholarship">
               <label>Grantor / District</label>
               <input type="text" [(ngModel)]="scholarGrantor" placeholder="e.g. City of Olongapo" class="form-control">
             </div>
-            <div class="form-group">
-              <label>Scholarship Amount (₱)</label>
+          </div>
+
+          <!-- Full Scholarship: claim code required -->
+          <ng-container *ngIf="isFullScholarship">
+            <div class="full-scholar-claim-box">
+              <div class="fscb-title">🎓 Full Scholarship — Claim Code Required</div>
+              <p class="fscb-desc">
+                Your scholarship must be <strong>pre-approved by Accounting</strong> before enrollment.
+                Enter the claim code provided by the Accounting office.
+              </p>
+              <div class="fscb-input-row">
+                <input
+                  type="text"
+                  [(ngModel)]="scholarClaimCode"
+                  (blur)="verifyScholarCode()"
+                  (keyup.enter)="verifyScholarCode()"
+                  placeholder="e.g. SCH-AB3X7K2P"
+                  class="form-control fscb-input"
+                  [class.input-valid]="scholarCodeStatus === 'valid'"
+                  [class.input-invalid]="scholarCodeStatus === 'invalid'"
+                  style="text-transform:uppercase;"
+                >
+                <button class="btn-verify-code" (click)="verifyScholarCode()" [disabled]="scholarCodeStatus === 'checking'">
+                  {{ scholarCodeStatus === 'checking' ? '⏳' : '✓ Verify' }}
+                </button>
+              </div>
+              <div class="code-msg code-valid"    *ngIf="scholarCodeStatus === 'valid'">✅ {{ scholarCodeMsg }}</div>
+              <div class="code-msg code-invalid"  *ngIf="scholarCodeStatus === 'invalid'">❌ {{ scholarCodeMsg }}</div>
+              <div class="code-msg code-checking" *ngIf="scholarCodeStatus === 'checking'">⏳ Verifying...</div>
+              <div class="full-scholar-verified-notice" *ngIf="scholarCodeStatus === 'valid'">
+                🎉 <strong>Full Scholarship Verified</strong> — your entire tuition is covered.
+                No payment required. You will be auto-enrolled once registration is submitted.
+              </div>
+            </div>
+          </ng-container>
+
+          <!-- Non-full scholarship: regular pending notice -->
+          <ng-container *ngIf="!isFullScholarship && scholarType">
+            <div class="info-note scholar-pending-note">
+              ⏳ Scholarship application will be <strong>reviewed and approved by Accounting</strong> before discount is applied.
+              You may still proceed with <strong>installment payment</strong> while it is being processed.
+            </div>
+            <div class="form-group" style="margin-top:0.75rem;">
+              <label>Scholarship Amount (₱) <span style="color:#6b7280;font-weight:400">(leave 0 if unknown)</span></label>
               <input type="number" [(ngModel)]="scholarshipAmount" min="0" class="form-control" (change)="onScholarshipChange()">
             </div>
-          </div>
+          </ng-container>
+
         </div>
       </div>
 
@@ -816,7 +994,7 @@
       </ng-container>
 
       <!-- ══ NON-TRANSFEREE: Fee Assessment + Payment Plan + Method (College only) ══ -->
-      <ng-container *ngIf="!isTransfereeEnrolling && isCollege">
+      <ng-container *ngIf="!isTransfereeEnrolling && isCollege && !isFullScholarship">
 
       <!-- ══ FEE ASSESSMENT BREAKDOWN ══ -->
       <div class="form-section fee-assessment-section">
@@ -1333,18 +1511,89 @@
         📄 After creating your account, you'll be directed to a waiting screen while the <strong>Registrar evaluates your TOR</strong>. Payment and subject enrollment will follow after evaluation.
       </div>
 
+      <!-- RA 10173 DATA PRIVACY CONSENT — required before account creation -->
+      <div class="privacy-consent-box">
+        <label class="privacy-consent-label">
+          <input type="checkbox" [(ngModel)]="privacyConsentGiven" class="privacy-checkbox">
+          <span>
+            I have read and agree to the
+            <a href="#" (click)="showPrivacyNotice=true; $event.preventDefault()">Data Privacy Notice</a>
+            of St. Benilde Center for Global Competence, Inc. I consent to the collection,
+            use, and processing of my personal data for enrollment purposes as provided
+            under <strong>Republic Act No. 10173</strong> (Data Privacy Act of 2012).
+          </span>
+        </label>
+      </div>
+
+      <!-- Privacy Notice Modal -->
+      <div class="modal-overlay" *ngIf="showPrivacyNotice" (click)="showPrivacyNotice=false">
+        <div class="modal-content privacy-modal" (click)="$event.stopPropagation()">
+          <div class="modal-header"><h2>🔒 Data Privacy Notice</h2><button class="modal-close" (click)="showPrivacyNotice=false">✕</button></div>
+          <div class="modal-body privacy-body">
+            <p><strong>Personal Information Controller:</strong> St. Benilde Center for Global Competence, Inc., 2647 Rizal Avenue, West Bajac-Bajac, Olongapo City.</p>
+            <p><strong>Purpose of Collection:</strong> Your personal data (name, birthdate, address, contact details, academic records, and government IDs) are collected for student enrollment, academic record-keeping, fee assessment, and compliance with CHED, DepEd, and TESDA regulations.</p>
+            <p><strong>Data Retention:</strong> Student records are retained for a minimum of 10 years as required by CHED. Payment records are kept for 5 years per BIR requirements. Login and activity logs are purged after 2 years.</p>
+            <p><strong>Your Rights under RA 10173:</strong> You have the right to (1) access your personal data, (2) correct inaccurate data, (3) object to processing, (4) request erasure of data no longer necessary, and (5) be notified of a data breach affecting your records within 72 hours.</p>
+            <p><strong>Data Sharing:</strong> Your data will not be sold or shared with third parties except as required by law or accreditation bodies.</p>
+            <p><strong>Contact:</strong> For data privacy concerns, contact the school's Data Protection Officer at the Registrar's Office.</p>
+          </div>
+          <div class="modal-footer"><button class="btn-confirm" (click)="showPrivacyNotice=false; privacyConsentGiven=true">✓ I Understand &amp; Consent</button></div>
+        </div>
+      </div>
+
       <div class="wiz-actions">
         <button class="btn-back" (click)="enrollStep='documents'; enrollError=''" [disabled]="isSubmitting">← Back</button>
-        <button class="btn-submit" *ngIf="isCollege" (click)="submitEnrollment()" [disabled]="isSubmitting">
+        <button class="btn-submit" *ngIf="isCollege" (click)="submitEnrollment()" [disabled]="isSubmitting || !privacyConsentGiven">
           {{ isSubmitting ? '⏳ Creating Account...' : '✓ Create Account & Continue →' }}
         </button>
-        <button class="btn-submit" *ngIf="isSHS" (click)="submitEnrollmentSHS()" [disabled]="isSubmitting">
+        <button class="btn-submit" *ngIf="isSHS" (click)="submitEnrollmentSHS()" [disabled]="isSubmitting || !privacyConsentGiven">
           {{ isSubmitting ? '⏳ Creating Account...' : '✓ Create Account & Enroll →' }}
         </button>
-        <button class="btn-submit" *ngIf="isTVET" (click)="submitEnrollmentTVET()" [disabled]="isSubmitting">
+        <button class="btn-submit" *ngIf="isTVET" (click)="submitEnrollmentTVET()" [disabled]="isSubmitting || !privacyConsentGiven">
           {{ isSubmitting ? '⏳ Creating Account...' : '✓ Create Account & Enroll →' }}
         </button>
       </div>
+    </div>
+
+    <!-- ══ STEP: Registration Confirmation ════════════════════════════════ -->
+    <div class="wizard-card confirmed-card" *ngIf="enrollStep==='confirmed'">
+      <div class="confirmed-checkmark">✓</div>
+      <h2 class="confirmed-title">Registration Successful!</h2>
+      <p class="confirmed-subtitle">Your account has been created. Here's your enrollment summary:</p>
+
+      <div class="confirmed-details">
+        <div class="confirmed-row">
+          <span class="confirmed-label">Student No.</span>
+          <span class="confirmed-value confirmed-highlight">{{ confirmedStudentNumber || 'Generating...' }}</span>
+        </div>
+        <div class="confirmed-row">
+          <span class="confirmed-label">Name</span>
+          <span class="confirmed-value">{{ confirmedName }}</span>
+        </div>
+        <div class="confirmed-row">
+          <span class="confirmed-label">Program</span>
+          <span class="confirmed-value">{{ confirmedProgram }}</span>
+        </div>
+        <div class="confirmed-row">
+          <span class="confirmed-label">Next Step</span>
+          <span class="confirmed-value">
+            <ng-container *ngIf="confirmedNextStep==='payment'">💳 Submit GCash / Cash payment</ng-container>
+            <ng-container *ngIf="confirmedNextStep==='tor'">📄 Await Registrar TOR evaluation</ng-container>
+            <ng-container *ngIf="confirmedNextStep==='free'">🎓 No payment needed — proceed to portal</ng-container>
+          </span>
+        </div>
+      </div>
+
+      <div class="confirmed-redirect">
+        <div class="confirmed-progress-bar">
+          <div class="confirmed-progress-fill" [style.animation-duration]="'5s'"></div>
+        </div>
+        <p>Logging you in automatically in <strong>{{ confirmedAutoLoginSec }}</strong>s...</p>
+      </div>
+
+      <button class="btn-submit confirmed-btn" (click)="proceedAfterConfirmation()" [disabled]="isSubmitting">
+        {{ isSubmitting ? '⏳ Logging in...' : 'Continue to Portal →' }}
+      </button>
     </div>
 
   </div><!-- /wizard-wrapper -->

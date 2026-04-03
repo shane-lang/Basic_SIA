@@ -1,0 +1,383 @@
+<div class="ps-panel">
+
+  <!-- Header -->
+  <div class="ps-header">
+    <div class="ps-header-left">
+      <span class="ps-icon">🎓</span>
+      <div>
+        <h2>Scholarship Applications</h2>
+        <p>Review and approve student scholarship declarations</p>
+      </div>
+    </div>
+    <button class="btn-refresh" (click)="load()" [disabled]="isLoading">
+      {{ isLoading ? '⏳' : '🔄' }} Refresh
+    </button>
+  </div>
+
+  <!-- Main section toggle -->
+  <div class="ps-main-tabs">
+    <button class="ps-main-tab" [class.active]="mainTab==='applications'" (click)="switchMainTab('applications')">
+      🎓 Scholarship Applications
+    </button>
+    <button class="ps-main-tab" [class.active]="mainTab==='claim-codes'" (click)="switchMainTab('claim-codes')">
+      🔑 Claim Codes
+      <span class="main-tab-sub">Pre-approve full scholars</span>
+    </button>
+  </div>
+
+  <!-- Alerts -->
+  <div class="alert-success"  *ngIf="successMsg">✅ {{ successMsg }}</div>
+  <div class="alert-error"   *ngIf="errorMsg">⚠️ {{ errorMsg }}</div>
+
+<ng-container *ngIf="mainTab==='applications'">
+
+    <!-- Tabs -->
+  <div class="ps-tabs">
+    <button class="ps-tab" [class.active]="activeTab==='pending'"  (click)="switchTab('pending')">
+      ⏳ Pending
+      <span class="tab-cnt" *ngIf="activeTab==='pending' && scholarships.length > 0">{{ scholarships.length }}</span>
+    </button>
+    <button class="ps-tab" [class.active]="activeTab==='approved'" (click)="switchTab('approved')">✅ Approved</button>
+    <button class="ps-tab" [class.active]="activeTab==='rejected'" (click)="switchTab('rejected')">❌ Rejected</button>
+  </div>
+
+  <!-- Search -->
+  <div class="ps-search-bar">
+    <input class="ps-search" type="text" placeholder="🔍 Search student name, ID, type, grantor..."
+           [(ngModel)]="searchQuery">
+  </div>
+
+  <!-- Loading -->
+  <div class="ps-loading" *ngIf="isLoading">
+    <div class="spin"></div><p>Loading...</p>
+  </div>
+
+  <!-- Empty -->
+  <div class="ps-empty" *ngIf="!isLoading && filtered.length === 0">
+    <div>📭</div>
+    <p *ngIf="activeTab==='pending'">No pending scholarship applications.</p>
+    <p *ngIf="activeTab==='approved'">No approved scholarships yet.</p>
+    <p *ngIf="activeTab==='rejected'">No rejected applications.</p>
+  </div>
+
+  <!-- Cards -->
+  <div class="ps-grid" *ngIf="!isLoading && filtered.length > 0">
+    <div class="ps-card" *ngFor="let s of filtered"
+         [class.card-full]="isFullCoverage(s)"
+         [class.card-approved]="s.status==='approved'"
+         [class.card-rejected]="s.status==='rejected'">
+
+      <!-- Student info -->
+      <div class="ps-card-top">
+        <div class="ps-avatar">{{ (s.first_name[0] || '') + (s.last_name[0] || '') }}</div>
+        <div class="ps-student-info">
+          <div class="ps-name">{{ s.last_name }}, {{ s.first_name }}</div>
+          <div class="ps-meta">{{ s.student_number }} · {{ s.program }}</div>
+          <div class="ps-meta">{{ s.year_level }} · {{ s.student_category }}</div>
+        </div>
+        <div class="ps-status-badge">
+          <span *ngIf="s.status==='pending'"  class="badge-pending">⏳ Pending</span>
+          <span *ngIf="s.status==='approved'" class="badge-approved">✅ Approved</span>
+          <span *ngIf="s.status==='rejected'" class="badge-rejected">❌ Rejected</span>
+        </div>
+      </div>
+
+      <!-- Scholarship info -->
+      <div class="ps-card-body">
+        <div class="ps-field"><span>Type</span><strong>{{ s.scholar_type }}</strong></div>
+        <div class="ps-field"><span>Grantor</span><strong>{{ s.grantor || '—' }}</strong></div>
+        <div class="ps-field"><span>Amount</span>
+          <strong [class.full-amt]="isFullCoverage(s)">
+            {{ s.scholarship_amount > 0 ? '₱' + fmt(s.scholarship_amount) : 'TBD by Accounting' }}
+          </strong>
+        </div>
+        <div class="ps-field"><span>Total Assessment</span><strong>₱{{ fmt(s.total_assessment) }}</strong></div>
+
+        <!-- Coverage bar -->
+        <div class="ps-coverage" *ngIf="s.scholarship_amount > 0 && s.total_assessment > 0">
+          <div class="cov-label">
+            <span>Coverage</span>
+            <span [class.full-cov]="isFullCoverage(s)">
+              {{ isFullCoverage(s) ? '🎉 Full Tuition' : coveragePercent(s) + '%' }}
+            </span>
+          </div>
+          <div class="cov-bar">
+            <div class="cov-fill" [style.width.%]="coveragePercent(s)"
+                 [class.cov-full]="isFullCoverage(s)"></div>
+          </div>
+          <div class="cov-detail" *ngIf="!isFullCoverage(s)">
+            Remaining after scholarship: <strong>₱{{ fmt(s.total_assessment - s.scholarship_amount) }}</strong>
+          </div>
+          <div class="cov-detail full-msg" *ngIf="isFullCoverage(s)">
+            ✓ Full coverage — student will be auto-enrolled upon approval, no payment required.
+          </div>
+        </div>
+
+        <div class="ps-field"><span>Semester</span><strong>{{ s.semester || '—' }}</strong></div>
+        <div class="ps-field"><span>Applied</span><strong>{{ fmtDate(s.created_at) }}</strong></div>
+        <div class="ps-field" *ngIf="s.status==='approved'">
+          <span>Approved by</span><strong>{{ s.reviewed_by_email || s.granted_by_email || '—' }}</strong>
+        </div>
+        <div class="ps-field" *ngIf="s.status==='rejected'">
+          <span>Reason</span><strong class="reject-reason">{{ s.reject_reason || '—' }}</strong>
+        </div>
+        <div class="ps-field" *ngIf="s.notes">
+          <span>Notes</span><strong>{{ s.notes }}</strong>
+        </div>
+      </div>
+
+      <!-- Actions (pending only) -->
+      <div class="ps-card-actions" *ngIf="s.status==='pending'">
+        <button class="btn-approve" (click)="openApprove(s)">✅ Approve</button>
+        <button class="btn-reject"  (click)="openReject(s)">❌ Reject</button>
+      </div>
+    </div>
+  </div>
+
+
+</ng-container>
+
+<!-- ── CLAIM CODES SECTION ── -->
+<ng-container *ngIf="mainTab==='claim-codes'">
+
+  <!-- New code banner -->
+  <div class="code-created-banner" *ngIf="createdCode">
+    <div class="ccb-left">
+      <span>✅</span>
+      <div>
+        <div class="ccb-title">Claim Code Generated — Give this to the scholar</div>
+        <div class="ccb-sub">Student enters this during online enrollment. One-time use only.</div>
+      </div>
+    </div>
+    <div class="ccb-right">
+      <span class="ccb-code">{{ createdCode }}</span>
+      <button class="btn-copy" (click)="copyCode(createdCode)">📋 Copy</button>
+      <button class="ccb-x" (click)="createdCode=''">✕</button>
+    </div>
+  </div>
+
+  <!-- How it works -->
+  <div class="hiw-bar">
+    <span class="hiw-step"><span class="hiw-n">1</span> Accounting generates a code here</span>
+    <span class="hiw-arrow">→</span>
+    <span class="hiw-step"><span class="hiw-n">2</span> Give code to the scholar</span>
+    <span class="hiw-arrow">→</span>
+    <span class="hiw-step"><span class="hiw-n">3</span> Student enters code during enrollment → auto-approved, no payment</span>
+  </div>
+
+  <!-- Code tabs + generate button -->
+  <div class="code-toolbar">
+    <div class="code-tabs">
+      <button class="code-tab" [class.active]="preapprovalTab==='active'" (click)="switchCodeTab('active')">🟢 Active</button>
+      <button class="code-tab" [class.active]="preapprovalTab==='used'"   (click)="switchCodeTab('used')">✅ Used</button>
+      <button class="code-tab" [class.active]="preapprovalTab==='all'"    (click)="switchCodeTab('all')">📋 All</button>
+    </div>
+    <button class="btn-gen" (click)="openCreate()">＋ Generate Code</button>
+  </div>
+
+  <div class="ps-loading" *ngIf="isLoadingCodes"><div class="spin"></div><p>Loading...</p></div>
+
+  <div class="ps-empty" *ngIf="!isLoadingCodes && preapprovals.length === 0">
+    <div>🔑</div>
+    <p *ngIf="preapprovalTab==='active'">No active claim codes. Click "Generate Code" to create one.</p>
+    <p *ngIf="preapprovalTab==='used'">No used codes yet.</p>
+    <p *ngIf="preapprovalTab==='all'">No records found.</p>
+  </div>
+
+  <div class="codes-table-wrap" *ngIf="!isLoadingCodes && preapprovals.length > 0">
+    <table class="codes-table">
+      <thead>
+        <tr>
+          <th>Claim Code</th><th>Type</th><th>Grantor</th><th>Semester</th>
+          <th>Created</th><th>Status</th><th>Used By</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr *ngFor="let p of preapprovals"
+            [class.code-row-used]="p.is_used" [class.code-row-revoked]="p.is_revoked">
+          <td>
+            <span class="code-pill" [class.code-used]="p.is_used" [class.code-revoked]="p.is_revoked">{{ p.claim_code }}</span>
+            <button class="btn-copy-sm" *ngIf="!p.is_used && !p.is_revoked" (click)="copyCode(p.claim_code)" title="Copy">📋</button>
+          </td>
+          <td><span class="type-chip-sm">{{ p.scholar_type }}</span></td>
+          <td><small>{{ p.grantor || '—' }}</small></td>
+          <td><small>{{ p.semester || '—' }}</small></td>
+          <td><small>{{ fmtDate(p.created_at) }}</small></td>
+          <td>
+            <span class="code-status-active"   *ngIf="!p.is_used && !p.is_revoked">🟢 Active</span>
+            <span class="code-status-used"     *ngIf="p.is_used">✅ Used</span>
+            <span class="code-status-revoked"  *ngIf="p.is_revoked && !p.is_used">🔴 Revoked</span>
+          </td>
+          <td>
+            <div class="used-by-cell" *ngIf="p.is_used && p.first_name">
+              <strong>{{ p.last_name }}, {{ p.first_name }}</strong>
+              <small>{{ p.student_number }}</small>
+            </div>
+            <span *ngIf="!p.is_used">—</span>
+          </td>
+          <td>
+            <button class="btn-revoke-sm" *ngIf="!p.is_used && !p.is_revoked" (click)="openRevoke(p)">Revoke</button>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Create Code Modal -->
+  <div class="modal-overlay" *ngIf="showCreateForm" (click)="showCreateForm=false">
+    <div class="modal-box" (click)="$event.stopPropagation()">
+      <div class="modal-header-row">
+        <h3>🔑 Generate Scholarship Claim Code</h3>
+        <button class="modal-x" (click)="showCreateForm=false">✕</button>
+      </div>
+      <p class="modal-info-note">Generates a one-time code for a full scholar. Student enters this during enrollment — auto-approved, no payment needed.</p>
+      <div class="modal-form-row">
+        <label>Scholarship Type *</label>
+        <select [(ngModel)]="newScholarType" class="modal-input">
+          <option *ngFor="let t of scholarTypes" [value]="t">{{ t }}</option>
+        </select>
+      </div>
+      <div class="modal-form-row">
+        <label>Grantor / Organization</label>
+        <input type="text" [(ngModel)]="newGrantor" class="modal-input" placeholder="e.g. City of Olongapo">
+      </div>
+      <div class="modal-form-row">
+        <label>Semester</label>
+        <input type="text" [(ngModel)]="newSemester" class="modal-input" placeholder="e.g. 1st Semester, AY 2025-2026">
+      </div>
+      <div class="modal-form-row">
+        <label>Notes (optional)</label>
+        <input type="text" [(ngModel)]="newNotes" class="modal-input" placeholder="e.g. For Juan dela Cruz, BSIT">
+      </div>
+      <div class="modal-footer">
+        <button class="btn-cancel" (click)="showCreateForm=false" [disabled]="isCreating">Cancel</button>
+        <button class="btn-confirm-approve" (click)="submitCreate()" [disabled]="isCreating">
+          {{ isCreating ? '⏳ Generating...' : '✓ Generate Code' }}
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Revoke Modal -->
+  <div class="modal-overlay" *ngIf="showRevokeModal" (click)="showRevokeModal=false">
+    <div class="modal-box" (click)="$event.stopPropagation()">
+      <h3>🔴 Revoke Code</h3>
+      <p>Revoke <strong>{{ revokeTarget?.claim_code }}</strong>? The student can no longer use this code.</p>
+      <div class="modal-form-row">
+        <label>Reason (optional)</label>
+        <input type="text" [(ngModel)]="revokeReason" class="modal-input" placeholder="e.g. Scholarship cancelled">
+      </div>
+      <div class="modal-footer">
+        <button class="btn-cancel" (click)="showRevokeModal=false" [disabled]="isRevoking">Cancel</button>
+        <button class="btn-confirm-reject" (click)="confirmRevoke()" [disabled]="isRevoking">
+          {{ isRevoking ? '⏳...' : '🔴 Confirm Revoke' }}
+        </button>
+      </div>
+    </div>
+  </div>
+
+</ng-container>
+
+
+<!-- ── Modal ── -->
+<div class="modal-overlay" *ngIf="showModal" (click)="closeModal()">
+  <div class="modal-box" (click)="$event.stopPropagation()">
+
+    <!-- Approve -->
+    <ng-container *ngIf="modalAction === 'approve' && selected">
+      <h3>✅ Approve Scholarship</h3>
+      <div class="modal-student">
+        <strong>{{ selected.last_name }}, {{ selected.first_name }}</strong>
+        <span>{{ selected.student_number }}</span>
+      </div>
+
+      <!-- Scholarship type info -->
+      <div class="modal-summary">
+        <div class="ms-row"><span>Type</span><strong>{{ selected.scholar_type }}</strong></div>
+        <div class="ms-row"><span>Grantor</span><strong>{{ selected.grantor }}</strong></div>
+        <div class="ms-row"><span>Total Assessment</span><strong>₱{{ fmt(selected.total_assessment) }}</strong></div>
+      </div>
+
+      <!-- Full tuition toggle -->
+      <div class="full-tuition-toggle">
+        <label class="ftl-label">
+          <input type="checkbox" [(ngModel)]="fullTuition" (change)="overrideAmount = null">
+          <span class="ftl-text">
+            🎉 Full Scholarship — cover entire tuition
+            <span class="ftl-sub">Student will be auto-enrolled. No payment required.</span>
+          </span>
+        </label>
+      </div>
+
+      <!-- Amount field (hidden when full tuition is checked) -->
+      <div class="modal-form-row" *ngIf="!fullTuition">
+        <label>Scholarship Amount (₱) <span class="req">*</span></label>
+        <input class="modal-input" type="number" [(ngModel)]="overrideAmount"
+               min="1" [max]="selected.total_assessment"
+               placeholder="Enter approved scholarship amount">
+        <div class="amt-hint" *ngIf="overrideAmount && selected.total_assessment > 0">
+          Coverage: {{ ((overrideAmount / selected.total_assessment) * 100 | number:'1.0-0') }}%
+          — Net balance: <strong>₱{{ fmt(effectiveNetTotal) }}</strong>
+        </div>
+        <div class="amt-hint warn" *ngIf="!overrideAmount && !selected.scholarship_amount">
+          ⚠️ Student did not declare an amount. Please enter the approved scholarship amount.
+        </div>
+      </div>
+
+      <!-- Summary -->
+      <div class="approval-summary" [class.full-summary]="fullTuition || effectiveNetTotal <= 0">
+        <div class="as-row">
+          <span>Scholarship Amount</span>
+          <strong>₱{{ fmt(effectiveAmount) }}</strong>
+        </div>
+        <div class="as-row">
+          <span>Student Pays</span>
+          <strong [class.zero-pay]="effectiveNetTotal <= 0">
+            {{ effectiveNetTotal <= 0 ? '₱0.00 — FULLY COVERED ✓' : '₱' + fmt(effectiveNetTotal) }}
+          </strong>
+        </div>
+      </div>
+
+      <div class="full-notice" *ngIf="fullTuition || effectiveNetTotal <= 0">
+        🎉 Full coverage — student will be <strong>auto-enrolled</strong> with no payment required.
+      </div>
+
+      <div class="modal-form-row">
+        <label>Notes / Remarks (optional)</label>
+        <input class="modal-input" type="text" [(ngModel)]="modalNotes"
+               placeholder="e.g. Scholarship docs verified on file">
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn-cancel" (click)="closeModal()" [disabled]="isProcessing">Cancel</button>
+        <button class="btn-confirm-approve" (click)="confirm()"
+                [disabled]="isProcessing || (!fullTuition && !overrideAmount && !selected.scholarship_amount)">
+          {{ isProcessing ? '⏳ Processing...' : (effectiveNetTotal <= 0 || fullTuition) ? '🎉 Approve Full Scholarship' : '✅ Approve Scholarship' }}
+        </button>
+      </div>
+    </ng-container>
+
+    <!-- Reject -->
+    <ng-container *ngIf="modalAction === 'reject' && selected">
+      <h3>❌ Reject Scholarship</h3>
+      <div class="modal-student">
+        <strong>{{ selected.last_name }}, {{ selected.first_name }}</strong>
+        <span>{{ selected.student_number }}</span>
+      </div>
+      <div class="modal-form-row">
+        <label>Reason for Rejection <span class="req">*</span></label>
+        <textarea class="modal-input" rows="3" [(ngModel)]="rejectReason"
+                  placeholder="e.g. Scholarship documents not submitted, Not qualified..."></textarea>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-cancel" (click)="closeModal()" [disabled]="isProcessing">Cancel</button>
+        <button class="btn-confirm-reject" (click)="confirm()"
+                [disabled]="isProcessing || !rejectReason.trim()">
+          {{ isProcessing ? '⏳ Processing...' : '❌ Confirm Rejection' }}
+        </button>
+      </div>
+    </ng-container>
+
+  </div>
+</div>
+</div>

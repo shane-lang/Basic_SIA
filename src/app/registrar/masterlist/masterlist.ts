@@ -1,7 +1,8 @@
 import { Component, OnInit, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { HttpClient, HttpHeaders } from '@angular/common/http';
+import { HttpClient } from '@angular/common/http';
+import { environment } from '../../environment';
 
 export interface Student {
   id: number; studentNumber: string;
@@ -45,12 +46,7 @@ export interface SubjectRecord {
   styleUrl: './masterlist.css',
 })
 export class MasterlistComponent implements OnInit {
-  private api = 'http://localhost/sia-api/registrar.php';
-  private getHeaders() {
-    const t = sessionStorage.getItem('token') || localStorage.getItem('token') || '';
-    return { headers: new HttpHeaders({ Authorization: `Bearer ${t}` }) };
-  }
-  constructor(private http: HttpClient, private cdr: ChangeDetectorRef) {}
+  private api = environment.registrarApi;  constructor(private http: HttpClient, private cdr: ChangeDetectorRef) {}
 
   // ═══════════════════════════════════════════════════════
   // PROGRAMS (needed for report filters)
@@ -77,7 +73,7 @@ export class MasterlistComponent implements OnInit {
 
   loadPrograms(level: string): void {
     const p = new URLSearchParams({ action: 'masterlist_programs', level });
-    this.http.get<any>(`${this.api}?${p}`, this.getHeaders()).subscribe({
+    this.http.get<any>(`${this.api}?${p}`).subscribe({
       next: res => {
         if (res.success) {
           const list = (res.programs || []).map((p: any) => ({
@@ -155,7 +151,7 @@ export class MasterlistComponent implements OnInit {
     ));
     win.document.close();
 
-    this.http.get<any>(`${this.api}?${p}`, this.getHeaders()).subscribe({
+    this.http.get<any>(`${this.api}?${p}`).subscribe({
       next: res => {
         if (!res.success) { win.document.getElementById('report-body')!.innerHTML = '<p>No data found.</p>'; return; }
 
@@ -263,7 +259,7 @@ export class MasterlistComponent implements OnInit {
     ));
     win.document.close();
 
-    this.http.get<any>(`${this.api}?${p}`, this.getHeaders()).subscribe({
+    this.http.get<any>(`${this.api}?${p}`).subscribe({
       next: res => {
         if (!res.success) { win.document.getElementById('report-body')!.innerHTML = '<p>No data found.</p>'; return; }
 

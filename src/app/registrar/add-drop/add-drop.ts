@@ -2,6 +2,7 @@ import { Component, OnInit, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
+import { environment } from '../../environment';
 
 interface Student { id:number;studentNumber:string;firstName:string;lastName:string;fullName:string;program:string;yearLevel:string;semester:string;studentCategory:string;enrollmentStatus:string;approvalStatus:string; }
 interface EnrolledSubject { enrollment_id:number;course_id:number;code:string;name:string;credits:number;instructor:string;day:string;time:string;room:string;semester:string;status:string; }
@@ -17,7 +18,7 @@ interface AddDropWindow { id?:number; start_date:string; end_date:string; label:
   styleUrl: './add-drop.css'
 })
 export class AddDropComponent implements OnInit {
-  private api = 'http://localhost/sia-api/enrollment.php';
+  private api = environment.enrollApi;
 
   mainTab: 'requests' | 'manual' | 'window' = 'requests';
 
@@ -54,8 +55,6 @@ export class AddDropComponent implements OnInit {
   successMsg = ''; errorMsg = '';
 
   constructor(private http: HttpClient, private cdr: ChangeDetectorRef) {}
-  private hdrs() { return { headers: { Authorization: `Bearer ${sessionStorage.getItem('token')??''}` } }; }
-
   ngOnInit() {
     this.loadRequests();
     this.loadWindow();
@@ -64,7 +63,7 @@ export class AddDropComponent implements OnInit {
   // ── Requests ──────────────────────────────────────────────────
   loadRequests() {
     this.isLoadingReqs = true;
-    this.http.get<any>(`${this.api}?action=get_add_drop_requests&status=${encodeURIComponent(this.statusFilter)}`, this.hdrs()).subscribe({
+    this.http.get<any>(`${this.api}?action=get_add_drop_requests&status=${encodeURIComponent(this.statusFilter)}`).subscribe({
       next: r => { this.allRequests=r.requests||[]; this.isLoadingReqs=false; this.cdr.detectChanges(); },
       error: () => { this.isLoadingReqs=false; this.cdr.detectChanges(); }
     });
@@ -81,7 +80,7 @@ export class AddDropComponent implements OnInit {
     this.isProcessing=true; this.errorMsg='';
     const u = JSON.parse(sessionStorage.getItem('currentUser')||'{}');
     const body = { request_id:this.processReq.id, action:this.processAction, remarks:this.processRemarks, processed_by:u.id||0 };
-    this.http.post<any>(`${this.api}?action=process_add_drop`, body, this.hdrs()).subscribe({
+    this.http.post<any>(`${this.api}?action=process_add_drop`, body).subscribe({
       next: r => {
         this.isProcessing=false;
         if (r.success) { this.showProcessModal=false; this.successMsg=r.message; this.loadRequests(); setTimeout(()=>{this.successMsg='';this.cdr.detectChanges();},4000); }
@@ -98,7 +97,7 @@ export class AddDropComponent implements OnInit {
     if (this.searchQuery.trim().length < 2) { this.searchResults=[]; return; }
     this.searchDebounce = setTimeout(() => {
       this.isSearching=true;
-      this.http.get<any>(`${this.api}?action=search_students&q=${encodeURIComponent(this.searchQuery)}`, this.hdrs()).subscribe({
+      this.http.get<any>(`${this.api}?action=search_students&q=${encodeURIComponent(this.searchQuery)}`).subscribe({
         next: r => { this.searchResults=r.students||[]; this.isSearching=false; this.cdr.detectChanges(); },
         error: () => { this.isSearching=false; this.cdr.detectChanges(); }
       });
@@ -109,7 +108,7 @@ export class AddDropComponent implements OnInit {
     this.selectedStudent=s; this.searchQuery=''; this.searchResults=[];
     this.avFilter=''; this.enFilter=''; this.successMsg=''; this.errorMsg='';
     this.isLoadingSubjects=true;
-    this.http.get<any>(`${this.api}?action=get_student_enrollments&student_id=${s.id}`, this.hdrs()).subscribe({
+    this.http.get<any>(`${this.api}?action=get_student_enrollments&student_id=${s.id}`).subscribe({
       next: r => { this.enrolled=r.enrolled||[]; this.available=r.available||[]; this.isLoadingSubjects=false; this.cdr.detectChanges(); },
       error: () => { this.isLoadingSubjects=false; this.cdr.detectChanges(); }
     });
@@ -129,8 +128,8 @@ export class AddDropComponent implements OnInit {
     if (!this.selectedStudent) return;
     this.isManualProcessing=true; this.errorMsg='';
     const obs = this.manualAction==='add'
-      ? this.http.post<any>(`${this.api}?action=registrar_add_subject`, { student_id:this.selectedStudent.id, course_id:this.manualSubject.id, reason:this.manualReason||'Manual add by Registrar' }, this.hdrs())
-      : this.http.post<any>(`${this.api}?action=registrar_drop_subject`, { student_id:this.selectedStudent.id, enrollment_id:this.manualSubject.enrollment_id, reason:this.manualReason||'Manual drop by Registrar' }, this.hdrs());
+      ? this.http.post<any>(`${this.api}?action=registrar_add_subject`, { student_id:this.selectedStudent.id, course_id:this.manualSubject.id, reason:this.manualReason||'Manual add by Registrar' })
+      : this.http.post<any>(`${this.api}?action=registrar_drop_subject`, { student_id:this.selectedStudent.id, enrollment_id:this.manualSubject.enrollment_id, reason:this.manualReason||'Manual drop by Registrar' });
     obs.subscribe({
       next: r => {
         this.isManualProcessing=false;
@@ -145,7 +144,7 @@ export class AddDropComponent implements OnInit {
   // ── Window Management ─────────────────────────────────────────
   loadWindow() {
     this.isLoadingWindow = true;
-    this.http.get<any>(`${this.api}?action=get_add_drop_window`, this.hdrs()).subscribe({
+    this.http.get<any>(`${this.api}?action=get_add_drop_window`).subscribe({
       next: r => {
         this.currentWindow = r.window || null;
         this.windowOpen    = r.is_open || false;
@@ -172,7 +171,7 @@ export class AddDropComponent implements OnInit {
       end_date:   this.windowForm.end_date.replace('T', ' ')   + ':00',
       label:      this.windowForm.label
     };
-    this.http.post<any>(`${this.api}?action=set_add_drop_window`, body, this.hdrs()).subscribe({
+    this.http.post<any>(`${this.api}?action=set_add_drop_window`, body).subscribe({
       next: r => {
         this.isSavingWindow = false;
         if (r.success) { this.windowSuccess = r.message; this.loadWindow(); }

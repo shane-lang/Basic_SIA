@@ -6,7 +6,7 @@
       <div class="header-icon">🏦</div>
       <div>
         <h1>Accounting Office</h1>
-        <p>Payment Verification — Cash & GCash</p>
+        <p>Payment Verification — Cash &amp; GCash</p>
       </div>
     </div>
     <div class="header-stats">
@@ -15,7 +15,7 @@
         <span class="stat-label">Pending</span>
       </div>
       <div class="stat-box verified">
-        <span class="stat-number">{{ paymentHistory.length }}</span>
+        <span class="stat-number">{{ historyTotal || paymentHistory.length }}</span>
         <span class="stat-label">Processed</span>
       </div>
     </div>
@@ -44,23 +44,59 @@
   <!-- ══ PENDING TAB ══ -->
   <div *ngIf="currentTab === 'pending'">
 
-    <!-- Toolbar: search + filter + view toggle -->
-    <div class="toolbar">
-      <div class="toolbar-left">
-        <input type="text" class="search-input" placeholder="🔍 Search student name, ID, program..." [(ngModel)]="searchQuery">
-        <select class="filter-select" [(ngModel)]="filterMethod">
-          <option value="all">All Methods</option>
-          <option value="gcash">📱 GCash Only</option>
-          <option value="cash">💵 Cash Only</option>
-        </select>
+    <!-- ── Course group cards ──────────────────────────────────────────────── -->
+    <div class="cards-section">
+      <div class="cards-header">
+        <span class="cards-label">Quick filter by course group</span>
+        <span class="cards-hint">Click a card to filter • click again to clear</span>
       </div>
-      <div class="view-toggle">
-        <button class="view-btn" [class.active]="viewMode === 'thumbnail'" (click)="viewMode = 'thumbnail'" title="Thumbnail View">
-          ⊞ Cards
-        </button>
-        <button class="view-btn" [class.active]="viewMode === 'list'" (click)="viewMode = 'list'" title="List View">
-          ☰ List
-        </button>
+      <div *ngIf="courseGroups.length === 0" class="cards-loading">Loading groups…</div>
+      <ng-container *ngIf="courseGroups.length > 0">
+        <div *ngFor="let section of groupedPendingCards" class="card-section-row">
+          <span class="card-cat-label">{{ section.label }}</span>
+          <div class="card-row">
+            <button
+              *ngFor="let g of section.groups"
+              class="course-card"
+              [class.active]="isPendingCardActive(g)"
+              (click)="onPendingCardClick(g)"
+              type="button">
+              <div class="card-prog">{{ g.program }}</div>
+              <div class="card-meta">{{ g.year_level }}{{ g.strand ? ' · ' + g.strand : '' }}</div>
+              <div class="card-sem">{{ g.semester }}</div>
+              <div class="card-counts">
+                <span class="card-badge total">{{ g.student_count }}</span>
+                <span class="card-badge pending" *ngIf="g.pending_count > 0">{{ g.pending_count }} pending</span>
+              </div>
+            </button>
+          </div>
+        </div>
+      </ng-container>
+    </div>
+
+    <!-- Semester + student search -->
+    <div class="sem-search-bar">
+      <select class="sem-select" [(ngModel)]="pendingFilterSemester" (ngModelChange)="onPendingSemesterChange()">
+        <option value="">All Semesters</option>
+        <option *ngFor="let s of pendingSemesterOptions" [value]="s">{{ s }}</option>
+      </select>
+      <input type="text" class="fp-student-search sem-search-input" placeholder="🔍 Search student name or student no..." [(ngModel)]="searchQuery">
+      <button class="fp-clear-btn" (click)="clearPendingFilters()" *ngIf="activeFilterCount > 0">✕ Clear</button>
+    </div>
+
+    <!-- Summary bar -->
+    <div *ngIf="!isLoadingPending && groupedPending.length > 0" class="pending-summary-bar">
+      <div class="psb-card">
+        <span class="psb-label">Students waiting</span>
+        <span class="psb-val psb-orange">{{ groupedPending.length }}</span>
+      </div>
+      <div class="psb-card">
+        <span class="psb-label">Transactions</span>
+        <span class="psb-val">{{ filteredPendingFlat.length }}</span>
+      </div>
+      <div class="psb-card">
+        <span class="psb-label">Total pending (GCash)</span>
+        <span class="psb-val psb-green">₱{{ formatAmount(pendingTotalAmount) }}</span>
       </div>
     </div>
 
@@ -69,261 +105,203 @@
       <p>Loading pending payments...</p>
     </div>
 
-    <div *ngIf="!isLoadingPending && filteredPending.length === 0" class="empty-state">
+    <div *ngIf="!isLoadingPending && groupedPending.length === 0" class="empty-state">
       <div class="empty-icon">✅</div>
       <h3>No Pending Payments</h3>
       <p>All submitted payments have been processed.</p>
     </div>
 
-    <!-- ── THUMBNAIL (CARD) VIEW ── -->
-    <div *ngIf="!isLoadingPending && filteredPending.length > 0 && viewMode === 'thumbnail'" class="payments-grid">
-      <div *ngFor="let p of filteredPending" class="payment-card">
-
-        <div class="card-header">
-          <div class="student-info">
-            <div class="avatar">{{ getInitials(p) }}</div>
-            <div>
-              <h3>{{ p.firstName }} {{ p.lastName }}</h3>
-              <span class="student-number">{{ p.studentNumber }}</span>
+    <!-- ── GROUPED ACCORDION ── -->
+    <div *ngIf="!isLoadingPending && groupedPending.length > 0" class="grouped-list">
+      <div *ngFor="let group of pagedGroupedPending" class="group-card">
+        <div class="group-header" (click)="togglePendingStudent(group.studentId)">
+          <div class="group-avatar">{{ getInitials(group.rows[0]) }}</div>
+          <div class="group-info">
+            <div class="group-name">
+              <button class="student-name-btn"
+                      (click)="openStudentPaymentModal(group.studentId, group.firstName, group.lastName, group.studentNumber); $event.stopPropagation()"
+                      title="View full payment record">{{ group.firstName }} {{ group.lastName }}</button>
             </div>
+            <div class="group-meta">{{ group.studentNumber }} · {{ group.program }} · {{ group.yearLevel }}</div>
           </div>
-          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
-            <span class="badge" [class.badge-gcash]="isGCash(p)" [class.badge-cash]="isCash(p)">
-              {{ isCash(p) ? '💵 Cash' : '📱 GCash' }}
+          <div class="group-badges">
+            <span *ngIf="groupHasMethod(group.rows, 'GCash')" class="badge badge-gcash">📱 GCash</span>
+            <span *ngIf="groupHasMethod(group.rows, 'Cash')"  class="badge badge-cash">💵 Cash</span>
+            <span class="badge pending">₱{{ formatAmount(groupSumAmount(group.rows)) }}</span>
+            <span class="badge" style="background:#f3f4f6;color:#6b7280;border:1px solid #e5e7eb;">{{ group.rows.length }} txn{{ group.rows.length !== 1 ? 's' : '' }}</span>
+          </div>
+          <span class="group-chevron" [class.open]="expandedPendingStudents.has(group.studentId)">▾</span>
+        </div>
+        <div *ngIf="expandedPendingStudents.has(group.studentId)" class="group-rows">
+          <div class="group-row-head">
+            <span class="gr-period">Period</span>
+            <span class="gr-method">Method</span>
+            <span class="gr-ref">Reference</span>
+            <span class="gr-amount">Amount</span>
+            <span class="gr-date">Submitted</span>
+            <span class="gr-actions"></span>
+          </div>
+          <div *ngFor="let p of group.rows" class="group-row">
+            <span class="gr-period"><span class="badge badge-cash" style="font-size:11px;">{{ p.examPeriod || 'Downpayment' }}</span></span>
+            <span class="gr-method"><span class="badge" [class.badge-gcash]="isGCash(p)" [class.badge-cash]="isCash(p)">{{ isCash(p) ? '💵 Cash' : '📱 GCash' }}</span></span>
+            <span class="gr-ref mono" *ngIf="isGCash(p)">{{ p.gcashReference | maskRef }}</span>
+            <span class="gr-ref muted" *ngIf="isCash(p)">Walk-in</span>
+            <span class="gr-amount"><strong>{{ isCash(p) ? '—' : '₱' + formatAmount(p.gcashAmount) }}</strong></span>
+            <span class="gr-date muted">{{ formatDateTime(p.submittedAt) }}</span>
+            <span class="gr-actions">
+              <button class="btn-edit-sm"    (click)="openEdit(p)">✏️</button>
+              <button class="btn-approve-sm" (click)="openApprove(p)" title="{{ isCash(p) ? 'Confirm Cash' : 'Approve GCash' }}">✓</button>
+              <button class="btn-reject-sm"  (click)="openReject(p)">✗</button>
             </span>
-            <span class="badge pending">⏳ Pending</span>
-            <span class="badge scholar" *ngIf="p.isScholar">🎓 Scholar</span>
           </div>
-        </div>
-
-        <div class="card-body">
-          <div class="info-row"><span class="info-label">Program</span><span class="info-value">{{ p.program }}</span></div>
-          <div class="info-row" *ngIf="p.department"><span class="info-label">Department</span><span class="info-value">{{ p.department }}</span></div>
-          <div class="info-row" *ngIf="p.studentCategory"><span class="info-label">Level</span><span class="info-value"><span class="badge" [class.badge-gcash]="p.studentCategory==='College'" [class.badge-cash]="p.studentCategory==='SHS'||p.studentCategory==='TVET'">{{ p.studentCategory }}</span></span></div>
-          <div class="info-row"><span class="info-label">Year Level</span><span class="info-value">{{ (p.studentCategory === 'SHS' && p.yearLevel === '1st Year') ? 'Grade 11' : (p.studentCategory === 'SHS' && p.yearLevel === '2nd Year') ? 'Grade 12' : p.yearLevel }}</span></div>
-          <div class="info-row"><span class="info-label">Semester</span><span class="info-value">{{ p.semester }}</span></div>
-
-          <!-- Term payment indicator (Prelim/Midterm/Finals) -->
-          <div *ngIf="p.examPeriod" class="info-row highlight" style="background:#eff6ff;border-left:3px solid #3b82f6;padding:8px 10px;border-radius:6px;margin:6px 0;">
-            <span class="info-label">Term Payment</span>
-            <span class="info-value" style="color:#1d4ed8;font-weight:700;">📋 {{ p.examPeriod }} Installment</span>
-          </div>
-          <div *ngIf="!p.examPeriod" class="info-row highlight" style="background:#f0fdf4;border-left:3px solid #22c55e;padding:8px 10px;border-radius:6px;margin:6px 0;">
-            <span class="info-label">Payment For</span>
-            <span class="info-value" style="color:#15803d;font-weight:700;">🎓 Enrollment / Downpayment</span>
-          </div>
-
-          <div class="divider"></div>
-
-          <!-- Scholar info -->
-          <div *ngIf="p.isScholar" class="scholar-info-box">
-            <div class="info-row highlight scholar-row">
-              <span class="info-label">Scholarship</span>
-              <span class="info-value">{{ p.scholarType }}</span>
-            </div>
-            <div class="info-row">
-              <span class="info-label">Grantor</span>
-              <span class="info-value">{{ p.scholarGrantor || '—' }}</span>
-            </div>
-            <div class="info-row">
-              <span class="info-label">Discount Amount</span>
-              <span class="info-value amount text-green">₱{{ formatAmount(p.scholarshipAmount || 0) }}</span>
-            </div>
-            <div class="scholar-note">⚠️ Validate scholarship docs before approving discount.</div>
-          </div>
-
-          <!-- GCash Details -->
-          <ng-container *ngIf="isGCash(p)">
-            <div class="info-row highlight">
-              <span class="info-label">GCash Reference</span>
-              <span class="info-value mono">{{ p.gcashReference }}</span>
-            </div>
-            <div class="info-row highlight">
-              <span class="info-label">Transaction ID</span>
-              <span class="info-value mono small">{{ p.transactionId }}</span>
-            </div>
-            <div class="info-row">
-              <span class="info-label">Amount Paid</span>
-              <span class="info-value amount">₱{{ formatAmount(p.gcashAmount) }}</span>
-            </div>
-            <div class="info-row">
-              <span class="info-label">Payment Date</span>
-              <span class="info-value">{{ formatDate(p.gcashDate) }}</span>
-            </div>
-          </ng-container>
-
-          <!-- Cash Details -->
-          <ng-container *ngIf="isCash(p)">
-            <div class="info-row" style="background:#fffbeb;padding:8px;border-radius:6px;margin:0 -8px;">
-              <span class="info-label">Payment Type</span>
-              <span class="info-value" style="color:#92400e;font-weight:700;">🕐 Awaiting Cash at Cashier</span>
-            </div>
-            <div style="background:#fef3c7;border-left:3px solid #f59e0b;border-radius:6px;padding:10px 12px;margin:10px 0;font-size:12px;color:#92400e;">
-              ⚠️ Confirm student has paid in person. Enter amount and date when approving.
-            </div>
-          </ng-container>
-
-          <div class="info-row"><span class="info-label">Submitted</span><span class="info-value muted">{{ formatDateTime(p.submittedAt) }}</span></div>
-        </div>
-
-        <div class="card-actions">
-          <button class="btn-edit"    (click)="openEdit(p)">✏️ Edit</button>
-          <button class="btn-approve" (click)="openApprove(p)">{{ isCash(p) ? '✓ Confirm Cash' : '✓ Approve GCash' }}</button>
-          <button class="btn-reject"  (click)="openReject(p)">✗ Reject</button>
         </div>
       </div>
     </div>
 
-    <!-- ── LIST VIEW ── -->
-    <div *ngIf="!isLoadingPending && filteredPending.length > 0 && viewMode === 'list'" class="history-table-wrapper">
-      <table class="history-table">
-        <thead>
-          <tr>
-            <th>Student</th>
-            <th>Program</th>
-            <th>Method</th>
-            <th>Reference</th>
-            <th>Amount</th>
-            <th>Date</th>
-            <th>Scholar</th>
-            <th>Submitted</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr *ngFor="let p of filteredPending">
-            <td>
-              <div class="table-student">
-                <div class="avatar-sm">{{ getInitials(p) }}</div>
-                <div>
-                  <strong>{{ p.firstName }} {{ p.lastName }}</strong>
-                  <span class="muted">{{ p.studentNumber }}</span>
-                </div>
-              </div>
-            </td>
-            <td>{{ p.program }}</td>
-            <td>
-              <span class="badge" [class.badge-gcash]="isGCash(p)" [class.badge-cash]="isCash(p)">
-                {{ isCash(p) ? '💵 Cash' : '📱 GCash' }}
-              </span>
-            </td>
-            <td><span class="mono" *ngIf="isGCash(p)">{{ p.gcashReference }}</span><span class="muted" *ngIf="isCash(p)">Walk-in</span></td>
-            <td><strong class="amount">{{ isCash(p) ? '—' : '₱' + formatAmount(p.gcashAmount) }}</strong></td>
-            <td>{{ isGCash(p) ? formatDate(p.gcashDate) : '—' }}</td>
-            <td>
-              <span class="badge scholar" *ngIf="p.isScholar">🎓 {{ p.scholarType }}</span>
-              <span class="muted" *ngIf="!p.isScholar">—</span>
-            </td>
-            <td class="muted">{{ formatDateTime(p.submittedAt) }}</td>
-            <td>
-              <div class="action-btns">
-                <button class="btn-edit-sm"    (click)="openEdit(p)">✏️</button>
-                <button class="btn-approve-sm" (click)="openApprove(p)">✓</button>
-                <button class="btn-reject-sm"  (click)="openReject(p)">✗</button>
-              </div>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+    <!-- ── Pending pagination ── -->
+    <div *ngIf="!isLoadingPending && pendingTotalPages > 1" class="history-pagination">
+      <span class="pagination-info">
+        Showing {{ (pendingPage - 1) * 10 + 1 }}–{{ pendingPage * 10 < groupedPending.length ? pendingPage * 10 : groupedPending.length }}
+        of {{ groupedPending.length }} students
+      </span>
+      <div class="pagination-btns">
+        <button class="page-btn" (click)="pendingPrevPage()" [disabled]="pendingPage <= 1">← Prev</button>
+        <span class="page-indicator">Page {{ pendingPage }} / {{ pendingTotalPages }}</span>
+        <button class="page-btn" (click)="pendingNextPage()" [disabled]="pendingPage >= pendingTotalPages">Next →</button>
+      </div>
+    </div>
+
     </div>
   </div>
 
   <!-- ══ HISTORY TAB ══ -->
   <div *ngIf="currentTab === 'history'">
 
-    <!-- Toolbar -->
-    <div class="toolbar">
-      <div class="toolbar-left">
-        <input type="text" class="search-input" placeholder="🔍 Search student..." [(ngModel)]="searchQuery">
+    <!-- Quick filter by course group -->
+    <div class="cards-section">
+      <div class="cards-header">
+        <span class="cards-label">Quick filter by course group</span>
+        <span class="cards-hint">Click a card to filter • click again to clear</span>
       </div>
-      <div class="view-toggle">
-        <button class="view-btn" [class.active]="historyViewMode === 'thumbnail'" (click)="historyViewMode = 'thumbnail'">⊞ Cards</button>
-        <button class="view-btn" [class.active]="historyViewMode === 'list'"      (click)="historyViewMode = 'list'">☰ List</button>
-      </div>
+      <div *ngIf="courseGroups.length === 0" class="cards-loading">Loading groups…</div>
+      <ng-container *ngIf="courseGroups.length > 0">
+        <div *ngFor="let section of groupedHistoryCards" class="card-section-row">
+          <span class="card-cat-label">{{ section.label }}</span>
+          <div class="card-row">
+            <button
+              *ngFor="let g of section.groups"
+              class="course-card"
+              [class.active]="isHistoryCardActive(g)"
+              (click)="onHistoryCardClick(g)"
+              type="button">
+              <div class="card-prog">{{ g.program }}</div>
+              <div class="card-meta">{{ g.year_level }}{{ g.strand ? ' · ' + g.strand : '' }}</div>
+              <div class="card-sem">{{ g.semester }}</div>
+              <div class="card-counts">
+                <span class="card-badge total">{{ g.student_count }}</span>
+                <!--<span class="card-badge pending" *ngIf="g.pending_count > 0">{{ g.pending_count }} pending</span>-->
+                <span class="card-badge paid" *ngIf="g.paid_count > 0">{{ g.paid_count }} paid</span>
+              </div>
+            </button>
+          </div>
+        </div>
+      </ng-container>
+    </div>
+
+    <!-- Semester + student search -->
+    <div class="sem-search-bar">
+      <select class="sem-select" [(ngModel)]="historyFilterSemester" (ngModelChange)="applyHistoryFilters()">
+        <option value="">All Semesters</option>
+        <option *ngFor="let s of historySemesterOptions" [value]="s">{{ s }}</option>
+      </select>
+      <input type="text" class="fp-student-search sem-search-input" placeholder="🔍 Search student name or student no..." [(ngModel)]="historySearchQuery" (ngModelChange)="onHistorySearchInput($event)">
+      <button class="fp-clear-btn" (click)="clearHistoryFilters()" *ngIf="historyActiveFilterCount > 0">✕ Clear</button>
     </div>
 
     <div *ngIf="isLoadingHistory" class="loading-state"><div class="spinner"></div><p>Loading payment history...</p></div>
 
-    <div *ngIf="!isLoadingHistory && filteredHistory.length === 0" class="empty-state">
+    <div *ngIf="!isLoadingHistory && paymentHistory.length === 0 && historyTotal === 0" class="empty-state">
       <div class="empty-icon">📋</div><h3>No Payment History</h3><p>Processed payments will appear here.</p>
     </div>
+    <div *ngIf="!isLoadingHistory && paymentHistory.length === 0 && historyTotal > 0" class="empty-state">
+      <div class="empty-icon">🔍</div><h3>No Results</h3><p>No records match your current search or filters.</p>
+    </div>
 
-    <!-- History thumbnail cards -->
-    <div *ngIf="!isLoadingHistory && filteredHistory.length > 0 && historyViewMode === 'thumbnail'" class="payments-grid">
-      <div *ngFor="let h of filteredHistory" class="payment-card history-card">
-        <div class="card-header">
-          <div class="student-info">
-            <div class="avatar" [class.avatar-verified]="h.status === 'Verified'" [class.avatar-rejected]="h.status === 'Rejected'">{{ getInitials(h) }}</div>
-            <div>
-              <h3>{{ h.firstName }} {{ h.lastName }}</h3>
-              <span class="student-number">{{ h.studentNumber }}</span>
+    <!-- ── GROUPED HISTORY ACCORDION ── -->
+    <div *ngIf="!isLoadingHistory && groupedHistory.length > 0" class="grouped-list">
+      <div *ngFor="let group of groupedHistory" class="group-card">
+        <div class="group-header" (click)="toggleHistoryStudent(group.studentId)">
+          <div class="group-avatar" [class.avatar-verified]="groupAllVerified(group.rows)" [class.avatar-rejected]="!groupAllVerified(group.rows)">{{ getInitials(group.rows[0]) }}</div>
+          <div class="group-info">
+            <div class="group-name">
+              <button class="student-name-btn"
+                      (click)="openStudentPaymentModal(group.studentId, group.firstName, group.lastName, group.studentNumber); $event.stopPropagation()"
+                      title="View full payment record">{{ group.firstName }} {{ group.lastName }}</button>
             </div>
+            <div class="group-meta">{{ group.studentNumber }} · {{ group.program }}</div>
           </div>
-          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
-            <span class="badge" [class.badge-gcash]="isGCash(h)" [class.badge-cash]="isCash(h)">{{ isCash(h) ? '💵 Cash' : '📱 GCash' }}</span>
-            <span class="badge" [class.verified]="h.status === 'Verified'" [class.rejected]="h.status === 'Rejected'">
-              {{ h.status === 'Verified' ? '✓ Verified' : '✗ Rejected' }}
-            </span>
-            <span class="badge scholar" *ngIf="h.isScholar">🎓 Scholar</span>
+          <div class="group-badges">
+            <span *ngIf="groupCountVerified(group.rows) > 0" class="badge verified">✓ {{ groupCountVerified(group.rows) }} verified</span>
+            <span *ngIf="groupCountRejected(group.rows) > 0" class="badge rejected">✗ {{ groupCountRejected(group.rows) }} rejected</span>
+            <span class="badge pending">₱{{ formatAmount(groupSumAmount(group.rows)) }}</span>
+            <span class="badge" style="background:#f3f4f6;color:#6b7280;border:1px solid #e5e7eb;">{{ group.rows.length }} txn{{ group.rows.length !== 1 ? 's' : '' }}</span>
+            <button class="btn-view-soa" (click)="openSoaViewer(group.studentId, group.firstName, group.lastName, group.studentNumber, group.program); $event.stopPropagation()">📄 SOA</button>
           </div>
+          <span class="group-chevron" [class.open]="expandedHistoryStudents.has(group.studentId)">▾</span>
         </div>
-        <div class="card-body">
-          <div class="info-row"><span class="info-label">Program</span><span class="info-value">{{ h.program }}</span></div>
-          <div class="info-row" *ngIf="h.department"><span class="info-label">Department</span><span class="info-value">{{ h.department }}</span></div>
-          <div class="info-row" *ngIf="h.studentCategory"><span class="info-label">Level</span><span class="info-value"><span class="badge" [class.badge-gcash]="h.studentCategory==='College'" [class.badge-cash]="h.studentCategory==='SHS'||h.studentCategory==='TVET'">{{ h.studentCategory }}</span></span></div>
-          <div class="info-row"><span class="info-label">Amount</span><span class="info-value amount">₱{{ formatAmount(h.gcashAmount) }}</span></div>
-          <div class="info-row" *ngIf="isGCash(h)"><span class="info-label">Reference</span><span class="info-value mono">{{ h.gcashReference }}</span></div>
-          <div class="info-row"><span class="info-label">Verified By</span><span class="info-value">{{ h.verifiedByName }}</span></div>
-          <div class="info-row"><span class="info-label">Verified At</span><span class="info-value muted">{{ formatDateTime(h.verifiedAt) }}</span></div>
-          <div class="info-row" *ngIf="h.notes"><span class="info-label">Notes</span><span class="info-value">{{ h.notes }}</span></div>
-          <div class="info-row" *ngIf="h.orArNumber"><span class="info-label">Receipt No.</span><span class="info-value"><strong>{{ h.orArNumber }}</strong></span></div>
-        </div>
-        <div class="card-footer" style="padding:8px 12px;border-top:1px solid #f1f5f9;display:flex;gap:8px;" *ngIf="h.status==='Verified'">
-          <button *ngIf="h.orArType==='OR'" class="btn-print-receipt" (click)="viewOR(h)">👁️ View OR</button>
-          <button *ngIf="h.orArType==='AR'" class="btn-print-receipt btn-print-ar" (click)="viewAR(h)">👁️ View AR</button>
-          <button class="btn-edit" style="font-size:0.78rem;padding:4px 10px;margin-left:auto;" (click)="openEditHistory(h)">✏️ Edit</button>
+        <div *ngIf="expandedHistoryStudents.has(group.studentId)" class="group-rows">
+          <div class="group-row-head">
+            <span class="gr-period">Period</span>
+            <span class="gr-method">Method</span>
+            <span class="gr-ref">OR / AR No.</span>
+            <span class="gr-amount">Amount</span>
+            <span class="gr-date">Date</span>
+            <span class="gr-actions">Actions</span>
+          </div>
+          <ng-container *ngFor="let h of group.rows; let i = index">
+            <!-- Semester divider: show when this row's semester differs from the previous row -->
+            <div class="gr-sem-divider"
+                 *ngIf="i === 0 || group.rows[i].semester !== group.rows[i - 1].semester">
+              <span class="gr-sem-label">📅 {{ h.semester || 'Unknown Semester' }}</span>
+            </div>
+            <div class="group-row">
+              <span class="gr-period"><span class="badge badge-cash" style="font-size:11px;">{{ h.examPeriod || '—' }}</span></span>
+              <span class="gr-method"><span class="badge" [class.badge-gcash]="isGCash(h)" [class.badge-cash]="isCash(h)">{{ isCash(h) ? '💵 Cash' : '📱 GCash' }}</span></span>
+              <span class="gr-ref"><strong *ngIf="h.orArNumber">{{ h.orArNumber }}</strong><span *ngIf="!h.orArNumber" class="muted">—</span></span>
+              <span class="gr-amount"><strong>₱{{ formatAmount(h.gcashAmount) }}</strong></span>
+              <span class="gr-date muted">{{ formatDate(h.gcashDate || h.verifiedAt) }}</span>
+              <span class="gr-actions">
+                <span class="badge" [class.verified]="h.status === 'Verified'" [class.rejected]="h.status === 'Rejected'">{{ h.status === 'Verified' ? '✓' : '✗' }}</span>
+                <button *ngIf="h.status==='Verified' && h.orArType==='OR'" class="btn-print-receipt" (click)="viewOR(h)">👁️</button>
+                <button *ngIf="h.status==='Verified' && h.orArType==='AR'" class="btn-print-receipt btn-print-ar" (click)="viewAR(h)">👁️</button>
+                <button *ngIf="h.status==='Verified'" class="btn-edit-sm" (click)="openEditHistory(h)">✏️</button>
+                <button *ngIf="h.status==='Verified'" class="btn-send-soa-sm" (click)="sendSoa(h.studentId, h.firstName + ' ' + h.lastName)" [disabled]="isSendingSoa[h.studentId]">{{ isSendingSoa[h.studentId] ? '…' : '📧' }}</button>
+              </span>
+            </div>
+          </ng-container>
         </div>
       </div>
     </div>
 
-    <!-- History list table -->
-    <div *ngIf="!isLoadingHistory && filteredHistory.length > 0 && historyViewMode === 'list'" class="history-table-wrapper">
-      <table class="history-table">
-        <thead>
-          <tr>
-            <th>Student</th><th>Program</th><th>Dept / Level</th><th>Method</th><th>Reference / Details</th>
-            <th>Amount</th><th>Period</th><th>Receipt No.</th><th>Payment Date</th><th>Status</th><th>Verified By</th><th>Print</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr *ngFor="let h of filteredHistory">
-            <td>
-              <div class="table-student">
-                <strong>{{ h.firstName }} {{ h.lastName }}</strong>
-                <span class="muted">{{ h.studentNumber }}</span>
-              </div>
-            </td>
-            <td>{{ h.program }}</td>
-            <td><div *ngIf="h.department" style="font-size:0.8rem;color:#374151;">{{ h.department }}</div><span *ngIf="h.studentCategory" class="badge" [class.badge-gcash]="h.studentCategory==='College'" [class.badge-cash]="h.studentCategory==='SHS'||h.studentCategory==='TVET'">{{ h.studentCategory }}</span></td>
-            <td><span class="badge" [class.badge-gcash]="isGCash(h)" [class.badge-cash]="isCash(h)">{{ isCash(h) ? '💵 Cash' : '📱 GCash' }}</span></td>
-            <td><span class="mono" *ngIf="isGCash(h)">{{ h.gcashReference }}</span><span class="muted" *ngIf="isCash(h)">Walk-in Cash</span></td>
-            <td><strong class="amount">₱{{ formatAmount(h.gcashAmount) }}</strong></td>
-            <td><span *ngIf="h.examPeriod" class="badge badge-cash">{{ h.examPeriod }}</span><span *ngIf="!h.examPeriod" class="muted">—</span></td>
-            <td><strong *ngIf="h.orArNumber">{{ h.orArNumber }}</strong><span *ngIf="!h.orArNumber" class="muted">—</span></td>
-            <td>{{ formatDate(h.gcashDate || h.verifiedAt) }}</td>
-            <td><span class="badge" [class.verified]="h.status === 'Verified'" [class.rejected]="h.status === 'Rejected'">{{ h.status === 'Verified' ? '✓ Verified' : '✗ Rejected' }}</span></td>
-            <td>{{ h.verifiedByName }}</td>
-            <td style="white-space:nowrap;">
-              <button *ngIf="h.status==='Verified' && h.orArType==='OR'" class="btn-print-receipt" (click)="viewOR(h)">👁️ View</button>
-              <button *ngIf="h.status==='Verified' && h.orArType==='AR'" class="btn-print-receipt btn-print-ar" (click)="viewAR(h)">👁️ View</button>
-              <button *ngIf="h.status==='Verified'" class="btn-edit-sm" (click)="openEditHistory(h)" title="Correct payment details">✏️</button>
-              <span *ngIf="!h.orArNumber && h.status!=='Verified'" class="muted">—</span>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+    <!-- ── Pagination controls ── -->
+    <div *ngIf="!isLoadingHistory && historyTotal > 0 && historyTotalPages > 1" class="history-pagination">
+      <span class="pagination-info">
+        Showing
+        {{ paymentHistory.length === 0 ? 0 : (historyPage - 1) * historyLimit + 1 }}–{{ (historyPage - 1) * historyLimit + paymentHistory.length }}
+        of {{ historyTotal }} records
+      </span>
+      <div class="pagination-btns">
+        <button class="page-btn" (click)="historyPrevPage()" [disabled]="historyPage <= 1">
+          ← Prev
+        </button>
+        <span class="page-indicator">Page {{ historyPage }} / {{ historyTotalPages }}</span>
+        <button class="page-btn" (click)="historyNextPage()" [disabled]="historyPage >= historyTotalPages">
+          Next →
+        </button>
+      </div>
     </div>
   </div>
+
   <div *ngIf="currentTab === 'duedates'" style="padding:16px;">
   <div class="dd-container">
     <div class="dd-header">
@@ -334,6 +312,21 @@
     <div *ngIf="dueDatesLoading" style="text-align:center;color:#9ca3af;padding:24px;font-size:.83rem;">Loading...</div>
 
     <ng-container *ngIf="!dueDatesLoading">
+      <!-- Active enrollment period — auto-filled from Admin settings, read-only -->
+      <div class="dd-fields" style="margin-bottom:8px;">
+        <div class="dd-row">
+          <span class="dd-label">Semester</span>
+          <div class="dd-input" style="background:#f3f4f6;color:#374151;cursor:default;display:flex;align-items:center;gap:6px;">
+            <span *ngIf="dueDatesSemester; else noSem">{{ dueDatesSemester }}, AY {{ dueDatesSchoolYear }}</span>
+            <ng-template #noSem><span style="color:#9ca3af;font-style:italic;">No active enrollment period set in Admin</span></ng-template>
+            <span *ngIf="dueDatesSemester" style="margin-left:auto;font-size:.7rem;background:#d1fae5;color:#065f46;padding:2px 7px;border-radius:99px;">Active Period</span>
+          </div>
+        </div>
+      </div>
+      <div style="font-size:.75rem;color:#6b7280;margin-bottom:16px;padding:0 4px;">
+        Due dates are automatically scoped to the active enrollment period set by the Admin.
+        To change the semester scope, update the enrollment period in Admin settings first.
+      </div>
       <div class="dd-fields">
         <div class="dd-row" *ngFor="let period of ['downpayment','prelim','midterm','finals']">
           <span class="dd-label">{{ dueDates[period]?.label || (period | titlecase) }}</span>
@@ -343,14 +336,16 @@
         </div>
       </div>
 
-      <button class="dd-save-btn" (click)="saveDueDates()" [disabled]="dueDatesSaving">
+      <button class="dd-save-btn" (click)="saveDueDates()" [disabled]="dueDatesSaving || !dueDatesSemester">
         {{ dueDatesSaving ? 'Saving...' : '💾 Save Due Dates' }}
       </button>
-      <div class="dd-saved" *ngIf="dueDatesSaved">✓ Due dates saved successfully</div>
-      <div class="dd-note">These dates will appear on the Installment Payment table of every student's SOA.</div>
+      <div *ngIf="!dueDatesSemester" style="font-size:.75rem;color:#ef4444;margin-top:6px;">
+        ⚠ Cannot save — no active enrollment period. Ask Admin to set it first.
+      </div>
+      <div class="dd-saved" *ngIf="dueDatesSaved">✓ Due dates saved for {{ dueDatesSemester }}, AY {{ dueDatesSchoolYear }}</div>
+      <div class="dd-note">These dates will appear on the Installment Payment table of every student's SOA for this semester.</div>
     </ng-container>
   </div>
-</div>
 </div>
 
 <!-- ══ MODAL ══ -->
@@ -537,7 +532,7 @@
         </p>
         <div class="sum-row" style="margin:10px 0;"><label>Student:</label><p><strong>{{ selectedPayment.firstName }} {{ selectedPayment.lastName }}</strong></p></div>
         <div class="sum-row" style="margin-bottom:6px;"><label>Program:</label><p>{{ selectedPayment.program }}</p></div>
-        <div class="sum-row" *ngIf="selectedPayment.department" style="margin-bottom:6px;"><label>Department:</label><p>{{ selectedPayment.department }}</p></div>
+        <div class="sum-row" *ngIf="selectedPayment.department" style="margin-bottom:6px;"><label>Program:</label><p>{{ selectedPayment.department }}</p></div>
         <div class="sum-row" style="margin-bottom:10px;"><label>Total Assessment:</label><p class="amount" style="font-weight:700;color:#1e40af;">₱{{ formatAmount(selectedPayment.totalAssessment) }}</p></div>
         <div *ngIf="isCash(selectedPayment)">
           <div class="form-group">
@@ -853,6 +848,179 @@
     </div>
   </div>
 </div>
+
+<!-- ══ UI-02: PER-STUDENT PAYMENT MODAL ══ -->
+<div class="modal-overlay spm-overlay" *ngIf="showStudentPaymentModal" (click)="closeStudentPaymentModal()">
+  <div class="modal-content spm-modal" (click)="$event.stopPropagation()">
+
+    <!-- Loading state -->
+    <div *ngIf="isLoadingStudentPayments" class="spm-loading">
+      <div class="spinner"></div>
+      <p>Loading payment records...</p>
+    </div>
+
+    <ng-container *ngIf="!isLoadingStudentPayments && studentPaymentModalData">
+
+      <!-- Modal header -->
+      <div class="spm-header">
+        <div class="spm-header-info">
+          <div class="spm-avatar">{{ (studentPaymentModalData.firstName[0] || '') + (studentPaymentModalData.lastName[0] || '') | uppercase }}</div>
+          <div>
+            <div class="spm-name">{{ studentPaymentModalData.firstName }} {{ studentPaymentModalData.lastName }}</div>
+            <div class="spm-sn">{{ studentPaymentModalData.studentNumber }}</div>
+          </div>
+        </div>
+        <button class="am-close" (click)="closeStudentPaymentModal()">✕</button>
+      </div>
+
+      <!-- Tab bar -->
+      <div class="spm-tabs">
+        <button class="spm-tab-btn" [class.active]="studentPaymentModalTab === 'history'"
+                (click)="studentPaymentModalTab = 'history'; soaModalResult = ''">
+          📋 Payment History
+        </button>
+        <button class="spm-tab-btn" [class.active]="studentPaymentModalTab === 'soa'"
+                (click)="studentPaymentModalTab = 'soa'; soaModalResult = ''">
+          📧 Send SOA
+        </button>
+      </div>
+
+      <!-- ── TAB 1: Payment History ── -->
+      <div class="spm-body" *ngIf="studentPaymentModalTab === 'history'">
+
+        <!-- Semester selector -->
+        <div class="spm-sem-filter" *ngIf="studentPaymentModalData.semesters.length > 1">
+          <label class="spm-sem-label">Semester</label>
+          <select class="spm-sem-select"
+                  [ngModel]="studentPaymentModalData.selectedSemester"
+                  (ngModelChange)="onStudentPaymentSemesterChange($event)">
+            <option value="">All Semesters</option>
+            <option *ngFor="let s of studentPaymentModalData.semesters" [value]="s">{{ s }}</option>
+          </select>
+        </div>
+        <div class="spm-sem-tag" *ngIf="studentPaymentModalData.semesters.length <= 1 && studentPaymentModalData.selectedSemester">
+          📅 {{ studentPaymentModalData.selectedSemester }}
+        </div>
+
+        <!-- Summary strip -->
+        <div class="spm-summary-strip">
+          <div class="spm-sum-item">
+            <span class="spm-sum-label">Total Assessment</span>
+            <span class="spm-sum-val">₱{{ formatAmount(studentPaymentModalData.totalAssessment) }}</span>
+          </div>
+          <div class="spm-sum-item spm-sum-paid">
+            <span class="spm-sum-label">Total Paid</span>
+            <span class="spm-sum-val">₱{{ formatAmount(studentPaymentModalData.totalPaid) }}</span>
+          </div>
+          <div class="spm-sum-item" [class.spm-sum-balance]="studentPaymentModalData.balance > 0" [class.spm-sum-zero]="studentPaymentModalData.balance <= 0">
+            <span class="spm-sum-label">Balance</span>
+            <span class="spm-sum-val">₱{{ formatAmount(studentPaymentModalData.balance) }}</span>
+          </div>
+        </div>
+
+        <!-- No records -->
+        <div *ngIf="studentPaymentModalData.history.length === 0" class="spm-empty">
+          <span>📭</span>
+          <p>No verified payment records found for this student.</p>
+        </div>
+
+        <!-- Payment history table -->
+        <div *ngIf="studentPaymentModalData.history.length > 0" class="spm-table-wrap">
+          <table class="spm-table">
+            <thead>
+              <tr>
+                <th>OR / AR No.</th>
+                <th>Period</th>
+                <th *ngIf="!studentPaymentModalData.selectedSemester">Semester</th>
+                <th>Date</th>
+                <th>Amount</th>
+                <th>Method</th>
+                <th>Recorded By</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr *ngFor="let r of studentPaymentModalData.history">
+                <td>
+                  <strong class="spm-receipt-no">{{ r.orArNumber || '—' }}</strong>
+                  <span class="spm-receipt-type" [class.spm-type-or]="r.orArType === 'OR'" [class.spm-type-ar]="r.orArType === 'AR'">
+                    {{ r.orArType }}
+                  </span>
+                </td>
+                <td>
+                  <span class="badge badge-cash" *ngIf="r.examPeriod">{{ r.examPeriod }}</span>
+                  <span class="muted" *ngIf="!r.examPeriod">—</span>
+                </td>
+                <td class="spm-date spm-sem-cell" *ngIf="!studentPaymentModalData.selectedSemester">
+                  <span class="spm-sem-chip">{{ r.semester || '—' }}</span>
+                </td>
+                <td class="spm-date">{{ formatDate(r.paymentDate) }}</td>
+                <td><strong class="amount">₱{{ formatAmount(r.amount) }}</strong></td>
+                <td>
+                  <span class="badge" [class.badge-cash]="r.paymentMethod === 'Cash'" [class.badge-gcash]="r.paymentMethod !== 'Cash'">
+                    {{ r.paymentMethod === 'Cash' ? '💵 Cash' : '📱 GCash' }}
+                  </span>
+                </td>
+                <td class="muted">{{ r.verifiedBy }}</td>
+              </tr>
+            </tbody>
+            <tfoot>
+              <tr class="spm-total-row">
+                <td colspan="3" style="text-align:right;font-weight:700;">Total Amount Paid</td>
+                <td><strong class="amount" style="color:#16a34a;">₱{{ formatAmount(studentPaymentModalData.totalPaid) }}</strong></td>
+                <td colspan="2"></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+
+      <!-- ── TAB 2: Send SOA ── -->
+      <div class="spm-body spm-soa-body" *ngIf="studentPaymentModalTab === 'soa'">
+        <div class="spm-soa-info">
+          <div class="spm-soa-icon">📧</div>
+          <div>
+            <div class="spm-soa-title">Statement of Account Email</div>
+            <div class="spm-soa-sub">An SOA will be sent to the guardian email on file for this student.</div>
+          </div>
+        </div>
+
+        <div class="spm-guardian-box">
+          <span class="spm-guardian-label">Guardian Email on File</span>
+          <span class="spm-guardian-val" *ngIf="studentPaymentModalData.guardianEmail">
+            {{ studentPaymentModalData.guardianEmail }}
+          </span>
+          <span class="spm-guardian-none" *ngIf="!studentPaymentModalData.guardianEmail">
+            ⚠️ No guardian email saved. Please update the student's profile first.
+          </span>
+        </div>
+
+        <!-- Balance reminder -->
+        <div class="spm-soa-balance-box" *ngIf="studentPaymentModalData.balance > 0">
+          <strong>Outstanding Balance: ₱{{ formatAmount(studentPaymentModalData.balance) }}</strong>
+          <span>This balance will be included in the SOA.</span>
+        </div>
+        <div class="spm-soa-balance-box spm-balance-paid" *ngIf="studentPaymentModalData.balance <= 0">
+          <strong>✅ Fully Paid</strong>
+          <span>The student has no outstanding balance.</span>
+        </div>
+
+        <!-- Result message -->
+        <div class="spm-soa-result spm-soa-ok"  *ngIf="soaModalResult && soaModalResult.startsWith('✅')">{{ soaModalResult }}</div>
+        <div class="spm-soa-result spm-soa-err" *ngIf="soaModalResult && soaModalResult.startsWith('❌')">{{ soaModalResult }}</div>
+
+        <button class="spm-send-btn"
+                (click)="sendSoaFromModal()"
+                [disabled]="isSendingSoaModal || !studentPaymentModalData.guardianEmail">
+          <span *ngIf="!isSendingSoaModal">📤 Send SOA Email</span>
+          <span *ngIf="isSendingSoaModal">⏳ Sending…</span>
+        </button>
+      </div>
+
+    </ng-container>
+
+  </div>
+</div>
+
 <!-- Accounting Extra Styles -->
 <style>
 .inst-section-title { font-weight:700; font-size:0.95rem; color:#374151; margin:0 0 10px; padding:6px 12px; background:#f3f4f6; border-radius:6px; border-left:3px solid #6366f1; }
@@ -877,33 +1045,569 @@
 .dd-save-btn:disabled { opacity: .5; cursor: not-allowed; }
 .dd-saved { color: #16a34a; font-size: 0.8rem; text-align: center; margin-top: 10px; font-weight: 500; }
 .dd-note { font-size: 0.75rem; color: #9ca3af; margin-top: 12px; text-align: center; }
-</style>
 
-<!-- Due Dates Tab Panel 
-<div *ngIf="currentTab === 'duedates'" style="padding:16px;">
-  <div class="dd-container">
-    <div class="dd-header">
-      <div class="dd-title">Payment Due Dates</div>
-      <div class="dd-subtitle">Set the installment payment due date ranges shown on the student SOA. Changes apply immediately to all students.</div>
+/* ── History Pagination ── */
+.history-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 14px 16px;
+  border-top: 1px solid #e5e7eb;
+  background: #f9fafb;
+  border-radius: 0 0 10px 10px;
+  margin-top: 2px;
+}
+.pagination-info { font-size: 0.82rem; color: #6b7280; }
+.pagination-btns { display: flex; align-items: center; gap: 10px; }
+.page-btn {
+  padding: 6px 14px; font-size: 0.82rem; font-weight: 600;
+  border: 1px solid #d1d5db; border-radius: 6px;
+  background: #fff; color: #374151; cursor: pointer;
+  transition: background .15s, border-color .15s;
+}
+.page-btn:hover:not(:disabled) { background: #f3f4f6; border-color: #9ca3af; }
+.page-btn:disabled { opacity: .4; cursor: not-allowed; }
+.page-indicator { font-size: 0.82rem; color: #374151; font-weight: 600; white-space: nowrap; }
+
+/* ── UI-02: Clickable student name button ── */
+.student-name-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: #1d4ed8;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-align: left;
+  line-height: inherit;
+}
+.student-name-btn:hover { color: #1e40af; }
+.student-name-btn strong { color: inherit; }
+
+/* ── UI-02: Per-Student Payment Modal ── */
+.spm-overlay { z-index: 1100; }
+.spm-modal {
+  max-width: 680px;
+  width: 96%;
+  border-radius: 14px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  max-height: 90vh;
+}
+.spm-loading { display:flex; flex-direction:column; align-items:center; justify-content:center; padding: 40px; gap: 12px; color: #6b7280; }
+.spm-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  background: linear-gradient(135deg, #1d4ed8, #3b82f6);
+  color: #fff;
+}
+.spm-header-info { display: flex; align-items: center; gap: 12px; }
+.spm-avatar {
+  width: 44px; height: 44px; border-radius: 50%;
+  background: rgba(255,255,255,0.25);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.1rem; font-weight: 700;
+}
+.spm-name { font-size: 1rem; font-weight: 700; }
+.spm-sn  { font-size: 0.8rem; opacity: 0.8; }
+.spm-tabs {
+  display: flex;
+  border-bottom: 2px solid #e5e7eb;
+  background: #f9fafb;
+}
+.spm-tab-btn {
+  flex: 1; padding: 10px 0; font-size: 0.85rem; font-weight: 600;
+  border: none; background: none; cursor: pointer; color: #6b7280;
+  border-bottom: 3px solid transparent; margin-bottom: -2px;
+  transition: color .15s, border-color .15s;
+}
+.spm-tab-btn.active { color: #1d4ed8; border-bottom-color: #1d4ed8; background: #fff; }
+.spm-body { padding: 16px 20px; overflow-y: auto; flex: 1; }
+
+/* Summary strip */
+.spm-summary-strip {
+  display: flex; gap: 10px; margin-bottom: 16px;
+  background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px 16px;
+}
+.spm-sum-item { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.spm-sum-label { font-size: 0.72rem; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.5px; }
+.spm-sum-val { font-size: 0.95rem; font-weight: 700; color: #111827; }
+.spm-sum-paid .spm-sum-val { color: #16a34a; }
+.spm-sum-balance .spm-sum-val { color: #dc2626; }
+.spm-sum-zero .spm-sum-val { color: #16a34a; }
+
+/* Table */
+.spm-table-wrap { overflow-x: auto; border-radius: 8px; border: 1px solid #e5e7eb; }
+.spm-table { width: 100%; border-collapse: collapse; font-size: 0.83rem; }
+.spm-table thead th {
+  background: #f1f5f9; color: #374151; font-weight: 700;
+  padding: 9px 12px; text-align: left; white-space: nowrap;
+  border-bottom: 1px solid #e2e8f0;
+}
+.spm-table tbody td { padding: 9px 12px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
+.spm-table tbody tr:last-child td { border-bottom: none; }
+.spm-table tbody tr:hover { background: #f9fafb; }
+.spm-table tfoot td { padding: 10px 12px; background: #f8fafc; border-top: 2px solid #e2e8f0; }
+.spm-receipt-no { font-weight: 700; color: #1d4ed8; margin-right: 5px; }
+.spm-receipt-type {
+  font-size: 0.7rem; font-weight: 700; padding: 1px 5px; border-radius: 3px; vertical-align: middle;
+}
+.spm-type-or { background: #dcfce7; color: #166534; }
+.spm-type-ar { background: #eff6ff; color: #1d4ed8; }
+.spm-date { color: #6b7280; white-space: nowrap; }
+.spm-total-row { background: #f0fdf4; }
+
+/* Empty state */
+.spm-empty { text-align: center; padding: 28px; color: #9ca3af; }
+.spm-empty span { font-size: 2rem; }
+.spm-empty p { margin-top: 8px; font-size: 0.85rem; }
+
+/* SOA tab */
+.spm-soa-body { display: flex; flex-direction: column; gap: 14px; }
+.spm-soa-info { display: flex; align-items: flex-start; gap: 12px; }
+.spm-soa-icon { font-size: 1.6rem; }
+.spm-soa-title { font-weight: 700; color: #111827; margin-bottom: 2px; }
+.spm-soa-sub { font-size: 0.82rem; color: #6b7280; }
+.spm-guardian-box {
+  display: flex; flex-direction: column; gap: 4px;
+  background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 14px;
+}
+.spm-guardian-label { font-size: 0.75rem; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.5px; }
+.spm-guardian-val { font-size: 0.92rem; font-weight: 600; color: #111827; }
+.spm-guardian-none { font-size: 0.85rem; color: #dc2626; }
+.spm-soa-balance-box {
+  display: flex; flex-direction: column; gap: 3px;
+  padding: 10px 14px; border-radius: 8px;
+  background: #fef2f2; border: 1px solid #fecaca;
+}
+.spm-soa-balance-box strong { color: #dc2626; font-size: 0.9rem; }
+.spm-soa-balance-box span { font-size: 0.8rem; color: #6b7280; }
+.spm-balance-paid { background: #f0fdf4; border-color: #bbf7d0; }
+.spm-balance-paid strong { color: #16a34a; }
+.spm-soa-result { padding: 10px 14px; border-radius: 8px; font-size: 0.85rem; font-weight: 500; }
+.spm-soa-ok  { background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; }
+.spm-soa-err { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; }
+.spm-send-btn {
+  padding: 11px 24px; background: #1d4ed8; color: #fff;
+  border: none; border-radius: 8px; font-size: 0.9rem; font-weight: 700;
+  cursor: pointer; transition: background .15s; align-self: flex-start;
+}
+.spm-send-btn:hover:not(:disabled) { background: #1e40af; }
+.spm-send-btn:disabled { opacity: .5; cursor: not-allowed; }
+
+/* ── Semester filter row inside payment history modal ── */
+.spm-sem-filter {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  background: #f0f4ff;
+  border: 1px solid #c7d7fb;
+  border-radius: 8px;
+}
+.spm-sem-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #374151;
+  white-space: nowrap;
+}
+.spm-sem-select {
+  flex: 1;
+  padding: 5px 10px;
+  font-size: 0.82rem;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #fff;
+  color: #111827;
+  cursor: pointer;
+}
+.spm-sem-select:focus { outline: none; border-color: #6366f1; box-shadow: 0 0 0 2px rgba(99,102,241,.15); }
+.spm-sem-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 10px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #1d4ed8;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  padding: 4px 10px;
+  border-radius: 20px;
+}
+.spm-sem-cell { max-width: 180px; }
+.spm-sem-chip {
+  display: inline-block;
+  font-size: 0.72rem;
+  color: #374151;
+  background: #f3f4f6;
+  border: 1px solid #e5e7eb;
+  padding: 1px 7px;
+  border-radius: 10px;
+  white-space: nowrap;
+}
+</style>
+<!-- ── SOA Viewer Modal ──────────────────────────────────────────────── -->
+<div class="overlay" *ngIf="showSoaViewer" (click)="closeSoaViewer()" style="z-index:1100;">
+  <div class="soa-viewer-modal" (click)="$event.stopPropagation()">
+
+    <!-- Modal header -->
+    <div class="soa-vm-header">
+      <div>
+        <div class="soa-vm-title">📄 Statement of Account</div>
+        <div class="soa-vm-sub" *ngIf="soaViewerStudent">{{ soaViewerStudent.name }} · {{ soaViewerStudent.number }}</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <select *ngIf="soaViewerSemesters.length > 1"
+                class="soa-sem-select"
+                [ngModel]="soaViewerSemester"
+                (ngModelChange)="onSoaSemesterChange($event)">
+          <option *ngFor="let s of soaViewerSemesters" [value]="s">{{ s }}</option>
+        </select>
+        <button class="soa-vm-print" (click)="printSoa()" title="Print SOA">🖨️ Print</button>
+        <button class="soa-vm-close" (click)="closeSoaViewer()">✕</button>
+      </div>
     </div>
 
-    <div *ngIf="dueDatesLoading" style="text-align:center;color:#9ca3af;padding:24px;font-size:.83rem;">Loading...</div>
+    <!-- Loading -->
+    <div *ngIf="soaViewerLoading" class="soa-vm-loading"><div class="spin"></div><p>Loading SOA…</p></div>
 
-    <ng-container *ngIf="!dueDatesLoading">
-      <div class="dd-fields">
-        <div class="dd-row" *ngFor="let period of ['downpayment','prelim','midterm','finals']">
-          <span class="dd-label">{{ dueDates[period]?.label || (period | titlecase) }}</span>
-          <input class="dd-input" type="text"
-                 [(ngModel)]="dueDates[period].date_range"
-                 [placeholder]="period === 'downpayment' ? 'e.g. Upon enrollment' : 'e.g. JANUARY 10-16, 2026'" />
+    <!-- No data -->
+    <div *ngIf="!soaViewerLoading && !soaViewerSnapshot" class="soa-vm-empty">
+      No SOA snapshot found for this student yet.
+    </div>
+
+    <!-- SOA Content — matches student enrollment SOA style exactly -->
+    <div *ngIf="!soaViewerLoading && soaViewerSnapshot" class="soa-vm-body">
+
+      <!-- ── SCHOOL HEADER BAR ── -->
+      <div class="soa-header-bar">
+        <div class="soa-school-logo">ST.<br>BENILDE</div>
+        <div class="soa-school-info">
+          <div class="soa-school-name">ST. BENILDE CENTER FOR GLOBAL COMPETENCE, INC.</div>
+          <div class="soa-school-addr">2647 Rizal Avenue, West Bajac-Bajac, Olongapo City &nbsp;|&nbsp; Telefax: (047) 223 - 9031</div>
+        </div>
+        <div class="soa-badges">
+          <span class="soa-badge">CHED</span>
+          <span class="soa-badge">DepEd</span>
+          <span class="soa-badge">TESDA</span>
         </div>
       </div>
 
-      <button class="dd-save-btn" (click)="saveDueDates()" [disabled]="dueDatesSaving">
-        {{ dueDatesSaving ? 'Saving...' : '💾 Save Due Dates' }}
-      </button>
-      <div class="dd-saved" *ngIf="dueDatesSaved">✓ Due dates saved successfully</div>
-      <div class="dd-note">These dates will appear on the Installment Payment table of every student's SOA.</div>
-    </ng-container>
+      <!-- ── TITLE BAR ── -->
+      <div class="soa-title-bar">
+        STATEMENT OF ACCOUNT &nbsp; {{ soaViewerSnapshot.semester }}
+      </div>
+
+      <!-- ── STUDENT INFO ROW 1 ── -->
+      <div class="soa-info-bar">
+        <div class="soa-info-cell">
+          <div class="soa-info-label">Name:</div>
+          <div class="soa-info-val">{{ soaViewerStudent?.name | uppercase }}</div>
+        </div>
+        <div class="soa-info-cell">
+          <div class="soa-info-label">Course:</div>
+          <div class="soa-info-val">{{ soaViewerStudent?.program }}</div>
+        </div>
+        <div class="soa-info-cell">
+          <div class="soa-info-label">Department:</div>
+          <div class="soa-info-val">ICTD</div>
+        </div>
+      </div>
+
+      <!-- ── STUDENT INFO ROW 2 ── -->
+      <div class="soa-info-bar soa-info-bar2">
+        <div class="soa-info-cell">
+          <div class="soa-info-label">Payment Plan:</div>
+          <div class="soa-info-val">{{ soaViewerSnapshot.payment_plan | titlecase }}</div>
+        </div>
+        <div class="soa-info-cell">
+          <div class="soa-info-label">Semester:</div>
+          <div class="soa-info-val">{{ soaViewerSnapshot.semester }}</div>
+        </div>
+        <div class="soa-info-cell">
+          <div class="soa-info-label">Student No.:</div>
+          <div class="soa-info-val">{{ soaViewerStudent?.number }}</div>
+        </div>
+      </div>
+
+      <!-- ── TWO-COLUMN SOA BODY ── -->
+      <div class="soa-body">
+
+        <!-- LEFT: Assessment breakdown -->
+        <div class="soa-left">
+          <div class="soa-assess-title">ASSESSMENT FOR {{ soaViewerSnapshot.semester?.toUpperCase() }}</div>
+          <table class="soa-assess-table">
+            <tr><td>No. of Units</td><td>{{ soaViewerSnapshot.units }}</td></tr>
+            <tr><td>Tuition Fee</td><td>{{ fmtPeso(soaViewerSnapshot.tuition_fee) }}</td></tr>
+            <tr><td>Miscellaneous Fee</td><td>{{ fmtPeso(soaViewerSnapshot.miscellaneous_fee) }}</td></tr>
+            <tr><td>Registration Fee</td><td>{{ fmtPeso(soaViewerSnapshot.registration_fee) }}</td></tr>
+            <tr><td>NSTP Fee</td><td></td></tr>
+            <tr><td>ENERGY FEE</td><td>{{ fmtPeso(soaViewerSnapshot.energy_fee) }}</td></tr>
+            <tr><td>Supervision Fee</td><td></td></tr>
+            <tr><td class="soa-indent"># of laboratory</td><td></td></tr>
+            <tr><td>Laboratory Fees:</td><td>{{ fmtPeso(soaViewerSnapshot.laboratory_fee) }}</td></tr>
+            <tr><td class="soa-indent">Computer Lab.</td><td></td></tr>
+            <tr><td class="soa-indent">Kitchen Lab.</td><td></td></tr>
+            <tr><td class="soa-indent">Bartending Lab.</td><td></td></tr>
+            <tr><td class="soa-indent">F&amp;B Lab.</td><td></td></tr>
+            <tr><td class="soa-indent">Housekeeping Lab.</td><td></td></tr>
+            <tr><td>Penalty Late Payment</td><td></td></tr>
+            <tr><td>&nbsp;</td><td></td></tr>
+            <tr class="soa-subtotal"><td>Subtotal</td><td>{{ fmtPeso(soaViewerSnapshot.subtotal) }}</td></tr>
+            <tr><td>Discount of TF</td><td>{{ soaViewerSnapshot.discount > 0 ? fmtPeso(soaViewerSnapshot.discount) : '- -' }}</td></tr>
+            <tr *ngIf="soaViewerSnapshot.payment_plan === 'installment'">
+              <td>Installment Fee</td><td>{{ fmtPeso(soaViewerSnapshot.installment_fee) }}</td>
+            </tr>
+            <tr class="soa-total-row"><td>TOTAL ASSESSMENT</td><td>{{ fmtPeso(soaViewerSnapshot.total_assessment) }}</td></tr>
+          </table>
+          <div class="soa-final-row">
+            <span>FINAL ASSESSMENT</span>
+            <span>{{ fmtPeso(soaViewerSnapshot.total_assessment) }}</span>
+          </div>
+        </div>
+
+        <!-- RIGHT: Schedule of payment -->
+        <div class="soa-right">
+          <table class="soa-sched-table">
+            <thead>
+              <tr>
+                <th>SCHEDULE OF PAYMENT</th>
+                <th>DATE OF PAYMENTS</th>
+                <th>PAYMENTS</th>
+                <th>O.R./A.R. NO.</th>
+              </tr>
+            </thead>
+            <tbody>
+              <!-- Installment plan rows -->
+              <ng-container *ngIf="soaViewerSnapshot.payment_plan === 'installment'">
+                <ng-container *ngFor="let p of soaViewerInstallmentRows()">
+                  <tr>
+                    <td class="soa-period-label">{{ p.label }}</td>
+                    <td class="soa-due-date">
+                      <span *ngIf="p.paid" class="soa-paid-date">{{ p.paymentDate | date:'MM/dd/yy' }}</span>
+                      <span *ngIf="!p.paid" style="color:#9ca3af;">—</span>
+                    </td>
+                    <td class="soa-paid-amt" [class.soa-paid-green]="p.paid">
+                      {{ p.paid ? fmtPeso(p.amountPaid) : '' }}
+                    </td>
+                    <td class="soa-or-num">{{ p.paid ? p.orNo : '' }}</td>
+                  </tr>
+                  <tr class="soa-spacer"><td colspan="4"></td></tr>
+                </ng-container>
+              </ng-container>
+              <!-- Full payment row -->
+              <ng-container *ngIf="soaViewerSnapshot.payment_plan !== 'installment'">
+                <tr>
+                  <td>Full Payment</td>
+                  <td>
+                    <span *ngIf="soaViewerSnapshot.payments?.length > 0" class="soa-paid-date">
+                      {{ soaViewerSnapshot.payments[0].payment_date | date:'MM/dd/yy' }}
+                    </span>
+                  </td>
+                  <td [class.soa-paid-green]="soaViewerSnapshot.total_paid > 0">
+                    {{ soaViewerSnapshot.total_paid > 0 ? fmtPeso(soaViewerSnapshot.total_paid) : '' }}
+                  </td>
+                  <td class="soa-or-num">{{ soaViewerSnapshot.payments?.[0]?.or_ar_number || '' }}</td>
+                </tr>
+              </ng-container>
+            </tbody>
+          </table>
+
+          <!-- Total Balance -->
+          <div class="soa-total-balance">
+            <span class="soa-tb-label">Total Balance</span>
+            <span class="soa-tb-amt" [class.soa-fully-paid]="soaViewerSnapshot.balance <= 0">
+              {{ fmtPeso(soaViewerSnapshot.balance) }}
+              <small *ngIf="soaViewerSnapshot.balance <= 0"> — Fully Paid</small>
+            </span>
+          </div>
+
+          <!-- Installment breakdown table — shown for installment plan -->
+          <table class="soa-install-table"
+                 *ngIf="soaViewerSnapshot.payment_plan === 'installment'">
+            <thead>
+              <tr>
+                <th>INSTALLMENT PAYMENT</th>
+                <th>DATE PAID</th>
+                <th>AMOUNT</th>
+              </tr>
+            </thead>
+            <tbody>
+              <ng-container *ngFor="let p of soaViewerInstallmentRows()">
+                <tr [class.soa-paid-row]="p.paid" [class.soa-unpaid-row]="!p.paid">
+                  <td>{{ p.term === 'Downpayment' ? 'Downpayment :' : p.term === 'Finals' ? 'Final:' : p.term + ' :' }}</td>
+                  <td>
+                    <span *ngIf="p.paid" class="soa-paid-date">{{ p.paymentDate | date:'MM/dd/yy' }}</span>
+                    <span *ngIf="!p.paid" class="soa-due-range" style="color:#9ca3af;">—</span>
+                  </td>
+                  <td [class.soa-paid-green]="p.paid">
+                    {{ p.paid ? fmtPeso(p.amountPaid) : fmtPeso(p.amount) }}
+                  </td>
+                </tr>
+              </ng-container>
+            </tbody>
+          </table>
+          <div class="soa-total-to-pay"
+               *ngIf="soaViewerSnapshot.payment_plan === 'installment'">
+            Total amount to be paid: &nbsp;
+            <span class="soa-total-to-pay-amt">{{ fmtPeso(soaViewerSnapshot.total_assessment) }}</span>
+          </div>
+        </div>
+      </div><!-- /soa-body -->
+
+      <!-- Pay Status Footer -->
+      <div class="soa-print-bar">
+        <span class="pay-status-badge"
+              [ngClass]="{
+                'pay-status-paid':    soaViewerSnapshot.balance <= 0,
+                'pay-status-partial': soaViewerSnapshot.total_paid > 0 && soaViewerSnapshot.balance > 0,
+                'pay-status-unpaid':  soaViewerSnapshot.total_paid <= 0
+              }">
+          {{ soaViewerSnapshot.balance <= 0 ? '✅ Fully Paid' :
+             soaViewerSnapshot.total_paid > 0 ? '🔶 Partially Paid' : '❌ Unpaid' }}
+        </span>
+      </div>
+
+    </div><!-- /soa-vm-body -->
   </div>
-</div>-->
+</div>
+
+<style>
+/* ── Modal shell ── */
+.overlay { position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:1000; }
+.soa-viewer-modal { background:#fff;border-radius:14px;width:min(96vw,900px);max-height:92vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 64px rgba(0,0,0,.28); }
+.soa-vm-header { display:flex;justify-content:space-between;align-items:flex-start;padding:14px 18px;border-bottom:2px solid #1a1a6e;flex-shrink:0;background:#f8f9fa; }
+.soa-vm-title { font-size:15px;font-weight:700;color:#1a1a6e; }
+.soa-vm-sub { font-size:11px;color:#64748b;margin-top:3px; }
+.soa-sem-select { padding:5px 10px;font-size:12px;border:1px solid #e2e8f0;border-radius:7px;background:white; }
+.soa-vm-print { background:#1a1a6e;color:#fff;border:none;border-radius:6px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer; }
+.soa-vm-print:hover { background:#2d2d9e; }
+.soa-vm-close { background:none;border:none;font-size:18px;cursor:pointer;color:#94a3b8;padding:4px 8px;border-radius:6px; }
+.soa-vm-close:hover { background:#f1f5f9;color:#374151; }
+.soa-vm-loading { display:flex;flex-direction:column;align-items:center;padding:48px;color:#64748b; }
+.soa-vm-empty { padding:24px;text-align:center;color:#94a3b8;font-size:13px; }
+.soa-vm-body { overflow-y:auto;padding:16px 20px;flex:1; }
+
+/* ── SOA Header ── */
+.soa-header-bar { display:flex;align-items:center;gap:12px;padding:10px 14px;background:#f8f9fa;border-bottom:2px solid #1a1a6e;margin-bottom:0; }
+.soa-school-logo { width:48px;height:48px;border:2px solid #1a1a6e;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:7.5px;text-align:center;font-weight:900;color:#1a1a6e;flex-shrink:0; }
+.soa-school-info { flex:1; }
+.soa-school-name { font-size:12px;font-weight:900;text-transform:uppercase;color:#1a1a6e;letter-spacing:.4px; }
+.soa-school-addr { font-size:9px;color:#555;margin-top:2px; }
+.soa-badges { display:flex;gap:5px; }
+.soa-badge { font-size:7.5px;border:1px solid #1a1a6e;color:#1a1a6e;padding:2px 5px;border-radius:3px;font-weight:700; }
+.soa-title-bar { text-align:center;font-size:11.5px;font-weight:900;text-transform:uppercase;background:#1a1a6e;color:#fff;padding:5px;letter-spacing:1px; }
+.soa-info-bar { display:grid;grid-template-columns:1fr 1fr 1fr;border-bottom:1px solid #ddd; }
+.soa-info-bar2 { background:#f8f9fa; }
+.soa-info-cell { padding:5px 10px;border-right:1px solid #ddd; }
+.soa-info-cell:last-child { border-right:none; }
+.soa-info-label { font-size:8.5px;color:#888;text-transform:uppercase; }
+.soa-info-val { font-size:11.5px;font-weight:700;color:#1a1a6e; }
+
+/* ── SOA Two-Column Body ── */
+.soa-body { display:grid;grid-template-columns:265px 1fr;gap:0;border-bottom:1px solid #ddd;margin-bottom:14px; }
+.soa-left { border-right:1px solid #ddd;padding:8px 10px; }
+.soa-assess-title { text-align:center;font-size:9px;font-weight:700;background:#e8e8e8;border:1px solid #ccc;padding:3px;margin-bottom:4px; }
+.soa-assess-table { width:100%;border-collapse:collapse;font-size:9.5px; }
+.soa-assess-table td { padding:1.5px 3px;border-bottom:1px dotted #e5e7eb; }
+.soa-assess-table td:last-child { text-align:right;min-width:72px;font-family:monospace; }
+.soa-indent { padding-left:14px !important;color:#666; }
+.soa-subtotal td { font-weight:700;border-top:1.5px solid #000 !important;padding-top:4px !important; }
+.soa-total-row td { font-weight:900;background:#d0d0d0;padding:3px !important; }
+.soa-final-row { display:flex;justify-content:space-between;background:#1a1a6e;color:#fff;font-weight:900;font-size:11px;padding:5px 7px;margin-top:2px; }
+.soa-right { padding:8px 10px; }
+.soa-sched-table { width:100%;border-collapse:collapse;font-size:9.5px;margin-bottom:7px; }
+.soa-sched-table th { background:#1a1a6e;color:#fff;padding:3px 6px;font-size:9px;text-align:left; }
+.soa-sched-table td { border:1px solid #ddd;padding:3px 6px;height:21px; }
+.soa-spacer td { height:4px;border:none;padding:0; }
+.soa-period-label { font-weight:600; }
+.soa-paid-amt { text-align:right;font-family:monospace; }
+.soa-paid-green { color:#16a34a;font-weight:700; }
+.soa-or-num { text-align:center;font-size:8.5px;color:#1d4ed8;font-weight:700; }
+.soa-due-date { font-size:8.5px;color:#555; }
+.soa-paid-date { font-size:8.5px;color:#16a34a;font-weight:600; }
+.soa-due-range { font-size:8.5px;color:#374151; }
+.soa-total-balance { border:2px solid #1a1a6e;padding:5px 10px;display:flex;justify-content:space-between;align-items:center;margin-bottom:8px; }
+.soa-tb-label { font-size:11px;font-weight:700; }
+.soa-tb-amt { font-size:16px;font-weight:900;color:#c00;font-family:monospace; }
+.soa-fully-paid { color:#16a34a !important;font-size:13px !important; }
+.soa-install-table { width:100%;border-collapse:collapse;font-size:9.5px; }
+.soa-install-table th { background:#f0c040;color:#000;font-weight:700;padding:3px 7px;border:1px solid #999; }
+.soa-install-table td { border:1px solid #ddd;padding:3px 7px; }
+.soa-paid-row td { background:#f0fff4; }
+.soa-unpaid-row td { color:#6b7280; }
+.soa-total-to-pay { text-align:right;font-size:10px;font-weight:700;margin-top:5px; }
+.soa-total-to-pay-amt { background:#add8e6;padding:2px 9px;border-radius:4px; }
+
+/* ── Print bar & status badge ── */
+.soa-print-bar { display:flex;justify-content:space-between;align-items:center;padding:10px 14px;background:#f8f9fa;border-top:1px solid #ddd;margin-top:4px;border-radius:0 0 8px 8px; }
+.btn-view-soa { background:#1a1a6e;color:#fff;border:none;padding:7px 18px;font-size:11.5px;font-weight:700;border-radius:7px;cursor:pointer; }
+.btn-view-soa:hover { background:#2d2d9e; }
+.pay-status-badge { font-size:12px;font-weight:700;padding:4px 14px;border-radius:20px; }
+.pay-status-paid    { background:#dcfce7;color:#166534; }
+.pay-status-partial { background:#fef9c3;color:#854d0e; }
+.pay-status-unpaid  { background:#fee2e2;color:#991b1b; }
+
+/* ── Semester divider inside history accordion ── */
+.gr-sem-divider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  background: linear-gradient(90deg, #eff6ff 0%, #f8fafc 100%);
+  border-top: 1px solid #bfdbfe;
+  border-bottom: 1px solid #e0eaff;
+  margin-top: 2px;
+}
+.gr-sem-divider:first-child { margin-top: 0; border-top: none; }
+.gr-sem-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #1d4ed8;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+
+/* ── existing btn-view-soa for history list ── */
+.btn-view-soa-sm { padding:3px 10px;background:#3b82f6;color:white;border:none;border-radius:5px;font-size:11px;font-weight:600;cursor:pointer; }
+.btn-view-soa-sm:hover { background:#2563eb; }
+</style>
+
+<style>
+/* ═══════════════════════════════════════════════════════════
+   PRINT STYLES — DOM manipulation handled by beforeprint/afterprint in TS.
+   CSS only handles page setup and colour forcing.
+   ═══════════════════════════════════════════════════════════ */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 10mm 12mm;
+  }
+
+  /* Force background colours and images to print */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
+  }
+
+  /* Grid layouts must stay as grid */
+  .soa-body {
+    display: grid !important;
+    grid-template-columns: 265px 1fr !important;
+  }
+  .soa-info-bar {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr 1fr !important;
+  }
+}
+</style>

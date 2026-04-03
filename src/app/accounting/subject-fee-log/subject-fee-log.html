@@ -1,0 +1,270 @@
+<div class="fee-log-panel">
+
+  <!-- ── Global success banner ─────────────────────────────── -->
+  <div class="alert-success" *ngIf="successMsg">✅ {{ successMsg }}</div>
+  <div class="alert-error"   *ngIf="errorMsg">⚠️ {{ errorMsg }}</div>
+
+  <!-- ── Tab switcher ──────────────────────────────────────── -->
+  <div class="tab-bar">
+    <button class="tab-btn" [class.active]="activeTab==='pending'" (click)="setTab('pending')">
+      📥 Pending Add/Drop Requests
+      <span class="badge-count" *ngIf="pendingCount > 0">{{ pendingCount }}</span>
+    </button>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════════
+       TAB 1 — PENDING ADD/DROP REQUESTS (Accounting review)
+       ════════════════════════════════════════════════════════ -->
+  <div *ngIf="activeTab === 'pending'">
+
+    <div class="panel-header">
+      <div>
+        <h3>📥 Add/Drop Requests — Fee Review</h3>
+        <p>Review fee impact before forwarding to the Registrar for enrollment approval</p>
+      </div>
+      <div class="header-actions">
+        <select class="fselect" [(ngModel)]="pendingStatusFilter" (change)="loadPendingRequests()">
+          <option value="Pending">⏳ Awaiting Review</option>
+          <option value="Approved">✅ Fee Approved</option>
+          <option value="Rejected">❌ Fee Rejected</option>
+          <option value="All">All</option>
+        </select>
+        <button class="btn-refresh" (click)="loadPendingRequests()" [disabled]="isLoadingPending">
+          {{ isLoadingPending ? '⏳' : '🔄' }} Refresh
+        </button>
+      </div>
+    </div>
+
+    <div class="filter-bar">
+      <input class="search-input" type="text" placeholder="🔍 Student name, ID, course code..."
+             [(ngModel)]="pendingSearchQuery">
+    </div>
+
+    <!-- Loading -->
+    <div class="loading-state" *ngIf="isLoadingPending">
+      <div class="spin"></div><p>Loading requests...</p>
+    </div>
+
+    <!-- Empty -->
+    <div class="empty-state" *ngIf="!isLoadingPending && filteredPending.length === 0">
+      <div style="font-size:2rem">📭</div>
+      <p *ngIf="pendingStatusFilter === 'Pending'">No pending add/drop requests awaiting fee review.</p>
+      <p *ngIf="pendingStatusFilter !== 'Pending'">No requests found for this filter.</p>
+    </div>
+
+    <!-- Request cards -->
+    <div class="request-list" *ngIf="!isLoadingPending && filteredPending.length > 0">
+      <div class="request-card" *ngFor="let req of filteredPending"
+           [class.card-approved]="req.accounting_status === 'Approved'"
+           [class.card-rejected]="req.accounting_status === 'Rejected'">
+
+        <!-- Top row: student + action badge -->
+        <div class="card-top">
+          <div class="student-avatar">
+            {{ (req.first_name[0] || '') + (req.last_name[0] || '') }}
+          </div>
+          <div class="card-student">
+            <strong>{{ req.last_name }}, {{ req.first_name }}</strong>
+            <span class="muted">{{ req.student_number }} · {{ req.program }} {{ req.year_level }}</span>
+            <span class="muted small">{{ req.semester }}</span>
+          </div>
+          <div class="card-badges">
+            <span class="action-badge" [class.action-add]="req.request_type==='Add'" [class.action-drop]="req.request_type==='Drop'">
+              {{ req.request_type === 'Add' ? '➕ Add' : '➖ Drop' }}
+            </span>
+            <span class="acc-status-badge" [ngClass]="accStatusClass(req.accounting_status)">
+              {{ accStatusLabel(req.accounting_status) }}
+            </span>
+          </div>
+          <div class="card-date muted small">{{ fmtDate(req.created_at) }}</div>
+        </div>
+
+        <!-- Course info -->
+        <div class="card-course">
+          <div class="course-code">{{ req.code }}</div>
+          <div class="course-name">{{ req.course_name }}</div>
+          <div class="muted small">{{ req.credits }} unit{{ req.credits !== 1 ? 's' : '' }}</div>
+        </div>
+
+        <!-- Student reason -->
+        <div class="card-reason" *ngIf="req.reason">
+          <span class="reason-label">Student reason:</span> {{ req.reason }}
+        </div>
+
+        <!-- Fee Impact Preview -->
+        <div class="fee-scholar-notice" *ngIf="req.fee_preview?.isFullScholar">
+          🎓 <strong>Full Scholar</strong> — No additional charges for this student. New total remains <strong>₱0.00</strong>.
+        </div>
+
+        <div class="fee-preview" *ngIf="!req.fee_preview?.isFullScholar && (req.fee_preview || req.fee_impact)">
+          <div class="fee-preview-title">💰 Fee Impact</div>
+          <div class="fee-grid">
+            <div class="fee-row">
+              <span>Current Total Assessment</span>
+              <span class="fee-val">{{ fmt(req.fee_preview?.currentTotal ?? 0) }}</span>
+            </div>
+            <div class="fee-row">
+              <span>Tuition Impact ({{ req.credits }} units)</span>
+              <span class="fee-val" [style.color]="impactColor(req.fee_preview?.tuitionImpact ?? 0)">
+                {{ fmt(req.fee_preview?.tuitionImpact ?? 0) }}
+              </span>
+            </div>
+            <div class="fee-row" *ngIf="(req.fee_preview?.labImpact ?? 0) !== 0">
+              <span>Laboratory Fee Impact</span>
+              <span class="fee-val" [style.color]="impactColor(req.fee_preview?.labImpact ?? 0)">
+                {{ fmt(req.fee_preview?.labImpact ?? 0) }}
+              </span>
+            </div>
+            <div class="fee-row" *ngIf="(req.fee_preview?.energyImpact ?? 0) !== 0">
+              <span>Energy Fee Impact</span>
+              <span class="fee-val" [style.color]="impactColor(req.fee_preview?.energyImpact ?? 0)">
+                {{ fmt(req.fee_preview?.energyImpact ?? 0) }}
+              </span>
+            </div>
+            <div class="fee-row total-row">
+              <span>Total Fee Change</span>
+              <!-- BUG-ACCTG-02 FIX: was using only tuitionImpact — now uses totalImpact
+                   which includes lab + energy fees for lab subjects -->
+              <span class="fee-val" [style.color]="impactColor(req.fee_preview?.totalImpact ?? req.fee_impact)">
+                {{ fmt(req.fee_preview?.totalImpact ?? req.fee_impact) }}
+              </span>
+            </div>
+            <div class="fee-row new-total-row">
+              <span>New Total Assessment (after approval)</span>
+              <!-- BUG-ACCTG-02 FIX: was recomputing currentTotal + tuitionImpact
+                   which ignores lab/energy and scholar discount — use newTotal directly -->
+              <span class="fee-val new-total">{{ fmt(req.fee_preview?.newTotal ?? (req.fee_preview?.currentTotal ?? 0) + (req.fee_preview?.totalImpact ?? req.fee_impact)) }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Accounting notes (if already reviewed) -->
+        <div class="acc-notes" *ngIf="req.accounting_notes">
+          <span class="reason-label">Accounting notes:</span> {{ req.accounting_notes }}
+        </div>
+
+        <!-- Action buttons (only for pending) -->
+        <div class="card-actions" *ngIf="req.accounting_status === 'Pending'">
+          <button class="btn-approve" (click)="openReview(req, 'Approved')">
+            ✅ Approve Fees & Forward to Registrar
+          </button>
+          <button class="btn-reject" (click)="openReview(req, 'Rejected')">
+            ❌ Reject
+          </button>
+        </div>
+
+        <!-- Already reviewed -->
+        <div class="card-actions already-reviewed" *ngIf="req.accounting_status !== 'Pending'">
+          <span class="muted small">Reviewed · Registrar can now {{ req.accounting_status === 'Approved' ? 'approve enrollment' : 'see this was rejected' }}</span>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════════
+
+<!-- ════════════════════════════════════════════════════════════
+     REVIEW MODAL
+     ════════════════════════════════════════════════════════════ -->
+<div class="modal-backdrop" *ngIf="showReviewModal" (click)="closeReview()"></div>
+<div class="modal-box" *ngIf="showReviewModal && reviewingReq">
+  <div class="modal-header">
+    <h4>{{ reviewAction === 'Approved' ? '✅ Approve Fee & Forward to Registrar' : '❌ Reject Add/Drop Request' }}</h4>
+    <button class="modal-close" (click)="closeReview()">✕</button>
+  </div>
+
+  <div class="modal-body">
+    <!-- Student + course summary -->
+    <div class="modal-summary">
+      <div class="summary-line">
+        <strong>Student:</strong> {{ reviewingReq.last_name }}, {{ reviewingReq.first_name }}
+        ({{ reviewingReq.student_number }})
+      </div>
+      <div class="summary-line">
+        <strong>Request:</strong>
+        <span class="action-badge" style="margin-left:6px"
+              [class.action-add]="reviewingReq.request_type==='Add'"
+              [class.action-drop]="reviewingReq.request_type==='Drop'">
+          {{ reviewingReq.request_type === 'Add' ? '➕ Add' : '➖ Drop' }}
+        </span>
+        {{ reviewingReq.code }} — {{ reviewingReq.course_name }}
+        ({{ reviewingReq.credits }} units)
+      </div>
+      <div class="summary-line" *ngIf="reviewingReq.reason">
+        <strong>Student reason:</strong> {{ reviewingReq.reason }}
+      </div>
+    </div>
+
+    <!-- Fee impact summary in modal -->
+    <div class="modal-scholar-notice" *ngIf="reviewingReq.fee_preview?.isFullScholar">
+      🎓 <strong>Full Scholar</strong> — This student has a full scholarship. Adding or dropping subjects will <strong>not change their balance</strong>. New total remains <strong>₱0.00</strong>.
+    </div>
+
+    <div class="modal-fee-box" *ngIf="reviewingReq.fee_preview && !reviewingReq.fee_preview.isFullScholar">
+      <div class="modal-fee-title">💰 Fee Impact Summary</div>
+      <div class="fee-grid">
+        <div class="fee-row">
+          <span>Current Total</span>
+          <span class="fee-val">{{ fmt(reviewingReq.fee_preview.currentTotal) }}</span>
+        </div>
+        <div class="fee-row" *ngIf="reviewingReq.fee_preview.tuitionImpact !== 0">
+          <span>Tuition Impact</span>
+          <span class="fee-val" [style.color]="impactColor(reviewingReq.fee_preview.tuitionImpact)">
+            {{ fmt(reviewingReq.fee_preview.tuitionImpact) }}
+          </span>
+        </div>
+        <div class="fee-row" *ngIf="reviewingReq.fee_preview.labImpact !== 0">
+          <span>Laboratory Fee Impact</span>
+          <span class="fee-val" [style.color]="impactColor(reviewingReq.fee_preview.labImpact)">
+            {{ fmt(reviewingReq.fee_preview.labImpact) }}
+          </span>
+        </div>
+        <div class="fee-row" *ngIf="reviewingReq.fee_preview.energyImpact !== 0">
+          <span>Energy Fee Impact</span>
+          <span class="fee-val" [style.color]="impactColor(reviewingReq.fee_preview.energyImpact)">
+            {{ fmt(reviewingReq.fee_preview.energyImpact) }}
+          </span>
+        </div>
+        <div class="fee-row total-row">
+          <span>Total Fee Change</span>
+          <!-- BUG-ACCTG-02 FIX: was only showing tuitionImpact -->
+          <span class="fee-val" [style.color]="impactColor(reviewingReq.fee_preview.totalImpact)">
+            {{ fmt(reviewingReq.fee_preview.totalImpact) }}
+          </span>
+        </div>
+        <div class="fee-row new-total-row">
+          <span>New Total (if approved)</span>
+          <!-- BUG-ACCTG-02 FIX: use backend-computed newTotal directly -->
+          <span class="fee-val new-total">{{ fmt(reviewingReq.fee_preview.newTotal) }}</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-approve-note" *ngIf="reviewAction === 'Approved'">
+      After approval, the Registrar will be able to enroll the student in this subject.
+      The fee log will be updated and the student's total assessment will be adjusted upon Registrar enrollment.
+    </div>
+
+    <div class="form-group">
+      <label>{{ reviewAction === 'Approved' ? 'Notes (optional)' : 'Reason for rejection (required)' }}</label>
+      <textarea class="notes-input" [(ngModel)]="reviewNotes" rows="3"
+        [placeholder]="reviewAction === 'Approved' ? 'Optional accounting notes...' : 'Explain why this request is rejected...'">
+      </textarea>
+    </div>
+
+    <div class="alert-error" *ngIf="reviewError">{{ reviewError }}</div>
+  </div>
+
+  <div class="modal-footer">
+    <button class="btn-cancel" (click)="closeReview()" [disabled]="isReviewing">Cancel</button>
+    <button class="btn-approve" *ngIf="reviewAction === 'Approved'"
+            (click)="confirmReview()" [disabled]="isReviewing">
+      {{ isReviewing ? '⏳ Processing...' : '✅ Approve & Forward to Registrar' }}
+    </button>
+    <button class="btn-reject" *ngIf="reviewAction === 'Rejected'"
+            (click)="confirmReview()" [disabled]="isReviewing || !reviewNotes.trim()">
+      {{ isReviewing ? '⏳ Processing...' : '❌ Reject Request' }}
+    </button>
+  </div>
+</div>

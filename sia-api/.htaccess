@@ -1,0 +1,17 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# SIA API — .htaccess
+# Place this file in C:\xampp\htdocs\sia-api\
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Enable rewrite engine
+RewriteEngine On
+
+# ── FIX: Pass Authorization header to PHP ────────────────────────────────────
+# XAMPP / Apache strips the Authorization header before it reaches PHP.
+# This rule reads it from the HTTP_ prefixed server variable and re-injects it
+# so $_SERVER['HTTP_AUTHORIZATION'] is available to auth_middleware.php.
+RewriteCond %{HTTP:Authorization} .
+RewriteRule ^ - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
+# Alternative for CGI/FastCGI deployments where the above doesn't work:
+SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1

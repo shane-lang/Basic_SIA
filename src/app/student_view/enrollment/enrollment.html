@@ -6,6 +6,174 @@
   </div>
 </div>
 
+<!-- ══ GRADUATED — Program completion congratulations ══ -->
+<div class="enrollment-container" *ngIf="workflowStep === 'graduated'">
+  <div class="enrollment-header">
+    <div class="header-content">
+      <h1>🎓 Congratulations, Graduate!</h1>
+      <p class="subtitle">You have successfully completed your program of study.</p>
+    </div>
+  </div>
+
+  <div class="payment-container">
+    <div class="payment-card reenroll-card grad-card">
+
+      <!-- Completion summary -->
+      <div class="grad-badge-wrap">
+        <div class="grad-badge">🏆</div>
+        <h2 class="grad-title">Program Completed</h2>
+        <p class="grad-subtitle">Your academic journey at St. Benilde has come to a successful end.</p>
+      </div>
+
+      <div class="reenroll-info">
+        <div class="reenroll-row">
+          <span class="reenroll-lbl">Graduate</span>
+          <span class="reenroll-val"><strong>{{ student.firstName }} {{ student.lastName }}</strong></span>
+        </div>
+        <div class="reenroll-row">
+          <span class="reenroll-lbl">Program</span>
+          <span class="reenroll-val">{{ graduatedProgram || student.program }}</span>
+        </div>
+        <div class="reenroll-row">
+          <span class="reenroll-lbl">Final Year / Level</span>
+          <span class="reenroll-val">{{ graduatedYear || student.yearLevel }}</span>
+        </div>
+        <div class="reenroll-row reenroll-highlight">
+          <span class="reenroll-lbl">Final Semester</span>
+          <span class="reenroll-val"><strong>{{ graduatedSemester || student.semester }}</strong></span>
+        </div>
+        <div class="reenroll-row">
+          <span class="reenroll-lbl">Status</span>
+          <span class="reenroll-val grad-status-chip">✅ Graduated</span>
+        </div>
+      </div>
+
+      <!-- Next steps -->
+      <div class="reenroll-steps">
+        <h4 class="grad-next-title">What's Next</h4>
+        <div class="reenroll-step">
+          <div class="step-icon">1</div>
+          <div class="step-text">
+            <strong>Request Your Transcript of Records</strong>
+            <p>Visit the Registrar's Office or request your official TOR online. Processing takes 5–7 working days.</p>
+          </div>
+        </div>
+        <div class="reenroll-step">
+          <div class="step-icon">2</div>
+          <div class="step-text">
+            <strong>Request a Certificate of Enrollment / Completion</strong>
+            <p>A Certificate of Completion confirms that you have finished all requirements of your program.</p>
+          </div>
+        </div>
+        <div class="reenroll-step">
+          <div class="step-icon">3</div>
+          <div class="step-text">
+            <strong>Attend the Graduation Ceremony</strong>
+            <p>Watch for an official announcement from the Registrar about the commencement exercises.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Action buttons -->
+      <div class="grad-actions">
+        <button class="btn-grad-action btn-tor"
+                (click)="router.navigate(['/student/profile'])"
+                title="Visit your profile to download your personal data or contact the Registrar for your TOR">
+          📄 View My Profile / Request TOR
+        </button>
+        <button class="btn-grad-action btn-coe"
+                (click)="router.navigate(['/student/coe'])"
+                title="Request a Certificate of Enrollment or Completion from the Registrar">
+          📜 Request Certificate of Completion
+        </button>
+      </div>
+
+      <p class="grad-note">
+        Your enrollment records have been archived. If you have any questions,
+        please contact the Registrar's Office.
+      </p>
+
+    </div>
+  </div>
+</div>
+
+<!-- ══ RE-ENROLLMENT — New semester/year detected ══ -->
+<div class="enrollment-container" *ngIf="workflowStep === 're-enroll'">
+  <div class="enrollment-header">
+    <div class="header-content">
+      <h1>🎓 New Enrollment Period Open</h1>
+      <p class="subtitle">A new semester has started. Please re-enroll to continue your studies.</p>
+    </div>
+  </div>
+
+  <div class="payment-container">
+    <div class="payment-card reenroll-card">
+
+      <!-- Student info summary -->
+      <div class="reenroll-info">
+        <div class="reenroll-row">
+          <span class="reenroll-lbl">Student</span>
+          <span class="reenroll-val">{{ student.firstName }} {{ student.lastName }}</span>
+        </div>
+        <div class="reenroll-row">
+          <span class="reenroll-lbl">Program</span>
+          <span class="reenroll-val">{{ student.program }}</span>
+        </div>
+        <div class="reenroll-row">
+          <span class="reenroll-lbl">Previous</span>
+          <span class="reenroll-val" *ngIf="!isSHS">{{ student.yearLevel }} · {{ student.semester }}</span>
+          <span class="reenroll-val" *ngIf="isSHS">{{ student.yearLevel }}</span>
+        </div>
+        <div class="reenroll-row reenroll-highlight">
+          <span class="reenroll-lbl">Next Enrollment</span>
+          <span class="reenroll-val" *ngIf="!isSHS">
+            <strong>{{ nextYearLevel }}</strong> · {{ nextSemester }}
+          </span>
+          <span class="reenroll-val" *ngIf="isSHS">
+            <strong>{{ nextYearLevel }}</strong>
+          </span>
+        </div>
+      </div>
+
+      <!-- What happens explanation -->
+      <div class="reenroll-steps">
+        <div class="reenroll-step">
+          <div class="step-icon">1</div>
+          <div class="step-text">
+            <strong>Click Re-Enroll</strong>
+            <p>Your previous enrollment records will be archived and a new enrollment for {{ nextSemester }} will begin.</p>
+          </div>
+        </div>
+        <div class="reenroll-step">
+          <div class="step-icon">2</div>
+          <div class="step-text">
+            <strong>Pay Tuition</strong>
+            <p>Complete payment via GCash or Cash for {{ nextYearLevel }}.</p>
+          </div>
+        </div>
+        <div class="reenroll-step">
+          <div class="step-icon">3</div>
+          <div class="step-text">
+            <strong>Auto-Enrolled</strong>
+            <p>Once Accounting verifies your payment, you will be automatically enrolled in your subjects for {{ nextSemester }}.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Action button -->
+      <button
+        class="btn-reenroll"
+        (click)="startReEnroll()"
+        [disabled]="isReEnrolling"
+      >
+        <span *ngIf="!isReEnrolling">🎓 Start Re-Enrollment for {{ nextSemester }}</span>
+        <span *ngIf="isReEnrolling" class="spinner-inline">Processing…</span>
+      </button>
+
+    </div>
+  </div>
+</div>
+
 <!-- ══ TOR PENDING — Waiting for Registrar Evaluation ══ -->
 <div class="enrollment-container" *ngIf="workflowStep === 'tor-pending'">
   <div class="enrollment-header">
@@ -60,14 +228,211 @@
   </div>
 </div>
 
+<!-- ══ PENDING APPROVAL — Waiting for Accounting + Registrar ══ -->
+<div class="enrollment-container" *ngIf="workflowStep === 'pending-approval'">
+  <div class="enrollment-header">
+    <div class="header-content">
+      <h1>⏳ Enrollment Under Review</h1>
+      <p class="subtitle">Your enrollment application has been submitted and is being processed.</p>
+    </div>
+  </div>
+  <div class="payment-container">
+    <div class="payment-card tor-pending-card">
+
+      <div class="tor-pending-steps">
+
+        <!-- Step 1: Registered ✅ -->
+        <div class="tp-step tp-step-done">
+          <span class="tp-step-icon">✅</span>
+          <div class="tp-step-body">
+            <strong>Registration Submitted</strong>
+            <p>Your enrollment application has been received by the school.</p>
+          </div>
+        </div>
+
+        <!-- Step 2: Accounting verifies payment ⏳ -->
+        <div class="tp-step tp-step-active">
+          <span class="tp-step-icon spin">⏳</span>
+          <div class="tp-step-body">
+            <strong>Accounting — Payment Verification</strong>
+            <p *ngIf="paymentMethod === 'GCash'">
+              Submit your <strong>GCash reference number</strong> below so Accounting can verify your payment.
+              Your card will not appear in Accounting until you submit the reference number here.
+            </p>
+            <p *ngIf="paymentMethod !== 'GCash'">
+              Go to the Accounting Office and pay your tuition fee. They will record your payment and issue an Official Receipt.
+            </p>
+          </div>
+        </div>
+
+        <!-- Step 3: Registrar approves ⏳ -->
+        <div class="tp-step tp-step-pending">
+          <span class="tp-step-icon">📋</span>
+          <div class="tp-step-body">
+            <strong>Registrar — Enrollment Approval</strong>
+            <p>Once Accounting verifies your payment, the Registrar will review and approve your enrollment.</p>
+          </div>
+        </div>
+
+        <!-- Step 4: Auto-enrolled ⏳ -->
+        <div class="tp-step tp-step-pending">
+          <span class="tp-step-icon">🎓</span>
+          <div class="tp-step-body">
+            <strong>Auto-Enrolled in Subjects</strong>
+            <p>After the Registrar approves your enrollment, you will be automatically enrolled in your program's subjects for this semester.</p>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Student info summary -->
+      <div class="tor-pending-info">
+        <div class="tpi-row"><label>Student:</label><span>{{ student.firstName }} {{ student.lastName }}</span></div>
+        <div class="tpi-row"><label>Program:</label><span>{{ student.program }}</span></div>
+        <div class="tpi-row"><label>{{ isSHS ? 'Grade Level' : 'Year Level' }}:</label><span>{{ student.yearLevel }}</span></div>
+        <div class="tpi-row" *ngIf="!isSHS"><label>Semester:</label><span>{{ student.semester }}</span></div>
+        <div class="tpi-row"><label>Student No.:</label><span>{{ student.studentNumber }}</span></div>
+      </div>
+
+      <!-- What to do next -->
+      <div class="approval-notice" style="background:#fefce8;border:1px solid #fde047;border-radius:10px;padding:16px 20px;margin-top:16px;">
+        <div style="font-weight:700;font-size:14px;margin-bottom:8px;">📌 What You Need To Do:</div>
+        <!-- GCash instructions -->
+        <ol *ngIf="paymentMethod === 'GCash'" style="margin:0 0 0 18px;font-size:13px;line-height:1.7;color:#374151;">
+          <li>Click <strong>"Submit GCash Reference Number"</strong> below and enter your GCash transaction reference.</li>
+          <li>Wait for <strong>Accounting</strong> to verify your payment (you'll be notified here).</li>
+          <li>Once verified, the <strong>Registrar</strong> will review and approve your enrollment.</li>
+          <li>After approval, you'll be automatically enrolled in your subjects — come back to see your schedule.</li>
+        </ol>
+        <!-- Cash instructions -->
+        <ol *ngIf="paymentMethod !== 'GCash'" style="margin:0 0 0 18px;font-size:13px;line-height:1.7;color:#374151;">
+          <li>Go to the <strong>Accounting Office</strong> and pay your tuition fee in cash.</li>
+          <li>Submit your <strong>Official Receipt</strong> to Accounting for recording.</li>
+          <li>Wait for the <strong>Registrar</strong> to approve your enrollment.</li>
+          <li>Once approved, you will be automatically enrolled in your subjects — come back here to see your schedule.</li>
+        </ol>
+      </div>
+
+      <!-- GCash students: prompt to submit reference number -->
+      <div *ngIf="paymentMethod === 'GCash'" style="margin-top:16px;text-align:center;padding:16px;background:#f0fdf4;border:1px solid #86efac;border-radius:10px;">
+        <div style="font-weight:700;font-size:14px;margin-bottom:8px;color:#166534;">📱 GCash Payment — Action Required</div>
+        <p style="font-size:13px;color:#374151;margin-bottom:12px;">
+          You selected <strong>GCash</strong> as your payment method. Please submit your GCash reference number so Accounting can verify your payment.
+          Your enrollment card will only appear in Accounting <strong>after</strong> you submit the reference here.
+        </p>
+        <button class="btn-pay" (click)="route('payment')" style="background:#10b981;padding:10px 24px;font-size:14px;">
+          📱 Submit GCash Reference Number →
+        </button>
+      </div>
+
+      <div class="tor-loading-bar" *ngIf="isApprovalPending">
+        <span class="spin">🔄</span> Checking approval status automatically every 10 seconds...
+      </div>
+
+    </div>
+  </div>
+</div>
+
 <!-- ══ GCASH PAYMENT ══ -->
 <div class="enrollment-container" *ngIf="workflowStep === 'payment'">
   <div class="enrollment-header">
     <div class="header-content">
-      <h1>📱 GCash Payment</h1>
-      <p class="subtitle">Review your assessment and submit your GCash reference number to complete enrollment</p>
+      <h1 *ngIf="!needsPlanSelection && paymentMethod === 'GCash'">📱 GCash Payment</h1>
+      <h1 *ngIf="!needsPlanSelection && paymentMethod !== 'GCash'">💵 Cash Payment</h1>
+      <h1 *ngIf="needsPlanSelection">💳 Select Payment Plan</h1>
+      <p class="subtitle" *ngIf="!needsPlanSelection && paymentMethod === 'GCash'">Review your assessment and submit your GCash reference number to complete enrollment</p>
+      <p class="subtitle" *ngIf="!needsPlanSelection && paymentMethod !== 'GCash'">Review your assessment then proceed to the Accounting Office to pay in cash</p>
+      <p class="subtitle" *ngIf="needsPlanSelection">{{ student.firstName }}, please choose how you will pay your tuition for {{ currentSemester }}</p>
     </div>
   </div>
+
+  <!-- ══ PAYMENT PLAN SELECTOR — shown after re-enroll until student picks a plan ══ -->
+  <div class="payment-container" *ngIf="needsPlanSelection">
+    <div class="payment-card plan-selector-card">
+
+      <!-- Student info summary -->
+      <div class="student-summary" style="margin-bottom:1.5rem;">
+        <div class="summary-row"><label>Student:</label><p>{{ student.firstName }} {{ student.lastName }}</p></div>
+        <div class="summary-row"><label>Program:</label><p>{{ student.program }}</p></div>
+        <div class="summary-row"><label>{{ isSHS ? 'Grade Level' : 'Year Level' }}:</label><p>{{ student.yearLevel }}</p></div>
+        <div class="summary-row" *ngIf="!isSHS"><label>Semester:</label><p>{{ currentSemester }}</p></div>
+      </div>
+
+      <!-- Fee preview (computed based on full by default) -->
+      <div class="fee-preview-card" *ngIf="feePreview && !isFeePreviewLoading">
+        <div class="fee-preview-title">📋 Assessment for {{ currentSemester }}</div>
+        <div class="fee-preview-rows">
+          <div class="fp-row"><span>No. of Units</span><span>{{ feePreview.units }}</span></div>
+          <div class="fp-row"><span>Tuition Fee</span><span>₱{{ feePreview.tuitionFee | number:'1.2-2' }}</span></div>
+          <div class="fp-row"><span>Miscellaneous Fee</span><span>₱{{ feePreview.miscellaneousFee | number:'1.2-2' }}</span></div>
+          <div class="fp-row"><span>Registration Fee</span><span>₱{{ feePreview.registrationFee | number:'1.2-2' }}</span></div>
+          <div class="fp-row"><span>Laboratory Fee</span><span>₱{{ feePreview.laboratoryFee | number:'1.2-2' }}</span></div>
+          <div class="fp-row"><span>Energy Fee</span><span>₱{{ feePreview.energyFee | number:'1.2-2' }}</span></div>
+          <div class="fp-row fp-subtotal"><span>Subtotal</span><span>₱{{ feePreview.subtotal | number:'1.2-2' }}</span></div>
+          <div class="fp-row fp-discount" *ngIf="feePreview.discount > 0">
+            <span>🎓 Scholarship Discount</span><span class="text-green">– ₱{{ feePreview.discount | number:'1.2-2' }}</span>
+          </div>
+          <div class="fp-row fp-total"><span><strong>TOTAL ASSESSMENT</strong></span><span><strong>₱{{ feePreview.totalAssessment | number:'1.2-2' }}</strong></span></div>
+        </div>
+      </div>
+
+      <!-- Plan cards -->
+      <div class="plan-selector-grid">
+
+        <!-- FULL PAYMENT card -->
+        <div class="plan-card plan-full" (click)="selectPaymentPlan('full', 'GCash')">
+          <div class="plan-icon">💰</div>
+          <div class="plan-name">Full Payment</div>
+          <div class="plan-amount" *ngIf="feePreview">
+            ₱{{ feePreview.totalAssessment | number:'1.2-2' }}
+          </div>
+          <div class="plan-desc">Pay the entire tuition in one transaction. No installment fee added.</div>
+          <div class="plan-method-row">
+            <button class="plan-btn plan-btn-gcash" (click)="$event.stopPropagation(); selectPaymentPlan('full', 'GCash')">
+              📱 Pay via GCash
+            </button>
+            <button class="plan-btn plan-btn-cash" (click)="$event.stopPropagation(); selectPaymentPlan('full', 'Cash')">
+              💵 Pay via Cash
+            </button>
+          </div>
+        </div>
+
+        <!-- INSTALLMENT card -->
+        <div class="plan-card plan-installment" (click)="selectPaymentPlan('installment', 'GCash')">
+          <div class="plan-icon">📆</div>
+          <div class="plan-name">Installment</div>
+          <div class="plan-amount" *ngIf="feePreview">
+            ₱{{ (feePreview.totalAssessment + 750) | number:'1.2-2' }}
+            <small style="font-size:11px;font-weight:400;"> (+₱750 installment fee)</small>
+          </div>
+          <div class="plan-desc">Pay in 4 terms: Downpayment → Prelim → Midterm → Finals. ₱750 surcharge applies.</div>
+          <div class="plan-schedule" *ngIf="feePreview">
+            <div class="ps-row"><span>⬇️ Downpayment</span><span>≈ ₱{{ (feePreview.totalAssessment + 750) / 4 | number:'1.0-0' }}</span></div>
+            <div class="ps-row"><span>📝 Prelim</span><span>≈ ₱{{ ((feePreview.totalAssessment + 750) * 3/4) / 3 | number:'1.0-0' }}</span></div>
+            <div class="ps-row"><span>📝 Midterm</span><span>≈ ₱{{ ((feePreview.totalAssessment + 750) * 3/4) / 3 | number:'1.0-0' }}</span></div>
+            <div class="ps-row"><span>📝 Finals</span><span>≈ ₱{{ ((feePreview.totalAssessment + 750) * 3/4) / 3 | number:'1.0-0' }}</span></div>
+          </div>
+          <div class="plan-method-row">
+            <button class="plan-btn plan-btn-gcash" (click)="$event.stopPropagation(); selectPaymentPlan('installment', 'GCash')">
+              📱 Pay via GCash
+            </button>
+            <button class="plan-btn plan-btn-cash" (click)="$event.stopPropagation(); selectPaymentPlan('installment', 'Cash')">
+              💵 Pay via Cash
+            </button>
+          </div>
+        </div>
+
+      </div>
+
+      <p class="plan-note">
+        ℹ️ Your choice will be saved. You can contact Accounting if you need to change your payment plan after submission.
+      </p>
+
+    </div>
+  </div>
+
+  <!-- Payment form — only shown after plan is selected -->
+  <ng-container *ngIf="!needsPlanSelection">
 
   <!-- TOR HARD COPY NOTICE (shown once for transferees after evaluation) -->
   <div class="tor-hardcopy-notice" *ngIf="showTorHardCopyNotice">
@@ -143,7 +508,61 @@
         </div>
       </div>
 
-      <div class="gcash-form-section">
+      <!-- ── SCHOLARSHIP DECLARATION ─────────────────────────────────────── -->
+      <div class="scholarship-declare-section">
+        <div class="schd-header" (click)="isScholar = !isScholar">
+          <div class="schd-toggle">
+            <input type="checkbox" [(ngModel)]="isScholar" (click)="$event.stopPropagation()">
+            <span class="schd-label">🎓 I am applying for a scholarship / financial assistance</span>
+          </div>
+          <span class="schd-hint">Optional — Accounting will verify and apply the discount</span>
+        </div>
+
+        <div class="schd-form" *ngIf="isScholar">
+          <div class="schd-notice">
+            ⚠️ Declaring a scholarship does <strong>not</strong> reduce your payment immediately.
+            Accounting will review your application and apply the discount once approved.
+            You may proceed with payment (installment or full) in the meantime.
+          </div>
+
+          <div class="schd-fields">
+            <div class="schd-field">
+              <label>Scholarship Type <span class="req">*</span></label>
+              <select [(ngModel)]="scholarType" class="schd-input">
+                <option value="">— Select type —</option>
+                <option *ngFor="let t of scholarTypes" [value]="t">{{ t }}</option>
+              </select>
+            </div>
+
+            <div class="schd-field">
+              <label>Grantor / Source <span class="req">*</span></label>
+              <input type="text" class="schd-input" [(ngModel)]="scholarGrantor"
+                     placeholder="e.g. CHED, LGU Olongapo, School Merit Award">
+            </div>
+
+            <div class="schd-field schd-full-row">
+              <label class="schd-checkbox-label">
+                <input type="checkbox" [(ngModel)]="scholarFullTuition">
+                Full tuition scholarship (covers 100% — no payment needed if approved)
+              </label>
+            </div>
+
+            <div class="schd-field" *ngIf="!scholarFullTuition">
+              <label>Scholarship Amount (₱) <span style="color:#6b7280;font-weight:400">(optional)</span></label>
+              <input type="number" class="schd-input" [(ngModel)]="scholarshipAmount"
+                     min="0" placeholder="e.g. 5000">
+            </div>
+          </div>
+
+          <div class="schd-full-notice" *ngIf="scholarFullTuition">
+            🎓 Full scholarship declared. If accounting approves, your enrollment will be
+            confirmed with <strong>no payment required</strong>.
+            Until then, no payment will be collected.
+          </div>
+        </div>
+      </div>
+
+      <div class="gcash-form-section" *ngIf="paymentMethod === 'GCash'">
         <h3>Enter GCash Payment Details</h3>
         <!-- Installment: remind student to pay DP only -->
         <div class="installment-dp-notice" *ngIf="paymentPlan === 'installment' && feePreview">
@@ -172,17 +591,49 @@
           <input type="date" class="form-control" [(ngModel)]="gcashDate" [disabled]="isProcessingPayment">
         </div>
       </div>
+      <!-- Cash payment instructions (shown only for Cash method) -->
+      <div class="gcash-form-section" *ngIf="paymentMethod !== 'GCash'">
+        <h3>💵 Cash Payment Instructions</h3>
+        <div class="installment-dp-notice" *ngIf="paymentPlan === 'installment' && feePreview">
+          <span class="dp-badge">📆 Installment — Downpayment Only</span>
+          <div class="dp-detail">
+            Pay only the <strong>Downpayment (DP)</strong> now: <strong class="dp-amount">₱{{ dpAmount | number:'1.2-2' }}</strong>
+            (¼ of ₱{{ feePreview.totalAssessment | number:'1.2-2' }}).
+            Remaining balance will be collected at Accounting before each exam period.
+          </div>
+        </div>
+        <ol style="margin:0 0 0 18px;font-size:13px;line-height:1.9;color:#374151;">
+          <li>Proceed to the <strong>Accounting Office</strong> with your printed Assessment Form.</li>
+          <li>Pay the <strong>{{ paymentPlan === 'installment' ? 'Downpayment of ₱' + (dpAmount | number:'1.2-2') : 'full amount of ₱' + ((feePreview?.totalAssessment ?? 0) | number:'1.2-2') }}</strong> in cash.</li>
+          <li>Receive your <strong>Official Receipt (OR)</strong> from the cashier.</li>
+          <li>Click <strong>"Proceed to Cash Payment"</strong> below to notify Accounting that you are on your way.</li>
+        </ol>
+      </div>
+
       <div class="payment-actions">
-        <button class="btn-pay" (click)="processPayment()" [disabled]="isProcessingPayment || !gcashReference.trim()">
-          {{ isProcessingPayment ? '⏳ Submitting...' : '✅ Submit to Accounting' }}
+        <!-- GCash submit button -->
+        <button class="btn-pay" *ngIf="paymentMethod === 'GCash'"
+          (click)="processPayment()" [disabled]="isProcessingPayment || !gcashReference.trim()">
+          {{ isProcessingPayment ? '⏳ Submitting...' : '✅ Submit GCash to Accounting' }}
+        </button>
+        <!-- Cash proceed button -->
+        <button class="btn-pay" *ngIf="paymentMethod !== 'GCash'"
+          (click)="processPayment()" [disabled]="isProcessingPayment"
+          style="background:#374151;">
+          {{ isProcessingPayment ? '⏳ Processing...' : '💵 Proceed to Cash Payment' }}
         </button>
       </div>
       <div class="info-box">
-        <p>⏳ Payment will be verified by <strong>Accounting</strong>. Scholar discounts will be validated by the Registrar.</p>
+        <p *ngIf="paymentMethod === 'GCash'">⏳ GCash payment will be verified by <strong>Accounting</strong>. Scholar discounts will be validated by the Registrar.</p>
+        <p *ngIf="paymentMethod !== 'GCash'">⏳ Cash payment will be confirmed by <strong>Accounting</strong> once you pay at their office. Scholar discounts will be validated by the Registrar.</p>
       </div>
     </div>
   </div>
-</div>
+
+
+  </ng-container>
+  <!-- /Payment form -->
+</div><!-- ══ /GCASH PAYMENT ══ -->
 
 <!-- ══ CASH PENDING ══ -->
 <div class="enrollment-container" *ngIf="workflowStep === 'cash-pending'">
@@ -319,6 +770,23 @@
         <p *ngIf="paymentMethod !== 'Cash'">Your GCash reference has been submitted and is pending verification.</p>
         <p *ngIf="paymentMethod === 'Cash'">Please proceed to the Accounting Office to pay in person.</p>
         <p *ngIf="student.isScholar" class="scholar-note">🎓 Your scholarship will also be validated by the Registrar.</p>
+
+        <!-- Scholarship pending notice -->
+        <div class="scholar-pending-box" *ngIf="isScholar && scholarType">
+          <div class="spb-icon">🎓</div>
+          <div class="spb-body">
+            <div class="spb-title">Scholarship Application Submitted</div>
+            <div class="spb-detail">
+              <strong>{{ scholarType }}</strong>
+              <span *ngIf="scholarGrantor"> — {{ scholarGrantor }}</span>
+            </div>
+            <div class="spb-status">⏳ Pending Accounting review — discount will be applied upon approval</div>
+            <div class="spb-full" *ngIf="scholarFullTuition">
+              Full tuition coverage requested. If approved, your full balance will be waived.
+            </div>
+          </div>
+        </div>
+
         <p class="poll-notice">🔄 Checking every 10 seconds...</p>
       </div>
       <div class="approval-status approved" *ngIf="!isApprovalPending">
@@ -409,16 +877,21 @@
             <span class="sh-label">📅 Enrollment Date</span>
             <span class="sh-value">{{ enrollmentSummary.enrollmentDate | date:'MMMM dd, yyyy' }}</span>
           </div>
-          <div class="summary-header-item">
+          <!-- Semester / SY: hidden for SHS — PH K-12 uses school year only -->
+          <div class="summary-header-item" *ngIf="!isSHS">
             <span class="sh-label">📚 Semester / School Year</span>
             <span class="sh-value">{{ enrollmentSummary.semester }}</span>
           </div>
+          <div class="summary-header-item" *ngIf="isSHS">
+            <span class="sh-label">📚 School Year</span>
+            <span class="sh-value">{{ enrollmentSummary.semester }}</span>
+          </div>
           <div class="summary-header-item">
-            <span class="sh-label">🎓 Program</span>
+            <span class="sh-label">🎓 Program / Strand</span>
             <span class="sh-value">{{ enrollmentSummary.program }}</span>
           </div>
           <div class="summary-header-item">
-            <span class="sh-label">📖 Year Level</span>
+            <span class="sh-label">📖 {{ isSHS ? 'Grade Level' : 'Year Level' }}</span>
             <span class="sh-value">{{ enrollmentSummary.yearLevel }}</span>
           </div>
           <div class="summary-header-item">
@@ -440,7 +913,8 @@
             <div class="subjects-icon-wrap">📚</div>
             <div>
               <h2>Enrolled Subjects</h2>
-              <span class="subjects-meta">{{ enrollmentSummary.semester }}</span>
+              <span class="subjects-meta" *ngIf="!isSHS">{{ enrollmentSummary.semester }}</span>
+              <span class="subjects-meta" *ngIf="isSHS">{{ enrollmentSummary.yearLevel }}</span>
             </div>
           </div>
           <div class="subjects-stats">
@@ -463,9 +937,9 @@
             <span class="sgt-col sgt-num">#</span>
             <span class="sgt-col sgt-code">Code</span>
             <span class="sgt-col sgt-name">Subject</span>
+            <span class="sgt-col sgt-type">Type</span>
             <span class="sgt-col sgt-units">Units</span>
             <span class="sgt-col sgt-instructor">Instructor</span>
-           <!-- <span class="sgt-col sgt-room">Room</span>-->
             <span class="sgt-col sgt-status">Status</span>
           </div>
           <!-- Rows -->
@@ -473,9 +947,14 @@
             <span class="sgt-col sgt-num">{{ i + 1 }}</span>
             <span class="sgt-col sgt-code"><span class="code-tag">{{ c.code }}</span></span>
             <span class="sgt-col sgt-name">{{ c.name }}</span>
-            <span class="sgt-col sgt-units"><span class="units-badge">{{ c.credits }}</span></span>
+            <span class="sgt-col sgt-type">
+              <span class="tag-major" *ngIf="!isMinor(c.code)">Major</span>
+              <span class="tag-minor" *ngIf="isMinor(c.code)">Minor</span>            </span>
+            <span class="sgt-col sgt-units">
+              <span class="units-badge">{{ c.credits }}</span>
+              <span class="units-breakdown">Lec {{ c.lecUnits || c.credits }}<ng-container *ngIf="(c.labUnits || 0) > 0"> / Lab {{ c.labUnits }}</ng-container></span>
+            </span>
             <span class="sgt-col sgt-instructor">{{ c.instructor }}</span>
-            <span class="sgt-col sgt-room">{{ c.room }}</span>
             <span class="sgt-col sgt-status"><span class="enrolled-dot">✓ Enrolled</span></span>
           </div>
           <!-- Total Row (College only) -->
@@ -483,9 +962,9 @@
             <span class="sgt-col sgt-num"></span>
             <span class="sgt-col sgt-code"></span>
             <span class="sgt-col sgt-name" style="text-align:right; font-weight:700; color:#6b7280;">Total Units:</span>
+            <span class="sgt-col sgt-type"></span>
             <span class="sgt-col sgt-units"><span class="units-badge units-badge-total">{{ enrollmentSummary.totalCredits }}</span></span>
             <span class="sgt-col sgt-instructor"></span>
-            <span class="sgt-col sgt-room"></span>
             <span class="sgt-col sgt-status"></span>
           </div>
         </div>
@@ -507,7 +986,7 @@
           </div>
         </div>
         <div class="soa-title-bar">
-          STATEMENT OF ACCOUNT &nbsp; {{ enrollmentSummary.semester || currentSemester }}
+          STATEMENT OF ACCOUNT &nbsp; {{ soaDisplaySemester || (enrollmentSummary ? enrollmentSummary.semester : '') || currentSemester }}
         </div>
         <!-- Student Info Bar -->
         <div class="soa-info-bar">
@@ -531,7 +1010,7 @@
           </div>
           <div class="soa-info-cell">
             <div class="soa-info-label">Semester:</div>
-            <div class="soa-info-val">{{ enrollmentSummary.semester || currentSemester }}</div>
+            <div class="soa-info-val">{{ soaDisplaySemester || (enrollmentSummary ? enrollmentSummary.semester : '') || currentSemester }}</div>
           </div>
           <div class="soa-info-cell">
             <div class="soa-info-label">Student No.:</div>
@@ -542,7 +1021,7 @@
         <div class="soa-body">
           <!-- LEFT: Assessment -->
           <div class="soa-left">
-            <div class="soa-assess-title">ASSESSMENT FOR THE CURRENT SEMESTER</div>
+            <div class="soa-assess-title">ASSESSMENT FOR {{ (soaDisplaySemester || currentSemester).toUpperCase() }}</div>
             <table class="soa-assess-table">
               <tr><td>No. of Units</td><td>{{ feeBreakdown.units }}</td></tr>
               <tr><td>Tuition Fee</td><td>{{ feeBreakdown.tuitionFee | number:'1.2-2' }}</td></tr>
@@ -566,7 +1045,7 @@
               <tr><td>&nbsp;</td><td></td></tr>
               <tr class="soa-subtotal"><td>Subtotal</td><td>{{ feeBreakdown.subtotal | number:'1.2-2' }}</td></tr>
               <tr><td>Discount of TF</td><td>{{ feeBreakdown.discount > 0 ? (feeBreakdown.discount | number:'1.2-2') : '- -' }}</td></tr>
-              <tr *ngIf="paymentPlan === 'installment'"><td>Installment Fee</td><td>{{ feeBreakdown.installmentFee | number:'1.2-2' }}</td></tr>
+              <tr *ngIf="soaPaymentPlan === 'installment'"><td>Installment Fee</td><td>{{ feeBreakdown.installmentFee | number:'1.2-2' }}</td></tr>
               <tr class="soa-total-row"><td>TOTAL ASSESSMENT</td><td>{{ feeBreakdown.totalAssessment | number:'1.2-2' }}</td></tr>
             </table>
             <div class="soa-final-row">
@@ -587,12 +1066,20 @@
                 </tr>
               </thead>
               <tbody>
+                <!-- Installment rows — only shown for installment plan WITHOUT a single Full OR -->
+                <ng-container *ngIf="soaPaymentPlan === 'installment' && !fullPaymentEntry">
                 <ng-container *ngFor="let t of installmentSchedule">
                   <tr>
                     <td class="soa-period-label">{{ t.label.split('—')[1]?.trim() || t.term }}</td>
                     <td class="soa-due-date" [class.soa-red]="!t.paid && t.term === 'Prelim'">
-                      <span class="soa-due-range">{{ getDueDate(t.term) }}</span>
-                      <span *ngIf="t.paid" class="soa-paid-date"> — {{ t.paymentDate | date:'MM dd yy' }}</span>
+                      <!-- Show due date range if available (current sem), else show payment date for past sems -->
+                      <ng-container *ngIf="getDueDate(t.term) as dueRange">
+                        <span class="soa-due-range">{{ dueRange }}</span>
+                        <span *ngIf="t.paid" class="soa-paid-date"> — {{ t.paymentDate | date:'MM/dd/yy' }}</span>
+                      </ng-container>
+                      <ng-container *ngIf="!getDueDate(t.term)">
+                        <span *ngIf="t.paid" class="soa-paid-date">{{ t.paymentDate | date:'MM/dd/yy' }}</span>
+                      </ng-container>
                     </td>
                     <td class="soa-paid-amt" [class.soa-paid-green]="t.paid">
                       {{ t.paid ? (t.amountPaid | number:'1.2-2') : '' }}
@@ -601,15 +1088,20 @@
                   </tr>
                   <tr class="soa-spacer"><td colspan="4"></td></tr>
                 </ng-container>
-                <!-- Full payment row -->
-                <ng-container *ngIf="paymentPlan === 'full'">
+                </ng-container>
+                <!-- Full payment row — shown for: (a) full plan, OR (b) installment paid via single Full OR -->
+                <ng-container *ngIf="soaPaymentPlan === 'full' || fullPaymentEntry">
                   <tr>
                     <td>Full Payment</td>
-                    <td></td>
+                    <td>
+                      <span *ngIf="(fullPaymentEntry?.paymentDate || paymentReceipts[0]?.paymentDate)" class="soa-paid-date">
+                        {{ (fullPaymentEntry?.paymentDate || paymentReceipts[0]?.paymentDate) | date:'MM/dd/yy' }}
+                      </span>
+                    </td>
                     <td [class.soa-paid-green]="feeBreakdown.totalPaid > 0">
                       {{ feeBreakdown.totalPaid > 0 ? (feeBreakdown.totalPaid | number:'1.2-2') : '' }}
                     </td>
-                    <td>{{ paymentReceipts[0]?.orArNumber || '' }}</td>
+                    <td>{{ fullPaymentEntry?.orNo || paymentReceipts[0]?.orArNumber || '' }}</td>
                   </tr>
                 </ng-container>
               </tbody>
@@ -623,8 +1115,8 @@
               </span>
             </div>
 
-            <!-- Installment breakdown table -->
-            <table class="soa-install-table" *ngIf="paymentPlan === 'installment'">
+            <!-- Installment breakdown table — shown only for installment plan with remaining balance and no Full OR -->
+            <table class="soa-install-table" *ngIf="soaPaymentPlan === 'installment' && !fullPaymentEntry && feeBreakdown.balance > 0">
               <thead>
                 <tr>
                   <th>INSTALLMENT PAYMENT</th>
@@ -637,8 +1129,13 @@
                   <tr [class.soa-red-row]="!t.paid && t.term === 'Prelim'" [class.soa-paid-row]="t.paid">
                     <td>{{ t.term === 'Downpayment' ? 'Downpayment :' : t.term === 'Finals' ? 'Final:' : t.term + ' :' }}</td>
                     <td>
-                      <span class="soa-due-range">{{ getDueDate(t.term) }}</span>
-                      <span *ngIf="t.paid" class="soa-paid-date"> — {{ t.paymentDate | date:'MM dd yy' }}</span>
+                      <!-- Always show due date if configured in sys_config; show payment date after it if paid -->
+                      <span *ngIf="getDueDate(t.term)" class="soa-due-range">{{ getDueDate(t.term) }}</span>
+                      <span *ngIf="t.paid" class="soa-paid-date">
+                        {{ getDueDate(t.term) ? ' — ' : '' }}{{ t.paymentDate | date:'MM/dd/yy' }}
+                      </span>
+                      <!-- No due date configured and not yet paid — show a dash -->
+                      <span *ngIf="!getDueDate(t.term) && !t.paid" class="soa-due-range" style="color:#9ca3af;">—</span>
                     </td>
                     <td [class.soa-paid-green]="t.paid">
                       {{ t.paid ? (t.amountPaid | number:'1.2-2') : (t.amount | number:'1.2-2') }}
@@ -647,7 +1144,7 @@
                 </ng-container>
               </tbody>
             </table>
-            <div class="soa-total-to-pay" *ngIf="paymentPlan === 'installment'">
+            <div class="soa-total-to-pay" *ngIf="soaPaymentPlan === 'installment' && !fullPaymentEntry && feeBreakdown.balance > 0">
               Total amount to be paid: &nbsp;
               <span class="soa-total-to-pay-amt">{{ feeBreakdown.totalAssessment | number:'1.2-2' }}</span>
             </div>
@@ -657,6 +1154,10 @@
         <!-- Print Button -->
         <div class="soa-print-bar">
           <button class="btn-view-soa" (click)="viewSOA()">🖨️ Print SOA</button>
+          <!-- Past-semester view-only notice -->
+          <span *ngIf="isViewingPastSemester" class="soa-past-badge">
+            📁 View Only — Past Semester
+          </span>
           <span class="pay-status-badge" [class]="getPayStatusClass(feeBreakdown.paymentStatus === 'Fully Paid' ? 'Paid' : feeBreakdown.paymentStatus)">
             {{ feeBreakdown.paymentStatus === 'Fully Paid' ? '✅ Fully Paid' : feeBreakdown.paymentStatus === 'Partially Paid' ? '🔶 Partially Paid' : '❌ Unpaid' }}
           </span>
@@ -664,12 +1165,23 @@
       </div>
 
       <!-- OR/AR Payment Receipt History -->
-      <div class="term-payments-section" *ngIf="paymentReceipts.length > 0 && (isCollege || isTransferee)">
+      <div class="term-payments-section" *ngIf="(soaSemesters.length > 0 || paymentReceipts.length > 0) && (isCollege || isTransferee)">
         <div style="margin-bottom:14px;" *ngIf="fees">
-        <button class="btn-view-soa" (click)="viewSOA()">
-          📄 View / Print Statement of Account (SOA)
-        </button>
       </div>
+
+        <!-- ── SOA Semester Selector ─────────────────────────── -->
+        <div class="soa-sem-selector" *ngIf="soaSemesters.length > 1">
+          <label class="soa-sem-label">📅 View SOA for:</label>
+          <div class="soa-sem-tabs">
+            <button
+              *ngFor="let sem of soaSemesters"
+              class="soa-sem-tab"
+              [class.active]="selectedSoaSemester === sem"
+              (click)="selectSoaSemester(sem)"
+            >{{ sem }}</button>
+          </div>
+          <span class="soa-sem-loading" *ngIf="isSoaHistoryLoading">⏳ Loading...</span>
+        </div>
 
       <div class="section-header">
           <h2>🧾 Payment Receipts (OR / AR)</h2>
@@ -776,8 +1288,10 @@
         <div class="form-group"><label>Phone</label><input type="tel" class="form-control" [(ngModel)]="editForm.phone"></div>
         <div class="form-group"><label>Date of Birth</label><input type="date" class="form-control" [(ngModel)]="editForm.dateOfBirth"></div>
         <div class="form-group full-col"><label>Address</label><input type="text" class="form-control" [(ngModel)]="editForm.address"></div>
-        <div class="form-group"><label>Emergency Contact</label><input type="text" class="form-control" [(ngModel)]="editForm.emergencyContact"></div>
+        <div class="form-group"><label>Emergency Contact (Parent/Guardian Name)</label><input type="text" class="form-control" [(ngModel)]="editForm.emergencyContact"></div>
         <div class="form-group"><label>Emergency Phone</label><input type="tel" class="form-control" [(ngModel)]="editForm.emergencyPhone"></div>
+        <div class="form-group"><label>Guardian Email <span style="color:#e53e3e">*</span> <small style="color:#6b7280;font-weight:400">(for enrollment reports & SOA)</small></label><input type="email" class="form-control" [(ngModel)]="editForm.guardianEmail" placeholder="parent@gmail.com"></div>
+        <div class="form-group"><label>Relationship to Student</label><select class="form-control" [(ngModel)]="editForm.guardianRelationship"><option value="">— Select —</option><option>Mother</option><option>Father</option><option>Guardian</option><option>Sibling</option><option>Grandparent</option><option>Spouse</option><option>Others</option></select></div>
       </div>
     </div>
     <div class="modal-footer">
@@ -900,4 +1414,38 @@
 .soa-print-bar { display:flex; justify-content:space-between; align-items:center; padding:10px 16px; background:#f8f9fa; border-top:1px solid #ddd; }
 .btn-view-soa { background:#1a1a6e; color:#fff; border:none; padding:8px 20px; font-size:12px; font-weight:700; border-radius:7px; cursor:pointer; }
 .btn-view-soa:hover { background:#2d2d9e; }
+
+/* ── SOA SEMESTER SELECTOR ── */
+.soa-sem-selector { display:flex; align-items:center; flex-wrap:wrap; gap:10px; padding:10px 14px; background:#f0f4ff; border:1.5px solid #c7d2fe; border-radius:10px; margin-bottom:14px; }
+.soa-sem-label { font-size:12px; font-weight:700; color:#3730a3; white-space:nowrap; }
+.soa-sem-tabs { display:flex; flex-wrap:wrap; gap:6px; }
+.soa-sem-tab { background:#fff; border:1.5px solid #a5b4fc; color:#3730a3; border-radius:20px; padding:4px 14px; font-size:11.5px; font-weight:600; cursor:pointer; transition:all .15s; }
+.soa-sem-tab:hover { background:#e0e7ff; }
+.soa-sem-tab.active { background:#3730a3; color:#fff; border-color:#3730a3; }
+.soa-sem-loading { font-size:11px; color:#6366f1; font-style:italic; }
+
+/* ── PAYMENT PLAN SELECTOR ── */
+.plan-selector-card { max-width:760px; margin:0 auto; }
+.plan-selector-grid { display:grid; grid-template-columns:1fr 1fr; gap:1.25rem; margin:1.5rem 0 1rem; }
+@media (max-width:600px) { .plan-selector-grid { grid-template-columns:1fr; } }
+.plan-card { border:2px solid #e2e8f0; border-radius:14px; padding:1.4rem 1.2rem; cursor:pointer; transition:border-color .2s, box-shadow .2s, transform .15s; background:#fff; display:flex; flex-direction:column; gap:0.5rem; }
+.plan-card:hover { border-color:#6366f1; box-shadow:0 4px 18px rgba(99,102,241,.15); transform:translateY(-2px); }
+.plan-full:hover { border-color:#10b981; box-shadow:0 4px 18px rgba(16,185,129,.15); }
+.plan-installment:hover { border-color:#3b82f6; box-shadow:0 4px 18px rgba(59,130,246,.15); }
+.plan-icon { font-size:2rem; text-align:center; }
+.plan-name { font-size:1.15rem; font-weight:800; color:#1e293b; text-align:center; }
+.plan-amount { font-size:1.35rem; font-weight:900; color:#1d4ed8; text-align:center; }
+.plan-full .plan-amount { color:#059669; }
+.plan-installment .plan-amount { color:#2563eb; }
+.plan-desc { font-size:0.85rem; color:#6b7280; text-align:center; line-height:1.5; }
+.plan-schedule { background:#f8fafc; border-radius:8px; padding:0.6rem 0.8rem; margin-top:0.25rem; }
+.ps-row { display:flex; justify-content:space-between; font-size:0.82rem; color:#374151; padding:2px 0; }
+.plan-method-row { display:flex; gap:0.6rem; margin-top:0.5rem; justify-content:center; flex-wrap:wrap; }
+.plan-btn { border:none; border-radius:8px; padding:8px 16px; font-size:0.82rem; font-weight:700; cursor:pointer; transition:opacity .15s; }
+.plan-btn:hover { opacity:0.85; }
+.plan-btn-gcash { background:#6366f1; color:#fff; }
+.plan-btn-cash { background:#374151; color:#fff; }
+.plan-full .plan-btn-gcash { background:#059669; }
+.plan-full .plan-btn-cash { background:#374151; }
+.plan-note { font-size:0.8rem; color:#9ca3af; text-align:center; margin-top:0.5rem; }
 </style>

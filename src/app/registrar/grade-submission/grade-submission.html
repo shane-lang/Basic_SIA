@@ -60,7 +60,7 @@
               <div class="sname">{{ s.name }}</div>
               <div class="sinstr" *ngIf="s.instructor">👨‍🏫 {{ s.instructor }}</div>
             </td>
-            <td class="tc">{{ s.credits }}</td>
+            <td class="tc">{{ s.credits }}<span class="units-breakdown" *ngIf="s.lecUnits">Lec {{ s.lecUnits }}<ng-container *ngIf="(s.labUnits || 0) > 0"> / Lab {{ s.labUnits }}</ng-container></span></td>
             <td class="tc"><span class="gpill" [ngClass]="gradeClass(s.prelim)">{{ fmtGrade(s.prelim) }}</span></td>
             <td class="tc"><span class="gpill" [ngClass]="gradeClass(s.midterm)">{{ fmtGrade(s.midterm) }}</span></td>
             <td class="tc"><span class="gpill" [ngClass]="gradeClass(s.final)">{{ fmtGrade(s.final) }}</span></td>

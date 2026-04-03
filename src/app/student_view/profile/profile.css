@@ -25,6 +25,7 @@
 .status-rejected, .status-dropped { background: #fed7d7; color: #742a2a; }
 .pay-paid   { background: #c6f6d5; color: #22543d; }
 .pay-pending{ background: #fefcbf; color: #744210; }
+.pay-partial{ background: #fed7aa; color: #7c4a00; }
 .pay-overdue{ background: #fed7d7; color: #742a2a; }
 .scholar-badge { display: inline-block; padding: 5px 12px; border-radius: 20px; font-size: 12px; font-weight: 700; background: #e9d8fd; color: #553c9a; }
 
@@ -52,4 +53,23 @@
   .profile-content { flex-direction: column; align-items: center; text-align: center; transform: translateY(-50px); }
   .badge-row { justify-content: center; }
   .profile-body { grid-template-columns: 1fr; }
+}
+
+/* ── RA 10173 Download My Data ── */
+.privacy-actions {
+  margin-top: 12px;
+}
+.btn-download-data {
+  background: transparent;
+  border: 1.5px solid rgba(255,255,255,0.5);
+  color: #fff;
+  border-radius: 8px;
+  padding: 7px 16px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.btn-download-data:hover {
+  background: rgba(255,255,255,0.15);
 }

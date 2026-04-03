@@ -3,9 +3,11 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { Router } from '@angular/router';
+import { environment } from '../../environment';
 
 interface StudentCourse {
   id: number; courseId: number; code: string; name: string; credits: number;
+  lecUnits?: number; labUnits?: number; isGeneral?: boolean; isLab?: boolean;
   instructor: string; schedule: string; day: string; time: string; room: string;
   enrollmentDate: string; semester: string;
   status: 'Pending' | 'Enrolled' | 'Completed' | 'Dropped'; grade?: string;
@@ -40,20 +42,23 @@ interface FeeData {
   styleUrl: './enrollment.css',
 })
 export class Enrollment implements OnInit, OnDestroy {
-  private apiUrl        = 'http://localhost/sia-api/enrollment.php';
-  private accountingApi = 'http://localhost/sia-api/accounting.php';
-  private registrarApi  = 'http://localhost/sia-api/registrar.php';
+  private apiUrl        = environment.enrollApi;
+  private accountingApi = environment.accountingApi;
+  private registrarApi  = environment.registrarApi;
+  constructor(private http: HttpClient, public router: Router, private cdr: ChangeDetectorRef) {}
 
-  
-  /** Returns HTTP headers with the auth token. Call this in every API request. */
-  private getHeaders() {
-    const token = sessionStorage.getItem('token') || localStorage.getItem('token') || '';
-    return { headers: { Authorization: `Bearer ${token}` } };
-  }
-
-  constructor(private http: HttpClient, private router: Router, private cdr: ChangeDetectorRef) {}
-
-  workflowStep: 'payment' | 'cash-pending' | 'approval' | 'dashboard' | 'tor-pending' = 'payment';
+  workflowStep: 'payment' | 'cash-pending' | 'approval' | 'dashboard' | 'tor-pending' | 're-enroll' | 'graduated' | 'pending-approval' = 'payment';
+  // Re-enrollment state
+  needsReEnroll      = false;
+  nextSemester       = '';
+  nextYearLevel      = '';
+  isReEnrolling      = false;
+  needsPlanSelection = false;
+  // Graduation state
+  isGraduated      = false;
+  graduatedProgram = '';
+  graduatedYear    = '';
+  graduatedSemester = '';
   userId = 0; studentDbId = 0; student: any = {};
   showTorHardCopyNotice = false;
 
@@ -74,15 +79,53 @@ export class Enrollment implements OnInit, OnDestroy {
   get feeBreakdown(): FeeData | null { return this.fees; }
 
   paymentPlan: 'full' | 'installment' = 'full';
+  // Resolved plan for the SOA currently on screen — may differ from paymentPlan
+  // (current semester) when the user is viewing a past semester. Always use this
+  // inside currentExamCovered and SOA-related getters.
+  soaPaymentPlan: 'full' | 'installment' = 'full';
   termBreakdown: { period: string; amountPaid: number; orArNumber: string; orArType: string; paymentDate: string; paymentMethod: string }[] = [];
+
+  // ── Scholarship declaration (student-side) ────────────────────────────────
+  isScholar        = false;
+  scholarType      = '';
+  scholarGrantor   = '';
+  scholarshipAmount = 0;
+  scholarFullTuition = false;   // true = full coverage, no payment needed
+  scholarPending   = false;     // true after submission, waiting for accounting approval
+  scholarApproved  = false;     // true if accounting already approved
+
+  scholarTypes = [
+    'CHED Scholarship',
+    'Government Scholarship',
+    'LGU Scholarship',
+    'Athletic Scholarship',
+    'Academic Excellence Scholarship',
+    'SHS Voucher Program',
+    'TESDA PRISAA',
+    'Full Scholarship',
+    'Partial Scholarship',
+    'Financial Assistance',
+    'Others',
+  ];
   paymentReceipts: any[] = [];
+
+  // ── SOA Semester History ──────────────────────────────────────────────────
+  // Populated on dashboard load — lets students browse SOA from past terms.
+  soaSemesters:       string[]  = [];
+  selectedSoaSemester = '';          // '' = current (default, no filter)
+  soaDisplaySemester  = '';          // semester label shown in SOA header + print
+  // BUG-SOA-DUES-01 FIX: per-term scheduled dues returned by PHP for the selected
+  // semester — populated in selectSoaSemester() so installmentAmounts uses the
+  // correct stored figures instead of recalculating from totalAssessment.
+  storedInstDues: { dpDue: number; prelimDue: number; midtermDue: number; finalsDue: number } | null = null;
+  isSoaHistoryLoading = false;
 
   // Payment due dates — loaded from Accounting (sys_config)
   dueDates: { [key: string]: { label: string; date_range: string } } = {
     downpayment: { label: 'Downpayment', date_range: '' },
-    prelim:      { label: 'Prelim',      date_range: 'JANUARY 10-16, 2026' },
-    midterm:     { label: 'Midterm',     date_range: 'FEBRUARY 9 - 14, 2026' },
-    finals:      { label: 'Finals',      date_range: 'MARCH 30 - APRIL 4, 2026' },
+    prelim:      { label: 'Prelim',      date_range: '' },
+    midterm:     { label: 'Midterm',     date_range: '' },
+    finals:      { label: 'Finals',      date_range: '' },
   };
 
   getDueDate(period: string): string {
@@ -130,12 +173,16 @@ export class Enrollment implements OnInit, OnDestroy {
   // INIT — restore state first, then sync with DB
   // ═══════════════════════════════════════════════════════════════
   ngOnInit(): void {
-    const storedUser = sessionStorage.getItem('currentUser') || localStorage.getItem('currentUser');
+    const storedUser = sessionStorage.getItem('currentUser');
     if (!storedUser) { this.router.navigate(['/login']); return; }
     this.userId = JSON.parse(storedUser).id;
 
     // ── Restore last known step IMMEDIATELY to prevent flash back to 'payment' ──
     // This is purely a visual restore — loadContext() will correct it from DB truth.
+    // Restore graduation state if the student already graduated in a previous session
+    if (sessionStorage.getItem('enrollmentStep') === 'graduated') {
+      this.isGraduated = true;
+    }
     const savedStep = sessionStorage.getItem('enrollmentStep') as typeof this.workflowStep | null;
     if (savedStep) {
       this.workflowStep = savedStep;
@@ -148,19 +195,47 @@ export class Enrollment implements OnInit, OnDestroy {
       this.startApprovalPolling();
     }
 
-    this.loadDueDates();
+    // FIX DUE-DATE-FE-01: Do NOT call loadDueDates() here — studentDbId is 0
+    // at this point because loadContext() hasn't finished yet. loadDueDates() is
+    // now called inside loadDashboard() which runs AFTER studentDbId is set.
     this.loadContext();
   }
 
-  loadDueDates(): void {
-    this.http.get<any>(`${this.accountingApi}?action=get_due_dates`).subscribe({
-      next: res => { if (res.success) this.dueDates = res.dueDates; }
+  loadDueDates(semester?: string): void {
+    // Pass student_id so the backend resolves the correct semester-scoped due dates
+    // for the student's current term.
+    // When viewing a past SOA semester, pass that semester string explicitly so the
+    // backend tries the scoped key for that term first, then falls back to global.
+    const sid = this.studentDbId || 0;
+    let url = `${this.accountingApi}?action=get_due_dates`;
+    if (semester) {
+      // semester may be a full string like "1st Semester, AY 2025-2026" —
+      // send it as-is; the PHP backend (FIX DUE-DATE-GET-01) parses it correctly.
+      url += `&semester=${encodeURIComponent(semester)}`;
+      const ayMatch = semester.match(/(\d{4}-\d{4})/);
+      if (ayMatch) url += `&school_year=${encodeURIComponent(ayMatch[1])}`;
+    } else if (sid > 0) {
+      url += `&student_id=${sid}`;
+    }
+    this.http.get<any>(url).subscribe({
+      next: res => {
+        if (res.success && res.dueDates) {
+          // Always replace all keys so switching to a different semester shows
+          // that term's dates (not a mix with the previous term's non-empty values).
+          const blank = { downpayment: { label: 'Downpayment', date_range: '' },
+                          prelim:      { label: 'Prelim',      date_range: '' },
+                          midterm:     { label: 'Midterm',     date_range: '' },
+                          finals:      { label: 'Finals',      date_range: '' } };
+          this.dueDates = { ...blank, ...res.dueDates };
+          this.cdr.detectChanges();
+        }
+      }
     });
   }
 
   loadContext(): void {
     this.isFeeLoading = true;
-    this.http.get<any>(`${this.apiUrl}?action=get_student_context&user_id=${this.userId}`, this.getHeaders()).subscribe({
+    this.http.get<any>(`${this.apiUrl}?action=get_student_context&user_id=${this.userId}`).subscribe({
       next: (res) => {
         this.isFeeLoading = false;
         if (!res.success) { this.router.navigate(['/login']); return; }
@@ -176,12 +251,15 @@ export class Enrollment implements OnInit, OnDestroy {
           else if (sNum.startsWith('TVET-')) this.studentCategory = 'TVET';
         }
         sessionStorage.setItem('studentCategory', this.studentCategory);
-        localStorage.setItem('studentCategory', this.studentCategory);
-        this.paymentMethod   = res.student.paymentMethod === 'Cash' ? 'Cash' : 'GCash';
-        this.paymentPlan     = res.student.paymentPlan  === 'installment' ? 'installment' : 'full';
-        this.fees            = res.fees ?? null;
-        this.termBreakdown   = res.termBreakdown ?? [];
-        this.paymentReceipts = res.payments ?? [];
+        this.paymentMethod      = res.student.paymentMethod === 'Cash' ? 'Cash' : 'GCash';
+        // FIX FE-PLAN-01: payment_plan is NULL after re-enroll — backend sends
+        // needsPlanSelection:true so we show the plan selector instead of jumping to GCash.
+        this.needsPlanSelection = res.needsPlanSelection === true;
+        this.paymentPlan        = (res.paymentPlan ?? res.student?.paymentPlan) === 'installment' ? 'installment' : 'full';
+        this.soaPaymentPlan     = this.paymentPlan; // init SOA plan = current semester
+        this.fees               = res.fees ?? null;
+        this.termBreakdown      = res.termBreakdown ?? [];
+        this.paymentReceipts    = res.payments ?? [];
 
         if (res.torEvaluation) {
           this.torEvaluation = {
@@ -200,10 +278,31 @@ export class Enrollment implements OnInit, OnDestroy {
         }
 
         sessionStorage.setItem('studentDbId', String(this.studentDbId));
-        localStorage.setItem('studentDbId', String(this.studentDbId));
+        sessionStorage.setItem('studentDbId', String(this.studentDbId));
 
         // ── Stop any pending approval poll — DB is now the source of truth ──
         if (this.pollInterval) { clearInterval(this.pollInterval); this.pollInterval = null; }
+
+        // ── RE-ENROLLMENT CHECK ───────────────────────────────────
+        // Must be checked FIRST — takes priority over all other routing
+        if (res.needsReEnroll) {
+          this.needsReEnroll = true;
+          this.nextSemester  = res.nextSemester  ?? '';
+          this.nextYearLevel = res.nextYearLevel ?? '';
+          this.route('re-enroll');
+          this.cdr.detectChanges();
+          return;
+        }
+        this.needsReEnroll = false;
+
+        // FIX FE-PLAN-02: After re-enroll, needsPlanSelection=true means student
+        // must pick full/installment before paying. Route to payment so plan selector shows.
+        if (this.needsPlanSelection) {
+          sessionStorage.removeItem('enrollmentStep');
+          this.route('payment');
+          this.cdr.detectChanges();
+          return;
+        }
 
         // ── ROUTING ─────────────────────────────────────────────
         const s        = res.student;
@@ -241,6 +340,7 @@ export class Enrollment implements OnInit, OnDestroy {
           if (!sessionStorage.getItem('torHardCopyDismissed_' + this.studentDbId)) {
             this.showTorHardCopyNotice = true;
           }
+          // Transferee TOR done — proceed to payment step
           this.route(isCash ? 'cash-pending' : 'payment');
           if (isCash) { this.isApprovalPending = true; this.startApprovalPolling(); }
 
@@ -248,26 +348,46 @@ export class Enrollment implements OnInit, OnDestroy {
           this.route('payment');
 
         } else if (paid && !isCash) {
+          // Paid via GCash — waiting for Registrar to approve enrollment
           this.route('approval');
           this.isApprovalPending = true;
           this.startApprovalPolling();
 
         } else if (isCash) {
+          // Cash student — waiting for Accounting to verify payment
           this.route('cash-pending');
           this.isApprovalPending = true;
           this.startApprovalPolling();
 
-        } else if (!isCash && s.paymentStatus === 'Pending') {
-          // GCash submitted but not yet verified — show approval waiting screen
+        } else if (!isCash && s.paymentStatus === 'Submitted') {
+          // GCash submitted but not yet verified by Accounting — show waiting screen
           this.gcashSubmitted = true;
           this.route('approval');
           this.isApprovalPending = true;
           this.startApprovalPolling();
 
+        } else if (s.approvalStatus === 'Pending' && s.paymentStatus === 'Pending') {
+          // Student just registered — route by payment method:
+          // • GCash → show payment form so student can enter their GCash reference number.
+          //           Card only appears in Accounting AFTER they submit the reference here.
+          // • Cash  → show pending-approval (they walk in to Accounting directly)
+          if (isCash) {
+            this.route('pending-approval');
+            this.isApprovalPending = true;
+            this.startApprovalPolling();
+          } else {
+            // GCash student: must submit reference number first
+            this.route('payment');
+          }
+
         } else {
           this.route('payment');
         }
 
+        // FIX DUE-DATE-FE-04: Always load due dates after context resolves —
+        // every routing path (approval, cash-pending, payment, dashboard) needs
+        // them. currentSemester is set above so the scoped key will be correct.
+        this.loadDueDates(this.currentSemester || undefined);
         this.cdr.detectChanges();
       },
       error: () => {
@@ -284,13 +404,92 @@ export class Enrollment implements OnInit, OnDestroy {
   }
   setStep(step: typeof this.workflowStep): void { this.route(step); }
 
+  // ── RE-ENROLLMENT ────────────────────────────────────────────
+  startReEnroll(): void {
+    if (this.isReEnrolling) return;
+    this.isReEnrolling = true;
+    this.http.post<any>(`${this.apiUrl}?action=re_enroll`,
+      { student_id: this.studentDbId }
+    ).subscribe({
+      next: (res) => {
+        this.isReEnrolling = false;
+        if (res.success) {
+          if (res.isGraduated) {
+            // Student has completed their program — show graduation screen
+            this.isGraduated       = true;
+            this.graduatedProgram  = res.program  ?? this.student.program ?? '';
+            this.graduatedYear     = res.yearLevel ?? this.student.yearLevel ?? '';
+            this.graduatedSemester = res.semester  ?? this.student.semester ?? '';
+            this.needsReEnroll     = false;
+            sessionStorage.setItem('enrollmentStep', 'graduated');
+            this.route('graduated');
+            this.addNotification('success', '🎓 Congratulations! You have completed your program.');
+          } else {
+            // Normal re-enrollment — clear all cached state so the payment plan
+            // selector always shows fresh, then reload from DB.
+            this.student.yearLevel  = res.newYearLevel;
+            this.student.semester   = res.newSemester;
+            this.currentSemester    = res.newSemester;
+            this.needsReEnroll      = false;
+            this.needsPlanSelection = true;
+            // FIX FE-PLAN-04: Clear sessionStorage step so the restored step from
+            // the old semester does not skip the payment plan selector on reload.
+            sessionStorage.removeItem('enrollmentStep');
+            sessionStorage.removeItem('pendingPaymentPlan');
+            sessionStorage.removeItem('pendingPaymentMethod');
+            this.addNotification('success', `Re-enrollment started for ${res.newSemester}. Please select a payment plan.`);
+            this.loadContext();
+          }
+        } else {
+          this.addNotification('error', res.message || 'Re-enrollment failed.');
+        }
+        this.cdr.detectChanges();
+      },
+      error: () => {
+        this.isReEnrolling = false;
+        this.addNotification('error', 'Connection error. Make sure XAMPP is running.');
+        this.cdr.detectChanges();
+      }
+    });
+  }
+
+  // ── SELECT PAYMENT PLAN (re-enroll flow) ────────────────────
+  // Called when student picks full/installment on the payment step after re-enroll.
+  // Saves choice to DB via update_payment_plan, then clears needsPlanSelection
+  // so the GCash form renders on the next loadContext().
+  selectPaymentPlan(plan: 'full' | 'installment', method: 'GCash' | 'Cash'): void {
+    this.paymentPlan   = plan;
+    this.paymentMethod = method;
+    this.http.post<any>(`${this.apiUrl}?action=update_payment_plan`, {
+      student_id: this.studentDbId,
+      payment_plan: plan,
+      payment_method: method,
+    }).subscribe({
+      next: (res) => {
+        if (res.success) {
+          this.needsPlanSelection = false;
+          // Recompute GCash amount now that we know the plan
+          if (this.fees) {
+            this.gcashAmount        = plan === 'installment' ? this.dpAmount : this.fees.totalAssessment;
+            this.paymentInfo.amount = this.gcashAmount;
+          }
+          this.addNotification('success', `Payment plan set to ${plan}.`);
+          this.cdr.detectChanges();
+        } else {
+          this.addNotification('error', res.message || 'Could not save payment plan.');
+        }
+      },
+      error: () => { this.addNotification('error', 'Connection error saving payment plan.'); }
+    });
+  }
+
   ensureEnrolledThenLoad(): void {
     // Always load dashboard data first so screen isn't blank while auto-enroll runs
     this.loadDashboard();
     // Then also trigger auto-enroll in case courses are missing (idempotent - safe to re-run)
     this.http.post<any>(`${this.apiUrl}?action=auto_enroll_all`, {
       student_id: this.studentDbId, semester: this.currentSemester,
-    }, this.getHeaders()).subscribe({
+    }).subscribe({
       // After auto-enroll finishes, reload courses to pick up any newly enrolled subjects
       next:  () => { this.loadEnrolledCourses(); this.loadEnrollmentSummary(); },
       error: () => { /* already loaded above, silently ignore */ },
@@ -301,30 +500,272 @@ export class Enrollment implements OnInit, OnDestroy {
     // Always reload all dashboard data sources in parallel
     this.loadEnrolledCourses();
     this.loadEnrollmentSummary();
-    this.http.get<any>(`${this.apiUrl}?action=get_student_context&user_id=${this.userId}`, this.getHeaders()).subscribe({
+    // FIX DUE-DATE-FE-03: Load due dates here where studentDbId is already set.
+    // Passing currentSemester lets the backend resolve the scoped key directly;
+    // fallback to student_id lookup happens inside loadDueDates() when no semester.
+    this.loadDueDates(this.currentSemester || undefined);
+    this.http.get<any>(`${this.apiUrl}?action=get_student_context&user_id=${this.userId}`).subscribe({
       next: (res) => {
         if (res.success) {
           this.fees            = res.fees ?? null;
           this.termBreakdown   = res.termBreakdown ?? [];
           this.paymentReceipts = res.payments ?? [];
-          this.paymentPlan     = res.student.paymentPlan === 'installment' ? 'installment' : 'full';
+          this.paymentPlan     = (res.paymentPlan ?? res.student?.paymentPlan) === 'installment' ? 'installment' : 'full';
+          // Keep soaPaymentPlan in sync when viewing the current semester
+          if (!this.selectedSoaSemester || this.selectedSoaSemester === this.soaSemesters[0]) {
+            this.soaPaymentPlan = this.paymentPlan;
+          }
         }
         this.cdr.detectChanges();
       },
       error: () => { this.cdr.detectChanges(); }
     });
+    // Load semester list so the SOA history dropdown is ready
+    this.loadSoaSemesters();
+  }
+
+  // ── Load list of semesters for which this student has SOA records ─────────
+  loadSoaSemesters(): void {
+    if (!this.studentDbId) return;
+    this.http.get<any>(`${this.accountingApi}?action=get_soa_semesters&student_id=${this.studentDbId}`).subscribe({
+      next: (res) => {
+        if (res.success && res.semesters?.length) {
+          this.soaSemesters = res.semesters;
+          // Default to current semester (first in list = newest)
+          if (!this.selectedSoaSemester) {
+            this.selectedSoaSemester = res.semesters[0];
+            this.soaDisplaySemester  = res.semesters[0];
+          }
+        }
+        this.cdr.detectChanges();
+      }
+    });
+  }
+
+  // ── Called when student picks a different semester from the dropdown ───────
+  selectSoaSemester(sem: string): void {
+    // BUG-SOA-SWITCH-01 FIX: Removed the `if (selectedSoaSemester === sem) return` early-exit.
+    // That guard blocked re-fetching when the user clicked back to the current semester tab
+    // after visiting an old one — paymentReceipts stayed overwritten with the old semester's
+    // data and was never restored. Now we always re-fetch regardless of whether the semester
+    // matches the previously selected value.
+    const isCurrentSemester = (sem === this.soaSemesters[0]);
+    this.selectedSoaSemester = sem;
+    this.soaDisplaySemester  = sem;   // FIX SOA-01: update header label immediately
+    this.isSoaHistoryLoading = true;
+
+    // FIX SOA-FE-01: Clear stale term data IMMEDIATELY before the API call.
+    this.termBreakdown   = [];
+    this.paymentReceipts = [];
+
+    // BUG-SOA-SWITCH-01 FIX: When switching back to the current semester, re-fetch
+    // from get_student_context (the authoritative source for current-semester data)
+    // instead of get_student_payment_history, which only has historical records.
+    // Must restore ALL derived state — fees, paymentPlan, termBreakdown, paymentReceipts,
+    // and enrollmentSummary.semester — otherwise installmentAmounts/dpAmount/etc still
+    // read stale values left over from the old semester's context.
+    if (isCurrentSemester) {
+      this.loadDueDates(sem);
+      // BUG-SOA-DUES-01 FIX: clear stored dues so installmentAmounts recalculates live
+      this.storedInstDues = null;
+      this.http.get<any>(`${this.apiUrl}?action=get_student_context&user_id=${this.userId}`).subscribe({
+        next: (res) => {
+          this.isSoaHistoryLoading = false;
+          if (res.success) {
+            this.fees            = res.fees ?? null;
+            this.paymentPlan     = (res.paymentPlan ?? res.student?.paymentPlan) === 'installment' ? 'installment' : 'full';
+            this.soaPaymentPlan  = this.paymentPlan; // sync SOA plan to current semester
+            this.termBreakdown   = res.termBreakdown ?? [];
+            this.paymentReceipts = res.payments ?? [];
+            if (this.enrollmentSummary && res.student?.semester) {
+              this.enrollmentSummary = { ...this.enrollmentSummary, semester: res.student.semester };
+            }
+          }
+          this.cdr.detectChanges();
+        },
+        error: () => { this.isSoaHistoryLoading = false; this.cdr.detectChanges(); }
+      });
+      return;
+    }
+
+    this.loadDueDates(sem);
+
+    // FIX-SOA-SNAPSHOT: Use get_soa_snapshot (frozen per-semester record written at
+    // re-enrollment) instead of get_student_payment_history (reads live tuition_fees
+    // which has NULL-semester rows that bleed across semesters). The snapshot is the
+    // only guaranteed-correct, immutable source for a past semester's SOA data.
+    this.http.get<any>(
+      `${this.apiUrl}?action=get_soa_snapshot&student_id=${this.studentDbId}&semester=${encodeURIComponent(sem)}`
+    ).subscribe({
+      next: (res) => {
+        this.isSoaHistoryLoading = false;
+        const snap = res.snapshot;
+
+        if (res.success && snap) {
+          // ── Restore frozen fee breakdown ────────────────────────────────
+          const resolvedPlan: 'full' | 'installment' =
+            snap.payment_plan === 'installment' ? 'installment' : 'full';
+          this.soaPaymentPlan = resolvedPlan;
+
+          this.fees = {
+            ...(this.fees ?? {} as any),
+            units:            snap.units            ?? 0,
+            tuitionFee:       snap.tuition_fee       ?? 0,
+            miscellaneousFee: snap.miscellaneous_fee ?? 0,
+            registrationFee:  snap.registration_fee  ?? 0,
+            laboratoryFee:    snap.laboratory_fee    ?? 0,
+            energyFee:        snap.energy_fee        ?? 0,
+            subtotal:         snap.subtotal          ?? 0,
+            discount:         snap.discount          ?? 0,
+            installmentFee:   snap.installment_fee   ?? 0,
+            totalAssessment:  snap.total_assessment  ?? 0,
+            totalPaid:        snap.total_paid        ?? 0,
+            balance:          snap.balance           ?? 0,
+            paymentStatus:    snap.payment_status    ?? 'Unpaid',
+          };
+
+          // ── Restore frozen payment records → termBreakdown + paymentReceipts ──
+          // snapshot.payments is the JSON array frozen at re-enrollment time —
+          // it contains every OR/AR for that semester exactly as issued.
+          const frozenPayments: any[] = snap.payments ?? [];
+
+          this.paymentReceipts = frozenPayments.map((p: any) => ({
+            orArNumber:  p.or_ar_number  ?? p.orArNumber  ?? '',
+            orArType:    p.or_ar_type    ?? p.orArType    ?? 'AR',
+            amount:      p.amount        ?? 0,
+            paymentDate: p.payment_date  ?? p.paymentDate ?? '',
+            period:      p.exam_period   ?? p.examPeriod  ?? '',
+            method:      p.payment_method ?? p.method     ?? '',
+            semester:    p.semester      ?? sem,
+          }));
+
+          // Rebuild termBreakdown: sum per period from frozen payments
+          const periodMap: { [k: string]: { amountPaid: number; orArNumber: string; orArType: string; paymentDate: string; paymentMethod: string } } = {};
+          for (const p of frozenPayments) {
+            const period = p.exam_period ?? p.examPeriod ?? '';
+            if (!period) continue;
+            if (!periodMap[period]) {
+              periodMap[period] = {
+                amountPaid:    0,
+                orArNumber:    p.or_ar_number  ?? p.orArNumber  ?? '',
+                orArType:      p.or_ar_type    ?? p.orArType    ?? 'AR',
+                paymentDate:   p.payment_date  ?? p.paymentDate ?? '',
+                paymentMethod: p.payment_method ?? p.method     ?? '',
+              };
+            }
+            periodMap[period].amountPaid    += +(p.amount ?? 0);
+            periodMap[period].orArNumber     = p.or_ar_number  ?? p.orArNumber  ?? periodMap[period].orArNumber;
+            periodMap[period].paymentDate    = p.payment_date  ?? p.paymentDate ?? periodMap[period].paymentDate;
+          }
+          this.termBreakdown = Object.entries(periodMap).map(([period, v]) => ({
+            period,
+            amountPaid:    v.amountPaid,
+            orArNumber:    v.orArNumber,
+            orArType:      v.orArType,
+            paymentDate:   v.paymentDate,
+            paymentMethod: v.paymentMethod,
+          }));
+
+          // ── Stored installment dues from snapshot (total/4 split) ──────
+          if (resolvedPlan === 'installment') {
+            const total   = snap.total_assessment ?? 0;
+            const dpPaid  = periodMap['Downpayment']?.amountPaid ?? 0;
+            const dpCredit = dpPaid > 0 ? dpPaid : Math.ceil(total / 4);
+            const rem      = Math.max(0, total - dpCredit);
+            const pd       = rem > 0 ? Math.ceil(rem / 3) : 0;
+            this.storedInstDues = {
+              dpDue:      dpPaid > 0 ? dpPaid : Math.ceil(total / 4),
+              prelimDue:  pd,
+              midtermDue: pd,
+              finalsDue:  rem > 0 ? Math.max(0, rem - pd * 2) : 0,
+            };
+          } else {
+            this.storedInstDues = null;
+          }
+
+          if (this.enrollmentSummary) {
+            this.enrollmentSummary = { ...this.enrollmentSummary, semester: sem };
+          }
+
+        } else {
+          // No snapshot yet — fall back to live payment history for this semester
+          // (happens when the student hasn't re-enrolled yet after this semester)
+          this.storedInstDues = null;
+          this.http.get<any>(
+            `${this.accountingApi}?action=get_student_payment_history&student_id=${this.studentDbId}&semester=${encodeURIComponent(sem)}`
+          ).subscribe({
+            next: (hRes) => {
+              if (hRes.success && hRes.semFees) {
+                const sf = hRes.semFees;
+                const resolvedPlan: 'full' | 'installment' =
+                  sf.paymentPlan === 'installment' ? 'installment' : 'full';
+                this.soaPaymentPlan = resolvedPlan;
+                this.fees = {
+                  ...(this.fees ?? {} as any),
+                  units: sf.units ?? 0, tuitionFee: sf.tuitionFee ?? 0,
+                  miscellaneousFee: sf.miscellaneousFee ?? 0,
+                  registrationFee: sf.registrationFee ?? 0,
+                  laboratoryFee: sf.laboratoryFee ?? 0,
+                  energyFee: sf.energyFee ?? 0,
+                  subtotal: sf.subtotal ?? 0, discount: sf.discount ?? 0,
+                  installmentFee: sf.installmentFee ?? 0,
+                  totalAssessment: sf.totalAssessment ?? 0,
+                  totalPaid: sf.totalPaid ?? 0, balance: sf.balance ?? 0,
+                  paymentStatus: sf.paymentStatus ?? 'Unpaid',
+                };
+                if (resolvedPlan === 'installment' && sf.dpDue != null) {
+                  this.storedInstDues = { dpDue: sf.dpDue ?? 0, prelimDue: sf.prelimDue ?? 0, midtermDue: sf.midtermDue ?? 0, finalsDue: sf.finalsDue ?? 0 };
+                }
+                // Use an explicitly-typed map so Object.entries gives typed values
+                type PeriodEntry = { amountPaid: number; orArNumber: string; orArType: string; paymentDate: string; paymentMethod: string };
+                const pMap: Record<string, PeriodEntry> = {};
+                for (const h of (hRes.history ?? [])) {
+                  const p2 = h.examPeriod as string;
+                  if (!pMap[p2]) pMap[p2] = { amountPaid: 0, orArNumber: h.orArNumber, orArType: h.orArType, paymentDate: h.paymentDate, paymentMethod: h.paymentMethod };
+                  pMap[p2].amountPaid += h.amount; pMap[p2].orArNumber = h.orArNumber; pMap[p2].paymentDate = h.paymentDate;
+                }
+                this.termBreakdown = Object.entries(pMap).map(([period, v]) => ({ period, amountPaid: v.amountPaid, orArNumber: v.orArNumber, orArType: v.orArType, paymentDate: v.paymentDate, paymentMethod: v.paymentMethod }));
+                this.paymentReceipts = (hRes.history ?? []).map((h: any) => ({ orArNumber: h.orArNumber, orArType: h.orArType, amount: h.amount, paymentDate: h.paymentDate, period: h.examPeriod, method: h.paymentMethod, semester: h.semester }));
+                if (this.enrollmentSummary) this.enrollmentSummary = { ...this.enrollmentSummary, semester: sem };
+              }
+              this.cdr.detectChanges();
+            },
+            error: () => this.cdr.detectChanges()
+          });
+          return;
+        }
+        this.cdr.detectChanges();
+      },
+      error: () => { this.isSoaHistoryLoading = false; this.cdr.detectChanges(); }
+    });
   }
 
   processPayment(): void {
     if (!this.studentDbId) { this.addNotification('error', 'Student ID missing.'); return; }
+    // FIX FE-PLAN-03: Block payment if student hasn't chosen a plan yet (re-enroll flow)
+    if (this.needsPlanSelection) { this.addNotification('warning', 'Please select a payment plan first.'); return; }
+
+    // ── FIX FE-CASH-01: Branch on payment method ──────────────────────────
+    if (this.paymentMethod === 'Cash') {
+      this._processCashPayment();
+      return;
+    }
+
+    // GCash path (original logic)
     if (!this.gcashReference.trim()) { this.addNotification('error', 'Enter your GCash Reference Number.'); return; }
     this.isProcessingPayment = true;
     const txnId = 'TXN-' + Date.now() + '-' + Math.random().toString(36).substring(2,7).toUpperCase();
     this.http.post<any>(`${this.accountingApi}?action=submit_gcash`, {
       student_id: this.studentDbId, gcash_reference: this.gcashReference.trim(),
       gcash_amount: this.gcashAmount, gcash_date: this.gcashDate,
-      transaction_id: txnId, semester: this.currentSemester
-    }, this.getHeaders()).subscribe({
+      transaction_id: txnId, semester: this.currentSemester,
+      // ── Scholarship declaration ────────────────────────────────────────
+      is_scholar:        this.isScholar ? 1 : 0,
+      scholar_type:      this.scholarType,
+      scholar_grantor:   this.scholarGrantor,
+      scholarship_amount: this.scholarFullTuition ? 0 : this.scholarshipAmount,
+      scholar_full_tuition: this.scholarFullTuition ? 1 : 0,
+    }).subscribe({
       next: (res) => {
         this.isProcessingPayment = false;
         if (res.success) {
@@ -332,7 +773,36 @@ export class Enrollment implements OnInit, OnDestroy {
           this.route('approval'); this.isApprovalPending = true;
           this.addNotification('success', '✅ Payment submitted! Awaiting Accounting verification.');
           this.startApprovalPolling();
-        } else { this.addNotification('error', res.message || 'Submission failed.'); }
+        } else if (res.locked) {
+          // Period not yet unlocked by Accounting — show a clear notice
+          this.addNotification('warning',
+            '🔒 ' + (res.message || 'This payment period is not yet open. Please wait for a notice from Accounting.'));
+        } else {
+          this.addNotification('error', res.message || 'Submission failed.');
+        }
+        this.cdr.detectChanges();
+      },
+      error: () => { this.isProcessingPayment = false; this.addNotification('error', 'Cannot connect.'); this.cdr.detectChanges(); }
+    });
+  }
+
+  /** FIX FE-CASH-01: Cash payment path — notifies backend then routes to cash-pending. */
+  private _processCashPayment(): void {
+    this.isProcessingPayment = true;
+    this.http.post<any>(`${this.accountingApi}?action=notify_cash_pending`, {
+      student_id: this.studentDbId,
+      semester:   this.currentSemester,
+    }).subscribe({
+      next: (res) => {
+        this.isProcessingPayment = false;
+        if (res.success) {
+          this.route('cash-pending');
+          this.isApprovalPending = true;
+          this.addNotification('success', '💵 Please proceed to the Accounting Office to pay.');
+          this.startApprovalPolling();
+        } else {
+          this.addNotification('error', res.message || 'Could not register cash payment.');
+        }
         this.cdr.detectChanges();
       },
       error: () => { this.isProcessingPayment = false; this.addNotification('error', 'Cannot connect.'); this.cdr.detectChanges(); }
@@ -352,7 +822,7 @@ export class Enrollment implements OnInit, OnDestroy {
 
   checkApprovalStatus(): void {
     if (!this.userId) return;
-    this.http.get<any>(`${this.apiUrl}?action=get_payment_status&user_id=${this.userId}`, this.getHeaders()).subscribe({
+    this.http.get<any>(`${this.apiUrl}?action=get_payment_status&user_id=${this.userId}`).subscribe({
       next: (res) => {
         if (res.success && res.approvalStatus === 'Approved') {
           // Stop polling immediately
@@ -368,6 +838,13 @@ export class Enrollment implements OnInit, OnDestroy {
           this.route('dashboard');
           // Reload full context to get enrolled courses and updated fees
           this.loadContext();
+        } else if (res.success && this.workflowStep === 'pending-approval') {
+          // Student is on the pending-approval screen — check if payment status changed
+          // so we can redirect them to payment screen when Accounting sets them up
+          if (res.paymentStatus === 'Paid') {
+            // Fully approved — reload context to get proper routing
+            this.loadContext();
+          }
         }
       }
     });
@@ -377,7 +854,7 @@ export class Enrollment implements OnInit, OnDestroy {
     this.isAutoEnrolling = true; this.cdr.detectChanges();
     this.http.post<any>(`${this.apiUrl}?action=auto_enroll_all`, {
       student_id: this.studentDbId, semester: this.currentSemester,
-    }, this.getHeaders()).subscribe({
+    }).subscribe({
       next: (res) => {
         this.isAutoEnrolling = false;
         if (res.success && res.enrolled > 0)
@@ -399,7 +876,7 @@ export class Enrollment implements OnInit, OnDestroy {
   loadTorEvaluation(): void {
     if (!this.studentDbId) return;
     this.isTorLoading = true;
-    this.http.get<any>(`${this.registrarApi}?action=get_tor_evaluation&student_id=${this.studentDbId}`, this.getHeaders()).subscribe({
+    this.http.get<any>(`${this.registrarApi}?action=get_tor_evaluation&student_id=${this.studentDbId}`).subscribe({
       next: (res) => {
         this.isTorLoading = false;
         if (res.success && res.evaluation) {
@@ -423,13 +900,13 @@ export class Enrollment implements OnInit, OnDestroy {
   }
 
   loadEnrolledCourses(): void {
-    this.http.get<any>(`${this.apiUrl}?action=get_enrollments&user_id=${this.userId}`, this.getHeaders()).subscribe({
+    this.http.get<any>(`${this.apiUrl}?action=get_enrollments&user_id=${this.userId}`).subscribe({
       next: (res) => { if (res.success) { this.enrolledCourses = res.enrollments; this.cdr.detectChanges(); } }
     });
   }
 
   loadEnrollmentSummary(): void {
-    this.http.get<any>(`${this.apiUrl}?action=get_enrollment_summary&user_id=${this.userId}`, this.getHeaders()).subscribe({
+    this.http.get<any>(`${this.apiUrl}?action=get_enrollment_summary&user_id=${this.userId}`).subscribe({
       next: (res) => {
         if (res.success) {
           this.enrollmentSummary = {
@@ -452,7 +929,7 @@ export class Enrollment implements OnInit, OnDestroy {
   closeDropModal(): void { this.showDropModal = false; this.selectedCourseForDrop = null; this.cdr.detectChanges(); }
   confirmDrop(): void {
     if (!this.selectedCourseForDrop) return;
-    this.http.put<any>(`${this.apiUrl}?action=drop_course`, { enrollment_id: this.selectedCourseForDrop.id, student_id: this.studentDbId }, this.getHeaders()).subscribe({
+    this.http.put<any>(`${this.apiUrl}?action=drop_course`, { enrollment_id: this.selectedCourseForDrop.id, student_id: this.studentDbId }).subscribe({
       next: (res) => {
         if (res.success) { this.addNotification('success', `${this.selectedCourseForDrop!.code} dropped.`); this.loadEnrolledCourses(); this.loadEnrollmentSummary(); }
         else { this.addNotification('error', res.message); }
@@ -468,8 +945,9 @@ export class Enrollment implements OnInit, OnDestroy {
     this.http.post<any>(`${this.apiUrl}?action=update_profile`, {
       student_id: this.studentDbId, phone: this.editForm.phone, address: this.editForm.address,
       emergencyContact: this.editForm.emergencyContact, emergencyPhone: this.editForm.emergencyPhone,
+      guardianEmail: this.editForm.guardianEmail, guardianRelationship: this.editForm.guardianRelationship,
       dateOfBirth: this.editForm.dateOfBirth,
-    }, this.getHeaders()).subscribe({
+    }).subscribe({
       next: (res) => {
         if (res.success) { Object.assign(this.student, this.editForm); this.addNotification('success', 'Profile updated!'); this.closeEditModal(); }
         else { this.addNotification('error', res.message || 'Update failed.'); }
@@ -534,6 +1012,14 @@ export class Enrollment implements OnInit, OnDestroy {
     const total  = this.fees?.totalAssessment ?? 0;
     if (total <= 0) return { dpDue: 0, prelimDue: 0, midtermDue: 0, finalsDue: 0 };
 
+    // BUG-SOA-DUES-01 FIX: When viewing a past semester, PHP returns the stored
+    // per-term scheduled dues in semFees (dpDue/prelimDue/midtermDue/finalsDue).
+    // Use those directly so past-semester installment schedules show correct figures
+    // instead of recalculating which gives wrong results when DP ≠ exactly total/4.
+    if (this.storedInstDues) {
+      return this.storedInstDues;
+    }
+
     const dpPaid  = this.dpPaid;
     const prPaid  = this.prelimPaid;
     const midPaid = this.midtermPaid;
@@ -580,10 +1066,30 @@ export class Enrollment implements OnInit, OnDestroy {
    * If nothing paid yet, defaults to 'PRELIM'.
    */
   get currentExamCovered(): string {
+    const balance   = this.fees?.balance ?? this.feeBreakdown?.balance ?? 0;
+    const totalPaid = this.fees?.totalPaid ?? 0;
+    const fullyPaid = balance <= 0 && totalPaid > 0;
+    // Use soaPaymentPlan — stable for the semester currently on screen,
+    // immune to loadDashboard race-overwriting paymentPlan mid-render.
+    const plan = this.soaPaymentPlan;
+
+    // FULL-payment plan: any payment = entire semester covered.
+    if (plan === 'full') {
+      if (this.termBreakdown.length > 0 || fullyPaid) return 'FULL';
+    }
+
+    // INSTALLMENT plan:
+    // Rule 1 — fully paid (balance = 0) = all exams covered.
+    if (plan === 'installment' && fullyPaid) return 'FINALS';
+
+    // Rule 2 — walk from highest posted installment period down.
+    // 'Full' entries = GCash not yet posted to installment_payments = Downpayment only.
     const order = ['Finals', 'Midterm', 'Prelim', 'Downpayment'];
     for (const period of order) {
       if (this.termBreakdown.some(t => t.period === period)) return period.toUpperCase();
     }
+    if (this.termBreakdown.some(t => t.period === 'Full')) return 'DOWNPAYMENT';
+
     return 'PRELIM';
   }
 
@@ -611,6 +1117,20 @@ export class Enrollment implements OnInit, OnDestroy {
         paymentDate: paid ? paid.paymentDate : '',
       };
     });
+  }
+
+  // True when accounting issued a single Full OR that clears the entire balance
+  // (installment student who paid all at once — exam_period = 'Full')
+  get fullPaymentEntry(): { amountPaid: number; orNo: string; paymentDate: string } | null {
+    // FIX EXAM-COV-03: A 'Full' period entry on an INSTALLMENT student is a GCash
+    // payment that was logged before being posted to installment_payments. It is NOT
+    // a true "Full Payment OR" — returning it here would suppress the installment
+    // schedule rows and show a single "Full Payment" row instead. Only resolve for
+    // full-plan students so the installment SOA table always renders correctly.
+    if (this.soaPaymentPlan === 'installment') return null;
+    const e = this.termBreakdown.find(tb => tb.period === 'Full');
+    if (!e) return null;
+    return { amountPaid: e.amountPaid, orNo: `${e.orArType}: ${e.orArNumber}`, paymentDate: e.paymentDate };
   }
 
   getTermIcon(s: string): string { return s === 'Paid' ? '✅' : s === 'Partial' ? '🔶' : '❌'; }
@@ -959,15 +1479,20 @@ export class Enrollment implements OnInit, OnDestroy {
     const s    = this.student;
     const f    = this.fees;
     if (!f) return;
+    // FIX SOA-02: Use the currently displayed semester (soaDisplaySemester) so that
+    // printing a past-term SOA shows that term's semester label, not the current one.
+    const soaSem = this.soaDisplaySemester || s.semester || this.currentSemester;
     const name = `${(s.lastName || s.last_name || '').toUpperCase()}, ${(s.firstName || s.first_name || '').toUpperCase()} ${(s.middleName || s.middle_name || '').toUpperCase()}`.trim();
     const fmt  = (n: number) => (+n || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 });
-    const isInstallment = this.paymentPlan === 'installment';
+    const isInstallment = this.soaPaymentPlan === 'installment';
     const td   = this.termBreakdown;
-    const getTerm = (p: string) => td.find(t => t.period === p);
-    const dp  = getTerm('Downpayment');
-    const pr  = getTerm('Prelim');
-    const mid = getTerm('Midterm');
-    const fin = getTerm('Finals');
+    // FIX SOA-SCHED-01: Use installmentSchedule getter (pure per-term data) and
+    // fullPaymentEntry for the Full OR case — avoids blank rows in the printed SOA.
+    const fullPaid = this.fullPaymentEntry;
+    const sched = this.installmentSchedule;
+    const [dp, pr, mid, fin] = ['Downpayment','Prelim','Midterm','Finals'].map(
+      term => { const t = sched.find(s => s.term === term); return t?.paid ? { amountPaid: t.amountPaid, orArNumber: t.orNo.split(': ')[1] ?? t.orNo, paymentDate: t.paymentDate } : null; }
+    );
     const dpAmt  = this.dpAmount;
     const prAmt  = this.prelimAmount;
     const midAmt = this.midtermAmount;
@@ -1073,7 +1598,7 @@ export class Enrollment implements OnInit, OnDestroy {
   </div>
 </div>
 
-<div class="soa-title">STATEMENT OF ACCOUNT &nbsp; ${s.semester || ''}</div>
+<div class="soa-title">STATEMENT OF ACCOUNT &nbsp; ${soaSem}</div>
 
 <!-- Student Info -->
 <div class="info-bar">
@@ -1097,7 +1622,7 @@ export class Enrollment implements OnInit, OnDestroy {
   </div>
   <div class="info-cell">
     <div class="info-label">Semester:</div>
-    <div class="info-val">${s.semester || ''}</div>
+    <div class="info-val">${soaSem}</div>
   </div>
   <div class="info-cell">
     <div class="info-label">Student No.:</div>
@@ -1151,15 +1676,29 @@ export class Enrollment implements OnInit, OnDestroy {
         </tr>
       </thead>
       <tbody>
-        ${scheduleRow('Downpayment', 'Downpayment', dpAmt, dp)}
-        <tr><td colspan="4" style="padding:1px;"></td></tr>
-        ${scheduleRow('PRELIM', 'Prelim', prAmt, pr)}
-        <tr><td colspan="4" style="padding:1px;"></td></tr>
-        ${scheduleRow('MIDTERM', 'Midterm', midAmt, mid)}
-        <tr><td colspan="4" style="padding:1px;"></td></tr>
-        ${scheduleRow('PREFINAL', 'Prefinal', 0, null)}
-        <tr><td colspan="4" style="padding:1px;"></td></tr>
-        ${scheduleRow('FINAL', 'Finals', finAmt, fin)}
+        ${isInstallment
+          ? `${scheduleRow('Downpayment', 'Downpayment', dpAmt, dp)}
+             <tr><td colspan="4" style="padding:1px;"></td></tr>
+             ${scheduleRow('PRELIM', 'Prelim', prAmt, pr)}
+             <tr><td colspan="4" style="padding:1px;"></td></tr>
+             ${scheduleRow('MIDTERM', 'Midterm', midAmt, mid)}
+             <tr><td colspan="4" style="padding:1px;"></td></tr>
+             ${scheduleRow('FINAL', 'Finals', finAmt, fin)}`
+          : (() => {
+              // Full plan — show single Full Payment row
+              const fp = this.termBreakdown.find(t => t.period === 'Full');
+              const fpReceipt = fp ? { amountPaid: fp.amountPaid, orArNumber: fp.orArNumber, paymentDate: fp.paymentDate } : (this.paymentReceipts[0] ?? null);
+              const paidDate  = fpReceipt?.paymentDate
+                ? new Date(fpReceipt.paymentDate).toLocaleDateString('en-PH', { month:'2-digit', day:'2-digit', year:'2-digit' })
+                : '';
+              return `<tr>
+                <td style="padding:3px 6px;">Full Payment</td>
+                <td style="padding:3px 6px;">${paidDate}</td>
+                <td style="padding:3px 6px;text-align:right;">${fpReceipt ? fmt(fpReceipt.amountPaid ?? f.totalPaid) : ''}</td>
+                <td style="padding:3px 6px;text-align:center;">${fpReceipt?.orArNumber ?? ''}</td>
+              </tr>`;
+            })()
+        }
       </tbody>
     </table>
 
@@ -1168,7 +1707,8 @@ export class Enrollment implements OnInit, OnDestroy {
       <span class="total-balance-amt">${fmt(f.balance ?? f.totalAssessment - f.totalPaid)}</span>
     </div>
 
-    <!-- Installment breakdown -->
+    <!-- Installment breakdown — only for installment plan with remaining balance -->
+    ${isInstallment && (f.balance ?? 0) > 0 ? `
     <table class="install-table">
       <thead>
         <tr>
@@ -1178,7 +1718,7 @@ export class Enrollment implements OnInit, OnDestroy {
         </tr>
       </thead>
       <tbody>
-        <tr><td>Downpayment :</td><td></td><td style="text-align:right;">${fmt(dpAmt)}</td></tr>
+        <tr><td>Downpayment :</td><td>${dueDates['Downpayment'] || ''}</td><td style="text-align:right;">${fmt(dpAmt)}</td></tr>
         <tr><td style="color:#c00;font-weight:700;">Prelim :</td><td style="color:#c00;font-weight:700;">${dueDates['Prelim']}</td><td style="text-align:right;">${fmt(prAmt)}</td></tr>
         <tr><td>Midterm:</td><td>${dueDates['Midterm']}</td><td style="text-align:right;">${fmt(midAmt)}</td></tr>
         <tr><td>Final:</td><td>${dueDates['Finals']}</td><td style="text-align:right;">${fmt(finAmt)}</td></tr>
@@ -1186,7 +1726,7 @@ export class Enrollment implements OnInit, OnDestroy {
     </table>
     <div style="text-align:right;font-size:11px;font-weight:700;margin-top:6px;padding-right:4px;">
       Total amount to be paid: &nbsp; <span style="background:#add8e6;padding:2px 8px;">${fmt(totalAmountToBePaid)}</span>
-    </div>
+    </div>` : ''}
   </div>
 </div>
 
@@ -1226,4 +1766,22 @@ export class Enrollment implements OnInit, OnDestroy {
     if (!win) return;
     win.document.write(html); win.document.close();
   }
+
+  // True when the student is browsing a past semester's SOA (not the current one)
+  get isViewingPastSemester(): boolean {
+    return this.soaSemesters.length > 0 && this.soaDisplaySemester !== '' &&
+           this.soaDisplaySemester !== this.soaSemesters[0];
+  }
+
+  // Classify subject as Minor/GE based on course code prefix
+  // GE, PE, NSTP, OJT prefixes = Minor/General Education
+  isMinor(code: string): boolean {
+    if (!code) return false;
+    const upper = code.toUpperCase();
+    return upper.startsWith('GE') ||
+           upper.startsWith('PE') ||
+           upper.startsWith('NSTP') ||
+           upper.startsWith('OJT');
+  }
+
 }

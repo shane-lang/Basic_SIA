@@ -73,9 +73,12 @@
 .st-approved  { background:#dbeafe; color:#1e40af; }
 .st-rejected  { background:#fee2e2; color:#991b1b; }
 .st-completed { background:#f3f4f6; color:#374151; }
+.st-failed    { background:#fee2e2; color:#991b1b; }
 
 .btn-view { background:linear-gradient(135deg,#1a1a2e,#16213e); color:#00d4ff; border:none; padding:5px 12px; border-radius:6px; font-size:.79rem; font-weight:700; cursor:pointer; white-space:nowrap; transition:all .2s; }
 .btn-view:hover { transform:translateY(-1px); box-shadow:0 3px 8px rgba(0,0,0,.15); }
+.btn-history { background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe; padding:5px 10px; border-radius:6px; font-size:.79rem; font-weight:600; cursor:pointer; white-space:nowrap; margin-left:4px; transition:all .2s; }
+.btn-history:hover { background:#dbeafe; transform:translateY(-1px); }
 
 /* ── Grade Pills ───────────────────────────────────────── */
 .gpill { display:inline-block; padding:2px 8px; border-radius:6px; font-size:.78rem; font-weight:700; font-family:'Courier New',monospace; background:#f1f5f9; color:#64748b; }
@@ -140,3 +143,375 @@
 .school-table { width:100%; border-collapse:collapse; font-size:.85rem; }
 .school-table th { background:#f8fafc; padding:8px 12px; text-align:left; font-size:.73rem; font-weight:700; color:#64748b; text-transform:uppercase; letter-spacing:.04em; }
 .school-table td { padding:9px 12px; border-top:1px solid #f1f5f9; color:#374151; }
+/* ── Enrollment History inline tab ── */
+.eh-back-bar {
+  display:flex; align-items:center; gap:14px;
+  padding:12px 0 16px; flex-wrap:wrap;
+}
+.eh-student-chip {
+  background:#eff6ff; border:1px solid #bfdbfe; color:#1e40af;
+  padding:6px 14px; border-radius:20px; font-size:.85rem;
+  display:flex; align-items:center; gap:6px;
+}
+.eh-num {
+  background:#dbeafe; color:#1d4ed8; padding:2px 8px;
+  border-radius:10px; font-size:.78rem; font-weight:700;
+}
+/* ── Scholar badge (added for scholarship feature) ── */
+.scholar-chip {
+  background: #ede9fe;
+  color: #5b21b6;
+  border-radius: 20px;
+  padding: 2px 10px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  white-space: nowrap;
+  display: inline-block;
+}
+.no-scholar {
+  color: #d1d5db;
+  font-size: 0.85rem;
+}
+/* ── NEW: Send Enrollment Report button ─────────────────────────────────── */
+.btn-send-enroll-report {
+  background: #0ea5e9;
+  color: #fff;
+  border: none;
+  border-radius: 7px;
+  padding: 7px 16px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+.btn-send-enroll-report:hover:not(:disabled) { background: #0284c7; }
+.btn-send-enroll-report:disabled { opacity: 0.6; cursor: not-allowed; }
+/* COE button in info back-bar */
+.btn-coe {
+  background: linear-gradient(135deg, #7c3aed, #6d28d9);
+  color: #fff;
+  border: none;
+  border-radius: 7px;
+  padding: 7px 15px;
+  font-size: .84rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity .15s;
+  white-space: nowrap;
+}
+.btn-coe:hover { opacity: .88; }
+ 
+/* Compact COE button in table rows */
+.btn-coe-sm {
+  background: #ede9fe;
+  color: #6d28d9;
+  border: 1.5px solid #ddd6fe;
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: .78rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all .15s;
+  white-space: nowrap;
+}
+.btn-coe-sm:hover { background: #ddd6fe; border-color: #c4b5fd; }
+ 
+/* COE History page wrapper */
+.coe-history-wrap { display: flex; flex-direction: column; gap: 14px; }
+ 
+/* Summary bar */
+.coe-summary-bar {
+  display: flex;
+  gap: 16px;
+  background: #fff;
+  border-radius: 12px;
+  padding: 16px 24px;
+  box-shadow: 0 2px 8px rgba(0,0,0,.07);
+  flex-wrap: wrap;
+}
+.coe-sum-item { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 70px; }
+.coe-sum-num  { font-size: 1.5rem; font-weight: 800; color: #1a1a2e; }
+.coe-sum-num.approved { color: #16a34a; }
+.coe-sum-num.pending  { color: #d97706; }
+.coe-sum-lbl  { font-size: .74rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: .04em; }
+ 
+/* Control number cell */
+.coe-ctrl-cell { white-space: nowrap; }
+.coe-ctrl-num  {
+  background: #ede9fe;
+  color: #6d28d9;
+  border-radius: 6px;
+  padding: 2px 10px;
+  font-size: .8rem;
+  font-weight: 700;
+  font-family: 'Courier New', monospace;
+}
+ 
+/* COE status pills */
+.coe-status-pill {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: .78rem;
+  font-weight: 700;
+  white-space: nowrap;
+  background: #f1f5f9;
+  color: #64748b;
+}
+.coe-approved { background: #d1fae5; color: #065f46; }
+.coe-pending  { background: #fef9c3; color: #92400e; }
+.coe-rejected { background: #fee2e2; color: #991b1b; }
+ 
+/* Row highlight for COE table */
+.coe-row-approved { background: #f0fdf4; }
+.coe-row-pending  { background: #fffbeb; }
+.coe-row-rejected { background: #fff5f5; }
+ 
+/* Download PDF button */
+.btn-dl-coe {
+  background: linear-gradient(135deg, #0ea5e9, #0284c7);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 5px 12px;
+  font-size: .8rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity .15s;
+  white-space: nowrap;
+}
+.btn-dl-coe:hover:not(:disabled) { opacity: .85; }
+.btn-dl-coe:disabled { opacity: .5; cursor: not-allowed; }
+ 
+/* ── COE Document Preview (matches student coe-student UI) ────────── */
+.coe-document-preview {
+  background: #fff;
+  border: 1.5px solid #d1fae5;
+  border-radius: 16px;
+  margin-bottom: 28px;
+  overflow: hidden;
+  box-shadow: 0 4px 24px rgba(22,163,74,.10);
+}
+
+/* Header — green gradient matching student view */
+.coe-prev-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 24px 28px 20px;
+  background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+  border-bottom: 2px solid #bbf7d0;
+  flex-wrap: wrap;
+  justify-content: space-between;
+}
+.coe-prev-school-info { flex: 1; min-width: 0; }
+.coe-prev-school-name {
+  font-size: 15px;
+  font-weight: 800;
+  color: #14532d;
+  letter-spacing: .3px;
+}
+.coe-prev-school-addr {
+  font-size: 11px;
+  color: #166534;
+  margin: 2px 0 8px;
+}
+.coe-prev-doc-title {
+  font-size: 18px;
+  font-weight: 800;
+  color: #14532d;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+.coe-prev-ctrl-box {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.coe-prev-ctrl-label {
+  font-size: 10px;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+}
+.coe-prev-ctrl-num {
+  font-size: 17px;
+  font-weight: 800;
+  color: #15803d;
+  letter-spacing: 1px;
+  font-family: monospace;
+}
+.coe-prev-ctrl-date {
+  font-size: 11px;
+  color: #4b5563;
+  margin-bottom: 8px;
+}
+.coe-prev-stamp {
+  background: #15803d;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  text-align: center;
+  padding: 6px 14px;
+  border-radius: 6px;
+  letter-spacing: 1px;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+
+/* Info Grid */
+.coe-prev-info-grid {
+  padding: 0 28px;
+  border-bottom: 1px solid #f0fdf4;
+}
+.coe-prev-info-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border-bottom: 1px solid #f1f5f9;
+}
+.coe-prev-info-row:last-child { border-bottom: none; }
+.coe-prev-cell {
+  padding: 10px 4px;
+  display: flex;
+  flex-direction: column;
+}
+.coe-prev-lbl {
+  display: block;
+  font-size: 10.5px;
+  color: #9ca3af;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .4px;
+  margin-bottom: 2px;
+}
+.coe-prev-val {
+  display: block;
+  font-size: 14px;
+  color: #111827;
+  font-weight: 500;
+}
+.coe-prev-val.name-big {
+  font-size: 15px;
+  font-weight: 700;
+  color: #14532d;
+}
+
+/* Sections */
+.coe-prev-section {
+  padding: 20px 28px;
+  border-bottom: 1px solid #f0fdf4;
+}
+.coe-prev-section:last-of-type { border-bottom: none; }
+.coe-prev-section-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #374151;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  margin-bottom: 14px;
+}
+
+/* Subjects table */
+.coe-prev-subjects-table { width: 100%; }
+.coe-prev-th-row, .coe-prev-td-row {
+  display: grid;
+  grid-template-columns: 80px 1fr 100px 70px 1fr 50px;
+  gap: 0;
+  align-items: center;
+  border-bottom: 1px solid #f1f5f9;
+}
+.coe-prev-th-row {
+  background: #f9fafb;
+  border-radius: 8px 8px 0 0;
+  border: 1px solid #e5e7eb;
+}
+.coe-prev-th-row > span, .coe-prev-td-row > span { padding: 8px 10px; font-size: 12px; }
+.coe-prev-th-row > span { font-weight: 700; color: #374151; font-size: 11px; text-transform: uppercase; letter-spacing: .3px; }
+.coe-prev-td-row { border: 1px solid #f1f5f9; border-top: none; }
+.coe-prev-td-row:hover { background: #f9fafb; }
+.coe-prev-td-row > span { font-size: 13px; color: #374151; }
+.coe-prev-td-total {
+  display: flex;
+  justify-content: space-between;
+  padding: 10px 12px;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-top: none;
+  border-radius: 0 0 8px 8px;
+  font-weight: 700;
+  font-size: 13px;
+  color: #14532d;
+}
+.total-units-val { font-size: 16px; font-weight: 800; }
+
+/* Fees */
+.coe-prev-fees-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  max-width: 380px;
+}
+.fee-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  border-bottom: 1px solid #f1f5f9;
+  font-size: 13.5px;
+}
+.fee-row:last-child { border-bottom: none; }
+.fee-label { color: #374151; }
+.fee-val   { font-weight: 600; color: #1e293b; font-variant-numeric: tabular-nums; }
+.fee-discount .fee-label, .fee-discount .fee-val { color: #16a34a; }
+.fee-installment .fee-val { color: #b45309; }
+.fee-total {
+  background: #14532d;
+  border-radius: 8px;
+  margin-top: 6px;
+  padding: 12px 14px !important;
+}
+.fee-total .fee-label { color: #bbf7d0; font-weight: 700; font-size: 12px; letter-spacing: .4px; text-transform: uppercase; }
+.fee-total .fee-val   { color: #fff; font-size: 17px; font-weight: 800; }
+
+/* Footer */
+.coe-prev-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 28px;
+  background: #f8fafc;
+  border-top: 1px solid #e5e7eb;
+  flex-wrap: wrap;
+}
+.coe-prev-footer-note {
+  font-size: 11.5px;
+  color: #6b7280;
+  flex: 1;
+  line-height: 1.5;
+  font-style: italic;
+}
+.btn-dl-coe {
+  padding: 12px 24px;
+  background: #15803d;
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .2s;
+  flex-shrink: 0;
+}
+.btn-dl-coe:hover:not(:disabled) { background: #166534; }
+.btn-dl-coe:disabled { background: #9ca3af; cursor: not-allowed; }
+
+/* Shared utility classes */
+.col-code  { font-family: monospace; }
+.col-units { text-align: center; font-weight: 700; }
+.fw  { font-weight: 700; color: #1e293b !important; }
+.tc  { text-align: center; font-weight: 700; color: #1e293b !important; }

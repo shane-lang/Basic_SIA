@@ -8,6 +8,8 @@ import { MatInputModule } from '@angular/material/input';
 import { MatCardModule } from '@angular/material/card';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { PLATFORM_ID, inject } from '@angular/core';
+import { environment } from '../environment';
+import { AuthService } from '../services/auth';
 
 @Component({
   selector: 'app-login',
@@ -17,20 +19,43 @@ import { PLATFORM_ID, inject } from '@angular/core';
   styleUrls: ['./login.css']
 })
 export class LoginComponent implements OnInit, OnDestroy {
-  private apiUrl     = 'http://localhost/sia-api/enrollment.php';
-  private authUrl    = 'http://localhost/sia-api/auth.php';
-  private adminUrl   = 'http://localhost/sia-api/admin.php';
-  private accountingUrl = 'http://localhost/sia-api/accounting.php';
+  private apiUrl     = environment.enrollApi;
+  private authUrl    = environment.authApi;
+  private adminUrl   = environment.adminApi;
+  private accountingUrl = environment.accountingApi;
   private platformId = inject(PLATFORM_ID);
 
-  view: 'login' | 'enroll' = 'login';
+  view: 'login' | 'enroll' | 'forgot' | 'reset' = 'login';
+
+  // ── Forgot / Reset Password state ────────────────────────────
+  fpEmail           = '';
+  fpOtp             = '';
+  fpNewPassword     = '';
+  fpConfirmPassword = '';
+  fpLoading         = false;
+  fpError           = '';
+  fpSuccess         = '';
+  fpResendCountdown = 0;
+  private fpResendTimer: any = null;
 
   // ── Login ────────────────────────────────────────────────────
   email = ''; password = ''; errorMessage = ''; successMessage = ''; loading = false;
 
+  // ── OTP 2FA state (student portal) ─────────────────────────
+  showOtpModal   = false;
+  otpToken       = '';
+  otpInput       = '';
+  otpCode        = '';   // dev-mode preview of the OTP (shown in-app when APP_ENV=development)
+  otpError       = '';
+  otpVerifying   = false;
+  otpCountdown   = 300;
+  private otpTimer: any = null;
+
   // ── Wizard ───────────────────────────────────────────────────
-  enrollStep: 'program' | 'info' | 'documents' | 'tor-review' | 'account' = 'program';
+  enrollStep: 'program' | 'info' | 'documents' | 'tor-review' | 'account' | 'confirmed' = 'program';
   enrollError = ''; isSubmitting = false;
+  privacyConsentGiven = false;  // RA 10173 — must be true before account creation
+  showPrivacyNotice   = false;
 
   // Step 1
   studentTypeCategory: 'College' | 'SHS' | 'TVET' | '' = '';
@@ -67,7 +92,7 @@ export class LoginComponent implements OnInit, OnDestroy {
     hasAssistiveTech: '' as 'Yes' | 'No' | '', assistiveTechDetails: '',
     strand: '',
     learningDelivery: '' as 'Face to Face' | 'Online' | 'Modular' | 'Combination of Face to face and Online' | 'Blended Methods of Learning' | '',
-    guardianName: '', guardianAddress: '', guardianContact: '',
+    guardianName: '', guardianAddress: '', guardianContact: '', guardianEmail: '', guardianRelationship: '',
     yearLevel: '1st Year',
     semesterEnroll: '' as string,
     ayYear: (() => { const now = new Date(); const m = now.getMonth()+1; const s = m>=6?now.getFullYear():now.getFullYear()-1; return `${s}-${s+1}`; })(),
@@ -128,7 +153,12 @@ export class LoginComponent implements OnInit, OnDestroy {
   picFile: File | null = null;       picFileName = '';
 
   isScholar = false; scholarType = ''; scholarGrantor = ''; scholarshipAmount = 0;
-  scholarTypes = ['CHED Scholarship','TESDA Scholarship','Local Government Unit (LGU) Scholarship',
+  isFullScholarship = false; // true when Full Scholarship selected — covers entire tuition
+  scholarClaimCode  = '';
+  scholarCodeStatus: 'idle' | 'checking' | 'valid' | 'invalid' = 'idle';
+  scholarCodeMsg    = '';
+  scholarPreapprovalId = 0;
+  scholarTypes = ['Full Scholarship','CHED Scholarship','TESDA Scholarship','Local Government Unit (LGU) Scholarship',
     'School-Based Scholarship','Private Scholarship / Foundation','Sibling Discount',
     'Faculty/Staff Dependent Discount','Other'];
 
@@ -179,7 +209,7 @@ export class LoginComponent implements OnInit, OnDestroy {
 
   // ── Enrollment Period ─────────────────────────────────────────
   enrollmentPeriod: { is_open: boolean; start: string|null; end: string|null; label: string } | null = null;
-  enrollmentIsOpen = false;
+  enrollmentIsOpen = true;
   enrollmentClosedMsg = '';
   isCheckingPeriod = false;
 
@@ -212,6 +242,14 @@ export class LoginComponent implements OnInit, OnDestroy {
   isSHSFeeLoading = false;
   isTVETFeeLoading = false;
 
+  // ── Registration confirmation data ─────────────────────────
+  confirmedStudentNumber = '';
+  confirmedName          = '';
+  confirmedProgram       = '';
+  confirmedNextStep      = ''; // 'payment' | 'tor' | 'free'
+  confirmedAutoLoginSec  = 5;  // countdown before auto-login
+  private confirmCountdown?: ReturnType<typeof setInterval>;
+
   // ── SHS-specific step tracking ───────────────────────────
   // SHS: gradeLevel → track → strand → program
   shsSelectedTrack = '';  // 'Academic' | 'TVL-HE' | 'TVL-ICT'
@@ -236,7 +274,28 @@ export class LoginComponent implements OnInit, OnDestroy {
     });
   }
 
-  constructor(private http: HttpClient, private router: Router, private cdr: ChangeDetectorRef) {}
+  private sessionPollTimer: any = null;
+  checkingSession = false;
+  redirectingToDashboard = false;
+  redirectCountdown = 3;
+
+  constructor(private http: HttpClient, private router: Router, private cdr: ChangeDetectorRef, private auth: AuthService) {
+    // Check localStorage in the constructor — before Angular renders the template.
+    // This ensures redirectingToDashboard=true on the FIRST render, so the login
+    // form never flashes and the overlay shows immediately.
+    try {
+      const token     = localStorage.getItem('sia_student_token');
+      const expiresAt = Number(localStorage.getItem('sia_student_expiry') ?? 0);
+      const userRaw   = localStorage.getItem('sia_student_user');
+      if (token && expiresAt && Date.now() < expiresAt && userRaw) {
+        const user = JSON.parse(userRaw);
+        if (user?.role === 'student') {
+          this.redirectingToDashboard = true;
+          this.redirectCountdown = 3;
+        }
+      }
+    } catch { /* localStorage blocked — show login normally */ }
+  }
 
   // ── Wizard state persistence helpers ─────────────────────────
   private saveWizardState(): void {
@@ -250,6 +309,8 @@ export class LoginComponent implements OnInit, OnDestroy {
       regForm: this.regForm, previousSchools: this.previousSchools,
       isScholar: this.isScholar, scholarType: this.scholarType,
       scholarGrantor: this.scholarGrantor, scholarshipAmount: this.scholarshipAmount,
+      isFullScholarship: this.isFullScholarship,
+      scholarClaimCode: this.scholarClaimCode, scholarPreapprovalId: this.scholarPreapprovalId,
       paymentMethod: this.paymentMethod, paymentPlan: this.paymentPlan,
       torReviewStudentId: this.torReviewStudentId,
       // Never save 'sending' — it's transient. If reload happens mid-send, reset to idle.
@@ -264,7 +325,34 @@ export class LoginComponent implements OnInit, OnDestroy {
     sessionStorage.removeItem('torReviewStudentId');
   }
 
+  // Fires when another tab logs in (sets sia_student_token in localStorage)
+  private _onStorageLogin = (e: StorageEvent): void => {
+    console.log('[SIA] storage event on login page:', e.key, '| newValue:', e.newValue ? e.newValue.substring(0,10) : 'null');
+    if (e.key !== 'sia_student_token' || !e.newValue) return;
+    console.log('[SIA] sia_student_token set — redirecting immediately!');
+    // Don't wait for Angular change detection — redirect straight away
+    window.location.replace('/#/student/dashboard');
+  };
+
   ngOnInit(): void {
+    console.log('[SIA] login ngOnInit — adding storage listener');
+    if (typeof window !== 'undefined') {
+      window.addEventListener('storage', this._onStorageLogin);
+    }
+
+    // If constructor detected an active session, start the countdown now.
+    if (this.redirectingToDashboard) {
+      const countdown = setInterval(() => {
+        this.redirectCountdown--;
+        this.cdr.detectChanges();
+        if (this.redirectCountdown <= 0) {
+          clearInterval(countdown);
+          window.location.replace('/#/student/dashboard');
+        }
+      }, 1000);
+      return; // don't restore wizard state
+    }
+
     // Restore wizard state after reload
     const raw = sessionStorage.getItem('enrollWizardState');
     if (raw) {
@@ -321,7 +409,11 @@ export class LoginComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('storage', this._onStorageLogin);
+    }
     if (this.torPollTimer) clearInterval(this.torPollTimer);
+    if (this.otpTimer) clearInterval(this.otpTimer);
   }
 
 
@@ -353,22 +445,42 @@ export class LoginComponent implements OnInit, OnDestroy {
   // ══ LOGIN ═════════════════════════════════════════════════════
   login(): void {
     if (!this.email || !this.password) { this.errorMessage = 'Please enter email and password'; return; }
-    // Clear any stale token so the interceptor doesn't attach it to the login request
-    sessionStorage.removeItem('token'); localStorage.removeItem('token');
-    sessionStorage.removeItem('currentUser'); localStorage.removeItem('currentUser');
+
+    // Guard: if already logged in, redirect instead of re-authenticating
+    const existingToken = this.auth.getToken();
+    const existingUser  = JSON.parse(sessionStorage.getItem('currentUser') ?? 'null');
+    if (existingToken && existingUser?.role) {
+      this.redirectByRole(existingUser.role);
+      return;
+    }
+
     this.loading = true; this.errorMessage = ''; this.successMessage = '';
     this.http.post<any>(this.authUrl, { email: this.email, password: this.password }).subscribe({
       next: (res) => {
+        this.loading = false;
+        // ── 2FA: backend returns otp_required=true, show OTP modal ──
+        if (res.otp_required) {
+          this.otpToken     = res.otp_token ?? '';
+          this.otpInput     = '';
+          this.otpError     = '';
+          this.otpCountdown = res.otp_expires_in ?? 300;
+          this.showOtpModal = true;
+          this._startOtpTimer();
+          this.cdr.detectChanges();
+          return;
+        }
         if (res.success) {
-          if (isPlatformBrowser(this.platformId)) {
-            sessionStorage.setItem('currentUser', JSON.stringify(res.user));
-            localStorage.setItem('currentUser', JSON.stringify(res.user));
-            sessionStorage.setItem('token', res.token);
-            localStorage.setItem('token', res.token);
+          // ── Student portal only — block non-student roles ──
+          if (res.user?.role !== 'student') {
+            this.errorMessage = 'This portal is for students only. Please use the correct portal.';
+            this.cdr.detectChanges();
+            return;
           }
-          this.loading = false;
+          if (isPlatformBrowser(this.platformId)) {
+            this.auth.storeSession(res.token, res.user, res.user.role);
+          }
           this.redirectByRole(res.user.role);
-        } else { this.errorMessage = res.message || 'Login failed'; this.loading = false; this.cdr.detectChanges(); }
+        } else { this.errorMessage = res.message || 'Login failed'; this.cdr.detectChanges(); }
       },
       error: () => { this.errorMessage = 'Connection error. Make sure XAMPP is running.'; this.loading = false; this.cdr.detectChanges(); }
     });
@@ -380,6 +492,60 @@ export class LoginComponent implements OnInit, OnDestroy {
     this.router.navigate([r[role] || '/login']);
   }
 
+  // ── OTP 2FA methods (student portal login) ─────────────────
+  private _startOtpTimer(): void {
+    if (this.otpTimer) clearInterval(this.otpTimer);
+    this.otpTimer = setInterval(() => {
+      this.otpCountdown--;
+      this.cdr.detectChanges();
+      if (this.otpCountdown <= 0) {
+        clearInterval(this.otpTimer);
+        this.showOtpModal = false;
+        this.otpError = 'OTP expired. Please log in again.';
+        this.cdr.detectChanges();
+      }
+    }, 1000);
+  }
+
+  verifyStudentOtp(): void {
+    if (!this.otpInput || this.otpInput.trim().length !== 6) {
+      this.otpError = 'Please enter the 6-digit code.'; this.cdr.detectChanges(); return;
+    }
+    this.otpVerifying = true; this.otpError = ''; this.cdr.detectChanges();
+    this.http.post<any>(`${this.authUrl}?action=verify_otp`, {
+      otp_token: this.otpToken,
+      otp_code:  this.otpInput.trim(),
+    }).subscribe({
+      next: (res) => {
+        this.otpVerifying = false;
+        if (res.success) {
+          if (this.otpTimer) clearInterval(this.otpTimer);
+          this.showOtpModal = false;
+          if (isPlatformBrowser(this.platformId)) {
+            this.auth.storeSession(res.token, res.user, 'student');
+          }
+          this.redirectByRole(res.user?.role ?? 'student');
+        } else {
+          this.otpError = res.message || 'Incorrect OTP. Please try again.';
+          this.cdr.detectChanges();
+        }
+      },
+      error: (err) => {
+        this.otpVerifying = false;
+        this.otpError = err.error?.message || 'Verification failed.';
+        this.cdr.detectChanges();
+      }
+    });
+  }
+
+  cancelStudentOtp(): void {
+    this.showOtpModal = false;
+    this.otpInput = '';
+    this.otpToken = '';
+    this.otpError = '';
+    if (this.otpTimer) clearInterval(this.otpTimer);
+  }
+
   // ══ ENROLLMENT WIZARD ════════════════════════════════════════
   openEnrollment(): void {
     // Check if enrollment is open before showing the wizard
@@ -388,25 +554,30 @@ export class LoginComponent implements OnInit, OnDestroy {
     this.http.get<any>(`${this.apiUrl}?action=get_enrollment_period`).subscribe({
       next: res => {
         this.isCheckingPeriod = false;
-        this.enrollmentIsOpen = res.is_open ?? false;
+        this.enrollmentIsOpen = res.is_open ?? true;
         this.enrollmentPeriod = res.period ?? null;
+        // Only show closed message if explicitly closed AND has a label/date
         if (!this.enrollmentIsOpen) {
           const p = res.period ?? {};
           let msg = 'Enrollment is currently closed.';
           if (p.label)  msg += ` (${p.label})`;
           if (p.start)  msg += ` Opens: ${new Date(p.start).toLocaleDateString('en-PH', {month:'short',day:'numeric',year:'numeric',hour:'2-digit',minute:'2-digit'})}`;
           this.enrollmentClosedMsg = msg;
-          // Still show enroll view but will display closed message at top
+        } else {
+          this.enrollmentClosedMsg = ''; // clear if open
         }
         this.view = 'enroll'; this.enrollStep = 'program'; this.enrollError = '';
         this.saveWizardState();
     this.studentTypeCategory = ''; this.selectedProgram = ''; this.selectedProgramName = ''; this.selectedDepartment = ''; this.selectedDept = ''; this.selectedGradeLevel = ''; this.selectedTvetType = '';
-    this.regForm = { lastName:'',firstName:'',middleName:'',suffix:'',studentType:'New',lrnNo:'',dateOfBirth:'',lastSchoolAttended:'',psaBirthCertNo:'',sex:'',religion:'',age:'',placeOfBirth:'',citizenship:'',homeAddress:'',contactNumber:'',isIndigenous:'No',motherTongue:'',hasSpecialNeeds:'No',specialNeedsDetails:'',hasAssistiveTech:'No',assistiveTechDetails:'',strand:'',learningDelivery:'',guardianName:'',guardianAddress:'',guardianContact:'',yearLevel:'1st Year',semesterEnroll:'',ayYear:'' };
+    this.regForm = { lastName:'',firstName:'',middleName:'',suffix:'',studentType:'New',lrnNo:'',dateOfBirth:'',lastSchoolAttended:'',psaBirthCertNo:'',sex:'',religion:'',age:'',placeOfBirth:'',citizenship:'',homeAddress:'',contactNumber:'',isIndigenous:'No',motherTongue:'',hasSpecialNeeds:'No',specialNeedsDetails:'',hasAssistiveTech:'No',assistiveTechDetails:'',strand:'',learningDelivery:'',guardianName:'',guardianAddress:'',guardianContact:'',guardianEmail:'',guardianRelationship:'',yearLevel:'1st Year',semesterEnroll:'',ayYear:'' };
     this.torFile=null; this.goodMoralFile=null; this.psaFile=null; this.form138File=null; this.picFile=null;
     this.torFileName=''; this.goodMoralFileName=''; this.psaFileName=''; this.form138FileName=''; this.picFileName='';
     this.isScholar=false; this.scholarType=''; this.scholarGrantor=''; this.scholarshipAmount=0;
+    this.isFullScholarship=false; this.scholarClaimCode=''; this.scholarCodeStatus='idle';
+    this.scholarCodeMsg=''; this.scholarPreapprovalId=0;
     this.paymentMethod='GCash'; this.paymentPlan='full';
-    this.regForm.yearLevel = '1st Year'; this.regForm.semesterEnroll = '';
+    this.regForm.yearLevel = '1st Year';
+    this.applyEnrollmentPeriodToForm();
     this.feePreview=null; this.feePreviewError='';
     this.accountForm={email:'',password:'',confirmPassword:''};
     this.torReviewPhase='idle'; this.torReviewError=''; this.torReviewStudentId=0;
@@ -429,7 +600,7 @@ export class LoginComponent implements OnInit, OnDestroy {
 
   backToLogin(): void { this.view = 'login'; this.enrollError = ''; this.cdr.detectChanges(); }
 
-  get stepNumber(): number { return ({program:1,info:2,documents:3,'tor-review':3,account:4} as any)[this.enrollStep] ?? 1; }
+  get stepNumber(): number { return ({program:1,info:2,documents:3,'tor-review':3,account:4,confirmed:4} as any)[this.enrollStep] ?? 1; }
 
   studentTypeCategoryLabel(): string {
     return this.studentTypeCategory === 'College' ? '🎓 College' : this.studentTypeCategory === 'SHS' ? '📚 Senior High School' : this.studentTypeCategory === 'TVET' ? '🔧 TVET Program' : '';
@@ -577,7 +748,6 @@ export class LoginComponent implements OnInit, OnDestroy {
     }
     if (!f.sex)                        { this.enrollError = 'Sex is required.';                      this.cdr.detectChanges(); return; }
     if (!f.religion?.trim())           { this.enrollError = 'Religion is required.';                 this.cdr.detectChanges(); return; }
-    if (!f.age?.toString().trim())     { this.enrollError = 'Age is required.';                      this.cdr.detectChanges(); return; }
     if (!f.placeOfBirth?.trim())       { this.enrollError = 'Place of Birth is required.';           this.cdr.detectChanges(); return; }
     if (!f.citizenship?.trim())        { this.enrollError = 'Citizenship is required.';              this.cdr.detectChanges(); return; }
     if (!f.homeAddress?.trim())        { this.enrollError = 'Home Address is required.';             this.cdr.detectChanges(); return; }
@@ -591,9 +761,10 @@ export class LoginComponent implements OnInit, OnDestroy {
     if (!f.guardianName?.trim())       { this.enrollError = 'Parent / Guardian Name is required.';   this.cdr.detectChanges(); return; }
     if (!f.guardianAddress?.trim())    { this.enrollError = 'Parent / Guardian Address is required.'; this.cdr.detectChanges(); return; }
     if (!f.guardianContact?.trim())    { this.enrollError = 'Parent / Guardian Contact is required.'; this.cdr.detectChanges(); return; }
+    if (!f.guardianEmail?.trim())      { this.enrollError = 'Parent / Guardian Email is required.'; this.cdr.detectChanges(); return; }
+    if (!f.guardianRelationship?.trim()) { this.enrollError = 'Relationship to Student is required.'; this.cdr.detectChanges(); return; }
 
     if (!f.yearLevel)            { this.enrollError = 'Year Level is required.';            this.cdr.detectChanges(); return; }
-    if (!f.semesterEnroll)         { this.enrollError = 'Semester is required.';               this.cdr.detectChanges(); return; }
 
     // LRN — only strictly required for SHS/TVET; for College it is optional
     if ((this.isSHS || this.isTVET) && !f.lrnNo?.trim()) {
@@ -644,8 +815,12 @@ export class LoginComponent implements OnInit, OnDestroy {
       next: (res) => {
         this.isFeePreviewLoading = false;
         if (res.success && res.fees) {
-          this.feePreview = res.fees;
+          this.feePreview    = res.fees;
           this.tuitionAmount = res.fees.totalAssessment;
+          // If Full Scholarship selected, sync amount with the actual subtotal
+          if (this.isFullScholarship && res.fees.subtotal > 0) {
+            this.scholarshipAmount = res.fees.subtotal;
+          }
         } else {
           this.feePreviewError = 'Could not load fee breakdown.';
         }
@@ -666,7 +841,7 @@ export class LoginComponent implements OnInit, OnDestroy {
     this.programCourses = [];
     this.cdr.detectChanges();
     this.http.get<any>(
-      `http://localhost/sia-api/registrar.php?action=get_program_courses&program=${encodeURIComponent(this.selectedProgramName)}`
+      `${environment.registrarApi}?action=get_program_courses&program=${encodeURIComponent(this.selectedProgramName)}`
     ).subscribe({
       next: (res) => {
         this.isProgramCoursesLoading = false;
@@ -710,13 +885,59 @@ export class LoginComponent implements OnInit, OnDestroy {
   }
 
   onScholarshipChange(): void {
+    // If Full Scholarship selected, auto-set amount = subtotal (before any discount)
+    if (this.scholarType === 'Full Scholarship') {
+      this.isFullScholarship = true;
+      // Use subtotal (gross amount before discounts) so full coverage is guaranteed
+      const fullAmount = this.feePreview?.subtotal
+                      ?? this.torEvalResult?.fee?.subtotal
+                      ?? this.tuitionAmount;
+      this.scholarshipAmount = fullAmount > 0 ? fullAmount : this.scholarshipAmount;
+    } else {
+      this.isFullScholarship = false;
+      this.scholarClaimCode    = '';
+      this.scholarCodeStatus   = 'idle';
+      this.scholarCodeMsg      = '';
+      this.scholarPreapprovalId = 0;
+    }
     if (this.enrollStep !== 'documents') return;
     if (this.isSHS)        this.loadSHSFee();
     else if (this.isTVET)  this.loadTVETFee();
-    else                   this.loadFeePreview(); // College only
+    else                   this.loadFeePreview();
   }
 
-  // ── Program course grouping helpers ──────────────────────
+  verifyScholarCode(): void {
+    const code = this.scholarClaimCode.trim().toUpperCase();
+    if (!code) { this.scholarCodeStatus = 'idle'; this.scholarCodeMsg = ''; return; }
+    this.scholarCodeStatus = 'checking';
+    this.scholarCodeMsg    = '';
+    this.cdr.detectChanges();
+    this.http.get<any>(`${this.accountingUrl}?action=verify_scholarship_code&code=${encodeURIComponent(code)}`).subscribe({
+      next: (res) => {
+        if (res.success && res.valid) {
+          this.scholarCodeStatus    = 'valid';
+          this.scholarCodeMsg       = `✓ Valid — ${res.scholar_type}${res.grantor ? ' · ' + res.grantor : ''}`;
+          this.scholarType          = res.scholar_type || 'Full Scholarship';
+          this.scholarGrantor       = res.grantor || '';
+          this.scholarPreapprovalId = res.preapproval_id || 0;
+          this.isFullScholarship    = true;
+          this.scholarshipAmount    = this.feePreview?.subtotal ?? this.torEvalResult?.fee?.subtotal ?? this.tuitionAmount;
+        } else {
+          this.scholarCodeStatus    = 'invalid';
+          this.scholarCodeMsg       = res.message || 'Invalid code.';
+          this.scholarPreapprovalId = 0;
+        }
+        this.cdr.detectChanges();
+      },
+      error: () => {
+        this.scholarCodeStatus = 'invalid';
+        this.scholarCodeMsg    = 'Could not connect to server.';
+        this.cdr.detectChanges();
+      }
+    });
+  }
+
+  // ── Program course grouping helpersgrouping helpers ──────────────────────
   private yearOrder = ['1st Year','2nd Year','3rd Year','4th Year'];
   private semOrder  = ['1st Semester','2nd Semester','Midyear'];
 
@@ -761,6 +982,10 @@ export class LoginComponent implements OnInit, OnDestroy {
       }
     }
     if (this.isScholar && !this.scholarType) { this.enrollError='Please select a scholarship type.'; this.cdr.detectChanges(); return; }
+    if (this.isFullScholarship && this.scholarCodeStatus !== 'valid') {
+      this.enrollError = 'Please enter and verify your Full Scholarship claim code from Accounting.';
+      this.cdr.detectChanges(); return;
+    }
     this.enrollError = '';
     // Warn if fee is still loading
     if (!this.isTransfereeEnrolling && this.isFeePreviewLoading) {
@@ -815,6 +1040,7 @@ export class LoginComponent implements OnInit, OnDestroy {
           citizenship: this.regForm.citizenship, placeOfBirth: this.regForm.placeOfBirth,
           motherTongue: this.regForm.motherTongue, lastSchoolAttended: this.regForm.lastSchoolAttended,
           strand: this.regForm.strand, age: this.regForm.age, guardianAddress: this.regForm.guardianAddress,
+          guardianEmail: this.regForm.guardianEmail, guardianRelationship: this.regForm.guardianRelationship,
           psaBirthCertNo: this.regForm.psaBirthCertNo, isIndigenous: this.regForm.isIndigenous,
           hasSpecialNeeds: this.regForm.hasSpecialNeeds, specialNeedsDetails: this.regForm.specialNeedsDetails,
           hasAssistiveTech: this.regForm.hasAssistiveTech, assistiveTechDetails: this.regForm.assistiveTechDetails,
@@ -838,10 +1064,10 @@ export class LoginComponent implements OnInit, OnDestroy {
               const fd = new FormData();
               fd.append('student_id', String(sid));
               fd.append('tor_file', this.torFile);
-              this.http.post<any>('http://localhost/sia-api/registrar.php?action=upload_tor_file', fd)
+              this.http.post<any>(environment.registrarApi + '?action=upload_tor_file', fd)
                 .subscribe({ next: () => afterUpload(), error: () => afterUpload() });
             } else {
-              this.http.post<any>('http://localhost/sia-api/registrar.php?action=submit_tor', { student_id: sid })
+              this.http.post<any>(environment.registrarApi + '?action=submit_tor', { student_id: sid })
                 .subscribe({ next: () => afterUpload(), error: () => afterUpload() });
             }
           },
@@ -849,6 +1075,61 @@ export class LoginComponent implements OnInit, OnDestroy {
         });
       },
       error: () => { this.torReviewPhase='idle'; this.torReviewError='Cannot connect to server. Check XAMPP is running.'; this.cdr.detectChanges(); }
+    });
+  }
+
+  showRegistrationConfirmation(studentNumber: string, name: string, program: string, nextStep: 'payment' | 'tor' | 'free'): void {
+    this.confirmedStudentNumber = studentNumber;
+    this.confirmedName          = name;
+    this.confirmedProgram       = program;
+    this.confirmedNextStep      = nextStep;
+    this.confirmedAutoLoginSec  = 5;
+    this.enrollStep             = 'confirmed';
+    this.isSubmitting           = false;
+    this.cdr.detectChanges();
+
+    // Start countdown — auto-proceeds after 5s
+    if (this.confirmCountdown) clearInterval(this.confirmCountdown);
+    this.confirmCountdown = setInterval(() => {
+      this.confirmedAutoLoginSec--;
+      this.cdr.detectChanges();
+      if (this.confirmedAutoLoginSec <= 0) {
+        clearInterval(this.confirmCountdown);
+        this.proceedAfterConfirmation();
+      }
+    }, 1000);
+  }
+
+  proceedAfterConfirmation(): void {
+    if (this.confirmCountdown) clearInterval(this.confirmCountdown);
+    const a = this.accountForm;
+    this.isSubmitting = true;
+    this.cdr.detectChanges();
+    // Auto-login (with 2FA handling)
+    this.http.post<any>(this.authUrl, { email: a.email, password: a.password }).subscribe({
+      next: (lr) => {
+        if (lr.otp_required) {
+          // 2FA triggered — show OTP modal, then continue to enrollment after verify
+          this.isSubmitting = false;
+          this.otpToken = lr.otp_token ?? '';
+          this.otpCode  = lr.otp_code ?? '';
+          this.otpInput = ''; this.otpError = '';
+          this.otpCountdown = lr.otp_expires_in ?? 300;
+          this.showOtpModal = true;
+          this._startOtpTimer();
+          this.cdr.detectChanges();
+          return;
+        }
+        if (lr.success) { this.auth.storeSession(lr.token, lr.user, 'student'); }
+        this.clearWizardState();
+        this.router.navigate(['/student/enrollment']);
+      },
+      error: () => {
+        this.isSubmitting = false;
+        this.view = 'login'; this.email = a.email;
+        this.successMessage = 'Account created! Please log in to continue.';
+        this.cdr.detectChanges();
+      }
     });
   }
 
@@ -862,7 +1143,7 @@ export class LoginComponent implements OnInit, OnDestroy {
     const sid = this.torReviewStudentId;
     if (!sid) { console.warn('[TOR POLL] No student_id — polling skipped'); return; }
     console.log('[TOR POLL] Checking evaluation for student_id', sid);
-    this.http.get<any>(`http://localhost/sia-api/registrar.php?action=get_tor_evaluation&student_id=${sid}`).subscribe({
+    this.http.get<any>(`${environment.registrarApi}?action=get_tor_evaluation&student_id=${sid}`).subscribe({
       next: (res) => {
         console.log('[TOR POLL] Response:', res);
         if (!res.success || !res.evaluation || res.evaluation.status === 'Pending') {
@@ -922,6 +1203,56 @@ export class LoginComponent implements OnInit, OnDestroy {
     return `${semLabel}, AY ${ayStart}-${ayStart + 1}`;
   }
 
+  /**
+   * Parses the enrollment period label set by the admin
+   * (e.g. "1st Semester AY 2025-2026" or "2nd Semester, AY 2026-2027")
+   * and auto-fills regForm.semesterEnroll and regForm.ayYear.
+   * Falls back to getCurrentSemester() parsing when the label is absent or unrecognised.
+   */
+  applyEnrollmentPeriodToForm(): void {
+    const label = this.enrollmentPeriod?.label?.trim() ?? '';
+
+    // Match semester term: "1st Semester" or "2nd Semester" (case-insensitive)
+    const semMatch = label.match(/\b(1st\s+Semester|2nd\s+Semester)\b/i);
+    // Match AY pattern: four-digit year hyphen four-digit year, e.g. 2025-2026
+    const ayMatch  = label.match(/\b(\d{4}[-\u2013]\d{4})\b/);
+
+    if (semMatch && ayMatch) {
+      const sem = semMatch[1].replace(/\s+/g, ' ');
+      this.regForm.semesterEnroll = sem.charAt(0).toUpperCase() + sem.slice(1);
+      this.regForm.ayYear         = ayMatch[1].replace('\u2013', '-');
+    } else {
+      // Label blank or unrecognised — derive from system clock
+      const fallback = this.getCurrentSemester();
+      const fbSem = fallback.match(/\b(1st Semester|2nd Semester)\b/i);
+      const fbAY  = fallback.match(/\b(\d{4}-\d{4})\b/);
+      if (fbSem) this.regForm.semesterEnroll = fbSem[1];
+      if (fbAY)  this.regForm.ayYear         = fbAY[1];
+    }
+    this.cdr.detectChanges();
+  }
+
+  /**
+   * Calculates the student's age from regForm.dateOfBirth and writes it back
+   * into regForm.age. Called whenever the Date of Birth field changes.
+   */
+  computeAgeFromDOB(): void {
+    const dob = this.regForm.dateOfBirth;
+    if (!dob) { this.regForm.age = ''; this.cdr.detectChanges(); return; }
+
+    const birth = new Date(dob);
+    if (isNaN(birth.getTime())) { this.regForm.age = ''; this.cdr.detectChanges(); return; }
+
+    const today = new Date();
+    let age = today.getFullYear() - birth.getFullYear();
+    const monthDiff = today.getMonth() - birth.getMonth();
+    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) {
+      age--;
+    }
+    this.regForm.age = age > 0 ? String(age) : '';
+    this.cdr.detectChanges();
+  }
+
   finishTorReview(): void {
     // Auto-login then navigate
     const a = this.accountForm;
@@ -943,11 +1274,19 @@ export class LoginComponent implements OnInit, OnDestroy {
 
     this.http.post<any>(this.authUrl, { email: a.email, password: a.password }).subscribe({
       next: (lr) => {
+        if (lr.otp_required) {
+          this.isSubmitting = false;
+          this.otpToken = lr.otp_token ?? '';
+          this.otpCode  = lr.otp_code ?? '';
+          this.otpInput = ''; this.otpError = '';
+          this.otpCountdown = lr.otp_expires_in ?? 300;
+          this.showOtpModal = true;
+          this._startOtpTimer();
+          this.cdr.detectChanges();
+          return;
+        }
         if (lr.success && isPlatformBrowser(this.platformId)) {
-          sessionStorage.setItem('currentUser', JSON.stringify(lr.user));
-            localStorage.setItem('currentUser', JSON.stringify(lr.user));
-          sessionStorage.setItem('token', lr.token);
-            localStorage.setItem('token', lr.token);
+          this.auth.storeSession(lr.token, lr.user, 'student');
         }
         this.clearWizardState();
         this.router.navigate(['/student/enrollment']);
@@ -993,6 +1332,7 @@ export class LoginComponent implements OnInit, OnDestroy {
           dateOfBirth: this.regForm.dateOfBirth, address: this.regForm.homeAddress,
           guardianName: this.regForm.guardianName, guardianAddress: this.regForm.guardianAddress,
           guardianContact: this.regForm.guardianContact,
+          guardianEmail: this.regForm.guardianEmail, guardianRelationship: this.regForm.guardianRelationship,
           program: this.selectedProgramName,
           studentType: this.regForm.studentType,
           studentCategory: 'SHS',
@@ -1033,10 +1373,7 @@ export class LoginComponent implements OnInit, OnDestroy {
                 this.http.post<any>(this.authUrl, { email: a.email, password: a.password }).subscribe({
                   next: (lr) => {
                     if (lr.success && isPlatformBrowser(this.platformId)) {
-                      sessionStorage.setItem('currentUser', JSON.stringify(lr.user));
-            localStorage.setItem('currentUser', JSON.stringify(lr.user));
-                      sessionStorage.setItem('token', lr.token);
-            localStorage.setItem('token', lr.token);
+                      this.auth.storeSession(lr.token, lr.user, 'student');
                     }
                     this.clearWizardState();
                     this.router.navigate(['/student/enrollment']);
@@ -1050,7 +1387,7 @@ export class LoginComponent implements OnInit, OnDestroy {
                 fd.append('student_id', String(studentId));
                 fd.append('document_type', 'form138');
                 fd.append('file', this.form138File);
-                this.http.post<any>('http://localhost/sia-api/registrar.php?action=upload_document', fd)
+                this.http.post<any>(environment.registrarApi + '?action=upload_document', fd)
                   .subscribe({ next: () => doLogin(), error: () => doLogin() });
               } else { doLogin(); }
             };
@@ -1104,6 +1441,7 @@ export class LoginComponent implements OnInit, OnDestroy {
           dateOfBirth: this.regForm.dateOfBirth, address: this.regForm.homeAddress,
           guardianName: this.regForm.guardianName, guardianAddress: this.regForm.guardianAddress,
           guardianContact: this.regForm.guardianContact,
+          guardianEmail: this.regForm.guardianEmail, guardianRelationship: this.regForm.guardianRelationship,
           program: this.selectedProgramName,
           studentType: this.regForm.studentType,
           studentCategory: 'TVET',
@@ -1139,10 +1477,7 @@ export class LoginComponent implements OnInit, OnDestroy {
             this.http.post<any>(this.authUrl, { email: a.email, password: a.password }).subscribe({
               next: (lr) => {
                 if (lr.success && isPlatformBrowser(this.platformId)) {
-                  sessionStorage.setItem('currentUser', JSON.stringify(lr.user));
-            localStorage.setItem('currentUser', JSON.stringify(lr.user));
-                  sessionStorage.setItem('token', lr.token);
-            localStorage.setItem('token', lr.token);
+                  this.auth.storeSession(lr.token, lr.user, 'student');
                 }
                 this.clearWizardState();
                 this.router.navigate(['/student/enrollment']);
@@ -1166,6 +1501,104 @@ export class LoginComponent implements OnInit, OnDestroy {
   }
 
   // ══════════════════════════════════════════════════════════
+  // FORGOT / RESET PASSWORD
+  // ══════════════════════════════════════════════════════════
+
+  sendForgotOtp(isResend = false): void {
+    const email = this.fpEmail.trim();
+    if (!email) { this.fpError = 'Please enter your email address.'; return; }
+    this.fpLoading = true; this.fpError = ''; this.fpSuccess = ''; this.cdr.detectChanges();
+    this.http.post<any>(`${this.authUrl}?action=forgot_password`, { email }).subscribe({
+      next: (res) => {
+        this.fpLoading = false;
+        if (res.success) {
+          this.fpSuccess = res.message || 'If that email exists, a reset code has been sent.';
+          this.view = 'reset';
+          this._startFpResendCountdown();
+        } else {
+          this.fpError = res.message || 'Request failed. Please try again.';
+        }
+        this.cdr.detectChanges();
+      },
+      error: () => {
+        this.fpLoading = false;
+        this.fpError   = 'Connection error. Make sure XAMPP is running.';
+        this.cdr.detectChanges();
+      },
+    });
+  }
+
+  submitResetPassword(): void {
+    // Client-side validation
+    if (!this.fpEmail || !this.fpOtp || !this.fpNewPassword || !this.fpConfirmPassword) {
+      this.fpError = 'Lahat ng fields ay kailangan.';
+      this.cdr.detectChanges();
+      return;
+    }
+
+    if (this.fpNewPassword.length < 6) {
+      this.fpError = 'Ang password ay dapat hindi bababa sa 6 na character.';
+      this.cdr.detectChanges();
+      return;
+    }
+
+    if (this.fpNewPassword !== this.fpConfirmPassword) {
+      this.fpError = 'Hindi magkatugma ang password.';
+      this.cdr.detectChanges();
+      return;
+    }
+
+    this.fpLoading = true;
+    this.fpError   = '';
+    this.cdr.detectChanges();
+
+    const payload = {
+      email:            this.fpEmail.trim(),
+      otp:              this.fpOtp.trim(),
+      new_password:     this.fpNewPassword,
+      confirm_password: this.fpConfirmPassword,
+    };
+
+    this.http.post<any>(`${this.authUrl}?action=reset_password`, payload).subscribe({
+      next: (res) => {
+        this.fpLoading = false;
+        if (res.success) {
+          this.fpError   = '';
+          this.fpSuccess = res.message || 'Password reset successful!';
+          this.cdr.detectChanges();
+          setTimeout(() => {
+            this.view      = 'login';
+            this.fpEmail   = '';
+            this.fpOtp     = '';
+            this.fpNewPassword     = '';
+            this.fpConfirmPassword = '';
+            this.fpSuccess = '';
+            this.cdr.detectChanges();
+          }, 1500);
+        } else {
+          this.fpError = res.message || 'Reset failed. Please try again.';
+          this.cdr.detectChanges();
+        }
+      },
+      error: () => {
+        this.fpLoading = false;
+        this.fpError   = 'Server connection error. Make sure XAMPP is running.';
+        this.cdr.detectChanges();
+      },
+    });
+  }
+
+  private _startFpResendCountdown(seconds = 60): void {
+    this.fpResendCountdown = seconds;
+    if (this.fpResendTimer) clearInterval(this.fpResendTimer);
+    this.fpResendTimer = setInterval(() => {
+      this.fpResendCountdown--;
+      this.cdr.detectChanges();
+      if (this.fpResendCountdown <= 0) clearInterval(this.fpResendTimer);
+    }, 1000);
+  }
+
+  // ══════════════════════════════════════════════════════════
   // VALIDATION helpers for SHS / TVET specific steps
   // ══════════════════════════════════════════════════════════
   proceedFromInfoSHS(): void {
@@ -1177,7 +1610,6 @@ export class LoginComponent implements OnInit, OnDestroy {
     if (!f.dateOfBirth)             { this.enrollError = 'Date of Birth is required.';    this.cdr.detectChanges(); return; }
     if (!f.sex)                     { this.enrollError = 'Sex is required.';              this.cdr.detectChanges(); return; }
     if (!f.religion?.trim())        { this.enrollError = 'Religion is required.';         this.cdr.detectChanges(); return; }
-    if (!f.age?.toString().trim())  { this.enrollError = 'Age is required.';              this.cdr.detectChanges(); return; }
     if (!f.placeOfBirth?.trim())    { this.enrollError = 'Place of Birth is required.';   this.cdr.detectChanges(); return; }
     if (!f.citizenship?.trim())     { this.enrollError = 'Citizenship is required.';      this.cdr.detectChanges(); return; }
     if (!f.homeAddress?.trim())     { this.enrollError = 'Home Address is required.';     this.cdr.detectChanges(); return; }
@@ -1188,7 +1620,9 @@ export class LoginComponent implements OnInit, OnDestroy {
     if (f.hasSpecialNeeds === 'Yes' && !f.specialNeedsDetails?.trim()) { this.enrollError = 'Please specify your special education needs.'; this.cdr.detectChanges(); return; }
     if (!f.hasAssistiveTech)        { this.enrollError = 'Please answer: Assistive Technology?'; this.cdr.detectChanges(); return; }
     if (!f.guardianName?.trim())    { this.enrollError = 'Parent / Guardian Name is required.'; this.cdr.detectChanges(); return; }
+    if (!f.guardianEmail?.trim())   { this.enrollError = 'Parent / Guardian Email is required.';   this.cdr.detectChanges(); return; }
     if (!f.guardianContact?.trim()) { this.enrollError = 'Parent / Guardian Contact is required.'; this.cdr.detectChanges(); return; }
+    if (!f.guardianEmail?.trim())     { this.enrollError = 'Parent / Guardian Email is required.'; this.cdr.detectChanges(); return; }
     if (!f.strand)                  { this.enrollError = 'Please choose your SHS strand.'; this.cdr.detectChanges(); return; }
     if (!f.yearLevel)               { this.enrollError = 'Grade Level is required.';      this.cdr.detectChanges(); return; }
     // Build lastSchoolAttended from previousSchools
@@ -1239,7 +1673,6 @@ export class LoginComponent implements OnInit, OnDestroy {
     if (!f.dateOfBirth)             { this.enrollError = 'Date of Birth is required.';    this.cdr.detectChanges(); return; }
     if (!f.sex)                     { this.enrollError = 'Sex is required.';              this.cdr.detectChanges(); return; }
     if (!f.religion?.trim())        { this.enrollError = 'Religion is required.';         this.cdr.detectChanges(); return; }
-    if (!f.age?.toString().trim())  { this.enrollError = 'Age is required.';              this.cdr.detectChanges(); return; }
     if (!f.placeOfBirth?.trim())    { this.enrollError = 'Place of Birth is required.';   this.cdr.detectChanges(); return; }
     if (!f.citizenship?.trim())     { this.enrollError = 'Citizenship is required.';      this.cdr.detectChanges(); return; }
     if (!f.homeAddress?.trim())     { this.enrollError = 'Home Address is required.';     this.cdr.detectChanges(); return; }
@@ -1250,7 +1683,9 @@ export class LoginComponent implements OnInit, OnDestroy {
     if (f.hasSpecialNeeds === 'Yes' && !f.specialNeedsDetails?.trim()) { this.enrollError = 'Please specify your special education needs.'; this.cdr.detectChanges(); return; }
     if (!f.hasAssistiveTech)        { this.enrollError = 'Please answer: Assistive Technology?'; this.cdr.detectChanges(); return; }
     if (!f.guardianName?.trim())    { this.enrollError = 'Parent / Guardian Name is required.'; this.cdr.detectChanges(); return; }
+    if (!f.guardianEmail?.trim())   { this.enrollError = 'Parent / Guardian Email is required.';   this.cdr.detectChanges(); return; }
     if (!f.guardianContact?.trim()) { this.enrollError = 'Parent / Guardian Contact is required.'; this.cdr.detectChanges(); return; }
+    if (!f.guardianEmail?.trim())     { this.enrollError = 'Parent / Guardian Email is required.'; this.cdr.detectChanges(); return; }
     if (!f.yearLevel)               { this.enrollError = 'Year Level is required.';       this.cdr.detectChanges(); return; }
     // Build lastSchoolAttended
     const filledSchools = this.previousSchools.filter(s => s.schoolName?.trim());
@@ -1285,6 +1720,10 @@ export class LoginComponent implements OnInit, OnDestroy {
 
   proceedFromDocumentsSHS(): void {
     if (this.isScholar && !this.scholarType) { this.enrollError = 'Please select a scholarship type.'; this.cdr.detectChanges(); return; }
+    if (this.isFullScholarship && this.scholarCodeStatus !== 'valid') {
+      this.enrollError = 'Please enter and verify your Full Scholarship claim code from Accounting.';
+      this.cdr.detectChanges(); return;
+    }
     // SHS Transferee: check fee is loaded before proceeding
     if (this.isTransfereeEnrolling && this.isSHSFeeLoading) {
       this.enrollError = 'Fee assessment is still loading. Please wait.'; this.cdr.detectChanges(); return;
@@ -1297,6 +1736,10 @@ export class LoginComponent implements OnInit, OnDestroy {
 
   proceedFromDocumentsTVET(): void {
     if (this.isScholar && !this.scholarType) { this.enrollError = 'Please select a scholarship type.'; this.cdr.detectChanges(); return; }
+    if (this.isFullScholarship && this.scholarCodeStatus !== 'valid') {
+      this.enrollError = 'Please enter and verify your Full Scholarship claim code from Accounting.';
+      this.cdr.detectChanges(); return;
+    }
     this.enrollError = '';
     this.enrollStep = 'account';
     this.saveWizardState();
@@ -1343,6 +1786,9 @@ export class LoginComponent implements OnInit, OnDestroy {
           address: this.regForm.homeAddress,
           emergencyContact: this.regForm.guardianName,
           emergencyPhone: this.regForm.guardianContact,
+          guardianEmail: this.regForm.guardianEmail,
+          guardianAddress: this.regForm.guardianAddress,
+          guardianRelationship: this.regForm.guardianRelationship,
           program: this.selectedProgramName,
           studentType: this.regForm.studentType,
           studentCategory: this.studentTypeCategory,
@@ -1361,7 +1807,6 @@ export class LoginComponent implements OnInit, OnDestroy {
           strand: this.regForm.strand,
           // Extended fields
           age: this.regForm.age,
-          guardianAddress: this.regForm.guardianAddress,
           psaBirthCertNo: this.regForm.psaBirthCertNo,
           isIndigenous: this.regForm.isIndigenous,
           hasSpecialNeeds: this.regForm.hasSpecialNeeds,
@@ -1395,26 +1840,17 @@ export class LoginComponent implements OnInit, OnDestroy {
             const studentId    = sRes.student_id || sRes.studentId;
 
             const doAutoLogin = () => {
-              // ── STEP 3: Auto-login ───────────────────────────
-              this.http.post<any>(this.authUrl, { email: a.email, password: a.password }).subscribe({
-                next: (lr) => {
-                  console.log('[ENROLL] STEP 3 login response:', lr);
-                  if (lr.success && isPlatformBrowser(this.platformId)) {
-                    sessionStorage.setItem('currentUser', JSON.stringify(lr.user));
-            localStorage.setItem('currentUser', JSON.stringify(lr.user));
-                    sessionStorage.setItem('token', lr.token);
-            localStorage.setItem('token', lr.token);
-                  }
-                  this.clearWizardState();
-                  this.router.navigate(['/student/enrollment']);
-                },
-                error: (err) => {
-                  console.error('[ENROLL] STEP 3 login error:', err);
-                  this.view = 'login'; this.email = a.email;
-                  this.successMessage = 'Account created! Please log in to continue.';
-                  this.cdr.detectChanges();
-                }
-              });
+              // Show confirmation screen — auto-login runs after countdown
+              const fullName = `${this.regForm.firstName} ${this.regForm.lastName}`.trim();
+              const nextStep = (this.isSHS || this.isTVET) && !this.isTransfereeEnrolling
+                ? 'free'
+                : this.isTransfereeEnrolling ? 'tor' : 'payment';
+              this.showRegistrationConfirmation(
+                sRes.student_number ?? sRes.studentNumber ?? '',
+                fullName,
+                this.selectedProgramName,
+                nextStep
+              );
             };
 
             if (isTransferee && studentId) {
@@ -1424,14 +1860,14 @@ export class LoginComponent implements OnInit, OnDestroy {
                 formData.append('student_id', String(studentId));
                 formData.append('tor_file', this.torFile);
                 this.http.post<any>(
-                  `http://localhost/sia-api/registrar.php?action=upload_tor_file`, formData
+                  `${environment.registrarApi}?action=upload_tor_file`, formData
                 ).subscribe({
                   next: (torRes) => { console.log('[ENROLL] TOR uploaded:', torRes); doAutoLogin(); },
                   error: () => { console.warn('[ENROLL] TOR upload failed — submitting without file'); doAutoLogin(); }
                 });
               } else {
                 // No file but still create the tor_evaluation record
-                this.http.post<any>(`http://localhost/sia-api/registrar.php?action=submit_tor`,
+                this.http.post<any>(`${environment.registrarApi}?action=submit_tor`,
                   { student_id: studentId }
                 ).subscribe({
                   next: (torRes) => { console.log('[ENROLL] TOR submitted (no file):', torRes); doAutoLogin(); },

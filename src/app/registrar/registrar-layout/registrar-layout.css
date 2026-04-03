@@ -35,3 +35,5 @@
 /* Main */
 .main-content { padding:0; overflow-y:auto; height:calc(100vh - 60px); }
 .content { padding:0; }
+/* Pending COE badge */
+.nav-badge { background:#ef4444; color:#fff; font-size:.68rem; font-weight:700; border-radius:999px; padding:1px 6px; margin-left:auto; min-width:18px; text-align:center; line-height:1.4; }

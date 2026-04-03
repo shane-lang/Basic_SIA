@@ -183,6 +183,39 @@
   opacity: 0.9;
 }
 
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.btn-change-pw-header {
+  background: rgba(255,255,255,.2);
+  color: #fff;
+  border: 1px solid rgba(255,255,255,.35);
+  border-radius: 7px;
+  padding: 7px 14px;
+  cursor: pointer;
+  font-size: .82rem;
+  font-weight: 600;
+  transition: background .2s;
+}
+.btn-change-pw-header:hover { background: rgba(255,255,255,.35); }
+
+.btn-logout-header {
+  background: #fee2e2;
+  color: #dc2626;
+  border: none;
+  border-radius: 7px;
+  padding: 7px 14px;
+  cursor: pointer;
+  font-size: .82rem;
+  font-weight: 600;
+  transition: background .2s;
+}
+.btn-logout-header:hover { background: #fca5a5; }
+
 .main-content {
   flex: 1;
   overflow-y: auto;

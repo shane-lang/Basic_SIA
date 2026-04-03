@@ -125,3 +125,128 @@
   .header-stats { width:100%; justify-content:space-between; }
   .info-grid { grid-template-columns:1fr 1fr; }
 }
+/* Lec/Lab/Major/Minor tags */
+.td-type { text-align: center; }
+.tag-major, .tag-minor, .tag-lab {
+  display: inline-block; font-size: 10px; font-weight: 700;
+  padding: 2px 8px; border-radius: 10px; line-height: 1.6; margin: 1px;
+}
+.tag-major { background: #dbeafe; color: #1e40af; }
+.tag-minor { background: #dcfce7; color: #166534; }
+.tag-lab   { background: #fef9c3; color: #854d0e; }
+.units-breakdown { display: block; font-size: 10px; color: #6b7280; margin-top: 2px; white-space: nowrap; }
+.sad-type-row { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 6px; }
+.sgt-col.sgt-type { width: 90px; display: flex; flex-wrap: wrap; gap: 3px; align-items: center; }
+/* ── Scholar badges (added for scholarship feature) ── */
+.scholar-chip {
+  background: #ede9fe;
+  color: #5b21b6;
+  border-radius: 20px;
+  padding: 2px 10px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.no-scholar {
+  color: #d1d5db;
+  font-size: 0.85rem;
+}
+.scholar-info-row .info-val {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+.scholar-grantor {
+  font-size: 0.85rem;
+  color: #6b7280;
+}
+.scholar-discount {
+  font-size: 0.85rem;
+  color: #7c3aed;
+  font-weight: 600;
+}
+/* ── Archive feature styles (NEW) ──────────────────────────────────────────── */
+.archive-section {
+  border-top: 2px solid #fee2e2;
+  margin-top: 20px;
+  padding-top: 16px;
+}
+.archive-section .section-title {
+  color: #b91c1c;
+}
+.archive-note {
+  font-size: 0.82rem;
+  color: #6b7280;
+  background: #fef9c3;
+  border-left: 3px solid #f59e0b;
+  padding: 10px 14px;
+  border-radius: 4px;
+  margin-bottom: 14px;
+  line-height: 1.5;
+}
+.btn-archive {
+  background: #dc2626;
+  color: #fff;
+  border: none;
+  border-radius: 7px;
+  padding: 9px 22px;
+  font-size: 0.88rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.btn-archive:hover { background: #b91c1c; }
+
+.archive-confirm-box {
+  background: #fff1f2;
+  border: 1.5px solid #fca5a5;
+  border-radius: 8px;
+  padding: 16px;
+}
+.archive-confirm-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #991b1b;
+  margin-bottom: 8px;
+}
+.archive-reason-select {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #fca5a5;
+  border-radius: 6px;
+  font-size: 0.88rem;
+  margin-bottom: 12px;
+  background: #fff;
+  color: #374151;
+}
+.archive-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+.btn-archive-cancel {
+  background: #f3f4f6;
+  color: #374151;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  padding: 7px 18px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.btn-archive-cancel:hover { background: #e5e7eb; }
+.btn-archive-confirm {
+  background: #dc2626;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 7px 18px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.btn-archive-confirm:hover:not(:disabled) { background: #b91c1c; }
+.btn-archive-confirm:disabled,
+.btn-archive-cancel:disabled { opacity: 0.5; cursor: not-allowed; }

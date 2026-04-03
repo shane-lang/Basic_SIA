@@ -18,43 +18,51 @@
        NOTICES TAB
        ════════════════════════════════ -->
   <ng-container *ngIf="mainTab==='notices'">
-    <!-- Filter bar: search + category chips + bulk send buttons -->
-    <div class="filter-bar">
-      <input class="search" type="text" placeholder="Search student..." [(ngModel)]="searchStudents">
 
-      <!-- Course & Year dropdowns -->
-      <div class="filter-dropdowns">
-        <select class="fselect" [(ngModel)]="filterProgram">
-          <option *ngFor="let p of uniquePrograms" [value]="p">{{ p === 'ALL' ? 'All Courses' : p }}</option>
-        </select>
-        <select class="fselect" [(ngModel)]="filterYear">
-          <option *ngFor="let y of uniqueYears" [value]="y">{{ y === 'ALL' ? 'All Year Levels' : y }}</option>
-        </select>
+    <!-- ── Course group cards ─────────────────────────────────────────────── -->
+    <div class="cards-section">
+      <div class="cards-header">
+        <span class="cards-label">Quick filter by course group</span>
+        <span class="cards-hint">Click a card to set filters • click again to clear</span>
       </div>
 
-      <!-- Category filter chips -->
-      <div class="cat-chips">
-        <button class="cat-chip" [class.active]="filterCategory==='ALL'"     (click)="filterCategory='ALL'">
-          All <span class="chip-cnt">{{ categoryCounts['ALL'] }}</span>
-        </button>
-        <button class="cat-chip college" [class.active]="filterCategory==='COLLEGE'" (click)="filterCategory='COLLEGE'">
-          🎓 College <span class="chip-cnt">{{ categoryCounts['COLLEGE'] }}</span>
-        </button>
-        <button class="cat-chip shs"     [class.active]="filterCategory==='SHS'"     (click)="filterCategory='SHS'">
-          📘 SHS <span class="chip-cnt">{{ categoryCounts['SHS'] }}</span>
-        </button>
-        <button class="cat-chip tvet"    [class.active]="filterCategory==='TVET'"    (click)="filterCategory='TVET'">
-          🔧 TVET <span class="chip-cnt">{{ categoryCounts['TVET'] }}</span>
-        </button>
-      </div>
+      <div *ngIf="isLoadingGroups" class="cards-loading">Loading groups…</div>
 
-      <!-- Bulk send buttons -->
-      <div class="bulk-actions">
-        <span class="bulk-label">Send All Notice:</span>
-        <button class="btn-bulk prelim-bulk" (click)="openBulkModal('Prelim')">📢 Prelim</button>
-        <button class="btn-bulk midterm-bulk" (click)="openBulkModal('Midterm')">📢 Midterm</button>
-        <button class="btn-bulk finals-bulk" (click)="openBulkModal('Finals')">📢 Finals</button>
-      </div>
+      <ng-container *ngIf="!isLoadingGroups && groupedCards.length > 0">
+        <div *ngFor="let section of groupedCards" class="card-section-row">
+          <span class="card-cat-label">{{ section.label }}</span>
+          <div class="card-row">
+            <button
+              *ngFor="let g of section.groups"
+              class="course-card"
+              [class.active]="isCardActive(g)"
+              (click)="onCardClick(g)"
+              type="button">
+              <div class="card-prog">{{ g.program }}</div>
+              <div class="card-meta">{{ g.year_level }}{{ g.strand ? ' · ' + g.strand : '' }}</div>
+              <div class="card-sem">{{ g.semester }}</div>
+              <div class="card-counts">
+                <span class="card-badge total">{{ g.student_count }}</span>
+                <!--<span class="card-badge pending" *ngIf="g.pending_count > 0">{{ g.pending_count }} pending</span>-->
+                <span class="card-badge paid" *ngIf="g.paid_count > 0">{{ g.paid_count }} paid</span>
+              </div>
+            </button>
+          </div>
+        </div>
+      </ng-container>
+    </div>
+
+    <!-- Student search -->
+    <div class="fp-search-wrap">
+      <input type="text" class="fp-student-search" placeholder="🔍 Search student name or student no..." [(ngModel)]="searchStudents">
+    </div>
+
+    <!-- Bulk send buttons -->
+    <div class="bulk-actions" style="margin-bottom:16px;">
+      <span class="bulk-label">Send All Notice:</span>
+      <button class="btn-bulk prelim-bulk"  (click)="openBulkModal('Prelim')">📢 Prelim</button>
+      <button class="btn-bulk midterm-bulk" (click)="openBulkModal('Midterm')">📢 Midterm</button>
+      <button class="btn-bulk finals-bulk"  (click)="openBulkModal('Finals')">📢 Finals</button>
     </div>
 
     <div *ngIf="isLoadingStudents" class="loading"><div class="spin"></div><p>Loading students...</p></div>
@@ -75,7 +83,7 @@
           </tr>
         </thead>
         <tbody>
-          <tr *ngFor="let s of filteredStudents">
+          <tr *ngFor="let s of pagedStudents">
 
             <td>
               <div class="sname">{{ s.lastName }}, {{ s.firstName }}</div>
@@ -90,57 +98,97 @@
             <!-- PRELIM -->
             <td class="period-cell">
               <div class="cell-inner">
-                <span class="sbadge" [ngClass]="statusClass(s.prelimStatus)">{{ s.prelimStatus | titlecase }}</span>
-                <div class="amt-info" *ngIf="s.prelimStatus !== 'locked'">
-                  <span class="paid-amt">₱{{ fmt(s.prelimPaid) }}</span>
-                  <span class="sep">/</span>
-                  <span class="due-amt">₱{{ fmt(s.prelimDue) }}</span>
-                </div>
-                <div class="button-group">
-                  <button class="btn-notice" [class.btn-resend]="s.prelimStatus !== 'locked'" (click)="openNoticeModal(s, 'Prelim')">
-                    {{ s.prelimStatus === 'locked' ? '📢 Send Notice' : '🔁 Resend' }}
-                  </button>
-                </div>
+                <ng-container *ngIf="s.paymentPlan === 'full' && s.prelimStatus === 'paid'; else prelimNeedsNotice">
+                  <span class="sbadge badge-paid">✅ Paid</span>
+                  <div class="amt-info"><span class="paid-amt">Full Payment</span></div>
+                  <div class="button-group">
+                    <button class="btn-notice btn-resend" (click)="openNoticeModal(s, 'Prelim')">🔁 Resend</button>
+                  </div>
+                </ng-container>
+                <ng-template #prelimNeedsNotice>
+                  <span class="sbadge" [ngClass]="statusClass(s.prelimStatus)">{{ s.prelimStatus | titlecase }}</span>
+                  <div class="amt-info" *ngIf="s.paymentPlan !== 'full' && s.prelimStatus !== 'locked'">
+                    <span class="paid-amt">₱{{ fmt(s.prelimPaid) }}</span>
+                    <span class="sep">/</span>
+                    <span class="due-amt">₱{{ fmt(s.prelimDue) }}</span>
+                  </div>
+                  <div class="button-group">
+                    <button class="btn-notice" [class.btn-resend]="s.prelimStatus !== 'locked'" (click)="openNoticeModal(s, 'Prelim')">
+                      {{ s.prelimStatus === 'locked' ? '📢 Send Notice' : '🔁 Resend' }}
+                    </button>
+                  </div>
+                </ng-template>
               </div>
             </td>
 
             <!-- MIDTERM -->
             <td class="period-cell">
               <div class="cell-inner">
-                <span class="sbadge" [ngClass]="statusClass(s.midtermStatus)">{{ s.midtermStatus | titlecase }}</span>
-                <div class="amt-info" *ngIf="s.midtermStatus !== 'locked'">
-                  <span class="paid-amt">₱{{ fmt(s.midtermPaid) }}</span>
-                  <span class="sep">/</span>
-                  <span class="due-amt">₱{{ fmt(s.midtermDue) }}</span>
-                </div>
-                <div class="button-group">
-                  <button class="btn-notice" [class.btn-resend]="s.midtermStatus !== 'locked'" (click)="openNoticeModal(s, 'Midterm')">
-                    {{ s.midtermStatus === 'locked' ? '📢 Send Notice' : '🔁 Resend' }}
-                  </button>
-                </div>
+                <ng-container *ngIf="s.paymentPlan === 'full' && s.midtermStatus === 'paid'; else midtermNeedsNotice">
+                  <span class="sbadge badge-paid">✅ Paid</span>
+                  <div class="amt-info"><span class="paid-amt">Full Payment</span></div>
+                  <div class="button-group">
+                    <button class="btn-notice btn-resend" (click)="openNoticeModal(s, 'Midterm')">🔁 Resend</button>
+                  </div>
+                </ng-container>
+                <ng-template #midtermNeedsNotice>
+                  <span class="sbadge" [ngClass]="statusClass(s.midtermStatus)">{{ s.midtermStatus | titlecase }}</span>
+                  <div class="amt-info" *ngIf="s.paymentPlan !== 'full' && s.midtermStatus !== 'locked'">
+                    <span class="paid-amt">₱{{ fmt(s.midtermPaid) }}</span>
+                    <span class="sep">/</span>
+                    <span class="due-amt">₱{{ fmt(s.midtermDue) }}</span>
+                  </div>
+                  <div class="button-group">
+                    <button class="btn-notice" [class.btn-resend]="s.midtermStatus !== 'locked'" (click)="openNoticeModal(s, 'Midterm')">
+                      {{ s.midtermStatus === 'locked' ? '📢 Send Notice' : '🔁 Resend' }}
+                    </button>
+                  </div>
+                </ng-template>
               </div>
             </td>
 
             <!-- FINALS -->
             <td class="period-cell">
               <div class="cell-inner">
-                <span class="sbadge" [ngClass]="statusClass(s.finalsStatus)">{{ s.finalsStatus | titlecase }}</span>
-                <div class="amt-info" *ngIf="s.finalsStatus !== 'locked'">
-                  <span class="paid-amt">₱{{ fmt(s.finalsPaid) }}</span>
-                  <span class="sep">/</span>
-                  <span class="due-amt">₱{{ fmt(s.finalsDue) }}</span>
-                </div>
-                <div class="button-group">
-                  <button class="btn-notice" [class.btn-resend]="s.finalsStatus !== 'locked'" (click)="openNoticeModal(s, 'Finals')">
-                    {{ s.finalsStatus === 'locked' ? '📢 Send Notice' : '🔁 Resend' }}
-                  </button>
-                </div>
+                <ng-container *ngIf="s.paymentPlan === 'full' && s.finalsStatus === 'paid'; else finalsNeedsNotice">
+                  <span class="sbadge badge-paid">✅ Paid</span>
+                  <div class="amt-info"><span class="paid-amt">Full Payment</span></div>
+                  <div class="button-group">
+                    <button class="btn-notice btn-resend" (click)="openNoticeModal(s, 'Finals')">🔁 Resend</button>
+                  </div>
+                </ng-container>
+                <ng-template #finalsNeedsNotice>
+                  <span class="sbadge" [ngClass]="statusClass(s.finalsStatus)">{{ s.finalsStatus | titlecase }}</span>
+                  <div class="amt-info" *ngIf="s.paymentPlan !== 'full' && s.finalsStatus !== 'locked'">
+                    <span class="paid-amt">₱{{ fmt(s.finalsPaid) }}</span>
+                    <span class="sep">/</span>
+                    <span class="due-amt">₱{{ fmt(s.finalsDue) }}</span>
+                  </div>
+                  <div class="button-group">
+                    <button class="btn-notice" [class.btn-resend]="s.finalsStatus !== 'locked'" (click)="openNoticeModal(s, 'Finals')">
+                      {{ s.finalsStatus === 'locked' ? '📢 Send Notice' : '🔁 Resend' }}
+                    </button>
+                  </div>
+                </ng-template>
               </div>
             </td>
 
           </tr>
         </tbody>
       </table>
+    </div>
+
+    <!-- ── Notices pagination ── -->
+    <div *ngIf="!isLoadingStudents && noticesTotalPages > 1" class="pg-bar">
+      <span class="pg-info">
+        Showing {{ (noticesPage - 1) * 15 + 1 }}–{{ noticesPage * 15 < filteredStudents.length ? noticesPage * 15 : filteredStudents.length }}
+        of {{ filteredStudents.length }} students
+      </span>
+      <div class="pg-btns">
+        <button class="pg-btn" (click)="noticesPrevPage()" [disabled]="noticesPage <= 1">← Prev</button>
+        <span class="pg-indicator">Page {{ noticesPage }} / {{ noticesTotalPages }}</span>
+        <button class="pg-btn" (click)="noticesNextPage()" [disabled]="noticesPage >= noticesTotalPages">Next →</button>
+      </div>
     </div>
   </ng-container>
 
@@ -154,14 +202,38 @@
       <button class="stab" [class.active]="permitTab==='rejected'" (click)="switchPermitTab('rejected')">❌ Rejected</button>
     </div>
 
-    <div class="filter-bar">
-      <input class="search" type="text" placeholder="Search student..." [(ngModel)]="searchPermits">
-      <select class="fselect" [(ngModel)]="filterPeriod">
-        <option value="all">All Periods</option>
-        <option value="Prelim">Prelim</option>
-        <option value="Midterm">Midterm</option>
-        <option value="Finals">Finals</option>
-      </select>
+    <!-- ── Course group cards (permits) ──────────────────────────────────── -->
+    <div class="cards-section">
+      <div class="cards-header">
+        <span class="cards-label">Quick filter by course group</span>
+        <span class="cards-hint">Click a card to filter • click again to clear</span>
+      </div>
+      <div *ngIf="isLoadingPermits" class="cards-loading">Loading groups…</div>
+      <ng-container *ngIf="!isLoadingPermits && groupedPermitCards.length > 0">
+        <div *ngFor="let section of groupedPermitCards" class="card-section-row">
+          <span class="card-cat-label">{{ section.label }}</span>
+          <div class="card-row">
+            <button
+              *ngFor="let g of section.groups"
+              class="course-card"
+              [class.active]="activePermitGroupCardActive(g)"
+              (click)="onPermitGroupCardClick(g)"
+              type="button">
+              <div class="card-prog">{{ g.program }}</div>
+              <div class="card-meta">{{ g.year_level }}{{ g.strand ? ' · ' + g.strand : '' }}</div>
+              <div class="card-sem">{{ g.semester }}</div>
+              <div class="card-counts">
+                <span class="card-badge total">{{ g.count }}</span>
+              </div>
+            </button>
+          </div>
+        </div>
+      </ng-container>
+    </div>
+
+    <!-- Student search -->
+    <div class="fp-search-wrap">
+      <input type="text" class="fp-student-search" placeholder="🔍 Search student name or student no..." [(ngModel)]="searchPermits">
     </div>
 
     <div *ngIf="isLoadingPermits" class="loading"><div class="spin"></div><p>Loading...</p></div>
@@ -169,7 +241,8 @@
       <div>📭</div><p>No {{ permitTab }} permit requests</p>
     </div>
 
-    <div *ngIf="!isLoadingPermits && filteredPermits.length>0" class="students-table-wrap">
+    <!-- ── PENDING: flat table (unchanged) ── -->
+    <div *ngIf="!isLoadingPermits && filteredPermits.length>0 && permitTab==='pending'" class="students-table-wrap">
       <table class="tbl">
         <thead>
           <tr>
@@ -179,12 +252,11 @@
             <th>Semester</th>
             <th>A.Y.</th>
             <th>Requested</th>
-            <th *ngIf="permitTab!=='pending'">Processed</th>
             <th>Actions</th>
           </tr>
         </thead>
         <tbody>
-          <tr *ngFor="let p of filteredPermits">
+          <tr *ngFor="let p of pagedPermits">
             <td>
               <div class="sname">{{ p.last_name }}, {{ p.first_name }}</div>
               <div class="snum">{{ p.student_number }}</div>
@@ -197,18 +269,93 @@
             <td class="snum">{{ p.semester }}</td>
             <td class="snum">{{ p.school_year }}</td>
             <td class="snum">{{ fmtDate(p.requested_at) }}</td>
-            <td *ngIf="permitTab!=='pending'" class="snum">{{ fmtDate(p.approved_at) }}</td>
-            <td class="act-cell">
-              <ng-container *ngIf="permitTab==='pending'">
-                <button class="btn-approve" (click)="openPermitModal(p,'approve')">✅ Approve</button>
-                <button class="btn-reject"  (click)="openPermitModal(p,'reject')">❌ Reject</button>
-              </ng-container>
-              <button *ngIf="permitTab==='approved'" class="btn-print" (click)="printPermit(p)">🖨️ Print</button>
-              <span *ngIf="permitTab==='rejected'" class="rej-text">{{ p.remarks || '—' }}</span>
+            <td>
+              <div class="act-cell">
+                <button class="btn-approve" (click)="openPermitModal(p,'approve')">Approve</button>
+                <button class="btn-reject"  (click)="openPermitModal(p,'reject')">Reject</button>
+              </div>
             </td>
           </tr>
         </tbody>
       </table>
+    </div>
+
+    <!-- ── APPROVED / REJECTED: accordion grouped by student (Image 1 style) ── -->
+    <div *ngIf="!isLoadingPermits && filteredPermits.length>0 && permitTab!=='pending'"
+         class="accordion-wrap">
+
+      <ng-container *ngFor="let sg of groupedApprovedPermits">
+
+        <!-- Student header row — click to expand/collapse -->
+        <div class="acc-student-row"
+             (click)="toggleStudentRow(sg.key)"
+             [class.acc-expanded]="expandedStudentKey === sg.key">
+          <!-- Avatar -->
+          <div class="acc-avatar">
+            {{ (sg.firstName[0] || '') + (sg.lastName[0] || '') | uppercase }}
+          </div>
+          <!-- Name + number -->
+          <div class="acc-student-info">
+            <span class="acc-sname">{{ sg.lastName }}, {{ sg.firstName }}</span>
+            <span class="acc-smeta">{{ sg.studentNumber }} · {{ sg.program }}</span>
+          </div>
+          <!-- Permit count badge -->
+          <div class="acc-badges">
+            <span class="acc-count-badge">
+              {{ sg.permits.length }} permit{{ sg.permits.length !== 1 ? 's' : '' }}
+            </span>
+            <!-- Period badges summary -->
+            <span *ngFor="let p of sg.permits"
+                  class="pbadge acc-period-chip"
+                  [ngClass]="periodClass(p.exam_period)">
+              {{ p.exam_period }}
+            </span>
+          </div>
+          <!-- Chevron -->
+          <div class="acc-chevron">{{ expandedStudentKey === sg.key ? '▲' : '▼' }}</div>
+        </div>
+
+        <!-- Expanded permit rows — styled like Image 1 payment history rows -->
+        <div class="acc-detail-wrap" *ngIf="expandedStudentKey === sg.key">
+          <!-- Column headers -->
+          <div class="acc-detail-header">
+            <span class="adh-period">PERIOD</span>
+            <span class="adh-semester">SEMESTER</span>
+            <span class="adh-ay">A.Y.</span>
+            <span class="adh-requested">REQUESTED</span>
+            <span class="adh-processed">PROCESSED</span>
+            <span class="adh-actions">ACTIONS</span>
+          </div>
+          <!-- One row per permit -->
+          <div class="acc-detail-row" *ngFor="let p of sg.permits">
+            <span class="adh-period">
+              <span class="pbadge" [ngClass]="periodClass(p.exam_period)">{{ p.exam_period }}</span>
+            </span>
+            <span class="adh-semester acc-muted">{{ p.semester }}</span>
+            <span class="adh-ay acc-muted">{{ p.school_year }}</span>
+            <span class="adh-requested acc-muted">{{ fmtDate(p.requested_at) }}</span>
+            <span class="adh-processed acc-muted">{{ fmtDate(p.approved_at) }}</span>
+            <span class="adh-actions">
+              <button *ngIf="permitTab==='approved'" class="btn-print" (click)="printPermit(p)">🖨️ Print</button>
+              <span *ngIf="permitTab==='rejected'" class="rej-text">{{ p.remarks || '—' }}</span>
+            </span>
+          </div>
+        </div>
+
+      </ng-container>
+    </div>
+
+    <!-- ── Permits pagination ── -->
+    <div *ngIf="!isLoadingPermits && permitsTotalPages > 1" class="pg-bar">
+      <span class="pg-info">
+        Showing {{ (permitsPage - 1) * 15 + 1 }}–{{ permitsPage * 15 < filteredPermits.length ? permitsPage * 15 : filteredPermits.length }}
+        of {{ filteredPermits.length }} records
+      </span>
+      <div class="pg-btns">
+        <button class="pg-btn" (click)="permitsPrevPage()" [disabled]="permitsPage <= 1">← Prev</button>
+        <span class="pg-indicator">Page {{ permitsPage }} / {{ permitsTotalPages }}</span>
+        <button class="pg-btn" (click)="permitsNextPage()" [disabled]="permitsPage >= permitsTotalPages">Next →</button>
+      </div>
     </div>
   </ng-container>
 

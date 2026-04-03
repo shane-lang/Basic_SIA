@@ -145,7 +145,16 @@
           <label>Department</label>
           <select class="form-ctrl" [(ngModel)]="form.department">
             <option value="">— Select Department —</option>
-            <option *ngFor="let d of DEPARTMENTS" [value]="d">{{ d }}</option>
+            <optgroup label="🎓 College Departments" *ngIf="collegeDepts.length > 0">
+              <option *ngFor="let d of collegeDepts" [value]="d">{{ d }}</option>
+            </optgroup>
+            <optgroup label="🟢 SHS Strands" *ngIf="shsDepts.length > 0">
+              <option *ngFor="let d of shsDepts" [value]="d">{{ d }}</option>
+            </optgroup>
+            <optgroup label="🔧 TVET Program Types" *ngIf="tvetDepts.length > 0">
+              <option *ngFor="let d of tvetDepts" [value]="d">{{ d }}</option>
+            </optgroup>
+            <option value="" disabled *ngIf="deptGroups.length === 0">Loading departments…</option>
           </select>
         </div>
         <div class="form-group">
@@ -246,6 +255,37 @@
       <button class="btn-cancel" (click)="closeDeleteModal()">Cancel</button>
       <button class="btn-danger" (click)="doDelete()" [disabled]="isDeleting">
         {{ isDeleting ? 'Deleting…' : '🗑️ Delete' }}
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Credential Modal (shown once after create) ── -->
+<div class="modal-bg" *ngIf="showCredModal">
+  <div class="modal-box modal-sm" (click)="$event.stopPropagation()">
+    <div class="modal-head" style="background: linear-gradient(135deg, #15803d 0%, #166534 100%);">
+      <h2>✅ Faculty Account Created</h2>
+    </div>
+    <div class="modal-body" style="text-align:center; padding: 2rem 1.5rem;">
+      <div style="font-size:3rem; margin-bottom:0.75rem;">🎉</div>
+      <p style="color:#374151; margin:0 0 1.5rem; font-size:0.95rem;">
+        Account for <strong>{{ credName }}</strong> has been created successfully.
+      </p>
+      <div class="cred-box">
+        <div class="cred-row">
+          <span class="cred-label">Faculty ID</span>
+          <code class="cred-val">{{ credFacultyId }}</code>
+        </div>
+        <div class="cred-row">
+          <span class="cred-label">Default Password</span>
+          <code class="cred-val cred-pw">{{ credPassword }}</code>
+        </div>
+      </div>
+      <p class="cred-warn">⚠️ Copy this password now — it will not be shown again.</p>
+    </div>
+    <div class="modal-foot" style="justify-content:center;">
+      <button class="btn-save" (click)="closeCredModal()" style="min-width:140px;">
+        ✓ Got it, Close
       </button>
     </div>
   </div>

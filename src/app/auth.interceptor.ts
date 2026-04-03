@@ -1,54 +1,61 @@
-import { HttpInterceptorFn, HttpErrorResponse } from '@angular/common/http';
+// src/app/auth.interceptor.ts
+import { HttpInterceptorFn, HttpResponse } from '@angular/common/http';
 import { inject } from '@angular/core';
-import { Router } from '@angular/router';
-import { catchError, throwError } from 'rxjs';
+import { tap } from 'rxjs';
+import { AuthService } from './services/auth';
+import { environment } from './environment';
 
-/**
- * Functional HTTP interceptor for standalone Angular apps.
- * 1. Attaches Bearer token to every SIA API request.
- * 2. On 401 response → clears session and redirects to /login automatically.
- */
-export const authInterceptorFn: HttpInterceptorFn = (req, next) => {
-  const router = inject(Router);
+// Key used to pass a logout reason to the login page via sessionStorage
+export const LOGOUT_REASON_KEY = 'logoutReason';
 
-  const isSiaApi = req.url.includes('localhost/sia-api') ||
-                   req.url.includes('127.0.0.1/sia-api');
+export const authInterceptor: HttpInterceptorFn = (req, next) => {
+  const auth  = inject(AuthService);
+  const token = auth.getToken();
 
-  // Attach token if available — sessionStorage is cleared on refresh, so fall back to localStorage
-  if (isSiaApi) {
-    const token = sessionStorage.getItem('token') || localStorage.getItem('token');
-    if (token) {
-      req = req.clone({
-        setHeaders: { Authorization: `Bearer ${token}` }
-      });
-    }
+  const isSiaApi = req.url.startsWith(environment.apiBase);
+
+  let cloned = req;
+
+  if (token && isSiaApi) {
+    cloned = cloned.clone({
+      setHeaders: {
+        'Authorization': `Bearer ${token}`,
+        'X-Auth-Token':  token,
+      }
+    });
   }
 
-  return next(req).pipe(
-    catchError((error: HttpErrorResponse) => {
-      // On 401 from SIA API: clear session and go to login
-      if (error.status === 401 && isSiaApi) {
-        const isPublicAction = req.url.includes('action=register') ||
-                               req.url.includes('action=get_programs') ||
-                               req.url.includes('action=get_fee_preview') ||
-                               req.url.includes('action=get_shs_fee') ||
-                               req.url.includes('action=get_tvet_fee') ||
-                               req.url.includes('action=upload_tor') ||
-                               req.url.includes('action=submit_tor') ||
-                               req.url.includes('action=get_tor_evaluation') ||
-                               req.url.includes('action=get_program_courses');
-
-        if (!isPublicAction) {
-          // Clear stale session data from both storages
-          ['token', 'currentUser', 'studentDbId', 'studentCategory'].forEach(k => {
-            sessionStorage.removeItem(k);
-            localStorage.removeItem(k);
-          });
-          // Redirect to login
-          router.navigate(['/login']);
+  return next(cloned).pipe(
+    tap({
+      next: (event) => {
+        if (event instanceof HttpResponse) {
+          const newToken = event.headers.get('X-New-Token');
+          if (newToken) {
+            auth.updateToken(newToken);
+          }
+          // If the login response says session_replaced=true, a previous session
+          // on this same device was kicked. Store a flag so the destination page
+          // can show a "you were already logged in — previous session ended" notice.
+          if ((event.body as any)?.session_replaced === true) {
+            sessionStorage.setItem('sessionReplacedWarning', '1');
+          }
         }
-      }
-      return throwError(() => error);
+      },
+      error: (err) => {
+        if (err.status === 401) {
+          // Store a reason so the login page can show a descriptive message
+          const code = err.error?.code ?? '';
+          const msg  = err.error?.message ?? '';
+          if (msg.toLowerCase().includes('another device') || code === 'SESSION_NOT_FOUND') {
+            sessionStorage.setItem(LOGOUT_REASON_KEY, 'another_device');
+          } else if (code === 'SESSION_EXPIRED') {
+            sessionStorage.setItem(LOGOUT_REASON_KEY, 'expired');
+          } else {
+            sessionStorage.setItem(LOGOUT_REASON_KEY, 'signed_out');
+          }
+          auth.logout(auth.getPortal());
+        }
+      },
     })
   );
 };

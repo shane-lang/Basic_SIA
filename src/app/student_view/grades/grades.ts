@@ -2,14 +2,17 @@ import { Component, OnInit, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
+import { environment } from '../../environment';
 
 interface GradeEntry {
   enrollmentId: number;
   code: string; name: string; credits: number;
+  lecUnits: number; labUnits: number; isGeneral: boolean; isLab: boolean;
   instructor: string; semester: string; status: string;
   prelim: number|null; midterm: number|null;
   final: number|null; overall: number|null;
   remarks: string; description: string;
+  isReleased: boolean;
 }
 interface SemesterGWA { semester: string; gwa: number|null; credits: number; }
 
@@ -21,16 +24,8 @@ interface SemesterGWA { semester: string; gwa: number|null; credits: number; }
   styleUrls: ['./grades.css']
 })
 export class Grades implements OnInit {
-  private apiUrl = 'http://localhost/sia-api/grades.php';
+  private apiUrl = environment.gradesApi;
   private param  = '';
-
-  
-  /** Returns HTTP headers with the auth token. Call this in every API request. */
-  private getHeaders() {
-    const token = sessionStorage.getItem('token') ?? '';
-    return { headers: { Authorization: `Bearer ${token}` } };
-  }
-
   constructor(private http: HttpClient, private cdr: ChangeDetectorRef) {}
 
   isLoading = true; error = '';
@@ -51,7 +46,7 @@ export class Grades implements OnInit {
   }
 
   loadSemesters(): void {
-    this.http.get<any>(`${this.apiUrl}?action=get_semesters&${this.param}`, this.getHeaders()).subscribe({
+    this.http.get<any>(`${this.apiUrl}?action=get_semesters&${this.param}`).subscribe({
       next: (res) => {
         if (res.success) {
           this.semesters = res.semesters;
@@ -67,10 +62,17 @@ export class Grades implements OnInit {
   loadGrades(): void {
     this.isLoading = true;
     const sp = this.selectedSemester ? `&semester=${encodeURIComponent(this.selectedSemester)}` : '';
-    this.http.get<any>(`${this.apiUrl}?action=get_released_grades&${this.param}${sp}`, this.getHeaders()).subscribe({
+    this.http.get<any>(`${this.apiUrl}?action=get_released_grades&${this.param}${sp}`).subscribe({
       next: (res) => {
         this.isLoading = false;
-        if (res.success) { this.grades = res.grades ?? []; this.currentGWA = res.gwa ?? null; this.totalCredits = res.totalCredits ?? 0; }
+        if (res.success) {
+          this.grades = (res.grades ?? []).map((g: any) => ({
+            ...g,
+            isReleased: true, // get_released_grades only returns released grades
+          }));
+          this.currentGWA = res.gwa ?? null;
+          this.totalCredits = res.totalCredits ?? 0;
+        }
         else { this.error = res.message; }
         this.cdr.detectChanges();
       },
@@ -79,7 +81,7 @@ export class Grades implements OnInit {
   }
 
   loadSummary(): void {
-    this.http.get<any>(`${this.apiUrl}?action=get_grade_summary&${this.param}`, this.getHeaders()).subscribe({
+    this.http.get<any>(`${this.apiUrl}?action=get_grade_summary&${this.param}`).subscribe({
       next: (res) => {
         if (res.success) { this.overallGWA = res.overallGWA ?? null; this.academicStatus = res.academicStatus ?? 'No grades yet'; this.semesterGWA = res.semesterGWA ?? []; }
         this.cdr.detectChanges();

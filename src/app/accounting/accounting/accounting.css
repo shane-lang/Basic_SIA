@@ -2,7 +2,6 @@
   padding: 30px;
   max-width: 1400px;
   margin: 0 auto;
-  min-height: 100vh;
   background: #f5f7fa;
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 }
@@ -923,3 +922,119 @@
 }
 .am-btn-confirm:disabled { opacity: 0.5; cursor: not-allowed; }
 .am-btn-confirm:not(:disabled):hover { opacity: 0.9; }
+/* ── Pending Summary Bar ── */
+.pending-summary-bar { display: flex; gap: 10px; margin-bottom: 14px; }
+.psb-card { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 10px; padding: 10px 16px; flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.psb-label { font-size: 11px; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.4px; }
+.psb-val { font-size: 20px; font-weight: 700; color: #111827; }
+.psb-orange { color: #b45309; }
+.psb-green { color: #16a34a; }
+
+/* ── Grouped Accordion ── */
+.grouped-list { display: flex; flex-direction: column; gap: 6px; }
+.group-card { border: 1px solid #e5e7eb; border-radius: 10px; overflow: hidden; background: #fff; }
+.group-header { display: flex; align-items: center; gap: 12px; padding: 12px 16px; cursor: pointer; user-select: none; transition: background .12s; }
+.group-header:hover { background: #f9fafb; }
+.group-avatar { width: 36px; height: 36px; border-radius: 50%; background: #dbeafe; color: #1d4ed8; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; flex-shrink: 0; }
+.group-avatar.avatar-verified { background: #dcfce7; color: #166534; }
+.group-avatar.avatar-rejected { background: #fee2e2; color: #991b1b; }
+.group-info { flex: 1; min-width: 0; }
+.group-name { font-size: 14px; font-weight: 600; color: #111827; }
+.group-meta { font-size: 12px; color: #6b7280; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.group-badges { display: flex; gap: 5px; align-items: center; flex-shrink: 0; flex-wrap: wrap; justify-content: flex-end; }
+.group-chevron { font-size: 14px; color: #9ca3af; transition: transform .2s; flex-shrink: 0; line-height: 1; }
+.group-chevron.open { transform: rotate(180deg); }
+
+/* Group row columns */
+.group-rows { border-top: 1px solid #f3f4f6; }
+.group-row-head { display: flex; align-items: center; gap: 10px; padding: 7px 16px 7px 60px; background: #f9fafb; border-bottom: 1px solid #f3f4f6; font-size: 11px; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.4px; }
+.group-row { display: flex; align-items: center; gap: 10px; padding: 9px 16px 9px 60px; border-bottom: 1px solid #f9fafb; font-size: 13px; transition: background .1s; }
+.group-row:last-child { border-bottom: none; }
+.group-row:hover { background: #f9fafb; }
+.gr-period  { width: 96px; flex-shrink: 0; }
+.gr-method  { width: 72px; flex-shrink: 0; }
+.gr-ref     { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: monospace; font-size: 12px; color: #6b7280; }
+.gr-amount  { width: 88px; text-align: right; flex-shrink: 0; }
+.gr-date    { width: 96px; text-align: right; flex-shrink: 0; font-size: 12px; color: #9ca3af; }
+.gr-actions { width: 130px; display: flex; gap: 4px; justify-content: flex-end; flex-shrink: 0; }
+
+/* ── Filter Panel (2-row filter bar) ── */
+.filter-panel { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+.fp-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.fp-search { flex: 1; min-width: 220px; }
+.fp-clear-btn {
+  padding: 0 14px; height: 36px; font-size: 12px; font-weight: 600;
+  border: 1px solid #fca5a5; border-radius: 8px;
+  background: #fee2e2; color: #991b1b; cursor: pointer;
+  white-space: nowrap; transition: background .12s;
+}
+.fp-clear-btn:hover { background: #fecaca; }
+/* ── Course group cards (shared style) ───────────────────── */
+.cards-section { margin-bottom:20px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:12px; padding:14px 16px; }
+.cards-header { display:flex; align-items:baseline; gap:12px; margin-bottom:12px; }
+.cards-label { font-size:12px; font-weight:700; color:#374151; text-transform:uppercase; letter-spacing:.05em; }
+.cards-hint { font-size:11px; color:#9ca3af; }
+.cards-loading { font-size:13px; color:#94a3b8; padding:8px 0; }
+.card-section-row { display:flex; align-items:flex-start; gap:10px; margin-bottom:10px; }
+.card-section-row:last-child { margin-bottom:0; }
+.card-cat-label { font-size:10px; font-weight:700; color:#94a3b8; text-transform:uppercase; letter-spacing:.06em; min-width:52px; padding-top:10px; }
+.card-row { display:flex; flex-wrap:wrap; gap:6px; }
+.course-card { background:white; border:1.5px solid #e2e8f0; border-radius:10px; padding:9px 12px; cursor:pointer; transition:border-color .15s,background .15s; text-align:left; min-width:120px; }
+.course-card:hover { border-color:#93c5fd; background:#f0f9ff; }
+.course-card.active { border-color:#2563eb; background:#eff6ff; }
+.card-prog { font-size:13px; font-weight:700; color:#1e293b; }
+.course-card.active .card-prog { color:#1d4ed8; }
+.card-meta { font-size:11px; color:#64748b; margin-top:2px; }
+.card-sem { font-size:10px; color:#64748b; margin-top:2px; margin-bottom:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:180px; }
+.course-card.active .card-sem { color:#2563eb; }
+.card-counts { display:flex; gap:4px; flex-wrap:wrap; margin-top:6px; }
+.card-badge { font-size:10px; font-weight:600; padding:1px 6px; border-radius:999px; }
+.card-badge.total { background:#f1f5f9; color:#475569; }
+.card-badge.pending { background:#fee2e2; color:#b91c1c; }
+.card-badge.paid { background:#dcfce7; color:#166534; }
+.course-card.active .card-badge.total { background:#dbeafe; color:#1d4ed8; }
+/* ── Student search bar (below course-group cards) ────────────── */
+.fp-search-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.fp-student-search {
+  flex: 1;
+  padding: 9px 14px;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 0.88rem;
+  color: #111827;
+  background: #fff;
+  outline: none;
+  transition: border-color .15s;
+}
+.fp-student-search:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59,130,246,.12);
+}
+
+/* ── Semester + student search bar ──────────────────────── */
+.sem-search-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+.sem-select {
+  padding: 9px 12px;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  color: #374151;
+  background: #fff;
+  outline: none;
+  cursor: pointer;
+  min-width: 220px;
+  transition: border-color .15s;
+}
+.sem-select:focus { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,.12); }
+.sem-search-input { flex: 1; min-width: 200px; }

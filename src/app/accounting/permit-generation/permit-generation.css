@@ -52,13 +52,15 @@
 .badge-midterm { background: #ede9fe; color: #6d28d9; }
 .badge-finals  { background: #fce7f3; color: #be185d; }
 
-.act-cell { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-.btn-approve { padding: 5px 12px; background: #22c55e; color: white; border: none; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; }
+.act-cell { white-space: nowrap; }
+.act-cell > * { display: inline-flex; align-items: center; gap: 4px; }
+.btn-approve { padding: 6px 14px; background: #22c55e; color: white; border: none; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
 .btn-approve:hover { background: #16a34a; }
-.btn-reject  { padding: 5px 12px; background: #ef4444; color: white; border: none; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; }
+.btn-reject  { padding: 6px 14px; background: #ef4444; color: white; border: none; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
 .btn-reject:hover  { background: #dc2626; }
-.btn-print   { padding: 5px 12px; background: #3b82f6; color: white; border: none; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; }
-.btn-print:hover   { background: #2563eb; }
+.btn-print   { padding: 6px 16px; background: #2563eb; color: white; border: none; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; letter-spacing: .01em; }
+.btn-print:hover   { background: #1d4ed8; }
+.btn-print::before { content: '🖨️'; font-size: 13px; }
 .rej-text { font-size: 12px; color: #dc2626; font-style: italic; }
 
 /* Modal */
@@ -139,3 +141,324 @@ button:disabled { opacity: .6; cursor: not-allowed; }
 /* ── Course & Year filter dropdowns ── */
 .filter-dropdowns { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
 .filter-dropdowns .fselect { min-width:160px; }
+/* ── Course group cards ── */
+.cards-section {
+  margin-bottom: 20px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 14px 16px;
+}
+.cards-header {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.cards-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: #374151;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+.cards-hint {
+  font-size: 11px;
+  color: #9ca3af;
+}
+.cards-loading {
+  font-size: 13px;
+  color: #94a3b8;
+  padding: 8px 0;
+}
+.card-section-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.card-section-row:last-child { margin-bottom: 0; }
+.card-cat-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  min-width: 52px;
+  padding-top: 10px;
+}
+.card-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.course-card {
+  background: white;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 9px 12px;
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+  text-align: left;
+  min-width: 120px;
+}
+.course-card:hover {
+  border-color: #93c5fd;
+  background: #f0f9ff;
+}
+.course-card.active {
+  border-color: #2563eb;
+  background: #eff6ff;
+}
+.card-prog {
+  font-size: 13px;
+  font-weight: 700;
+  color: #1e293b;
+}
+.course-card.active .card-prog { color: #1d4ed8; }
+.card-meta {
+  font-size: 11px;
+  color: #64748b;
+  margin-top: 2px;
+}
+.card-counts {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+.card-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 999px;
+}
+.card-badge.total   { background: #f1f5f9; color: #475569; }
+.card-badge.pending { background: #fee2e2; color: #b91c1c; }
+.card-badge.paid    { background: #dcfce7; color: #166534; }
+.course-card.active .card-badge.total { background: #dbeafe; color: #1d4ed8; }
+
+.card-sem {
+  font-size: 10px;
+  color: #64748b;
+  margin-top: 2px;
+  margin-bottom: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 180px;
+}
+.course-card.active .card-sem { color: #2563eb; }
+/* ── Student search bar (below course-group cards) ────────────── */
+.fp-search-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.fp-student-search {
+  flex: 1;
+  padding: 9px 14px;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 0.88rem;
+  color: #111827;
+  background: #fff;
+  outline: none;
+  transition: border-color .15s;
+}
+.fp-student-search:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59,130,246,.12);
+}
+
+/* ── Clear filter button ─────────────────────────────────── */
+.fp-clear-btn {
+  padding: 7px 12px;
+  background: #fee2e2;
+  color: #dc2626;
+  border: 1px solid #fecaca;
+  border-radius: 7px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .15s;
+}
+.fp-clear-btn:hover { background: #fecaca; }
+
+/* ── Pagination bar ──────────────────────────────────────── */
+.pg-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 12px 16px;
+  border-top: 1px solid #e5e7eb;
+  background: #f9fafb;
+  border-radius: 0 0 10px 10px;
+  margin-top: 2px;
+}
+.pg-info { font-size: 0.82rem; color: #6b7280; }
+.pg-btns { display: flex; align-items: center; gap: 10px; }
+.pg-btn {
+  padding: 6px 14px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #fff;
+  color: #374151;
+  cursor: pointer;
+  transition: background .15s, border-color .15s;
+}
+.pg-btn:hover:not(:disabled) { background: #f3f4f6; border-color: #9ca3af; }
+.pg-btn:disabled { opacity: .4; cursor: not-allowed; }
+.pg-indicator { font-size: 0.82rem; font-weight: 600; color: #374151; white-space: nowrap; } 
+/* ═══════════════════════════════════════════════════════════════════
+   ACCORDION — Approved / Rejected permits grouped by student
+   Styled to match the payment history card layout (Image 1 reference)
+   ═══════════════════════════════════════════════════════════════════ */
+.accordion-wrap {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+/* ── Student header row ── */
+.acc-student-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 18px;
+  background: #fff;
+  cursor: pointer;
+  border-bottom: 1px solid #f1f5f9;
+  transition: background .15s;
+  user-select: none;
+}
+.acc-student-row:last-child { border-bottom: none; }
+.acc-student-row:hover    { background: #f8fafc; }
+.acc-student-row.acc-expanded { background: #f0f9ff; border-bottom: 1px solid #bae6fd; }
+
+/* Avatar circle (same as accounting list) */
+.acc-avatar {
+  width: 38px; height: 38px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #1a4fa0 0%, #3b82f6 100%);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  letter-spacing: .5px;
+}
+
+.acc-student-info {
+  flex: 1;
+  min-width: 0;
+}
+.acc-sname {
+  display: block;
+  font-weight: 700;
+  font-size: 14px;
+  color: #1e293b;
+  /* Clickable look */
+  text-decoration: underline;
+  text-decoration-color: #93c5fd;
+  text-underline-offset: 3px;
+}
+.acc-smeta {
+  display: block;
+  font-size: 11px;
+  color: #94a3b8;
+  margin-top: 2px;
+}
+
+.acc-badges {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+.acc-count-badge {
+  font-size: 11px;
+  font-weight: 700;
+  background: #e0f2fe;
+  color: #0369a1;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+.acc-period-chip {
+  font-size: 10px !important;
+  padding: 2px 7px !important;
+}
+
+.acc-chevron {
+  font-size: 11px;
+  color: #94a3b8;
+  flex-shrink: 0;
+  transition: transform .2s;
+}
+
+/* ── Expanded detail section ── */
+.acc-detail-wrap {
+  background: #f8fafc;
+  border-top: 1px solid #e0f2fe;
+  border-bottom: 1px solid #e2e8f0;
+  padding: 0 18px;
+  animation: slideDown .15s ease;
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Column header bar */
+.acc-detail-header {
+  display: grid;
+  grid-template-columns: 110px 1fr 80px 110px 110px 100px;
+  gap: 8px;
+  padding: 8px 0 6px;
+  border-bottom: 1px solid #e2e8f0;
+}
+.acc-detail-header > span {
+  font-size: 10px;
+  font-weight: 700;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+
+/* Each permit row */
+.acc-detail-row {
+  display: grid;
+  grid-template-columns: 110px 1fr 80px 110px 110px 100px;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid #f1f5f9;
+  transition: background .1s;
+}
+.acc-detail-row:last-child { border-bottom: none; }
+.acc-detail-row:hover { background: #f0f9ff; margin: 0 -18px; padding: 10px 18px; }
+
+.acc-muted { font-size: 12px; color: #64748b; }
+
+/* Column slot names — must match header */
+.adh-period   { }
+.adh-semester { }
+.adh-ay       { }
+.adh-requested{ }
+.adh-processed{ }
+.adh-actions  { display: flex; align-items: center; justify-content: flex-end; }
+
+/* Print button override in accordion */
+.acc-detail-row .btn-print {
+  padding: 5px 12px;
+  font-size: 11px;
+}

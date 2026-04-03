@@ -1,0 +1,359 @@
+<div class="cashier-wrap">
+
+  <!-- Header -->
+  <div class="cashier-header">
+    <div class="ch-left">
+      <div class="ch-icon">🧾</div>
+      <div>
+        <h1>Cashier Window</h1>
+        <p>Quick Payment Collection</p>
+      </div>
+    </div>
+    <div class="ch-tabs">
+      <button class="chtab" [class.active]="currentTab === 'quickpay'" (click)="switchTab('quickpay')">
+        💳 Quick Pay
+      </button>
+      <button class="chtab" [class.active]="currentTab === 'tally'" (click)="switchTab('tally')">
+        📊 Daily Tally
+      </button>
+    </div>
+  </div>
+
+  <!-- ══ QUICK PAY TAB ══ -->
+  <div *ngIf="currentTab === 'quickpay'" class="qp-layout">
+
+    <!-- LEFT: Search & Student Card -->
+    <div class="qp-left">
+
+      <!-- Success state -->
+      <div *ngIf="payResult" class="pay-success">
+        <div class="ps-icon">✅</div>
+        <h2>Payment Recorded!</h2>
+        <div class="ps-orar">
+          <span class="ps-type">{{ payResult.orArType }}</span>
+          <span class="ps-number">{{ payResult.orArNumber }}</span>
+        </div>
+        <div class="ps-student">{{ payResult.student.name }}</div>
+        <div class="ps-rows">
+          <div class="ps-row"><span>Period</span><strong>{{ payResult.examPeriod }}</strong></div>
+          <div class="ps-row"><span>Amount Paid</span><strong class="ps-amount">₱{{ fmt(payResult.amountPaid) }}</strong></div>
+          <div class="ps-row" *ngIf="payResult.changeDue > 0">
+            <span>Change Due</span>
+            <strong class="ps-change">₱{{ fmt(payResult.changeDue) }}</strong>
+          </div>
+          <div class="ps-row"><span>Running Total</span><strong>₱{{ fmt(payResult.totalPaid) }}</strong></div>
+          <div class="ps-row balance" [class.zero]="payResult.balance <= 0">
+            <span>Remaining Balance</span>
+            <strong>{{ payResult.balance <= 0 ? '₱0.00 — Fully Paid 🎉' : '₱' + fmt(payResult.balance) }}</strong>
+          </div>
+        </div>
+        <div class="ps-actions">
+          <button class="btn-print" (click)="printReceipt(payResult.paymentId)">🖨️ Print Receipt</button>
+          <button class="btn-new" (click)="newTransaction()">＋ New Transaction</button>
+        </div>
+      </div>
+
+      <!-- Normal state: search + student card -->
+      <ng-container *ngIf="!payResult">
+
+        <!-- Search bar -->
+        <div class="search-section">
+          <label class="search-label">Student Search</label>
+          <div class="search-box">
+            <span class="search-icon">🔍</span>
+            <input
+              type="text"
+              class="search-input"
+              placeholder="Student number or name..."
+              [(ngModel)]="searchQuery"
+              (ngModelChange)="onSearchInput()"
+              autocomplete="off"
+            >
+            <button *ngIf="selectedStudent" class="search-clear" (click)="clearStudent()">✕</button>
+          </div>
+
+          <!-- Search results dropdown -->
+          <div class="search-dropdown" *ngIf="searchResults.length > 0">
+            <div
+              class="search-item"
+              *ngFor="let s of searchResults"
+              (click)="selectStudent(s)"
+            >
+              <div class="si-left">
+                <div class="si-avatar">{{ (s.firstName[0] + s.lastName[0]).toUpperCase() }}</div>
+                <div>
+                  <div class="si-name">{{ s.lastName }}, {{ s.firstName }}</div>
+                  <div class="si-sub">{{ s.studentNumber }} · {{ s.program }}</div>
+                </div>
+              </div>
+              <div class="si-right">
+                <span class="si-balance">Select</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="searching" *ngIf="isSearching">⏳ Searching...</div>
+        </div>
+
+        <!-- Student card -->
+        <div class="student-card" *ngIf="selectedStudent">
+          <div class="sc-top">
+            <div class="sc-avatar">{{ (selectedStudent.firstName[0] + selectedStudent.lastName[0]).toUpperCase() }}</div>
+            <div class="sc-info">
+              <h3>{{ selectedStudent.firstName }} {{ selectedStudent.lastName }}</h3>
+              <div class="sc-number">{{ selectedStudent.studentNumber }}</div>
+              <div class="sc-program">{{ selectedStudent.program }} · {{ selectedStudent.yearLevel }}</div>
+            </div>
+            <span class="sc-cat" [ngClass]="categoryClass(selectedStudent.studentCategory)">
+              {{ selectedStudent.studentCategory }}
+            </span>
+          </div>
+
+          <div class="sc-fees">
+            <div class="sc-fee-row">
+              <span>Total Assessment</span>
+              <strong>₱{{ fmt(selectedStudent.totalAssessment) }}</strong>
+            </div>
+            <div class="sc-fee-row">
+              <span>Total Paid</span>
+              <strong class="paid">₱{{ fmt(selectedStudent.totalPaid) }}</strong>
+            </div>
+            <div class="sc-fee-row balance" [class.zero]="selectedStudent.balance <= 0">
+              <span>Balance Due</span>
+              <strong>{{ selectedStudent.balance <= 0 ? '₱0.00 — Fully Paid' : '₱' + fmt(selectedStudent.balance) }}</strong>
+            </div>
+          </div>
+
+          <div class="sc-plan">
+            <span>Plan:</span>
+            <span class="plan-badge" [class.installment]="selectedStudent.paymentPlan === 'installment'">
+              {{ selectedStudent.paymentPlan === 'installment' ? '📅 Installment' : '✔️ Full Payment' }}
+            </span>
+            <span class="status-badge" [class.enrolled]="selectedStudent.enrollmentStatus === 'Enrolled'">
+              {{ selectedStudent.enrollmentStatus }}
+            </span>
+          </div>
+
+          <!-- ── Scholarship quick-action ── -->
+          <div class="sc-actions">
+            <button class="btn-scholarship" (click)="openScholarship()">
+              🎓 Manage Scholarship
+            </button>
+          </div>
+        </div>
+
+        <div *ngIf="!selectedStudent && !isSearching && searchQuery.length < 2" class="search-hint">
+          <div class="hint-icon">👆</div>
+          <p>Search for a student by name or student number to begin</p>
+        </div>
+      </ng-container>
+    </div>
+
+    <!-- RIGHT: Payment form -->
+    <div class="qp-right" *ngIf="selectedStudent && !payResult">
+      <div class="pay-form">
+        <div class="pf-title">💳 Record Payment</div>
+
+        <div class="pf-error" *ngIf="payError">⚠️ {{ payError }}</div>
+
+        <div class="form-row two">
+          <div class="fg">
+            <label>OR/AR Type</label>
+            <select class="fc" [(ngModel)]="payForm.or_ar_type">
+              <option value="AR">AR — Acknowledgement Receipt</option>
+              <option value="OR">OR — Official Receipt</option>
+            </select>
+          </div>
+          <div class="fg">
+            <label>Payment Date</label>
+            <input type="date" class="fc" [(ngModel)]="payForm.payment_date">
+          </div>
+        </div>
+
+        <div class="form-row two">
+          <div class="fg">
+            <label>Payment Method</label>
+            <select class="fc" [(ngModel)]="payForm.payment_method">
+              <option value="Cash">💵 Cash</option>
+              <option value="GCash">📱 GCash</option>
+              <option value="Check">🏦 Check</option>
+              <option value="BankTransfer">🏛️ Bank Transfer</option>
+            </select>
+          </div>
+          <div class="fg" *ngIf="payForm.payment_method !== 'Cash'">
+            <label>Reference No.</label>
+            <input type="text" class="fc" [(ngModel)]="payForm.gcash_reference" placeholder="e.g. G1234567890">
+          </div>
+        </div>
+
+        <div class="fg">
+          <label>Amount to Collect (₱) <span class="req">*</span></label>
+          <input
+            type="number"
+            class="fc amount-input"
+            [(ngModel)]="payForm.amount"
+            min="1"
+            (ngModelChange)="computeChange()"
+          >
+        </div>
+
+        <!-- Change calculator — only for cash -->
+        <div class="change-calc" *ngIf="payForm.payment_method === 'Cash'">
+          <div class="fg">
+            <label>Amount Tendered (₱)</label>
+            <input type="number" class="fc" [(ngModel)]="tendered" min="0" (ngModelChange)="computeChange()">
+          </div>
+          <div class="change-display" [class.has-change]="changeDue > 0">
+            <span class="cd-label">Change Due</span>
+            <span class="cd-amount">₱{{ fmt(changeDue) }}</span>
+          </div>
+        </div>
+
+        <div class="fg">
+          <label>Notes (optional)</label>
+          <input type="text" class="fc" [(ngModel)]="payForm.notes" placeholder="Remarks...">
+        </div>
+
+        <button
+          class="btn-pay"
+          [disabled]="isSubmitting || !payForm.amount || payForm.amount <= 0"
+          (click)="submitPayment()"
+        >
+          <span *ngIf="!isSubmitting">✅ Record & Issue {{ payForm.or_ar_type }}</span>
+          <span *ngIf="isSubmitting">⏳ Processing...</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Right placeholder when no student selected -->
+    <div class="qp-right qp-placeholder" *ngIf="!selectedStudent || payResult">
+      <div *ngIf="!payResult" class="placeholder-content">
+        <div class="ph-icon">🧾</div>
+        <p>Select a student to collect payment</p>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ══ DAILY TALLY TAB ══ -->
+  <div *ngIf="currentTab === 'tally'" class="tally-section">
+
+    <div class="tally-filter">
+      <label>Date</label>
+      <input type="date" class="fc" [(ngModel)]="tallyDate">
+      <button class="btn-load" (click)="loadTally()" [disabled]="isLoadingTally">
+        {{ isLoadingTally ? '⏳ Loading...' : '🔍 Load Tally' }}
+      </button>
+      <button class="btn-print-tally" *ngIf="tally" (click)="printTally()">🖨️ Print</button>
+    </div>
+
+    <div *ngIf="isLoadingTally" class="tally-loading">⏳ Loading tally...</div>
+
+    <ng-container *ngIf="tally && !isLoadingTally">
+      <!-- Summary cards -->
+      <div class="tally-summary">
+        <div class="ts-card cash">
+          <div class="ts-label">💵 Cash</div>
+          <div class="ts-value">₱{{ fmt(tally.totalCash) }}</div>
+        </div>
+        <div class="ts-card gcash">
+          <div class="ts-label">📱 GCash</div>
+          <div class="ts-value">₱{{ fmt(tally.totalGCash) }}</div>
+        </div>
+        <div class="ts-card check" *ngIf="tally.totalCheck > 0">
+          <div class="ts-label">🏦 Check</div>
+          <div class="ts-value">₱{{ fmt(tally.totalCheck) }}</div>
+        </div>
+        <div class="ts-card total">
+          <div class="ts-label">🏦 Grand Total</div>
+          <div class="ts-value">₱{{ fmt(tally.grandTotal) }}</div>
+        </div>
+        <div class="ts-card count">
+          <div class="ts-label">📋 Transactions</div>
+          <div class="ts-value">{{ tally.transactionCount }}</div>
+        </div>
+      </div>
+
+      <!-- Transactions table -->
+      <div class="tally-table-wrap">
+        <table class="tally-table" *ngIf="tally.transactions.length > 0">
+          <thead>
+            <tr>
+              <th>OR/AR No.</th>
+              <th>Type</th>
+              <th>Student No.</th>
+              <th>Name</th>
+              <th>Period</th>
+              <th>Method</th>
+              <th style="text-align:right">Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr *ngFor="let t of tally.transactions" [class.row-cash]="t.paymentMethod==='Cash'" [class.row-gcash]="t.paymentMethod==='GCash'">
+              <td><strong>{{ t.orArNumber }}</strong></td>
+              <td>
+                <span class="type-badge" [class.or]="t.orArType==='OR'" [class.ar]="t.orArType==='AR'">
+                  {{ t.orArType }}
+                </span>
+              </td>
+              <td class="mono">{{ t.studentNumber }}</td>
+              <td>{{ t.studentName }}</td>
+              <td><span class="period-chip">{{ t.examPeriod }}</span></td>
+              <td>
+                <span class="method-chip" [class.cash]="t.paymentMethod==='Cash'" [class.gcash]="t.paymentMethod==='GCash'">
+                  {{ t.paymentMethod === 'Cash' ? '💵' : '📱' }} {{ t.paymentMethod }}
+                </span>
+              </td>
+              <td style="text-align:right"><strong>₱{{ fmt(t.amount) }}</strong></td>
+            </tr>
+          </tbody>
+          <tfoot>
+            <tr>
+              <td colspan="6" style="text-align:right;font-weight:700;">GRAND TOTAL</td>
+              <td style="text-align:right;font-weight:800;">₱{{ fmt(tally.grandTotal) }}</td>
+            </tr>
+          </tfoot>
+        </table>
+
+        <div class="empty-tally" *ngIf="tally.transactions.length === 0">
+          <div>📭</div>
+          <p>No transactions for {{ tally.date }}</p>
+        </div>
+      </div>
+    </ng-container>
+
+    <div *ngIf="!tally && !isLoadingTally" class="tally-hint">
+      <div>📊</div>
+      <p>Select a date and click Load Tally to see the cashier report</p>
+    </div>
+  </div>
+
+</div>
+
+<!-- ── Scholarship Modal ── -->
+<div class="modal-overlay" *ngIf="showScholarshipModal" (click)="closeScholarship()">
+  <div class="modal-box scholarship-modal" (click)="$event.stopPropagation()">
+    <div class="modal-header">
+      <h3>🎓 Scholarship — {{ selectedStudent?.firstName }} {{ selectedStudent?.lastName }}</h3>
+      <button class="modal-close" (click)="closeScholarship()">✕</button>
+    </div>
+    <div class="modal-body" *ngIf="selectedStudent">
+      <app-scholarship
+        [studentId]="selectedStudent.id"
+        [studentName]="selectedStudent.firstName + ' ' + selectedStudent.lastName"
+        [totalAssessment]="selectedStudent.totalAssessment">
+      </app-scholarship>
+    </div>
+  </div>
+</div>
+
+<style>
+.sc-actions { padding: 8px 12px 4px; border-top: 1px solid #f1f5f9; }
+.btn-scholarship { width:100%; background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe; padding:8px 14px; border-radius:8px; font-size:.85rem; font-weight:600; cursor:pointer; transition:background .15s; }
+.btn-scholarship:hover { background:#dbeafe; }
+.scholarship-modal { max-width: 700px; width: 95%; max-height: 90vh; overflow-y: auto; }
+.modal-header { display:flex; justify-content:space-between; align-items:center; padding:14px 18px; border-bottom:1px solid #e5e7eb; }
+.modal-header h3 { margin:0; font-size:.95rem; font-weight:700; }
+.modal-close { background:none; border:none; font-size:1.1rem; cursor:pointer; color:#6b7280; }
+.modal-body  { padding:16px 18px; }
+</style>

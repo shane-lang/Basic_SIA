@@ -1,6 +1,7 @@
 import { Component, OnInit, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { HttpClient, HttpHeaders } from '@angular/common/http';
+import { HttpClient } from '@angular/common/http';
+import { environment } from '../../environment';
 
 @Component({
   selector: 'app-instructor-profile',
@@ -10,20 +11,14 @@ import { HttpClient, HttpHeaders } from '@angular/common/http';
   styleUrl: './profile.css',
 })
 export class InstructorProfile implements OnInit {
-  private api = 'http://localhost/sia-api/faculty.php';
+  private readonly api = `${environment.facultyApi}`;
 
   faculty: any = null;
   isLoading = true;
-
-  private getHeaders() {
-    const token = sessionStorage.getItem('token') || localStorage.getItem('token') || '';
-    return { headers: new HttpHeaders({ Authorization: `Bearer ${token}` }) };
-  }
-
   constructor(private http: HttpClient, private cdr: ChangeDetectorRef) {}
 
   ngOnInit(): void {
-    this.http.get<any>(`${this.api}?action=get_profile`, this.getHeaders()).subscribe({
+    this.http.get<any>(`${this.api}?action=get_profile`).subscribe({
       next: (res) => {
         this.isLoading = false;
         if (res.success) this.faculty = res.faculty;

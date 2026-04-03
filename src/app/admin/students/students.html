@@ -99,6 +99,7 @@
         <th>Semester</th>
         <th>Type</th>
         <th>Status</th>
+        <th>Scholar</th>
         <th class="tc">Details</th>
       </tr>
     </thead>
@@ -109,7 +110,7 @@
             <div class="avatar" [attr.data-initials]="getInitials(s)">{{ getInitials(s) }}</div>
             <div class="student-info">
               <div class="s-name">{{ s.last_name }}, {{ s.first_name }}</div>
-              <div class="s-email">{{ s.email }}</div>
+              <div class="s-email">{{ s.email | maskEmail }}</div>
             </div>
           </div>
         </td>
@@ -124,6 +125,12 @@
           <span class="status-badge" [ngClass]="statusClass(s.enrollment_status)">
             {{ s.enrollment_status }}
           </span>
+        </td>
+        <td>
+          <span class="scholar-chip" *ngIf="s.is_scholar">
+            🎓 {{ scholarLabel(s) }}
+          </span>
+          <span class="no-scholar" *ngIf="!s.is_scholar">—</span>
         </td>
         <td class="tc">
           <button class="btn-view" (click)="openDetail(s)">View</button>
@@ -191,9 +198,30 @@
           <span class="info-label">Enrolled Since</span>
           <span class="info-val">{{ selectedStudent.created_at | date:'mediumDate' }}</span>
         </div>
+        <div class="info-item">
+          <span class="info-label">Student Type</span>
+          <span class="info-val">{{ selectedStudent.student_type || '—' }}</span>
+        </div>
+        <div class="info-item">
+          <span class="info-label">Enrolled Since</span>
+          <span class="info-val">{{ selectedStudent.created_at | date:'mediumDate' }}</span>
+        </div>
         <div class="info-item info-full">
           <span class="info-label">Address</span>
           <span class="info-val">{{ selectedStudent.address || '—' }}</span>
+        </div>
+        <!-- Scholar info -->
+        <div class="info-item info-full scholar-info-row" *ngIf="selectedStudent.is_scholar">
+          <span class="info-label">🎓 Scholarship</span>
+          <span class="info-val">
+            <span class="scholar-chip">{{ selectedStudent.scholar_type || 'Scholar' }}</span>
+            <span class="scholar-grantor" *ngIf="selectedStudent.scholar_grantor">
+              · {{ selectedStudent.scholar_grantor }}
+            </span>
+            <span class="scholar-discount" *ngIf="selectedStudent.scholar_discount > 0">
+              · ₱{{ selectedStudent.scholar_discount.toLocaleString('en-PH', {minimumFractionDigits:2}) }} discount
+            </span>
+          </span>
         </div>
       </div>
 
@@ -206,6 +234,7 @@
               <tr>
                 <th>Code</th>
                 <th>Subject</th>
+                <th>Type</th>
                 <th>Units</th>
                 <th>Instructor</th>
                 <th>Semester</th>
@@ -216,7 +245,14 @@
               <tr *ngFor="let e of selectedStudent.enrollments">
                 <td class="mono">{{ e.code }}</td>
                 <td>{{ e.course_name }}</td>
-                <td class="tc">{{ e.credits }}</td>
+                <td class="td-type">
+                  <span class="tag-major" *ngIf="!isMinor(e.code)">Major</span>
+                  <span class="tag-minor" *ngIf="isMinor(e.code)">Minor</span>
+                </td>
+                <td class="tc">
+                  {{ e.credits }}
+                  <span class="units-breakdown">Lec {{ e.lec_units || e.credits }}<ng-container *ngIf="e.lab_units > 0"> / Lab {{ e.lab_units }}</ng-container></span>
+                </td>
                 <td>{{ e.instructor || '—' }}</td>
                 <td>{{ e.semester || '—' }}</td>
                 <td><span class="status-badge" [ngClass]="statusClass(e.status)">{{ e.status }}</span></td>
@@ -259,6 +295,42 @@
         </div>
         <p class="empty-mini" *ngIf="!selectedStudent.grades.length">No grade records yet.</p>
       </div>
+
+      <!-- ── NEW: Archive Section ─────────────────────────────────────────── -->
+      <div class="modal-section archive-section"
+           *ngIf="selectedStudent.enrollment_status !== 'Dropped'">
+        <h3 class="section-title">🗄️ Data Retention</h3>
+        <p class="archive-note">
+          Archiving this student soft-deletes their record and schedules
+          personal data anonymization after <strong>10 years</strong> per
+          <strong>RA 10173 (Data Privacy Act)</strong>. Academic records
+          (grades, TOR) are permanently retained per CHED policy.
+        </p>
+
+        <!-- Archive confirm sub-panel -->
+        <div class="archive-confirm-box" *ngIf="showArchiveModal">
+          <p class="archive-confirm-label">Select reason for archiving:</p>
+          <select class="archive-reason-select" [(ngModel)]="archiveReason">
+            <option value="">— Select reason —</option>
+            <option *ngFor="let r of archiveReasons" [value]="r">{{ r }}</option>
+          </select>
+          <div class="archive-actions">
+            <button class="btn-archive-cancel" (click)="closeArchiveModal()" [disabled]="isArchiving">
+              Cancel
+            </button>
+            <button class="btn-archive-confirm" (click)="confirmArchive()"
+                    [disabled]="isArchiving || !archiveReason">
+              {{ isArchiving ? 'Archiving…' : '🗄️ Confirm Archive' }}
+            </button>
+          </div>
+        </div>
+
+        <button class="btn-archive" *ngIf="!showArchiveModal" (click)="openArchiveModal()">
+          🗄️ Archive Student
+        </button>
+      </div>
+      <!-- ── END Archive Section ─────────────────────────────────────────── -->
+
     </ng-container>
   </div>
 </div>

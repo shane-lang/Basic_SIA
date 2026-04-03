@@ -1,0 +1,278 @@
+/* src/app/login/portal-login/portal-login.css */
+
+/* ── Portal Selector ─────────────────────────────────────────────────────── */
+.selector-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #f0f4ff, #e8eeff);
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  padding: 1.5rem;
+}
+
+.selector-card {
+  background: #fff;
+  border-radius: 20px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.12);
+  padding: 2.5rem 2rem;
+  width: 100%;
+  max-width: 480px;
+  text-align: center;
+  animation: slideUp 0.35s cubic-bezier(0.16,1,0.3,1);
+}
+
+.selector-logo { font-size: 3rem; margin-bottom: 0.5rem; }
+.selector-card h1 { font-size: 1.6rem; font-weight: 800; color: #1a1a2e; margin: 0 0 0.25rem; }
+.selector-card p  { color: #6b7280; font-size: 0.9rem; margin: 0 0 1.5rem; }
+
+.portal-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.portal-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  background: #f8fafc;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 0.85rem 1rem;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #374151;
+  transition: border-color 0.2s, background 0.2s, transform 0.1s;
+}
+.portal-btn:hover  { background: #f0f4ff; border-color: #6366f1; transform: translateY(-1px); }
+.portal-btn:active { transform: scale(0.97); }
+.p-icon  { font-size: 1.4rem; }
+.p-label { text-align: left; }
+
+/* ── Login Form ──────────────────────────────────────────────────────────── */
+.login-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  padding: 1.5rem;
+}
+
+.login-card {
+  background: #fff;
+  border-radius: 20px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.12);
+  padding: 2.5rem 2.5rem 2rem;
+  width: 100%;
+  max-width: 420px;
+  border-top: 5px solid var(--accent);
+  animation: slideUp 0.35s cubic-bezier(0.16,1,0.3,1);
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(28px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.back-btn {
+  background: none;
+  border: none;
+  color: #6b7280;
+  font-size: 0.8rem;
+  cursor: pointer;
+  padding: 0;
+  margin-bottom: 1.25rem;
+  display: block;
+  transition: color 0.2s;
+}
+.back-btn:hover { color: #374151; }
+
+.login-header { text-align: center; margin-bottom: 1.75rem; }
+.portal-icon  { font-size: 3rem; line-height: 1; margin-bottom: 0.5rem; }
+.login-header h1 { font-size: 1.5rem; font-weight: 800; color: #111827; margin: 0; }
+
+.error-box {
+  background: #fef2f2;
+  border: 1px solid #fca5a5;
+  border-radius: 10px;
+  padding: 0.65rem 0.875rem;
+  color: #b91c1c;
+  font-size: 0.875rem;
+  margin-bottom: 1.25rem;
+}
+
+.field { margin-bottom: 1.2rem; }
+
+.field label {
+  display: block;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 0.4rem;
+}
+
+.field input, .pw-wrap input {
+  width: 100%;
+  padding: 0.65rem 0.875rem;
+  border: 1.5px solid #d1d5db;
+  border-radius: 10px;
+  font-size: 0.95rem;
+  color: #111827;
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.field input:focus, .pw-wrap input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent);
+}
+
+.pw-wrap { position: relative; }
+.pw-wrap input { padding-right: 2.75rem; }
+.pw-toggle {
+  position: absolute; right: 0.65rem; top: 50%;
+  transform: translateY(-50%);
+  background: none; border: none; cursor: pointer;
+  font-size: 1rem; color: #6b7280;
+}
+
+.btn-login {
+  width: 100%;
+  padding: 0.78rem;
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  margin-top: 0.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  transition: opacity 0.2s, transform 0.1s;
+}
+.btn-login:hover:not(:disabled)  { opacity: 0.88; }
+.btn-login:active:not(:disabled) { transform: scale(0.98); }
+.btn-login:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.spinner {
+  width: 20px; height: 20px;
+  border: 3px solid rgba(255,255,255,0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  display: inline-block;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Enrollment section (student portal only) ────────────────────────────── */
+.enroll-section {
+  margin-top: 1.25rem;
+}
+
+.enroll-divider {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.875rem;
+  color: #9ca3af;
+  font-size: 0.8rem;
+}
+.enroll-divider::before,
+.enroll-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: #e5e7eb;
+}
+
+.btn-enroll {
+  width: 100%;
+  padding: 0.72rem;
+  background: #fff;
+  color: #2563eb;
+  border: 2px solid #2563eb;
+  border-radius: 10px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s, transform 0.1s;
+}
+.btn-enroll:hover  { background: #eff6ff; transform: translateY(-1px); }
+.btn-enroll:active { transform: scale(0.98); }
+
+/* ── Footer ──────────────────────────────────────────────────────────────── */
+.login-footer {
+  text-align: center;
+  margin-top: 1.5rem;
+  color: #9ca3af;
+  font-size: 0.76rem;
+}
+
+@media (max-width: 480px) {
+  .login-card { padding: 2rem 1.5rem 1.5rem; }
+  .portal-grid { grid-template-columns: 1fr; }
+}
+/* ── Login authentication welcome card ──────────────────────────────────── */
+.welcome-card { text-align: center; padding: 2.5rem 2rem 2rem; }
+.welcome-icon { font-size: 3.5rem; line-height: 1; margin-bottom: 0.5rem; }
+.welcome-checkmark {
+  width: 64px; height: 64px;
+  background: linear-gradient(135deg, #10b981, #059669);
+  color: #fff; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.75rem; font-weight: 700;
+  margin: 0 auto 1.25rem;
+  animation: popIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+@keyframes popIn { from { transform: scale(0); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.welcome-title  { font-size: 1.5rem; font-weight: 800; color: #111827; margin: 0 0 0.375rem; }
+.welcome-role   { color: #6b7280; font-size: 0.92rem; margin: 0 0 0.5rem; }
+.welcome-redirect { color: #9ca3af; font-size: 0.85rem; margin: 0 0 1.5rem; }
+.welcome-btn { margin-top: 0 !important; }
+
+/* ── 2FA OTP screen ──────────────────────────────────────────────────────── */
+.otp-card { text-align: center; }
+.otp-header { margin-bottom: 1.5rem; }
+.otp-lock-icon { font-size: 2.5rem; margin-bottom: 0.5rem; }
+.otp-header h1 { font-size: 1.4rem; font-weight: 800; color: #111827; margin: 0 0 0.375rem; }
+.otp-subtitle   { color: #6b7280; font-size: 0.88rem; margin: 0; }
+.otp-preview-box {
+  background: #fffbeb; border: 1px solid #fcd34d;
+  border-radius: 10px; padding: 0.75rem 1rem;
+  margin-bottom: 1rem; text-align: center;
+}
+.otp-preview-label { display: block; font-size: 0.78rem; color: #92400e; margin-bottom: 0.25rem; }
+.otp-preview-code  {
+  font-family: 'Courier New', monospace; font-size: 2rem; font-weight: 700;
+  color: #78350f; letter-spacing: 0.3em; display: block;
+}
+.otp-preview-box small { color: #b45309; font-size: 0.72rem; }
+.otp-field { margin-bottom: 1.25rem; text-align: left; }
+.otp-field label {
+  display: block; font-size: 0.82rem; font-weight: 600;
+  color: #374151; margin-bottom: 0.5rem;
+}
+.otp-input {
+  width: 100%; padding: 0.875rem; box-sizing: border-box;
+  border: 2px solid #d1d5db; border-radius: 12px;
+  font-size: 1.75rem; font-weight: 700; text-align: center;
+  letter-spacing: 0.35em; color: #111827;
+  font-family: 'Courier New', monospace; outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.otp-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent);
+}
+
+/* ── Logout reason banner ────────────────────────────────────────────────── */
+.logout-banner {
+  background: #fffbeb; border: 1px solid #fcd34d;
+  border-radius: 10px; padding: 0.65rem 0.875rem;
+  color: #92400e; font-size: 0.85rem; margin-bottom: 1.25rem; line-height: 1.4;
+}

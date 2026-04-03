@@ -80,14 +80,14 @@
             <td class="td-code">{{ g.code }}</td>
             <td class="td-name">{{ g.name }}</td>
             <td class="td-muted">{{ g.instructor }}</td>
-            <td class="tc">{{ g.credits }}</td>
-            <td class="tc"><span class="gpill" [class]="gradeClass(g.prelim)">{{ fmtGrade(g.prelim) }}</span></td>
-            <td class="tc"><span class="gpill" [class]="gradeClass(g.midterm)">{{ fmtGrade(g.midterm) }}</span></td>
-            <td class="tc"><span class="gpill" [class]="gradeClass(g.final)">{{ fmtGrade(g.final) }}</span></td>
-            <td class="tc"><span class="gpill gpill-lg" [class]="gradeClass(g.overall)">{{ fmtGrade(g.overall) }}</span></td>
+            <td class="tc">{{ g.credits }}<span class="units-breakdown" *ngIf="g.lecUnits">Lec {{ g.lecUnits }}<ng-container *ngIf="g.labUnits > 0"> / Lab {{ g.labUnits }}</ng-container></span></td>
+            <td class="tc"><span class="gpill" [class]="gradeClass(g.prelim)">{{ g.isReleased ? fmtGrade(g.prelim) : '—' }}</span></td>
+            <td class="tc"><span class="gpill" [class]="gradeClass(g.midterm)">{{ g.isReleased ? fmtGrade(g.midterm) : '—' }}</span></td>
+            <td class="tc"><span class="gpill" [class]="gradeClass(g.final)">{{ g.isReleased ? fmtGrade(g.final) : '—' }}</span></td>
+            <td class="tc"><span class="gpill gpill-lg" [class]="gradeClass(g.overall)">{{ g.isReleased ? fmtGrade(g.overall) : '—' }}</span></td>
             <td class="tc">
               <span class="rtag" [class.rtag-pass]="g.remarks==='Passed'" [class.rtag-fail]="g.remarks==='Failed'" [class.rtag-prog]="g.remarks==='In Progress'">
-                {{ g.remarks }}
+                {{ g.isReleased ? g.remarks : 'Pending Release' }}
               </span>
             </td>
             <td class="td-muted">{{ g.description }}</td>

@@ -2,6 +2,8 @@ import { Component, OnInit, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
+import { environment } from '../../environment';
+import { MaskEmailPipe } from '../../pipes/mask-email.pipe';
 
 interface Student {
   id: number;
@@ -17,6 +19,12 @@ interface Student {
   contact_number: string;
   address: string;
   created_at: string;
+  // ── Scholar ──
+  is_scholar: number;
+  scholar_type: string;
+  scholar_grantor: string;
+  scholar_discount: number;
+  payment_status: string;
 }
 
 interface StudentDetail extends Student {
@@ -38,17 +46,13 @@ interface StudentStats {
 @Component({
   selector: 'app-students',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, MaskEmailPipe],
   templateUrl: './students.html',
   styleUrl: './students.css',
 })
 export class Students implements OnInit {
-  private apiUrl = 'http://localhost/sia-api/admin.php';
-
-  private getHeaders(): { headers: HttpHeaders } {
-    const token = sessionStorage.getItem('token') || localStorage.getItem('token') || '';
-    return { headers: new HttpHeaders({ Authorization: `Bearer ${token}` }) };
-  }
+  private apiUrl       = environment.adminApi;
+  private retentionUrl = environment.retentionApi; // ← NEW
 
   // State
   students: Student[]       = [];
@@ -61,7 +65,7 @@ export class Students implements OnInit {
   // Filters & pagination
   searchQuery  = '';
   filterProgram   = '';
-  filterStatus    = '';
+  filterStatus    = ''
   filterYearLevel = '';
   currentPage  = 1;
   totalPages   = 1;
@@ -74,6 +78,18 @@ export class Students implements OnInit {
   toast = { show: false, type: 'success' as 'success' | 'error', message: '' };
   searchTimeout: any;
 
+  // ── NEW: Archive modal state ───────────────────────────────────────────────
+  showArchiveModal = false;
+  archiveReason    = '';
+  isArchiving      = false;
+  archiveReasons   = [
+    'Graduated',
+    'Transferred to another school',
+    'Dropped / Stopped attending',
+    'Completed program',
+    'Administrative archiving',
+  ];
+
   constructor(private http: HttpClient, private cdr: ChangeDetectorRef) {}
 
   ngOnInit(): void {
@@ -82,7 +98,7 @@ export class Students implements OnInit {
   }
 
   loadStats(): void {
-    this.http.get<any>(`${this.apiUrl}?action=get_student_stats`, this.getHeaders()).subscribe({
+    this.http.get<any>(`${this.apiUrl}?action=get_student_stats`).subscribe({
       next: (res) => {
         if (res.success) {
           this.stats = res;
@@ -106,7 +122,7 @@ export class Students implements OnInit {
       ...(this.filterYearLevel && { year_level: this.filterYearLevel }),
     });
 
-    this.http.get<any>(`${this.apiUrl}?${params}`, this.getHeaders()).subscribe({
+    this.http.get<any>(`${this.apiUrl}?${params}`).subscribe({
       next: (res) => {
         this.isLoading    = false;
         this.students     = res.success ? (res.students || []) : [];
@@ -135,7 +151,7 @@ export class Students implements OnInit {
     this.showDetailModal  = true;
     this.isLoadingDetail  = true;
     this.selectedStudent  = null;
-    this.http.get<any>(`${this.apiUrl}?action=get_student_detail&id=${student.id}`, this.getHeaders()).subscribe({
+    this.http.get<any>(`${this.apiUrl}?action=get_student_detail&id=${student.id}`).subscribe({
       next: (res) => {
         this.isLoadingDetail = false;
         if (res.success) {
@@ -147,7 +163,11 @@ export class Students implements OnInit {
     });
   }
 
-  closeDetail(): void { this.showDetailModal = false; this.selectedStudent = null; }
+  closeDetail(): void {
+    this.showDetailModal = false;
+    this.selectedStudent = null;
+    this.closeArchiveModal();
+  }
 
   prevPage(): void { if (this.currentPage > 1) this.loadStudents(this.currentPage - 1); }
   nextPage(): void { if (this.currentPage < this.totalPages) this.loadStudents(this.currentPage + 1); }
@@ -168,13 +188,80 @@ export class Students implements OnInit {
     const map: Record<string, string> = {
       Enrolled: 'badge-enrolled', Pending: 'badge-pending',
       Inactive: 'badge-inactive', Dropped: 'badge-dropped',
-      Graduated: 'badge-graduated',
+      Graduated: 'badge-graduated', Completed: 'badge-completed',
+      Failed: 'badge-dropped',
     };
     return map[status] || 'badge-default';
+  }
+
+  scholarLabel(s: Student): string {
+    if (!s.is_scholar) return '';
+    return s.scholar_type || 'Scholar';
   }
 
   showToast(type: 'success' | 'error', message: string): void {
     this.toast = { show: true, type, message };
     setTimeout(() => { this.toast.show = false; this.cdr.detectChanges(); }, 3500);
+  }
+
+  isMinor(code: string): boolean {
+    if (!code) return false;
+    const upper = code.toUpperCase();
+    return upper.startsWith('GE') ||
+           upper.startsWith('PE') ||
+           upper.startsWith('NSTP') ||
+           upper.startsWith('OJT');
+  }
+
+  // ── NEW: Archive methods ───────────────────────────────────────────────────
+
+  openArchiveModal(): void {
+    this.archiveReason    = '';
+    this.showArchiveModal = true;
+    this.cdr.detectChanges();
+  }
+
+  closeArchiveModal(): void {
+    this.showArchiveModal = false;
+    this.archiveReason    = '';
+    this.isArchiving      = false;
+    this.cdr.detectChanges();
+  }
+
+  confirmArchive(): void {
+    if (!this.selectedStudent) return;
+    if (!this.archiveReason.trim()) {
+      this.showToast('error', 'Please select or enter a reason for archiving.');
+      return;
+    }
+
+    this.isArchiving = true;
+    this.http.post<any>(`${this.retentionUrl}?action=archive_student`, {
+      student_id: this.selectedStudent.id,
+      reason:     this.archiveReason.trim(),
+    }).subscribe({
+      next: (res) => {
+        this.isArchiving = false;
+        if (res.success) {
+          this.showToast('success',
+            `✅ ${res.full_name} (${res.student_number}) archived. ` +
+            `PII scheduled for anonymization on ${res.scheduled_anonymize}.`
+          );
+          // Update the student's status in the list without reloading
+          const idx = this.students.findIndex(s => s.id === this.selectedStudent!.id);
+          if (idx !== -1) this.students[idx].enrollment_status = 'Dropped';
+          this.closeDetail();
+          this.loadStats();
+        } else {
+          this.showToast('error', res.message || 'Archive failed. Please try again.');
+        }
+        this.cdr.detectChanges();
+      },
+      error: () => {
+        this.isArchiving = false;
+        this.showToast('error', 'Network error. Could not archive student.');
+        this.cdr.detectChanges();
+      }
+    });
   }
 }

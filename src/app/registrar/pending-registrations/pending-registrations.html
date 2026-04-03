@@ -1,0 +1,393 @@
+<div class="pr-page">
+
+  <!-- Notifications -->
+  <div class="notif-stack">
+    <div *ngFor="let n of notifications" class="notif" [class]="'notif-' + n.type">
+      {{ n.message }}
+    </div>
+  </div>
+
+  <!-- Header -->
+  <div class="pr-header">
+    <div>
+      <h1 class="pr-title">📋 Pending Registrations</h1>
+      <p class="pr-subtitle">Review student registrations. Payment status is verified by Accounting — confirm to officially enroll.</p>
+    </div>
+    <button class="btn-refresh" (click)="load()">↻ Refresh</button>
+  </div>
+
+  <!-- Search -->
+  <div class="pr-toolbar">
+    <div class="search-wrap">
+      <input type="text" placeholder="Search by name, student number, email..." [(ngModel)]="searchQuery" (input)="onSearchInput()" (keyup.enter)="search()" class="search-input" />
+      <button class="btn-search" (click)="search()">Search</button>
+      <button class="btn-clear" *ngIf="searchQuery" (click)="clearSearch()">✕</button>
+    </div>
+    <span class="total-count">{{ total }} pending</span>
+  </div>
+
+  <!-- Loading -->
+  <div class="loading-row" *ngIf="isLoading">⏳ Loading...</div>
+
+  <!-- Table -->
+  <div class="pr-table-wrap" *ngIf="!isLoading">
+    <table class="pr-table">
+      <thead>
+        <tr>
+          <th>Student No.</th>
+          <th>Name</th>
+          <th>Program</th>
+          <th>Payment</th>
+          <th>Scholar</th>
+          <th>Registered</th>
+          <th>Status</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr *ngFor="let s of students"
+            [class.selected-row]="selected?.id === s.id"
+            (click)="selectStudent(s)">
+          <td class="mono">{{ s.studentNumber }}</td>
+          <td>
+            <div class="name-cell">
+              <strong>{{ s.lastName }}, {{ s.firstName }}</strong>
+              <small>{{ s.email }}</small>
+            </div>
+          </td>
+          <td><small>{{ s.program }}</small></td>
+          <td>
+            <span class="pay-badge" [class]="paymentStatusClass(s.paymentStatus)">
+              {{ paymentStatusLabel(s) }}
+            </span>
+          </td>
+          <td>
+            <span class="scholar-chip" *ngIf="s.isScholar">
+              🎓 {{ s.scholarType || 'Scholar' }}
+            </span>
+            <span class="no-scholar" *ngIf="!s.isScholar">—</span>
+          </td>
+          <td><small>{{ s.registeredAt }}</small></td>
+          <td><span class="badge" [class]="statusClass(s.registrarConfirmed)">{{ s.registrarConfirmed }}</span></td>
+          <td>
+            <button class="btn-view" (click)="selectStudent(s); $event.stopPropagation()">
+              {{ selected?.id === s.id ? '▲ Hide' : '▼ View' }}
+            </button>
+          </td>
+        </tr>
+        <tr *ngIf="students.length === 0">
+          <td colspan="8" class="empty-row">✅ No pending registrations</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Pagination -->
+  <div class="pagination" *ngIf="totalPages > 1">
+    <button (click)="goToPage(page - 1)" [disabled]="page === 1">‹ Prev</button>
+    <span>Page {{ page }} of {{ totalPages }}</span>
+    <button (click)="goToPage(page + 1)" [disabled]="page === totalPages">Next ›</button>
+  </div>
+
+  <!-- Detail Panel -->
+  <div class="detail-panel" *ngIf="selected">
+    <div class="detail-header">
+      <h2>{{ selected.lastName }}, {{ selected.firstName }} {{ selected.middleName }}</h2>
+      <span class="badge" [class]="statusClass(selected.registrarConfirmed)">{{ selected.registrarConfirmed }}</span>
+      <span class="scholar-chip-lg" *ngIf="selected.isScholar">🎓 {{ selected.scholarType || 'Scholar' }}</span>
+    </div>
+
+    <!-- ── Payment & Assessment Banner ─────────────────────────── -->
+    <div class="payment-banner" [class.banner-paid]="isPaymentCleared(selected)" [class.banner-unpaid]="!isPaymentCleared(selected)">
+      <div class="pb-icon">{{ isPaymentCleared(selected) ? '✅' : '⚠️' }}</div>
+      <div class="pb-body">
+        <div class="pb-title">
+          <ng-container *ngIf="isPaymentCleared(selected)">
+            <ng-container *ngIf="selected.paymentPlan === 'installment' && selected.totalPaid > 0 && selected.paymentStatus.toLowerCase() !== 'paid'">
+              Downpayment Verified — Installment Plan
+            </ng-container>
+            <ng-container *ngIf="selected.paymentPlan !== 'installment' || selected.paymentStatus.toLowerCase() === 'paid'">
+              Payment Verified by Accounting
+            </ng-container>
+          </ng-container>
+          <ng-container *ngIf="!isPaymentCleared(selected)">
+            Payment Not Yet Verified
+          </ng-container>
+        </div>
+        <div class="pb-sub" *ngIf="!isPaymentCleared(selected)">
+          Student must complete payment before registration can be confirmed.
+        </div>
+        <div class="pb-sub" *ngIf="isPaymentCleared(selected) && selected.paymentPlan === 'installment' && selected.paymentStatus.toLowerCase() !== 'paid'">
+          Downpayment of ₱{{ fmt(selected.totalPaid) }} received. Remaining balance of ₱{{ fmt(selected.balance) }} payable in installments at Accounting.
+        </div>
+        <div class="pb-sub" *ngIf="isPaymentCleared(selected) && selected.isScholar">
+          Scholarship discount applied — {{ coveragePct(selected) === 100 ? 'full coverage, no payment required' : 'partial discount applied' }}.
+        </div>
+      </div>
+      <span class="pb-status-badge" [class]="paymentStatusClass(selected.paymentStatus)">
+        {{ paymentStatusLabel(selected) }}
+      </span>
+    </div>
+
+    <!-- ── Payment Summary Box ────────────────────────────────── -->
+    <div class="pay-summary-box">
+      <h4 class="section-label">💳 Payment Summary</h4>
+      <div class="pay-summary-grid">
+        <div class="psb-item">
+          <span class="psb-label">Total Assessment</span>
+          <span class="psb-value mono-amt">₱{{ fmt(selected.totalAssessment) }}</span>
+        </div>
+        <div class="psb-item">
+          <span class="psb-label">Total Paid</span>
+          <span class="psb-value mono-amt paid-amt">₱{{ fmt(selected.totalPaid) }}</span>
+        </div>
+        <div class="psb-item" [class.psb-cleared]="selected.balance <= 0" [class.psb-owing]="selected.balance > 0">
+          <span class="psb-label">Remaining Balance</span>
+          <span class="psb-value mono-amt">₱{{ fmt(selected.balance) }}</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Assessment Breakdown ─────────────────────────────────── -->
+    <div class="assessment-box" *ngIf="selected.totalAssessment > 0 || selected.isScholar">
+      <h4 class="section-label">💰 Assessment & Payment</h4>
+      <div class="assessment-grid">
+        <div class="assess-row">
+          <span>Gross Assessment</span>
+          <span class="mono-amt">₱{{ fmt(selected.subtotal || selected.totalAssessment) }}</span>
+        </div>
+        <div class="assess-row scholar-row" *ngIf="selected.isScholar && selected.scholarDiscount > 0">
+          <span>🎓 Scholarship Discount <small>({{ selected.scholarType }})</small></span>
+          <span class="mono-amt discount-amt">− ₱{{ fmt(selected.scholarDiscount) }}</span>
+        </div>
+        <div class="assess-row" *ngIf="selected.installmentFee > 0">
+          <span>Installment Fee</span>
+          <span class="mono-amt">+ ₱{{ fmt(selected.installmentFee) }}</span>
+        </div>
+        <div class="assess-row total-row">
+          <span><strong>Total Assessment</strong></span>
+          <span class="mono-amt"><strong>₱{{ fmt(selected.totalAssessment) }}</strong></span>
+        </div>
+        <div class="assess-row">
+          <span>Amount Paid</span>
+          <span class="mono-amt paid-amt">₱{{ fmt(selected.totalPaid) }}</span>
+        </div>
+        <div class="assess-row balance-row" [class.zero-balance]="selected.balance <= 0">
+          <span><strong>Balance</strong></span>
+          <span class="mono-amt"><strong>₱{{ fmt(selected.balance) }}</strong></span>
+        </div>
+      </div>
+      <div class="payment-plan-tag" *ngIf="selected.paymentPlan">
+        📅 Payment Plan: <strong>{{ selected.paymentPlan }}</strong>
+      </div>
+      <div class="accounting-notes" *ngIf="selected.accountingNotes">
+        📝 Accounting Notes: <em>{{ selected.accountingNotes }}</em>
+      </div>
+    </div>
+
+    <!-- ── Scholar Info ─────────────────────────────────────────── -->
+    <div class="scholar-box" *ngIf="selected.isScholar">
+      <h4 class="section-label">🎓 Scholarship Information</h4>
+      <div class="scholar-grid">
+        <div class="assess-row">
+          <span>Scholarship Type</span>
+          <strong>{{ selected.scholarType || '—' }}</strong>
+        </div>
+        <div class="assess-row">
+          <span>Grantor</span>
+          <strong>{{ selected.scholarGrantor || '—' }}</strong>
+        </div>
+        <div class="assess-row">
+          <span>Discount Amount</span>
+          <strong class="discount-amt">₱{{ fmt(selected.scholarDiscount) }}</strong>
+        </div>
+        <div class="assess-row">
+          <span>Coverage</span>
+          <strong>{{ coveragePct(selected) }}%{{ coveragePct(selected) >= 100 ? ' — Full Tuition ✓' : '' }}</strong>
+        </div>
+      </div>
+      <!-- Coverage bar -->
+      <div class="cov-bar-wrap">
+        <div class="cov-bar">
+          <div class="cov-fill" [style.width.%]="coveragePct(selected)"
+               [class.cov-full]="coveragePct(selected) >= 100"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Enrolled Subjects ──────────────────────────────────── -->
+    <div class="subjects-box">
+      <h4 class="section-label">📚 Enrolled Subjects</h4>
+
+      <div class="subjects-loading" *ngIf="isLoadingSubjects">⏳ Loading subjects…</div>
+
+      <table class="subjects-table" *ngIf="!isLoadingSubjects && enrolledSubjects.length > 0">
+        <thead>
+          <tr>
+            <th>Code</th>
+            <th>Subject Name</th>
+            <th class="units-col">Units</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr *ngFor="let subj of enrolledSubjects">
+            <td class="mono">{{ subj.course_code }}</td>
+            <td>{{ subj.course_name }}</td>
+            <td class="units-col">{{ subj.units }}</td>
+            <td>
+              <span class="subj-status-chip"
+                    [class.chip-enrolled]="subj.status === 'Enrolled'"
+                    [class.chip-pending]="subj.status === 'Pending'"
+                    [class.chip-dropped]="subj.status === 'Dropped'">
+                {{ subj.status || '—' }}
+              </span>
+            </td>
+          </tr>
+        </tbody>
+        <tfoot>
+          <tr>
+            <td colspan="2" class="total-units-label">Total Units</td>
+            <td class="units-col total-units-val">{{ totalEnrolledUnits() }}</td>
+            <td></td>
+          </tr>
+        </tfoot>
+      </table>
+
+      <div class="subjects-empty" *ngIf="!isLoadingSubjects && enrolledSubjects.length === 0">
+        📋 No subjects enrolled yet — they will be auto-enrolled after confirmation.
+      </div>
+    </div>
+
+    <div class="detail-grid">
+      <div class="detail-group">
+        <h4>Academic Info</h4>
+        <div class="drow"><label>Student No.</label><span class="mono">{{ selected.studentNumber }}</span></div>
+        <div class="drow"><label>Program</label><span>{{ selected.program }}</span></div>
+        <div class="drow"><label>Year Level</label><span>{{ selected.yearLevel }}</span></div>
+        <div class="drow"><label>Semester</label><span>{{ selected.semester }}</span></div>
+        <div class="drow"><label>Student Type</label><span>{{ selected.studentType }}</span></div>
+        <div class="drow"><label>Category</label><span>{{ selected.studentCategory }}</span></div>
+        <div class="drow" *ngIf="selected.strand"><label>Strand</label><span>{{ selected.strand }}</span></div>
+        <div class="drow" *ngIf="selected.lastSchoolAttended"><label>Last School</label><span>{{ selected.lastSchoolAttended }}</span></div>
+      </div>
+      <div class="detail-group">
+        <h4>Personal Info</h4>
+        <div class="drow"><label>Email</label><span>{{ selected.email }}</span></div>
+        <div class="drow">
+          <label>Guardian Email</label>
+
+          <!-- Normal display: email on file, not editing -->
+          <ng-container *ngIf="!editingGuardianEmail">
+            <span *ngIf="selected.guardianEmail" class="guardian-email-value">
+              {{ selected.guardianEmail }}
+              <button class="btn-edit-email" (click)="startEditGuardianEmail()" title="Edit guardian email">✏️</button>
+            </span>
+            <span *ngIf="!selected.guardianEmail" class="warn-no-email">
+              ⚠️ No guardian email on file — SOA and enrollment report cannot be sent by email.
+              <button class="btn-add-email" (click)="startEditGuardianEmail()">+ Add Email</button>
+            </span>
+          </ng-container>
+
+          <!-- Inline edit mode -->
+          <span *ngIf="editingGuardianEmail" class="guardian-email-edit">
+            <input
+              type="email"
+              [(ngModel)]="tempGuardianEmail"
+              placeholder="guardian@email.com"
+              class="guardian-email-input"
+              (keyup.enter)="saveGuardianEmail()"
+              (keyup.escape)="cancelEditGuardianEmail()"
+            />
+            <button class="btn-save-email" (click)="saveGuardianEmail()" [disabled]="isSavingGuardianEmail">
+              {{ isSavingGuardianEmail ? 'Saving…' : 'Save' }}
+            </button>
+            <button class="btn-cancel-email" (click)="cancelEditGuardianEmail()" [disabled]="isSavingGuardianEmail">Cancel</button>
+          </span>
+        </div>
+        <div class="drow"><label>Phone</label><span>{{ selected.phone || '—' }}</span></div>
+        <div class="drow"><label>LRN</label><span>{{ selected.lrnNo || '—' }}</span></div>
+        <div class="drow"><label>Sex</label><span>{{ selected.sex || '—' }}</span></div>
+        <div class="drow"><label>Date of Birth</label><span>{{ selected.dateOfBirth || '—' }}</span></div>
+        <div class="drow"><label>Address</label><span>{{ selected.address || '—' }}</span></div>
+        <div class="drow" *ngIf="selected.registrarNotes"><label>Notes</label><span class="notes-val">{{ selected.registrarNotes }}</span></div>
+      </div>
+    </div>
+
+    <div class="detail-actions" *ngIf="selected.registrarConfirmed === 'Pending'">
+      <button class="btn-confirm" (click)="openAction('confirm')">✓ Confirm Registration</button>
+      <button class="btn-reject"  (click)="openAction('reject')">✕ Reject</button>
+    </div>
+    <div class="already-actioned" *ngIf="selected.registrarConfirmed !== 'Pending'">
+      Registration already {{ selected.registrarConfirmed | lowercase }}.
+      <!-- Resend-only: auto-send fires on approval; this is a fallback in case email failed -->
+      <button class="btn-send-enroll-report btn-resend"
+              (click)="sendEnrollmentReport(selected.id, selected.firstName + ' ' + selected.lastName)"
+              [disabled]="isSendingEnrollReport[selected.id]"
+              title="Enrollment report was auto-sent on approval. Click to resend if needed.">
+        {{ isSendingEnrollReport[selected.id] ? '📧 Resending…' : '🔁 Resend Enrollment Report' }}
+      </button>
+    </div>
+  </div>
+
+  <!-- Action Modal -->
+  <div class="modal-overlay" *ngIf="showModal" (click)="closeModal()">
+    <div class="modal-box" (click)="$event.stopPropagation()">
+      <h3 *ngIf="modalAction === 'confirm'">✓ Confirm Registration</h3>
+      <h3 *ngIf="modalAction === 'reject'">✕ Reject Registration</h3>
+
+      <!-- Payment summary in confirm modal -->
+      <div class="modal-pay-summary" *ngIf="modalAction === 'confirm' && selected">
+        <div class="mps-row">
+          <span>Student</span>
+          <strong>{{ selected.fullName }}</strong>
+        </div>
+        <div class="mps-row">
+          <span>Payment Status</span>
+          <span class="pay-badge" [class]="paymentStatusClass(selected.paymentStatus)">{{ paymentStatusLabel(selected) }}</span>
+        </div>
+        <div class="mps-row" *ngIf="selected.totalAssessment > 0">
+          <span>Assessment</span>
+          <strong>₱{{ fmt(selected.totalAssessment) }}</strong>
+        </div>
+        <div class="mps-row" *ngIf="selected.totalAssessment > 0">
+          <span>Balance</span>
+          <strong [class.zero-bal]="selected.balance <= 0">₱{{ fmt(selected.balance) }}</strong>
+        </div>
+        <div class="mps-row" *ngIf="selected.isScholar">
+          <span>Scholar</span>
+          <strong class="scholar-tag">🎓 {{ selected.scholarType }}</strong>
+        </div>
+      </div>
+
+      <p *ngIf="modalAction === 'confirm'">
+        Confirm the registration of <strong>{{ selected?.fullName }}</strong>?
+        This will officially enroll the student and register them in their courses.
+      </p>
+      <p *ngIf="modalAction === 'reject'">
+        Reject the registration of <strong>{{ selected?.fullName }}</strong>?
+        The student will need to re-submit with corrected information.
+      </p>
+      <textarea
+        [(ngModel)]="modalNotes"
+        placeholder="{{ modalAction === 'reject' ? 'Reason for rejection (required)...' : 'Optional notes...' }}"
+        rows="3"
+        class="modal-notes"
+      ></textarea>
+      <div class="modal-actions">
+        <button class="btn-cancel" (click)="closeModal()" [disabled]="isSubmitting">Cancel</button>
+        <button
+          class="btn-modal-action"
+          [class.btn-confirm]="modalAction === 'confirm'"
+          [class.btn-reject]="modalAction === 'reject'"
+          (click)="submitAction()"
+          [disabled]="isSubmitting"
+        >
+          <span *ngIf="!isSubmitting">{{ modalAction === 'confirm' ? '✓ Confirm' : '✕ Reject' }}</span>
+          <span *ngIf="isSubmitting">⏳ Processing...</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+</div>

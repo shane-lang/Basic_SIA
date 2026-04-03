@@ -79,6 +79,10 @@
             <span class="sad-code">{{ s.code }}</span>
           </div>
           <div class="sad-name">{{ s.name }}</div>
+          <div class="sad-type-row">
+            <span class="tag-major" *ngIf="!isMinor(s.code)">Major</span>
+            <span class="tag-minor" *ngIf="isMinor(s.code)">Minor</span>            <span class="units-breakdown">Lec {{ s.lecUnits || s.lec_units || s.credits }}<ng-container *ngIf="(s.labUnits || s.lab_units || 0) > 0"> / Lab {{ s.labUnits || s.lab_units }}</ng-container></span>
+          </div>
           <div class="sad-card-foot">
             <span class="sad-pending-tag" *ngIf="hasPending(s.course_id, 'Drop')">⏳ Pending request</span>
             <button class="sad-btn-drop"
@@ -107,6 +111,10 @@
             <span class="sad-code">{{ s.code }}</span>
           </div>
           <div class="sad-name">{{ s.name }}</div>
+          <div class="sad-type-row">
+            <span class="tag-major" *ngIf="!isMinor(s.code)">Major</span>
+            <span class="tag-minor" *ngIf="isMinor(s.code)">Minor</span>            <span class="units-breakdown">Lec {{ s.lecUnits || s.lec_units || s.credits }}<ng-container *ngIf="(s.labUnits || s.lab_units || 0) > 0"> / Lab {{ s.labUnits || s.lab_units }}</ng-container></span>
+          </div>
           <div class="sad-card-foot">
             <span class="sad-pending-tag" *ngIf="hasPending(s.id, 'Add')">⏳ Pending request</span>
             <button class="sad-btn-add"
@@ -136,7 +144,10 @@
             <strong>{{ r.code }}</strong> — {{ r.course_name }}
           </div>
           <div class="sad-req-meta">
-            {{ r.credits }} units · {{ r.instructor }} · {{ r.day }} {{ r.time }}
+            {{ r.credits }} units
+            <span class="tag-major" *ngIf="!isMinor(r.code)" style="font-size:10px">Major</span>
+            <span class="tag-minor" *ngIf="isMinor(r.code)" style="font-size:10px">Minor</span>            <span style="font-size:10px;color:#6b7280"> · Lec {{ r.lecUnits || r.lec_units || r.credits }}<ng-container *ngIf="(r.labUnits || r.lab_units || 0) > 0"> / Lab {{ r.labUnits || r.lab_units }}</ng-container></span>
+            · {{ r.instructor }} · {{ r.day }} {{ r.time }}
           </div>
           <div class="sad-req-reason">Reason: {{ r.reason }}</div>
           <div class="sad-req-remarks" *ngIf="r.remarks">Registrar note: {{ r.remarks }}</div>

@@ -2,6 +2,7 @@ import { Component, OnInit, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
+import { environment } from '../../environment';
 
 interface IFaculty {
   id: number;
@@ -24,7 +25,7 @@ interface IFaculty {
   styleUrl: './faculty.css',
 })
 export class Faculty implements OnInit {
-  private api = 'http://localhost/sia-api/admin.php';
+  private api = environment.adminApi;
 
   facultyList: IFaculty[] = [];
   filteredList: IFaculty[] = [];
@@ -40,6 +41,12 @@ export class Faculty implements OnInit {
   deleteTarget: IFaculty | null = null;
   isDeleting = false;
 
+  // ── Credential modal (shown after successful create) ──
+  showCredModal = false;
+  credFacultyId = '';
+  credName      = '';
+  credPassword  = '';
+
   newSubjectInput  = '';
   subjectSearch    = '';
   showSubjectPanel = false;
@@ -51,26 +58,50 @@ export class Faculty implements OnInit {
 
   toast: { show: boolean; type: 'success' | 'error'; message: string } = { show: false, type: 'success', message: '' };
 
-  readonly DEPARTMENTS = [
-    'Information Technology', 'Computer Science', 'Mathematics',
-    'English', 'Natural Sciences', 'Social Sciences', 'Engineering', 'Business'
-  ];
-
   coursesFromDb: { code: string; name: string }[] = [];
-
-  
-  /** Returns HTTP headers with the auth token. Call this in every API request. */
-  private getHeaders() {
-    const token = sessionStorage.getItem('token') ?? '';
-    return { headers: { Authorization: `Bearer ${token}` } };
-  }
-
   constructor(private http: HttpClient, private cdr: ChangeDetectorRef) {}
 
-  ngOnInit(): void { this.loadFaculty(); this.loadCoursesFromDb(); }
+  ngOnInit(): void { this.loadFaculty(); this.loadCoursesFromDb(); this.loadDepartments(); }
+
+  // Grouped departments: { type: 'College'|'SHS'|'TVET', label: string }[]
+  deptGroups: { type: string; label: string }[] = [];
+
+  loadDepartments(): void {
+    this.http.get<any>(`${this.api}?action=get_programs`).subscribe({
+      next: (res) => {
+        if (res.success) {
+          // Map: type → Set of dept labels
+          const groups: Record<string, Set<string>> = { College: new Set(), SHS: new Set(), TVET: new Set() };
+          for (const p of res.programs) {
+            const d  = (p.department ?? '').trim();
+            const lt = (p.level_type  ?? '').trim();
+            if (d && groups[lt]) groups[lt].add(d);
+          }
+          // Also pull localStorage (levels saves newly added depts before a program is assigned)
+          try {
+            const raw = localStorage.getItem('sia_dept_entries');
+            if (raw) {
+              for (const e of JSON.parse(raw)) {
+                const n  = (e.dbName ?? e.label ?? '').trim();
+                const lt = (e.type ?? '').trim();
+                if (n && groups[lt]) groups[lt].add(n);
+              }
+            }
+          } catch {}
+          // Flatten into ordered array: College first, then SHS, then TVET
+          this.deptGroups = [];
+          for (const type of ['College', 'SHS', 'TVET']) {
+            for (const label of Array.from(groups[type]).sort())
+              this.deptGroups.push({ type, label });
+          }
+          this.cdr.detectChanges();
+        }
+      }
+    });
+  }
 
   loadCoursesFromDb(): void {
-    this.http.get<any>('http://localhost/sia-api/admin.php?action=get_courses', this.getHeaders()).subscribe({
+    this.http.get<any>(environment.adminApi + '?action=get_courses').subscribe({
       next: (res) => {
         if (res.success) {
           this.coursesFromDb = res.courses.map((c: any) => ({ code: c.code, name: c.name }));
@@ -86,7 +117,7 @@ export class Faculty implements OnInit {
 
   loadFaculty(): void {
     this.isLoading = true;
-    this.http.get<any>(`${this.api}?action=get_faculty`, this.getHeaders()).subscribe({
+    this.http.get<any>(`${this.api}?action=get_faculty`).subscribe({
       next: (res) => {
         this.isLoading = false;
         if (res.success) { this.facultyList = res.faculty; this.applyFilter(); }
@@ -132,7 +163,6 @@ export class Faculty implements OnInit {
     this.newSubjectInput  = '';
     this.subjectSearch    = '';
     this.showSubjectPanel = false;
-    // Parse specialties from comma-separated string
     this.specialties = f.specialty
       ? f.specialty.split(',').map(s => s.trim()).filter(Boolean)
       : [];
@@ -144,6 +174,11 @@ export class Faculty implements OnInit {
   closeModal(): void {
     this.showModal = false;
     this.showSubjectPanel = false;
+    this.cdr.detectChanges();
+  }
+
+  closeCredModal(): void {
+    this.showCredModal = false;
     this.cdr.detectChanges();
   }
 
@@ -208,17 +243,26 @@ export class Faculty implements OnInit {
     if (!this.form.first_name || !this.form.last_name || !this.form.email) {
       this.showToast('error', 'First name, last name, and email are required.'); return;
     }
-    // Merge specialties array into comma-separated string
     this.form.specialty = this.specialties.join(', ');
     this.isSaving = true;
     const action = this.isEditing ? 'update_faculty' : 'create_faculty';
-    this.http.post<any>(`${this.api}?action=${action}`, this.form, this.getHeaders()).subscribe({
+    this.http.post<any>(`${this.api}?action=${action}`, this.form).subscribe({
       next: (res) => {
         this.isSaving = false;
         if (res.success) {
-          this.showToast('success', this.isEditing ? 'Faculty updated!' : `Faculty created! ID: ${res.generated_id}`);
-          this.closeModal();
-          this.loadFaculty();
+          if (!this.isEditing) {
+            // Close the form modal, show credential modal
+            this.closeModal();
+            this.loadFaculty();
+            this.credFacultyId = res.faculty_id ?? '';
+            this.credName      = `${this.form.first_name} ${this.form.last_name}`;
+            this.credPassword  = res.default_password ?? `${this.form.last_name}${new Date().getFullYear()}`;
+            this.showCredModal = true;
+          } else {
+            this.showToast('success', 'Faculty updated!');
+            this.closeModal();
+            this.loadFaculty();
+          }
         } else {
           this.showToast('error', res.message || 'Save failed.');
         }
@@ -239,7 +283,7 @@ export class Faculty implements OnInit {
   doDelete(): void {
     if (!this.deleteTarget) return;
     this.isDeleting = true;
-    this.http.post<any>(`${this.api}?action=delete_faculty`, { id: this.deleteTarget.id }, this.getHeaders()).subscribe({
+    this.http.post<any>(`${this.api}?action=delete_faculty`, { id: this.deleteTarget.id }).subscribe({
       next: (res) => {
         this.isDeleting = false;
         if (res.success) { this.showToast('success', 'Faculty deleted.'); this.loadFaculty(); }
@@ -255,6 +299,10 @@ export class Faculty implements OnInit {
     this.toast = { show: true, type, message };
     setTimeout(() => { this.toast.show = false; this.cdr.detectChanges(); }, 4000);
   }
+
+  get collegeDepts(): string[] { return this.deptGroups.filter(d => d.type === 'College').map(d => d.label); }
+  get shsDepts():     string[] { return this.deptGroups.filter(d => d.type === 'SHS').map(d => d.label); }
+  get tvetDepts():    string[] { return this.deptGroups.filter(d => d.type === 'TVET').map(d => d.label); }
 
   get activeCount()   { return this.facultyList.filter(f => f.status === 'Active').length; }
   get inactiveCount() { return this.facultyList.filter(f => f.status === 'Inactive').length; }

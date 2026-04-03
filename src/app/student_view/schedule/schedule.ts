@@ -2,6 +2,7 @@ import { Component, OnInit, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
+import { environment } from '../../environment';
 
 interface ScheduleEntry {
   courseId:   number;
@@ -25,15 +26,7 @@ interface ScheduleEntry {
   styleUrl: './schedule.css',
 })
 export class Schedule implements OnInit {
-  private apiUrl = 'http://localhost/sia-api/enrollment.php';
-
-  
-  /** Returns HTTP headers with the auth token. Call this in every API request. */
-  private getHeaders() {
-    const token = sessionStorage.getItem('token') || localStorage.getItem('token') || '';
-    return { headers: { Authorization: `Bearer ${token}` } };
-  }
-
+  private apiUrl = environment.enrollApi;
   constructor(private http: HttpClient, private cdr: ChangeDetectorRef) {}
 
   userId:      number = 0;
@@ -54,7 +47,7 @@ export class Schedule implements OnInit {
   private colorMap: Record<number, string> = {};
 
   ngOnInit(): void {
-    const stored = sessionStorage.getItem('currentUser') || localStorage.getItem('currentUser');
+    const stored = sessionStorage.getItem('currentUser');
     if (!stored) {
       this.error     = 'Not logged in.';
       this.isLoading = false;
@@ -64,7 +57,7 @@ export class Schedule implements OnInit {
     this.userId = JSON.parse(stored).id;
 
     // Prefer studentDbId saved by enrollment component (avoids lookup ambiguity)
-    const savedDbId = sessionStorage.getItem('studentDbId') || localStorage.getItem('studentDbId');
+    const savedDbId = sessionStorage.getItem('studentDbId');
     if (savedDbId) this.studentDbId = parseInt(savedDbId, 10);
 
     this.loadSchedule();
@@ -79,7 +72,7 @@ export class Schedule implements OnInit {
       ? `student_id=${this.studentDbId}`
       : `user_id=${this.userId}`;
 
-    this.http.get<any>(`${this.apiUrl}?action=get_schedule&${param}`, this.getHeaders())
+    this.http.get<any>(`${this.apiUrl}?action=get_schedule&${param}`)
       .subscribe({
         next: (res) => {
           this.isLoading = false;

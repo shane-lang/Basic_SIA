@@ -10,166 +10,383 @@
 
   <div *ngIf="msg" class="alert" [class.alert-ok]="msgType==='ok'" [class.alert-err]="msgType==='err'">{{ msg }}</div>
 
-  <div *ngIf="isLoading" class="loading"><div class="spin"></div><p>Loading...</p></div>
-
-  <!-- SHS — free, no payment schedule needed -->
-  <div *ngIf="!isLoading && isFreeStudent && studentCategory === 'SHS'" class="empty" style="background:linear-gradient(135deg,#f0fdf4,#dcfce7);border:1.5px solid #86efac;border-radius:12px;padding:2.5rem;">
-    <div style="font-size:2.5rem;margin-bottom:0.5rem">🎓</div>
-    <h3 style="color:#15803d;margin:0 0 0.5rem">No Tuition Fee Required</h3>
-    <p style="color:#16a34a;margin:0 0 0.5rem">Your enrollment is fully covered by the <strong>Senior High School Voucher Program (SHS VP)</strong>.</p>
-    <p style="color:#4ade80;font-size:0.85rem;margin:0">No payment schedule or exam permit fees apply.</p>
+  <!-- ── TAB BAR ─────────────────────────────────────────────────────────── -->
+  <div class="tab-bar">
+    <button class="tab-btn"
+            [class.tab-active]="activeTab === 'schedule'"
+            (click)="switchTab('schedule')">
+      📋 Payment Schedule
+    </button>
+    <button class="tab-btn"
+            [class.tab-active]="activeTab === 'history'"
+            (click)="switchTab('history')">
+      🧾 Payment History
+    </button>
   </div>
 
-  <!-- TVET — free, no payment schedule needed -->
-  <div *ngIf="!isLoading && isFreeStudent && studentCategory === 'TVET'" class="empty" style="background:linear-gradient(135deg,#fff7ed,#ffedd5);border:1.5px solid #fed7aa;border-radius:12px;padding:2.5rem;">
-    <div style="font-size:2.5rem;margin-bottom:0.5rem">🛠️</div>
-    <h3 style="color:#9a3412;margin:0 0 0.5rem">No Tuition Fee Required</h3>
-    <p style="color:#c2410c;margin:0 0 0.5rem">Your TVET program is fully funded by <strong>TESDA PRISAA</strong>.</p>
-    <p style="color:#fb923c;font-size:0.85rem;margin:0">No payment schedule or exam permit fees apply.</p>
-  </div>
 
-  <!-- College — no schedule yet -->
-  <div *ngIf="!isLoading && !schedule && !isFreeStudent" class="empty">
-    <div>📋</div>
-    <h3>No payment schedule yet</h3>
-    <p>Accounting will send you a notice when your payment is ready.</p>
-  </div>
+  <!-- ══════════════════════════════════════════════════════════════════════
+       TAB: PAYMENT SCHEDULE
+       ══════════════════════════════════════════════════════════════════════ -->
+  <ng-container *ngIf="activeTab === 'schedule'">
 
-  <div *ngIf="!isLoading && schedule && !isFreeStudent">
+    <div *ngIf="isLoading" class="loading"><div class="spin"></div><p>Loading...</p></div>
 
-    <!-- Summary bar -->
-    <div class="summary">
-      <div class="sum-item">
-        <span class="sum-label">Total Assessment</span>
-        <span class="sum-value">₱{{ fmt(schedule.total_assessment) }}</span>
-      </div>
-      <div class="sum-divider"></div>
-      <div class="sum-item">
-        <span class="sum-label">Total Paid</span>
-        <span class="sum-value paid">₱{{ fmt(totalPaid) }}</span>
-      </div>
-      <div class="sum-divider"></div>
-      <div class="sum-item">
-        <span class="sum-label">Remaining Balance</span>
-        <span class="sum-value" [class.balance-zero]="remainingBalance===0" [class.balance-due]="remainingBalance>0">
-          ₱{{ fmt(remainingBalance) }}{{ remainingBalance === 0 ? ' — Fully Paid' : '' }}
-        </span>
-      </div>
-      <div class="sum-divider"></div>
-      <div class="sum-item">
-        <span class="sum-label">Payment Type</span>
-        <span class="type-badge" [class.full]="schedule.payment_type==='full'">
-          {{ schedule.payment_type==='full' ? 'Full Payment' : 'Installment' }}
-        </span>
+    <!-- SHS — free, no payment schedule needed -->
+    <div *ngIf="!isLoading && isFreeStudent && studentCategory === 'SHS'" class="empty" style="background:linear-gradient(135deg,#f0fdf4,#dcfce7);border:1.5px solid #86efac;border-radius:12px;padding:2.5rem;">
+      <div style="font-size:2.5rem;margin-bottom:0.5rem">🎓</div>
+      <h3 style="color:#15803d;margin:0 0 0.5rem">No Tuition Fee Required</h3>
+      <p style="color:#16a34a;margin:0 0 0.5rem">Your enrollment is fully covered by the <strong>Senior High School Voucher Program (SHS VP)</strong>.</p>
+      <p style="color:#4ade80;font-size:0.85rem;margin:0">No payment schedule or exam permit fees apply.</p>
+    </div>
+
+    <!-- TVET — free, no payment schedule needed -->
+    <div *ngIf="!isLoading && isFreeStudent && studentCategory === 'TVET'" class="empty" style="background:linear-gradient(135deg,#fff7ed,#ffedd5);border:1.5px solid #fed7aa;border-radius:12px;padding:2.5rem;">
+      <div style="font-size:2.5rem;margin-bottom:0.5rem">🛠️</div>
+      <h3 style="color:#9a3412;margin:0 0 0.5rem">No Tuition Fee Required</h3>
+      <p style="color:#c2410c;margin:0 0 0.5rem">Your TVET program is fully funded by <strong>TESDA PRISAA</strong>.</p>
+      <p style="color:#fb923c;font-size:0.85rem;margin:0">No payment schedule or exam permit fees apply.</p>
+    </div>
+
+    <!-- ── FULL SCHOLAR — No payment needed, but can still request permits ── -->
+    <div *ngIf="!isLoading && isFullScholar && !isFreeStudent" class="scholar-covered-card">
+      <div class="scc-icon">🎓</div>
+      <div class="scc-body">
+        <h3>Full Scholarship — No Payment Required</h3>
+        <p>Your tuition is fully covered by your <strong>{{ scholarType }}</strong> scholarship
+           <span *ngIf="scholarGrantor"> from <strong>{{ scholarGrantor }}</strong></span>.
+           You have been automatically enrolled.
+        </p>
+        <div class="scc-detail">
+          <div class="scc-row"><span>Scholarship Amount</span><strong>₱{{ fmt(scholarshipAmount) }}</strong></div>
+          <div class="scc-row"><span>Your Balance</span><strong class="zero">₱0.00</strong></div>
+          <div class="scc-row"><span>Status</span><strong class="paid-badge">✅ Fully Paid via Scholarship</strong></div>
+        </div>
+        <p class="scc-note">📢 Accounting must send a period notice to unlock each exam permit request. No payment required — just wait for the notice.</p>
       </div>
     </div>
 
-    <!-- Downpayment summary for installment students -->
-    <div *ngIf="schedule.payment_type==='installment'" class="dp-summary-card">
-      <div class="dp-row">
-        <span>Downpayment Paid</span>
-        <strong [class.dp-partial]="schedule.downpayment_paid < (schedule.total_assessment / 4)"
-                [class.dp-ok]="schedule.downpayment_paid >= (schedule.total_assessment / 4)">
-          ₱{{ fmt(schedule.downpayment_paid) }}
-        </strong>
-      </div>
-      <div class="dp-row dp-hint" *ngIf="schedule.downpayment_paid < (schedule.total_assessment / 4) && schedule.downpayment_paid > 0">
-        <span>⚠️ Below scheduled DP (₱{{ fmt(schedule.total_assessment / 4) }}) — unpaid portion added to term dues</span>
-      </div>
-     <!-- <div class="dp-row dp-hint dp-hint-good" *ngIf="schedule.downpayment_paid > (schedule.total_assessment / 4)">
-        <span>✅ Above scheduled DP — term dues reduced accordingly</span>
-      </div>
-    </div>-->
+    <!-- ── FULL SCHOLAR PERMIT CARDS — requires Accounting notice to unlock each period ── -->
+    <div *ngIf="!isLoading && isFullScholar && !isFreeStudent" class="scholar-permit-section">
+      <h4 class="sps-title">🎫 Exam Permit Requests</h4>
+      <p class="sps-sub">Accounting must send a payment notice to unlock each period before you can request a permit.</p>
+      <div class="cards">
+        <div *ngFor="let period of scholarPeriods" class="period-card"
+             [class.card-paid]="getStatus(period) !== 'locked'"
+             [class.card-locked]="getStatus(period) === 'locked'">
 
-    <!-- Period cards -->
-    <div class="cards">
-      <div *ngFor="let period of periods" class="period-card"
-        [class.card-paid]="getStatus(period)==='paid'"
-        [class.card-partial]="getStatus(period)==='partial'"
-        [class.card-locked]="getStatus(period)==='locked'">
-
-        <div class="card-header">
-          <span class="period-label">{{ period }}</span>
-          <span class="status-badge"
-            [class.s-locked]="getStatus(period)==='locked'"
-            [class.s-unpaid]="getStatus(period)==='unpaid'"
-            [class.s-partial]="getStatus(period)==='partial'"
-            [class.s-paid]="getStatus(period)==='paid'">
-            {{ statusLabel(getStatus(period)) }}
-          </span>
-        </div>
-
-        <!-- Locked (no notice yet) -->
-        <div *ngIf="getStatus(period)==='locked' && !getNotice(period)" class="locked-msg">
-          <div class="lock-icon">🔒</div>
-          <p>Waiting for Accounting to send your payment notice.</p>
-        </div>
-
-        <!-- Notice received -->
-        <div *ngIf="getNotice(period)" class="notice-box">
-          <div class="notice-title">📢 Payment Notice</div>
-          <div class="notice-text">{{ getNotice(period)!.message }}</div>
-          <div *ngIf="getNotice(period)!.due_date" class="notice-due">
-            Deadline: <strong>{{ fmtDate(getNotice(period)!.due_date) }}</strong>
+          <div class="card-header">
+            <span class="period-label">{{ period }}</span>
+            <span class="status-badge"
+              [class.s-locked]="getStatus(period) === 'locked'"
+              [class.s-paid]="getStatus(period) !== 'locked'">
+              {{ getStatus(period) === 'locked' ? '🔒 Locked' : '✅ Unlocked' }}
+            </span>
           </div>
-        </div>
 
-        <!-- Amounts -->
-        <div *ngIf="getStatus(period)!=='locked'" class="amounts">
-          <div class="amt-row"><span>Amount Due</span><strong>₱{{ fmt(getDue(period)) }}</strong></div>
-          <div class="amt-row"><span>Amount Paid</span><strong class="paid">₱{{ fmt(getPaid(period)) }}</strong></div>
-          <div class="amt-row balance-row">
-            <span>Balance</span>
-            <strong class="balance">₱{{ fmt(getBalance(period)) }}</strong>
+          <!-- Locked — waiting for Accounting notice -->
+          <div *ngIf="getStatus(period) === 'locked'" class="locked-msg">
+            <div class="lock-icon">🔒</div>
+            <p>Waiting for Accounting to send your payment notice to unlock this period.</p>
+            <p class="scholar-lock-note">As a scholar, no payment is required — just the notice.</p>
           </div>
-        </div>
 
-        <!-- Actions -->
-        <div *ngIf="getStatus(period)!=='locked'" class="permit-area">
+          <!-- Unlocked — show notice and permit request -->
+          <div *ngIf="getStatus(period) !== 'locked'">
 
-          <!-- Permit status chip -->
-          <ng-container *ngIf="getPermit(period) as permit">
-            <div class="permit-status"
-              [class.ps-pending]="permit.status==='pending'"
-              [class.ps-approved]="permit.status==='approved'"
-              [class.ps-rejected]="permit.status==='rejected'">
-              <span>{{ permit.status==='approved' ? '✅' : permit.status==='pending' ? '⏳' : '❌' }}</span>
-              Permit {{ permit.status | titlecase }}
-              <span *ngIf="permit.remarks && permit.status==='rejected'" class="remarks-text"> — {{ permit.remarks }}</span>
+            <!-- Notice box -->
+            <div *ngIf="getNotice(period)" class="notice-box">
+              <div class="notice-title">📢 Period Unlocked by Accounting</div>
+              <div class="notice-text">{{ getNotice(period)!.message }}</div>
+              <div *ngIf="getNotice(period)!.due_date" class="notice-due">
+                Date: <strong>{{ fmtDate(getNotice(period)!.due_date) }}</strong>
+              </div>
             </div>
 
-            <!-- View/Download permit if approved -->
-            <button class="btn-view-permit" *ngIf="permit.status==='approved'" (click)="openPermitViewer(permit)">
-              🎫 View & Print Permit
-            </button>
-          </ng-container>
+            <div class="amounts">
+              <div class="amt-row"><span>Amount Due</span><strong>₱0.00</strong></div>
+              <div class="amt-row"><span>Scholarship Covers</span>
+                <strong class="paid">₱{{ fmt(scholarshipAmount) }}</strong>
+              </div>
+            </div>
 
-          <!-- Pay button (unpaid/partial — blocked if pending payment exists) -->
-          <button class="btn-pay"
-            *ngIf="getStatus(period)==='unpaid' || getStatus(period)==='partial'"
-            [disabled]="hasPendingPayment(period)"
-            [style.opacity]="hasPendingPayment(period) ? '0.5' : '1'"
-            [title]="hasPendingPayment(period) ? 'Payment submitted — waiting for Accounting approval' : ''"
-            (click)="openPayModal(period)">
-            <span *ngIf="hasPendingPayment(period)">⏳ Awaiting Approval</span>
-            <span *ngIf="!hasPendingPayment(period)">
-              💳 Pay {{ payPeriod === period ? '' : period }}
-              <span *ngIf="getBalance(period) > 0"> · ₱{{ fmt(getBalance(period)) }} remaining</span>
-            </span>
-          </button>
+            <div class="permit-area">
+              <!-- Existing permit status -->
+              <ng-container *ngIf="getPermit(period) as permit">
+                <div class="permit-status"
+                  [class.ps-pending]="permit.status==='pending'"
+                  [class.ps-approved]="permit.status==='approved'"
+                  [class.ps-rejected]="permit.status==='rejected'">
+                  <span>{{ permit.status==='approved' ? '✅' : permit.status==='pending' ? '⏳' : '❌' }}</span>
+                  Permit {{ permit.status | titlecase }}
+                  <span *ngIf="permit.remarks && permit.status==='rejected'" class="remarks-text"> — {{ permit.remarks }}</span>
+                </div>
+                <button class="btn-view-permit" *ngIf="permit.status==='approved'" (click)="openPermitViewer(permit)">
+                  🎫 View & Print Permit
+                </button>
+              </ng-container>
 
-          <!-- Request permit button: show when paid OR partial (any amount paid counts) -->
-          <button class="btn-permit"
-            *ngIf="(getStatus(period)==='paid' || getStatus(period)==='partial') && (!getPermit(period) || getPermit(period)?.status==='rejected')"
-            [disabled]="!canRequest(period) || isRequesting"
-            (click)="requestPermit(period)">
-            🎫 Request {{ period }} Permit
-          </button>
+              <!-- Request permit button -->
+              <button class="btn-permit scholar-permit-btn"
+                *ngIf="!getPermit(period) || getPermit(period)?.status==='rejected'"
+                [disabled]="isRequesting"
+                (click)="requestPermit(period)">
+                🎫 Request {{ period }} Permit
+              </button>
+            </div>
+          </div>
 
         </div>
       </div>
     </div>
-  </div>
+
+    <!-- ── SCHOLARSHIP PENDING APPROVAL ── -->
+    <div *ngIf="!isLoading && isScholar && scholarPending && !isFullScholar && !isFreeStudent" class="scholar-pending-card">
+      <div class="spc-icon">⏳</div>
+      <div class="spc-body">
+        <h4>Scholarship Pending Accounting Approval</h4>
+        <p>Your <strong>{{ scholarType }}</strong> scholarship application
+           <span *ngIf="scholarGrantor">({{ scholarGrantor }})</span>
+           is being reviewed. Discount will be applied once approved.
+           You may pay via installment in the meantime.
+        </p>
+      </div>
+    </div>
+
+    <!-- College — no schedule yet (only for installment students waiting) -->
+    <div *ngIf="!isLoading && !schedule && !isFreeStudent && !isFullScholar" class="empty">
+      <div>📋</div>
+      <h3>No payment schedule yet</h3>
+      <p>Accounting will send you a notice when your payment is ready.</p>
+    </div>
+
+    <div *ngIf="!isLoading && !isFullScholar && schedule && !isFreeStudent">
+
+      <!-- Summary bar -->
+      <div class="summary">
+        <div class="sum-item">
+          <span class="sum-label">Total Assessment</span>
+          <span class="sum-value">₱{{ fmt(totalAssessmentDisplay) }}</span>
+        </div>
+        <div class="sum-divider"></div>
+        <div class="sum-item">
+          <span class="sum-label">Total Paid</span>
+          <span class="sum-value paid">₱{{ fmt(totalPaid) }}</span>
+        </div>
+        <div class="sum-divider"></div>
+        <div class="sum-item">
+          <span class="sum-label">Remaining Balance</span>
+          <span class="sum-value" [class.balance-zero]="remainingBalance===0" [class.balance-due]="remainingBalance>0">
+            ₱{{ fmt(remainingBalance) }}{{ remainingBalance === 0 ? ' — Fully Paid' : '' }}
+          </span>
+        </div>
+        <div class="sum-divider"></div>
+        <div class="sum-item">
+          <span class="sum-label">Payment Type</span>
+          <span class="type-badge" [class.full]="paymentPlan === 'full'">
+            {{ paymentPlan === 'full' ? 'Full Payment' : 'Installment' }}
+          </span>
+        </div>
+      </div>
+
+      <!-- Downpayment summary for installment students -->
+      <div *ngIf="schedule && schedule.payment_type==='installment'" class="dp-summary-card">
+        <div class="dp-row">
+          <span>Downpayment Paid</span>
+          <strong [class.dp-partial]="schedule.downpayment_paid < (schedule.total_assessment / 4)"
+                  [class.dp-ok]="schedule.downpayment_paid >= (schedule.total_assessment / 4)">
+            ₱{{ fmt(schedule.downpayment_paid) }}
+          </strong>
+        </div>
+        <div class="dp-row dp-hint" *ngIf="schedule.downpayment_paid < (schedule.total_assessment / 4) && schedule.downpayment_paid > 0">
+          <span>⚠️ Below scheduled DP (₱{{ fmt(schedule.total_assessment / 4) }}) — unpaid portion added to term dues</span>
+        </div>
+      </div>
+
+      <!-- Period cards -->
+      <div class="cards">
+        <div *ngFor="let period of displayPeriods" class="period-card"
+          [class.card-paid]="getStatus(period)==='paid'"
+          [class.card-partial]="getStatus(period)==='partial'"
+          [class.card-locked]="getStatus(period)==='locked'"
+          [class.card-unlocked]="getStatus(period)==='unpaid' && paymentPlan==='full'">
+
+          <div class="card-header">
+            <span class="period-label">{{ period }}</span>
+            <span class="status-badge"
+              [class.s-locked]="getStatus(period)==='locked'"
+              [class.s-unpaid]="getStatus(period)==='unpaid'"
+              [class.s-partial]="getStatus(period)==='partial'"
+              [class.s-paid]="getStatus(period)==='paid'">
+              {{ statusLabel(getStatus(period)) }}
+            </span>
+          </div>
+
+          <!-- Locked: Accounting hasn't sent a notice for this period yet -->
+          <div *ngIf="getStatus(period)==='locked'" class="locked-msg">
+            <div class="lock-icon">🔒</div>
+            <p>Waiting for Accounting to send your <strong>{{ period }}</strong> payment notice to unlock this period.</p>
+          </div>
+
+          <!-- Payment Notice: show for installment students or full-plan with outstanding balance -->
+          <div *ngIf="getNotice(period) && (paymentPlan !== 'full' || remainingBalance > 0)" class="notice-box">
+            <div class="notice-title">📢 Payment Notice</div>
+            <div class="notice-text">{{ getNotice(period)!.message }}</div>
+            <div *ngIf="getNotice(period)!.due_date" class="notice-due">
+              Deadline: <strong>{{ fmtDate(getNotice(period)!.due_date) }}</strong>
+            </div>
+          </div>
+          <!-- Full-plan fully paid: show a clean confirmation instead of a payment demand -->
+          <div *ngIf="paymentPlan === 'full' && remainingBalance <= 0 && getStatus(period) !== 'locked'" class="notice-box" style="background:#f0fdf4;border-color:#86efac;">
+            <div class="notice-title" style="color:#15803d;">✅ Full Payment Verified</div>
+            <div class="notice-text" style="color:#166534;">Your full payment has been confirmed. You may request your exam permit for this period.</div>
+          </div>
+
+          <!-- Amounts -->
+          <div *ngIf="getStatus(period)!=='locked'" class="amounts">
+            <!-- Full-plan: show overall totals (no per-period breakdown) -->
+            <ng-container *ngIf="paymentPlan === 'full'">
+              <div class="amt-row"><span>Total Assessment</span><strong>₱{{ fmt(getDue(period)) }}</strong></div>
+              <div class="amt-row"><span>Total Paid</span><strong class="paid">₱{{ fmt(getPaid(period)) }}</strong></div>
+              <div class="amt-row balance-row">
+                <span>Balance</span>
+                <strong [class.balance]="getBalance(period) > 0" [class.paid]="getBalance(period) === 0">
+                  ₱{{ fmt(getBalance(period)) }}{{ getBalance(period) === 0 ? ' — Fully Paid' : '' }}
+                </strong>
+              </div>
+            </ng-container>
+            <!-- Installment: show per-period breakdown -->
+            <ng-container *ngIf="paymentPlan !== 'full'">
+              <div class="amt-row"><span>Amount Due</span><strong>₱{{ fmt(getDue(period)) }}</strong></div>
+              <div class="amt-row"><span>Amount Paid</span><strong class="paid">₱{{ fmt(getPaid(period)) }}</strong></div>
+              <div class="amt-row balance-row">
+                <span>Balance</span>
+                <strong class="balance">₱{{ fmt(getBalance(period)) }}</strong>
+              </div>
+            </ng-container>
+          </div>
+
+          <!-- Actions -->
+          <div *ngIf="getStatus(period)!=='locked'" class="permit-area">
+
+            <!-- Permit status chip -->
+            <ng-container *ngIf="getPermit(period) as permit">
+              <div class="permit-status"
+                [class.ps-pending]="permit.status==='pending'"
+                [class.ps-approved]="permit.status==='approved'"
+                [class.ps-rejected]="permit.status==='rejected'">
+                <span>{{ permit.status==='approved' ? '✅' : permit.status==='pending' ? '⏳' : '❌' }}</span>
+                Permit {{ permit.status | titlecase }}
+                <span *ngIf="permit.remarks && permit.status==='rejected'" class="remarks-text"> — {{ permit.remarks }}</span>
+              </div>
+
+              <!-- View/Download permit if approved -->
+              <button class="btn-view-permit" *ngIf="permit.status==='approved'" (click)="openPermitViewer(permit)">
+                🎫 View & Print Permit
+              </button>
+            </ng-container>
+
+            <!-- Pay button: only for installment students (not full-payment 'Full' card) -->
+            <button class="btn-pay"
+              *ngIf="paymentPlan !== 'full' && (getStatus(period)==='unpaid' || getStatus(period)==='partial')"
+              [disabled]="hasPendingPayment(period)"
+              [style.opacity]="hasPendingPayment(period) ? '0.5' : '1'"
+              [title]="hasPendingPayment(period) ? 'Payment submitted — waiting for Accounting approval' : ''"
+              (click)="openPayModal(period)">
+              <span *ngIf="hasPendingPayment(period)">⏳ Awaiting Approval</span>
+              <span *ngIf="!hasPendingPayment(period)">
+                💳 Pay {{ payPeriod === period ? '' : period }}
+                <span *ngIf="getBalance(period) > 0"> · ₱{{ fmt(getBalance(period)) }} remaining</span>
+              </span>
+            </button>
+
+            <!-- Request permit button: show when period is unlocked (notice sent) -->
+            <!-- Full-plan: unlocks on notice (status = unpaid/paid). Installment: needs paid/partial. -->
+            <button class="btn-permit"
+              *ngIf="getStatus(period)!=='locked' && (!getPermit(period) || getPermit(period)?.status==='rejected')"
+              [disabled]="!canRequest(period) || isRequesting"
+              (click)="requestPermit(period)">
+              🎫 Request {{ period }} Permit
+            </button>
+
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </ng-container><!-- /schedule tab -->
+
+
+  <!-- ══════════════════════════════════════════════════════════════════════
+       TAB: PAYMENT HISTORY
+       ══════════════════════════════════════════════════════════════════════ -->
+  <ng-container *ngIf="activeTab === 'history'">
+
+    <!-- Loading spinner -->
+    <div *ngIf="isLoadingHistory" class="loading">
+      <div class="spin"></div><p>Loading payment history...</p>
+    </div>
+
+    <!-- Empty state -->
+    <div *ngIf="!isLoadingHistory && historyLoaded && paymentHistory.length === 0" class="empty">
+      <div style="font-size:2.5rem;margin-bottom:0.75rem">🧾</div>
+      <h3>No payment records found</h3>
+      <p>Once Accounting records a payment for you, it will appear here.</p>
+    </div>
+
+    <!-- History table -->
+    <div *ngIf="!isLoadingHistory && paymentHistory.length > 0" class="history-wrap">
+
+      <div class="history-table-scroll">
+        <table class="history-table">
+          <thead>
+            <tr>
+              <th>OR / AR No.</th>
+              <th>Exam Period</th>
+              <th>Payment Date</th>
+              <th>Amount</th>
+              <th>Method</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr *ngFor="let rec of paymentHistory">
+              <td>
+                <span class="or-ar-badge" [class.or-badge]="rec.orArType === 'OR'" [class.ar-badge]="rec.orArType !== 'OR'">
+                  {{ rec.orArType }}
+                </span>
+                <span class="or-ar-number">{{ rec.orArNumber || '—' }}</span>
+              </td>
+              <td>
+                <span class="period-chip" *ngIf="rec.examPeriod">{{ rec.examPeriod }}</span>
+                <span *ngIf="!rec.examPeriod" class="text-muted">—</span>
+              </td>
+              <td>{{ fmtDate(rec.paymentDate || rec.createdAt) }}</td>
+              <td class="amount-cell">₱{{ fmt(rec.amount) }}</td>
+              <td>
+                <span class="method-chip"
+                  [class.method-cash]="rec.paymentMethod === 'Cash'"
+                  [class.method-gcash]="rec.paymentMethod === 'GCash'">
+                  {{ rec.paymentMethod === 'GCash' ? '📱' : '💵' }} {{ rec.paymentMethod || '—' }}
+                </span>
+                <span *ngIf="rec.paymentMethod === 'GCash' && rec.gcashRef" class="gcash-ref">
+                  Ref: {{ rec.gcashRef }}
+                </span>
+              </td>
+            </tr>
+          </tbody>
+          <tfoot>
+            <tr class="history-total-row">
+              <td colspan="3" class="total-label">Total Paid</td>
+              <td class="total-amount">₱{{ fmt(historyTotalPaid) }}</td>
+              <td></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+
+    </div>
+
+  </ng-container><!-- /history tab -->
 
 
   <!-- ════════════════════════════════════════════════════════════
@@ -179,7 +396,7 @@
     <div class="modal-box" (click)="$event.stopPropagation()">
 
       <div class="modal-header">
-        <div class="modal-title">💳 Pay {{ payPeriod }} Installment</div>
+        <div class="modal-title">💳 Pay {{ payPeriod === 'Full' ? 'Full Payment' : (payPeriod + ' Installment') }}</div>
         <button class="modal-close" (click)="closePayModal()" [disabled]="isSubmitting">✕</button>
       </div>
 
@@ -296,6 +513,9 @@
           <div class="pp-title-bar">
             <div class="pp-title">{{ viewingPermit.exam_period.toUpperCase() }} EXAMINATION PERMIT</div>
             <div class="pp-sem">{{ viewingPermit.semester }} &nbsp;&nbsp; A.Y. {{ viewingPermit.school_year }}</div>
+            <div class="pp-permit-no" *ngIf="viewingPermit.permit_identifier">
+              Permit No.: <strong>{{ viewingPermit.permit_identifier }}</strong>
+            </div>
           </div>
 
           <!-- Student info grid -->

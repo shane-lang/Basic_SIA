@@ -1,192 +1,93 @@
+/* ── Admin Dashboard ─────────────────────────────────────────────────────── */
+:host { display:block; padding:24px 20px; max-width:1200px; margin:0 auto; font-family:'Segoe UI',sans-serif; }
+
 .dashboard-header {
-  background: linear-gradient(135deg, #00d4ff 0%, #0099cc 100%);
-  color: white;
-  padding: 2rem;
-  margin-bottom: 2rem;
-  border-radius: 8px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  display:flex; justify-content:space-between; align-items:center;
+  margin-bottom:24px;
+}
+.dashboard-header h1 {
+  margin:0; font-size:1.5rem; font-weight:800; color:#1e293b;
+}
+.header-subtitle { margin:3px 0 0; font-size:.87rem; color:#64748b; }
+.loading-chip {
+  background:#eff6ff; color:#1d4ed8; padding:5px 14px;
+  border-radius:20px; font-size:.8rem; font-weight:600;
 }
 
-.header-content h1 {
-  margin: 0;
-  font-size: 2rem;
-  margin-bottom: 0.5rem;
-}
-
-.header-subtitle {
-  margin: 0;
-  font-size: 0.95rem;
-  opacity: 0.9;
-}
-
+/* ── Stat Cards ── */
 .stats-container {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: 1.5rem;
-  margin-bottom: 2rem;
+  display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr));
+  gap:14px; margin-bottom:22px;
 }
-
 .stat-card {
-  background: white;
-  padding: 1.5rem;
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  transition: transform 0.3s ease, box-shadow 0.3s ease;
+  background:#fff; border-radius:12px; padding:18px 20px;
+  box-shadow:0 1px 4px rgba(0,0,0,.07);
+  transition:box-shadow .2s;
 }
+.stat-card:hover { box-shadow:0 4px 12px rgba(0,0,0,.1); }
+.stat-header { display:flex; gap:12px; align-items:flex-start; margin-bottom:10px; }
+.stat-icon { font-size:1.7rem; line-height:1; }
+.stat-label { margin:0; font-size:.85rem; font-weight:700; color:#374151; }
+.stat-change { font-size:.76rem; color:#6b7280; margin:3px 0 0; display:flex; gap:5px; flex-wrap:wrap; }
+.stat-value  { font-size:2.1rem; font-weight:800; color:#111827; letter-spacing:-1px; }
+.stat-sub    { font-size:.75rem; color:#6b7280; margin-top:4px; }
 
-.stat-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+.chip { padding:2px 8px; border-radius:10px; font-size:.73rem; font-weight:600; white-space:nowrap; }
+.chip.enrolled { background:#dcfce7; color:#166534; }
+.chip.pending  { background:#fef3c7; color:#92400e; }
+
+/* ── Section Cards ── */
+.section-card {
+  background:#fff; border-radius:12px; padding:18px 20px;
+  box-shadow:0 1px 4px rgba(0,0,0,.07); margin-bottom:16px;
 }
-
-.stat-header {
-  display: flex;
-  align-items: flex-start;
-  gap: 1rem;
-  margin-bottom: 1rem;
+.section-title {
+  font-size:.92rem; font-weight:700; color:#1e293b;
+  margin:0 0 16px; padding-bottom:8px; border-bottom:1px solid #f1f5f9;
 }
+.empty-note { color:#94a3b8; font-size:.85rem; text-align:center; padding:12px 0; }
 
-.stat-icon {
-  font-size: 2rem;
+/* ── Role Grid ── */
+.role-grid { display:flex; flex-wrap:wrap; gap:10px; }
+.role-chip {
+  display:flex; align-items:center; gap:10px;
+  background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px;
+  padding:10px 16px; min-width:160px;
 }
+.role-label { font-size:.84rem; color:#374151; flex:1; }
+.role-count { font-size:1.2rem; font-weight:800; color:#1d4ed8; }
+.total-chip { background:#eff6ff; border-color:#bfdbfe; }
+.total-chip .role-count { color:#1e40af; }
 
-.stat-info {
-  flex: 1;
+/* ── Two Column Grid ── */
+.two-col-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:16px; }
+@media(max-width:720px) { .two-col-grid { grid-template-columns:1fr; } }
+
+/* ── Bar Chart ── */
+.bar-list { display:flex; flex-direction:column; gap:9px; }
+.bar-row  { display:flex; align-items:center; gap:8px; }
+.bar-label {
+  width:140px; font-size:.78rem; color:#374151; flex-shrink:0;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
 }
+.bar-track  { flex:1; background:#f1f5f9; border-radius:4px; height:10px; overflow:hidden; }
+.bar-fill   { height:100%; background:#6366f1; border-radius:4px; transition:width .5s ease; min-width:2px; }
+.bar-fill.blue { background:#3b82f6; }
+.bar-count  { font-size:.78rem; font-weight:700; color:#374151; width:34px; text-align:right; }
 
-.stat-label {
-  margin: 0;
-  font-size: 0.9rem;
-  color: #666;
-  font-weight: 600;
-  text-transform: uppercase;
+/* ── Status Pills ── */
+.status-pills { display:flex; flex-wrap:wrap; gap:14px; }
+.status-pill  {
+  display:flex; flex-direction:column; align-items:center;
+  border-radius:12px; padding:14px 22px; min-width:100px;
 }
-
-.stat-change {
-  margin: 0.25rem 0 0 0;
-  font-size: 0.8rem;
-  color: #999;
-}
-
-.stat-value {
-  font-size: 2rem;
-  font-weight: 700;
-  color: #1a1a2e;
-}
-
-.semester-info {
-  background: white;
-  padding: 1.5rem;
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  margin-bottom: 2rem;
-  border-left: 4px solid #00d4ff;
-}
-
-.semester-info h3 {
-  margin: 0 0 1rem 0;
-  color: #1a1a2e;
-  font-size: 1.1rem;
-}
-
-.semester-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: 1.5rem;
-}
-
-.semester-item {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.semester-label {
-  font-size: 0.85rem;
-  color: #666;
-  font-weight: 600;
-  text-transform: uppercase;
-}
-
-.semester-value {
-  font-size: 0.95rem;
-  color: #1a1a2e;
-  font-weight: 500;
-}
-
-.recent-activities {
-  background: white;
-  padding: 1.5rem;
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-}
-
-.recent-activities h3 {
-  margin: 0 0 1rem 0;
-  color: #1a1a2e;
-  font-size: 1.1rem;
-}
-
-.activities-list {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-.activity-item {
-  display: flex;
-  gap: 1rem;
-  padding: 1rem;
-  background: #f9f9f9;
-  border-radius: 6px;
-  border-left: 3px solid #00d4ff;
-  transition: all 0.3s ease;
-}
-
-.activity-item:hover {
-  background: #f0f0f0;
-  transform: translateX(4px);
-}
-
-.activity-icon {
-  font-size: 1.5rem;
-  min-width: 2rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.activity-content {
-  flex: 1;
-}
-
-.activity-text {
-  margin: 0;
-  color: #333;
-  font-weight: 500;
-  font-size: 0.95rem;
-}
-
-.activity-time {
-  margin: 0.25rem 0 0 0;
-  color: #999;
-  font-size: 0.85rem;
-}
-
-@media (max-width: 768px) {
-  .dashboard-header {
-    padding: 1.5rem;
-  }
-
-  .header-content h1 {
-    font-size: 1.5rem;
-  }
-
-  .stats-container {
-    grid-template-columns: 1fr;
-  }
-
-  .semester-grid {
-    grid-template-columns: 1fr;
-  }
-}
+.status-pill.enrolled { background:#dcfce7; }
+.status-pill.pending  { background:#fef9c3; }
+.status-pill.inactive { background:#f1f5f9; }
+.status-pill.total    { background:#eff6ff; }
+.pill-count { font-size:1.8rem; font-weight:800; line-height:1; }
+.status-pill.enrolled .pill-count { color:#166534; }
+.status-pill.pending  .pill-count { color:#92400e; }
+.status-pill.inactive .pill-count { color:#374151; }
+.status-pill.total    .pill-count { color:#1d4ed8; }
+.pill-label { font-size:.74rem; color:#6b7280; margin-top:4px; text-align:center; }

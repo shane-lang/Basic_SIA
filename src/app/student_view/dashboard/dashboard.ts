@@ -2,6 +2,8 @@ import { Component, OnInit, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
+import { RouterLink } from '@angular/router';
+import { environment } from '../../environment';
 
 interface Course {
   id?: number;
@@ -45,6 +47,17 @@ interface PaymentRecord {
   status: string;
 }
 
+interface ClassBlock {
+  id: number;
+  blockCode: string;
+  program: string;
+  yearLevel: string;
+  semester: string;
+  schoolYear: string;
+  maxCapacity: number;
+  enrolledCount: number;
+}
+
 interface CalendarCell {
   date: Date;
   isCurrentMonth: boolean;
@@ -55,20 +68,12 @@ interface CalendarCell {
 @Component({
   selector: 'app-dashboard',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, RouterLink],
   templateUrl: './dashboard.html',
   styleUrls: ['./dashboard.css']
 })
 export class StudentDashboard implements OnInit {
-  private apiUrl = 'http://localhost/sia-api/dashboard.php';
-
-  
-  /** Returns HTTP headers with the auth token. Call this in every API request. */
-  private getHeaders() {
-    const token = sessionStorage.getItem('token') ?? '';
-    return { headers: { Authorization: `Bearer ${token}` } };
-  }
-
+  private apiUrl = environment.dashboardApi;
   constructor(private http: HttpClient, private cdr: ChangeDetectorRef) {}
 
   // ── spec.ts requires dashboardCards.length === 4 ────────────
@@ -101,8 +106,15 @@ export class StudentDashboard implements OnInit {
   enrollmentStatus  = '';
   enrollmentDate    = '';
   paymentStatus     = '';
+  isScholar         = false;
+  scholarType       = '';
+  scholarGrantor    = '';
+  scholarshipAmount = 0;
+  isFullScholar     = false;
+  scholarPending    = false;
   nextClassObj:     Course | null = null;
   nextClassLabel    = '';
+  block:            ClassBlock | null = null;
 
   fees: any = {
     tuitionBase: 25000, miscFee: 1500, totalFees: 26500,
@@ -163,7 +175,7 @@ export class StudentDashboard implements OnInit {
   }
 
   loadDashboard(param: string): void {
-    this.http.get<any>(`${this.apiUrl}?action=get_dashboard&${param}`, this.getHeaders()).subscribe({
+    this.http.get<any>(`${this.apiUrl}?action=get_dashboard&${param}`).subscribe({
       next: (res) => {
         this.isLoading = false;
         if (res.success) {
@@ -185,6 +197,18 @@ export class StudentDashboard implements OnInit {
           this.enrollmentStatus= s.enrollmentStatus;
           this.enrollmentDate  = s.enrollmentDate;
           this.paymentStatus   = s.paymentStatus;
+          // ── Scholarship ────────────────────────────────────────────────
+          this.isScholar        = s.isScholar       ?? false;
+          this.scholarType      = s.scholarType     ?? '';
+          this.scholarGrantor   = s.scholarGrantor  ?? '';
+          this.scholarshipAmount= s.scholarshipAmount ?? 0;
+          this.scholarPending   = s.scholarPending  ?? false;
+          this.isFullScholar    = s.isFullScholar   ?? false;
+          // Fallback: if scholarship amount covers full fees, treat as full scholar
+          if (!this.isFullScholar && this.isScholar && this.scholarshipAmount > 0
+              && this.paymentStatus === 'Paid') {
+            this.isFullScholar = true;
+          }
           this.fees            = res.fees ?? this.fees;
           this.paymentHistory  = res.paymentHistory ?? [];
 
@@ -205,6 +229,7 @@ export class StudentDashboard implements OnInit {
           ];
 
           sessionStorage.setItem('studentDbId', String(s.dbId));
+          this.block = res.block ?? null;
         } else {
           this.useFallback();
         }
@@ -219,7 +244,7 @@ export class StudentDashboard implements OnInit {
   }
 
   loadAnnouncements(): void {
-    this.http.get<any>(`${this.apiUrl}?action=get_announcements`, this.getHeaders()).subscribe({
+    this.http.get<any>(`${this.apiUrl}?action=get_announcements`).subscribe({
       next: (res) => {
         if (res.success) {
           this.announcements = (res.announcements ?? []).map((a: any) => ({
@@ -232,7 +257,7 @@ export class StudentDashboard implements OnInit {
   }
 
   loadEvents(): void {
-    this.http.get<any>(`${this.apiUrl}?action=get_events`, this.getHeaders()).subscribe({
+    this.http.get<any>(`${this.apiUrl}?action=get_events`).subscribe({
       next: (res) => {
         if (res.success) {
           this.events = res.events ?? [];
@@ -359,6 +384,37 @@ export class StudentDashboard implements OnInit {
   fmt(n: number | null | undefined): string {
     if (n == null) return '₱0.00';
     return '₱' + n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  }
+
+  // Balance-specific formatter: shows first 2 digits, masks the rest
+  // e.g. 12500.00 → ₱12,***.**
+  fmtBalance(n: number | null | undefined): string {
+    if (n == null) return '₱0.00';
+    if (n <= 0) return '₱0.00';
+    const formatted = '₱' + n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    let digitCount = 0, maskFrom = -1;
+    for (let i = 1; i < formatted.length; i++) {
+      if (formatted[i] >= '0' && formatted[i] <= '9') {
+        digitCount++;
+        if (digitCount === 2) { maskFrom = i + 1; break; }
+      }
+    }
+    if (maskFrom === -1) return formatted;
+    return formatted.slice(0, maskFrom) + formatted.slice(maskFrom).replace(/\d/g, '*');
+  }
+  fmtAmountPaid(n: number | null | undefined): string {
+    if (n == null) return '₱0.00';
+    if (n <= 0) return '₱0.00';
+    const formatted = '₱' + n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    let digitCount = 0, maskFrom = -1;
+    for (let i = 1; i < formatted.length; i++) {
+      if (formatted[i] >= '0' && formatted[i] <= '9') {
+        digitCount++;
+        if (digitCount === 2) { maskFrom = i + 1; break; }
+      }
+    }
+    if (maskFrom === -1) return formatted;
+    return formatted.slice(0, maskFrom) + formatted.slice(maskFrom).replace(/\d/g, '*');
   }
 
   fmtDate(d: string): string {

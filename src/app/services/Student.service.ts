@@ -1,10 +1,11 @@
 import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { BehaviorSubject, tap } from 'rxjs';
+import { environment } from '../environment';
 
 @Injectable({ providedIn: 'root' })
 export class StudentService {
-  private apiUrl = 'http://localhost/sia-api/enrollment.php';
+  private apiUrl = environment.enrollApi;
 
   // Shared state — any component can subscribe to these
   private _studentDbId = new BehaviorSubject<number>(0);
@@ -22,7 +23,7 @@ export class StudentService {
   }
 
   readFromStorage(): void {
-    const stored = localStorage.getItem('currentUser');
+    const stored = sessionStorage.getItem('currentUser');
     if (stored) {
       const u = JSON.parse(stored);
       this._userId.next(u.id ?? 0);
@@ -44,7 +45,7 @@ export class StudentService {
       tap(res => {
         if (res.success) {
           this._studentDbId.next(res.student.dbId);
-          localStorage.setItem('studentDbId', String(res.student.dbId));
+          sessionStorage.setItem('studentDbId', String(res.student.dbId));
         }
       })
     ).subscribe();

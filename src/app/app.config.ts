@@ -7,14 +7,14 @@ import { HashLocationStrategy, LocationStrategy } from '@angular/common';
 import { provideZoneChangeDetection } from '@angular/core';
 
 import { routes } from './app.routes';
-import { authInterceptorFn } from './auth.interceptor';
+import { authInterceptor } from './auth.interceptor';
 
 export const appConfig: ApplicationConfig = {
   providers: [
     provideZoneChangeDetection({ eventCoalescing: true }),
     provideRouter(routes),
     provideAnimations(),
-    provideHttpClient(withInterceptors([authInterceptorFn])),  // ← added withInterceptors
+    provideHttpClient(withInterceptors([authInterceptor])),  
     provideAnimationsAsync(),
     { provide: LocationStrategy, useClass: HashLocationStrategy },
   ]

@@ -17,7 +17,7 @@
       <!-- Navigation Menu -->
       <nav class="nav-menu">
         <!-- Dashboard Section -->
-        <!--<div class="nav-section">
+       <div class="nav-section">
           <h4 class="nav-section-title">MAIN</h4>
           <ul class="nav-links-list">
            <li>
@@ -27,7 +27,7 @@
               </a>
             </li>
           </ul>
-        </div>-->
+        </div>
 
         <!-- Academic Management -->
         <div class="nav-section">
@@ -122,6 +122,12 @@
           <h4 class="nav-section-title">SYSTEM</h4>
           <ul class="nav-links-list">
             <li>
+              <a routerLink="/admin/staff-accounts" routerLinkActive="active" class="nav-link" (click)="closeSidebarOnMobile()">
+                <span class="nav-icon">👥</span>
+                <span class="nav-label">Staff Accounts</span>
+              </a>
+            </li>
+            <li>
             <!--  <a routerLink="/admin/announcements" routerLinkActive="active" class="nav-link" (click)="closeSidebarOnMobile()">
                 <span class="nav-icon">📢</span>
                 <span class="nav-label">Announcements</span>
@@ -135,6 +141,9 @@
           </ul>
         </div> 
       </nav>
+      <div class="sidebar-footer">
+        <button class="btn-logout" (click)="logout()">🚪 Logout</button>
+      </div>
     </mat-sidenav>
 
     <!-- Main Content -->
@@ -153,6 +162,10 @@
           <h1 class="admin-title">St. Benilde BASIC System</h1>
           <p class="header-subtitle"> Admin Management </p>
         </div>
+        <div class="header-actions">
+          <button class="btn-change-pw-header" (click)="openCpModal()">🔑 Password</button>
+          <button class="btn-logout-header" (click)="logout()">🚪 Logout</button>
+        </div>
       </header>
 
       <!-- Main Content Area -->
@@ -163,4 +176,57 @@
       </main>
     </mat-sidenav-content>
   </mat-sidenav-container>
+
+<!-- ── Change Password Modal ──────────────────────────────────────────── -->
+<div class="cp-overlay" *ngIf="showCpModal" (click)="closeCpModal()">
+  <div class="cp-modal" (click)="$event.stopPropagation()">
+    <div class="cp-header">
+      <h3>🔑 Change Password</h3>
+      <button class="cp-close" (click)="closeCpModal()">✕</button>
+    </div>
+
+    <div class="cp-success" *ngIf="cpSuccess">✅ {{ cpSuccess }}</div>
+    <div class="cp-error"   *ngIf="cpError">⚠️ {{ cpError }}</div>
+
+    <div class="cp-field">
+      <label>Current Password</label>
+      <div class="cp-input-wrap">
+        <input [type]="cpShowCurrent ? 'text' : 'password'" [(ngModel)]="cpCurrent"
+               class="cp-input" placeholder="Enter current password" autocomplete="current-password">
+        <button type="button" class="cp-eye" (click)="cpShowCurrent = !cpShowCurrent">
+          {{ cpShowCurrent ? '🙈' : '👁️' }}
+        </button>
+      </div>
+    </div>
+
+    <div class="cp-field">
+      <label>New Password</label>
+      <div class="cp-input-wrap">
+        <input [type]="cpShowNew ? 'text' : 'password'" [(ngModel)]="cpNew"
+               class="cp-input" placeholder="At least 6 characters" autocomplete="new-password">
+        <button type="button" class="cp-eye" (click)="cpShowNew = !cpShowNew">
+          {{ cpShowNew ? '🙈' : '👁️' }}
+        </button>
+      </div>
+    </div>
+
+    <div class="cp-field">
+      <label>Confirm New Password</label>
+      <div class="cp-input-wrap">
+        <input [type]="cpShowConfirm ? 'text' : 'password'" [(ngModel)]="cpConfirm"
+               class="cp-input" placeholder="Repeat new password" autocomplete="new-password">
+        <button type="button" class="cp-eye" (click)="cpShowConfirm = !cpShowConfirm">
+          {{ cpShowConfirm ? '🙈' : '👁️' }}
+        </button>
+      </div>
+    </div>
+
+    <div class="cp-actions">
+      <button class="cp-btn-cancel" (click)="closeCpModal()" [disabled]="cpSubmitting">Cancel</button>
+      <button class="cp-btn-submit" (click)="changePassword()" [disabled]="cpSubmitting">
+        {{ cpSubmitting ? 'Saving…' : 'Change Password' }}
+      </button>
+    </div>
+  </div>
+</div>
 </div>

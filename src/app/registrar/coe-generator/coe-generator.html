@@ -1,0 +1,130 @@
+<div class="coe-gen-page">
+
+  <!-- Notification -->
+  <div *ngIf="notification" class="notif" [class]="'notif-' + notification.type">
+    {{ notification.message }}
+  </div>
+
+  <!-- Page Header -->
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">📜 Certificate of Enrollment</h1>
+      <p class="page-desc">COE is automatically issued when enrollment is confirmed. Select a student to generate and download their PDF.</p>
+    </div>
+  </div>
+
+  <!-- Student Search Panel -->
+  <div class="panel" [class.panel-dimmed]="selected">
+    <div class="panel-header">
+      <span class="panel-step">Step 1</span>
+      <h2 class="panel-title">Select Student</h2>
+    </div>
+    <div class="search-row">
+      <input class="search-input" type="text" placeholder="🔍 Search by name, student number, or program..."
+             [(ngModel)]="searchQuery" (input)="applySearch()" />
+      <select class="filter-select" [(ngModel)]="statusFilter" (change)="loadStudents()">
+        <option value="Enrolled">Enrolled</option>
+        <option value="Pending">Pending</option>
+        <option value="">All Students</option>
+      </select>
+    </div>
+    <div *ngIf="isLoading" class="loading-state">⏳ Loading students...</div>
+    <div *ngIf="!isLoading && filtered.length === 0" class="empty-state">No students found.</div>
+    <div class="student-grid" *ngIf="!isLoading && filtered.length > 0">
+      <div class="student-card" *ngFor="let s of filtered"
+           [class.is-selected]="selected?.id === s.id"
+           (click)="selectStudent(s)">
+        <div class="stu-avatar">{{ s.lastName[0] }}{{ s.firstName[0] }}</div>
+        <div class="stu-info">
+          <div class="stu-name">{{ s.lastName }}, {{ s.firstName }}</div>
+          <div class="stu-num">{{ s.studentNumber }}</div>
+          <div class="stu-prog">{{ s.program }}</div>
+        </div>
+        <div class="stu-right">
+          <span class="stu-yr">{{ s.yearLevel }}</span>
+          <span class="stu-status" [class]="enrollStatusClass(s.enrollmentStatus)">{{ s.enrollmentStatus }}</span>
+          <span class="stu-pay-badge" [class]="payBadgeClass(s.paymentStatus)">
+            💳 {{ s.paymentStatus || 'Pending' }}
+          </span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- COE Form Panel -->
+  <div class="panel" id="coe-form" *ngIf="selected">
+    <div class="panel-header">
+      <span class="panel-step">Step 2</span>
+      <h2 class="panel-title">Generate COE</h2>
+      <button class="btn-change" (click)="clearSelection()">↩ Change Student</button>
+    </div>
+
+    <div class="selected-summary">
+      <div class="ss-avatar">{{ selected.lastName[0] }}{{ selected.firstName[0] }}</div>
+      <div class="ss-details">
+        <div class="ss-name">{{ selected.lastName }}, {{ selected.firstName }}
+          <span *ngIf="selected.middleName"> {{ selected.middleName }}</span>
+        </div>
+        <div class="ss-meta">
+          <span>{{ selected.studentNumber }}</span>
+          <span class="sep">·</span>
+          <span>{{ selected.program }}</span>
+        </div>
+        <div class="ss-meta">
+          <span>Enrollment: </span>
+          <span class="enroll-val" [class]="enrollStatusClass(selected.enrollmentStatus)">{{ selected.enrollmentStatus }}</span>
+          <span class="sep">·</span>
+          <span>Payment: </span>
+          <span class="pay-val" [class]="paymentStatusClass">{{ paymentStatusLabel }}</span>
+        </div>
+        <div class="pay-gate-warning" *ngIf="!isPaid">
+          ⚠️ Payment not yet verified. COE PDF cannot be generated.
+        </div>
+      </div>
+    </div>
+
+    <div class="form-grid">
+      <div class="form-group">
+        <label class="form-label">Purpose <span class="req">*</span></label>
+        <select class="form-select" [(ngModel)]="form.purpose">
+          <option *ngFor="let opt of purposeOptions" [value]="opt">{{ opt }}</option>
+        </select>
+      </div>
+      <div class="form-group" *ngIf="form.purpose === 'Other (specify below)'">
+        <label class="form-label">Specify Purpose</label>
+        <input class="form-input" type="text" [(ngModel)]="form.customPurpose" maxlength="200" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Academic Year</label>
+        <input class="form-input" type="text" [(ngModel)]="form.academicYear" placeholder="e.g. AY 2025-2026" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Issued By</label>
+        <input class="form-input" type="text" [(ngModel)]="form.issuedBy" placeholder="Registrar Name" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Copies</label>
+        <div class="copies-row">
+          <button class="copies-btn" (click)="form.copies = form.copies > 1 ? form.copies - 1 : 1">−</button>
+          <span class="copies-val">{{ form.copies }}</span>
+          <button class="copies-btn" (click)="form.copies = form.copies < 5 ? form.copies + 1 : 5">+</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="generate-bar">
+      <div class="gen-preview">
+        <strong>Will generate:</strong> COE for <em>{{ selected.lastName }}, {{ selected.firstName }}</em>
+        — {{ finalPurpose }} — {{ form.copies }} {{ form.copies === 1 ? 'copy' : 'copies' }}
+      </div>
+      <button class="btn-generate" (click)="generatePDF()"
+              [disabled]="isGenerating || !isPaid"
+              [title]="!isPaid ? 'Payment not verified' : 'Generate PDF'">
+        <span *ngIf="!isGenerating && isPaid">⬇️ Generate & Download PDF</span>
+        <span *ngIf="!isGenerating && !isPaid">🔒 Payment Not Verified</span>
+        <span *ngIf="isGenerating">⏳ Generating...</span>
+      </button>
+    </div>
+  </div>
+
+</div>

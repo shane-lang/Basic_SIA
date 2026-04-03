@@ -1,7 +1,8 @@
 import { Component, OnInit, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { HttpClient, HttpHeaders } from '@angular/common/http';
+import { HttpClient } from '@angular/common/http';
+import { environment } from '../../environment';
 
 interface FeeRow {
   id: number;
@@ -39,7 +40,7 @@ interface NewFeeForm {
   styleUrls:   ['./fee-config.css'],
 })
 export class FeeConfigComponent implements OnInit {
-  private apiUrl = 'http://localhost/sia-api/accounting.php';
+  private apiUrl = environment.accountingApi;
 
   categories: Array<'College' | 'SHS' | 'TVET'> = ['College', 'SHS', 'TVET'];
   activeCategory: 'College' | 'SHS' | 'TVET' = 'College';
@@ -62,15 +63,9 @@ export class FeeConfigComponent implements OnInit {
   constructor(private http: HttpClient, private cdr: ChangeDetectorRef) {}
 
   ngOnInit(): void { this.loadConfig(); }
-
-  private getHeaders() {
-    const u = JSON.parse(sessionStorage.getItem('currentUser') || localStorage.getItem('currentUser') || '{}');
-    return { headers: new HttpHeaders({ 'Content-Type': 'application/json', 'X-User-Id': String(u.id || '') }) };
-  }
-
   loadConfig(): void {
     this.loading = true;
-    this.http.get<any>(`${this.apiUrl}?action=get_fee_config`, this.getHeaders()).subscribe({
+    this.http.get<any>(`${this.apiUrl}?action=get_fee_config`).subscribe({
       next: (res) => {
         this.loading = false;
         if (res.success) {
@@ -136,7 +131,7 @@ export class FeeConfigComponent implements OnInit {
     if (row.editValue === null || row.editValue === undefined) { this.showAlert('Amount is required.', true); return; }
     this.saving = true;
     const payload = { updates: [{ id: row.id, value: row.editValue, fee_label: row.editLabel, description: row.editDesc, is_per_unit: row.editPerUnit ? 1 : 0 }] };
-    this.http.post<any>(`${this.apiUrl}?action=save_fee_config`, payload, this.getHeaders()).subscribe({
+    this.http.post<any>(`${this.apiUrl}?action=save_fee_config`, payload).subscribe({
       next: (res) => {
         this.saving = false;
         if (res.success) {
@@ -157,7 +152,7 @@ export class FeeConfigComponent implements OnInit {
 
   deleteFee(row: FeeRow): void {
     if (!confirm(`Remove "${row.fee_label}"?\nThis will stop charging this fee to new enrollees.`)) return;
-    this.http.post<any>(`${this.apiUrl}?action=delete_fee_config`, { id: row.id }, this.getHeaders()).subscribe({
+    this.http.post<any>(`${this.apiUrl}?action=delete_fee_config`, { id: row.id }).subscribe({
       next: (res) => {
         if (res.success) {
           this.allConfig[this.activeCategory] = this.allConfig[this.activeCategory].filter(r => r.id !== row.id);
@@ -188,7 +183,7 @@ export class FeeConfigComponent implements OnInit {
       applies_to:  this.newFee.applies_to,
       description: this.newFee.description,
     };
-    this.http.post<any>(`${this.apiUrl}?action=add_fee_config`, payload, this.getHeaders()).subscribe({
+    this.http.post<any>(`${this.apiUrl}?action=add_fee_config`, payload).subscribe({
       next: (res) => {
         this.saving = false;
         if (res.success) {

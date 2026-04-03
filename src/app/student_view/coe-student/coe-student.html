@@ -1,0 +1,256 @@
+<div class="coe-page">
+
+  <!-- Notification -->
+  <div *ngIf="notification" class="notif" [class]="'notif-' + notification.type">
+    {{ notification.message }}
+  </div>
+
+  <!-- Full-page loading (initial load only) -->
+  <div *ngIf="isLoading" class="loading-state">
+    <div class="spinner-ring"></div>
+    <p>Loading your enrollment details...</p>
+  </div>
+
+  <ng-container *ngIf="!isLoading">
+
+    <!-- ── NOT ENROLLED ───────────────────────────────────────────── -->
+    <div *ngIf="enrollmentStatus !== 'Enrolled'" class="status-card card-not-enrolled">
+      <div class="sc-icon">⏳</div>
+      <div class="sc-body">
+        <div class="sc-title">Not Yet Enrolled</div>
+        <div class="sc-desc">Complete your enrollment first. Your Certificate of Enrollment will appear here automatically once the Registrar confirms your registration.</div>
+        <div class="sc-chips">
+          <span class="chip chip-gray">Enrollment: {{ enrollmentStatus || 'Pending' }}</span>
+          <span class="chip chip-yellow">Payment: {{ paymentStatus || 'Pending' }}</span>
+        </div>
+        <div class="sc-steps">
+          <span class="step step-active">⏳ Enrollment</span>
+          <span class="step-arrow">→</span>
+          <span class="step step-waiting">💳 Payment</span>
+          <span class="step-arrow">→</span>
+          <span class="step step-waiting">✅ Registrar Confirms</span>
+          <span class="step-arrow">→</span>
+          <span class="step step-waiting">📄 COE Displayed</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── ENROLLED BUT PAYMENT PENDING ─────────────────────────── -->
+    <div *ngIf="enrollmentStatus === 'Enrolled' && !eligible" class="status-card card-awaiting">
+      <div class="sc-icon">💳</div>
+      <div class="sc-body">
+        <div class="sc-title">Awaiting Payment Verification</div>
+        <div class="sc-desc">You are enrolled. Your COE will appear here once Accounting verifies your payment — no action needed on your part.</div>
+        <div class="sc-chips">
+          <span class="chip chip-green">✓ Enrolled</span>
+          <span class="chip chip-yellow">Payment: {{ paymentStatus || 'Pending' }}</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── ELIGIBLE: show semester tabs + COE ───────────────────── -->
+    <ng-container *ngIf="eligible">
+
+      <!-- ── Academic Term Tabs ──────────────────────────────────── -->
+      <div class="coe-term-bar" *ngIf="semesters.length > 0">
+        <span class="coe-term-label">Academic Term:</span>
+        <div class="coe-term-tabs">
+          <button
+            *ngFor="let sem of semesters"
+            class="coe-term-tab"
+            [class.active]="selectedSem?.semester === sem.semester && selectedSem?.school_year === sem.school_year"
+            [class.has-coe]="sem.has_approved_coe"
+            (click)="selectSemester(sem)">
+            {{ sem.label }}
+            <span class="tab-check" *ngIf="sem.has_approved_coe"> ✓</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- ── Term-level loading spinner (term switch only) ─────── -->
+      <div *ngIf="isTermLoading" class="term-loading-state">
+        <div class="spinner-ring spinner-sm"></div>
+        <p>Loading COE for {{ selectedSem?.label }}...</p>
+      </div>
+
+      <ng-container *ngIf="!isTermLoading">
+
+        <!-- No COE for this term -->
+        <div *ngIf="!approvedCoe" class="status-card card-awaiting">
+          <div class="sc-icon">📭</div>
+          <div class="sc-body">
+            <div class="sc-title">No COE for this term</div>
+            <div class="sc-desc">
+              <ng-container *ngIf="selectedSem?.semester === (semesters[0]?.semester) && selectedSem?.school_year === (semesters[0]?.school_year); else pastTerm">
+                Your enrollment is confirmed. Please refresh in a moment.
+              </ng-container>
+              <ng-template #pastTerm>
+                No Certificate of Enrollment was issued for <strong>{{ selectedSem?.label }}</strong>.
+              </ng-template>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── MAIN COE DISPLAY ──────────────────────────────────── -->
+        <div *ngIf="approvedCoe" class="coe-document">
+
+          <!-- Document Header -->
+          <div class="coe-doc-header">
+            <div class="coe-school-logo">🎓</div>
+            <div class="coe-school-info">
+              <div class="coe-school-name">ST. BENILDE CENTER FOR GLOBAL COMPETENCE, INC.</div>
+              <div class="coe-school-addr">#2647 Rizal Avenue, West Bajac-Bajac, Olongapo City | Telefax: (047) 223-9031</div>
+              <div class="coe-doc-title">CERTIFICATE OF ENROLLMENT</div>
+            </div>
+            <div class="coe-ctrl-box">
+              <div class="coe-ctrl-label">Control No.</div>
+              <div class="coe-ctrl-number">{{ approvedCoe.control_number }}</div>
+              <div class="coe-ctrl-date">{{ formatDate(approvedCoe.approved_at) }}</div>
+              <div class="coe-stamp">OFFICIALLY<br>ENROLLED</div>
+            </div>
+          </div>
+
+          <!-- Student Info -->
+          <div class="coe-section">
+            <div class="coe-info-grid">
+              <div class="coe-info-row">
+                <div class="coe-info-cell">
+                  <span class="coe-label">Student Name</span>
+                  <span class="coe-value coe-name-big">{{ coeData?.last_name | uppercase }}, {{ coeData?.first_name | uppercase }}{{ coeData?.middle_name ? ' ' + (coeData.middle_name | uppercase) : '' }}</span>
+                </div>
+                <div class="coe-info-cell">
+                  <span class="coe-label">Student ID</span>
+                  <span class="coe-value">{{ coeData?.student_number }}</span>
+                </div>
+              </div>
+              <div class="coe-info-row">
+                <div class="coe-info-cell">
+                  <!-- SHS: show Strand & Grade Level (e.g. "General Academic Strand (GAS) — Grade 11") -->
+                  <span class="coe-label">{{ isSHS ? 'Strand &amp; Grade Level' : 'Program &amp; Year' }}</span>
+                  <span class="coe-value">{{ coeData?.program }} — {{ isSHS ? (coeData?.grade_level || coeData?.year_level) : coeData?.year_level }}</span>
+                </div>
+                <div class="coe-info-cell">
+                  <!-- SHS: hide Semester (not applicable in PH K-12), show School Year instead -->
+                  <span class="coe-label">{{ isSHS ? 'School Year' : 'Semester' }}</span>
+                  <span class="coe-value">{{ coeData?.semester }}</span>
+                </div>
+              </div>
+              <div class="coe-info-row">
+                <div class="coe-info-cell">
+                  <span class="coe-label">Student Type</span>
+                  <span class="coe-value">{{ coeData?.student_type }} — {{ coeData?.student_category }}</span>
+                </div>
+                <div class="coe-info-cell">
+                  <span class="coe-label">Email</span>
+                  <span class="coe-value">{{ coeData?.student_email }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Enrolled Subjects -->
+          <div class="coe-section">
+            <div class="coe-section-title">📚 Enrolled Subjects</div>
+            <div *ngIf="!subjects || subjects.length === 0" class="coe-empty-subs">
+              No enrolled subjects on file for this term.
+            </div>
+            <div class="coe-subjects-table" *ngIf="subjects && subjects.length > 0">
+              <div class="coe-th-row">
+                <span class="col-code">Code</span>
+                <span class="col-desc">Subject</span>
+                <span class="col-sched">Schedule</span>
+                <span class="col-room">Room</span>
+                <span class="col-instr">Instructor</span>
+                <span class="col-units">Units</span>
+              </div>
+              <div class="coe-td-row" *ngFor="let s of subjects">
+                <span class="col-code fw">{{ s.code }}</span>
+                <span class="col-desc">{{ s.name }}</span>
+                <span class="col-sched">{{ s.day }}<br><small>{{ s.time }}</small></span>
+                <span class="col-room">{{ s.room || '—' }}</span>
+                <span class="col-instr">{{ s.instructor || '—' }}</span>
+                <span class="col-units tc">{{ s.credits || 0 }}</span>
+              </div>
+              <div class="coe-td-total">
+                <span>Total Units</span>
+                <span class="total-units-val">{{ totalUnits }}</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Assessment: hidden for SHS/TVET non-transferees (free via government subsidy) -->
+          <div class="coe-section coe-fees-section" *ngIf="fees && !isSHSFree && !isTVETFree">
+            <div class="coe-section-title">💳 Assessment</div>
+            <div class="coe-fees-grid">
+              <div class="fee-row" *ngIf="fees.tuition_fee > 0">
+                <span class="fee-label">Tuition Fee</span>
+                <span class="fee-val">₱ {{ fees.tuition_fee | number:'1.2-2' }}</span>
+              </div>
+              <div class="fee-row" *ngIf="fees.miscellaneous_fee > 0">
+                <span class="fee-label">Miscellaneous</span>
+                <span class="fee-val">₱ {{ fees.miscellaneous_fee | number:'1.2-2' }}</span>
+              </div>
+              <div class="fee-row" *ngIf="fees.registration_fee > 0">
+                <span class="fee-label">Registration</span>
+                <span class="fee-val">₱ {{ fees.registration_fee | number:'1.2-2' }}</span>
+              </div>
+              <div class="fee-row" *ngIf="fees.laboratory_fee > 0">
+                <span class="fee-label">Laboratory Fee</span>
+                <span class="fee-val">₱ {{ fees.laboratory_fee | number:'1.2-2' }}</span>
+              </div>
+              <div class="fee-row" *ngIf="fees.energy_fee > 0">
+                <span class="fee-label">Energy Fee</span>
+                <span class="fee-val">₱ {{ fees.energy_fee | number:'1.2-2' }}</span>
+              </div>
+              <div class="fee-row fee-discount" *ngIf="fees.discount > 0">
+                <span class="fee-label">Scholarship Discount</span>
+                <span class="fee-val">− ₱ {{ fees.discount | number:'1.2-2' }}</span>
+              </div>
+              <div class="fee-row fee-installment" *ngIf="fees.installment_fee > 0">
+                <span class="fee-label">Installment Charge</span>
+                <span class="fee-val">₱ {{ fees.installment_fee | number:'1.2-2' }}</span>
+              </div>
+              <div class="fee-row fee-total">
+                <span class="fee-label">TOTAL ASSESSMENT</span>
+                <span class="fee-val">₱ {{ fees.total_assessment | number:'1.2-2' }}</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- SHS / TVET free students: show government subsidy notice instead of fee table -->
+          <div class="coe-section" *ngIf="isSHSFree || isTVETFree" style="background:#f0fdf4;border:1px solid #86efac;border-radius:10px;padding:16px 20px;">
+            <div class="coe-section-title" style="color:#15803d;">🎓 Tuition & Fees</div>
+            <p style="font-size:14px;color:#166534;margin:8px 0 0;">
+              <strong>{{ isSHSFree ? 'FREE — Senior High School Voucher Program (SHS VP)' : 'FREE — TESDA Government Scholarship (PESFA/STEP)' }}</strong><br>
+              <ng-container *ngIf="isSHSFree">
+                Tuition and other school fees are fully covered by the government under Republic Act No. 10931
+                (Universal Access to Quality Tertiary Education Act) and the DepEd SHS Voucher Program.
+                No tuition payment is required for this enrollment period.
+              </ng-container>
+              <ng-container *ngIf="isTVETFree">
+                Tuition and other school fees are fully covered by the government under the TESDA
+                Private Education Student Financial Assistance (PESFA) or Special Training for Employment
+                Program (STEP). No tuition payment is required for this enrollment period.
+              </ng-container>
+            </p>
+          </div>
+
+          <!-- Footer -->
+          <div class="coe-doc-footer">
+            <div class="coe-footer-note">
+              This certificate is computer-generated and valid without signature unless otherwise stated.
+              Issued by the Office of the Registrar — {{ formatDate(approvedCoe.approved_at) }}.
+            </div>
+            <button class="btn-download-coe" (click)="printCOE(approvedCoe)" [disabled]="isPrinting">
+              <span *ngIf="!isPrinting">⬇️ Download PDF Copy</span>
+              <span *ngIf="isPrinting">⏳ Preparing PDF...</span>
+            </button>
+          </div>
+
+        </div>
+      </ng-container>
+
+    </ng-container>
+
+  </ng-container>
+</div>

@@ -9,7 +9,7 @@
           <div class="logo-icon">💰</div>
           <div class="logo-text">
             <h3 class="logo-title">BASIC</h3>
-            <p class="logo-subtitle">Accounting </p>
+            <p class="logo-subtitle">Accounting</p>
           </div>
         </div>
       </div>
@@ -17,43 +17,65 @@
       <!-- Navigation Menu -->
       <nav class="nav-menu">
         <ul class="nav-links-list">
-          <!-- <li>
-            <a routerLink="/accounting/gcash" routerLinkActive="active" class="nav-link" (click)="closeSidebarOnMobile()">
-              <span class="nav-icon">📊</span>
-              <span class="nav-label">Accounting Manual
-              </span>
-            </a>
-          </li> -->
+
           <li>
             <a routerLink="/accounting/accounting" routerLinkActive="active" class="nav-link" (click)="closeSidebarOnMobile()">
               <span class="nav-icon">💳</span>
               <span class="nav-label">Accounting</span>
             </a>
           </li>
+
+         <!-- <li>
+            <a routerLink="/accounting/cashier" routerLinkActive="active" class="nav-link" (click)="closeSidebarOnMobile()">
+              <span class="nav-icon">🧾</span>
+              <span class="nav-label">Cashier Window</span>
+            </a>
+          </li>-->
+
+          <li>
+            <a routerLink="/accounting/permits" routerLinkActive="active" class="nav-link" (click)="closeSidebarOnMobile()">
+              <span class="nav-icon">🎫</span>
+              <span class="nav-label">Permit Generation</span>
+            </a>
+          </li>
+
+          <!-- ── NEW: Scholarship Management ── -->
+          <li>
+            <a routerLink="/accounting/pending-scholarships" routerLinkActive="active" class="nav-link" (click)="closeSidebarOnMobile()">
+              <span class="nav-icon">⏳</span>
+              <span class="nav-label">Scholarship Approvals</span>
+            </a>
+          </li>
+
+          <!--<li>
+            <a routerLink="/accounting/scholarship" routerLinkActive="active" class="nav-link" (click)="closeSidebarOnMobile()">
+              <span class="nav-icon">🎓</span>
+              <span class="nav-label">Scholarships</span>
+            </a>
+          </li>-->
+
+          <!-- ── NEW: Subject Fee Log ── -->
+          <li>
+            <a routerLink="/accounting/subject-fees" routerLinkActive="active" class="nav-link" (click)="closeSidebarOnMobile()">
+              <span class="nav-icon">💰</span>
+              <span class="nav-label">Subject Fee Log</span>
+            </a>
+          </li>
+
           <li>
             <a routerLink="/accounting/report" routerLinkActive="active" class="nav-link" (click)="closeSidebarOnMobile()">
               <span class="nav-icon">📈</span>
               <span class="nav-label">Financial Reports</span>
             </a>
           </li>
-          <li>
-            <a routerLink="/accounting/permits" routerLinkActive="active" class="nav-link" (click)="closeSidebarOnMobile()">
-              <span class="nav-icon">📄</span>
-              <span class="nav-label">Permit Generation </span>
-            </a>
-          </li>
+
           <li>
             <a routerLink="/accounting/fee-config" routerLinkActive="active" class="nav-link" (click)="closeSidebarOnMobile()">
-              <span class="nav-icon">📄</span>
-              <span class="nav-label">Fee Config </span>
+              <span class="nav-icon">⚙️</span>
+              <span class="nav-label">Fee Config</span>
             </a>
           </li>
-          <!-- <li>
-            <a routerLink="/accounting/report" routerLinkActive="active" class="nav-link" (click)="closeSidebarOnMobile()">
-              <span class="nav-icon">⚙️</span>
-              <span class="nav-label">Settings</span>
-            </a>
-          </li>-->
+
         </ul>
       </nav>
 
@@ -62,10 +84,12 @@
         <div class="user-info">
           <div class="user-avatar">👨‍💼</div>
           <div class="user-details">
-            <p class="user-name">Admin</p>
+            <p class="user-name">{{ userName() }}</p>
             <p class="user-role">{{ userRole() }}</p>
           </div>
         </div>
+        <button class="btn-change-pw" (click)="openCpModal()">🔑 Change Password</button>
+        <button class="btn-logout" (click)="logout()">🚪 Logout</button>
       </div>
     </mat-sidenav>
 
@@ -73,7 +97,9 @@
     <mat-sidenav-content>
       <!-- Header -->
       <header class="app-header">
-        <button class="toggle-sidebar-icon" (click)="toggleSidebar()" [title]="sidebarOpen() ? 'Hide Sidebar' : 'Show Sidebar'" aria-label="Toggle sidebar">
+        <button class="toggle-sidebar-icon" (click)="toggleSidebar()"
+                [title]="sidebarOpen() ? 'Hide Sidebar' : 'Show Sidebar'"
+                aria-label="Toggle sidebar">
           <span class="hamburger"></span>
           <span class="hamburger"></span>
           <span class="hamburger"></span>
@@ -85,10 +111,10 @@
           <h1 class="app-title">St. Benilde BASIC System</h1>
           <p class="header-subtitle">Accounting Management</p>
         </div>
-
-        <!-- Header Right Actions -->
         <div class="header-actions">
-          <button mat-icon-button class="notification-btn" [matBadge]="notificationCount()" matBadgeColor="warn">
+          <button class="btn-change-pw-header" (click)="openCpModal()">🔑 Password</button>
+          <button mat-icon-button class="notification-btn"
+                  [matBadge]="notificationCount()" matBadgeColor="warn">
             <mat-icon>notifications</mat-icon>
           </button>
           <button mat-icon-button class="profile-btn">
@@ -105,4 +131,57 @@
       </main>
     </mat-sidenav-content>
   </mat-sidenav-container>
+
+<!-- ── Change Password Modal ──────────────────────────────────────────── -->
+<div class="cp-overlay" *ngIf="showCpModal" (click)="closeCpModal()">
+  <div class="cp-modal" (click)="$event.stopPropagation()">
+    <div class="cp-header">
+      <h3>🔑 Change Password</h3>
+      <button class="cp-close" (click)="closeCpModal()">✕</button>
+    </div>
+
+    <div class="cp-success" *ngIf="cpSuccess">✅ {{ cpSuccess }}</div>
+    <div class="cp-error"   *ngIf="cpError">⚠️ {{ cpError }}</div>
+
+    <div class="cp-field">
+      <label>Current Password</label>
+      <div class="cp-input-wrap">
+        <input [type]="cpShowCurrent ? 'text' : 'password'" [(ngModel)]="cpCurrent"
+               class="cp-input" placeholder="Enter current password" autocomplete="current-password">
+        <button type="button" class="cp-eye" (click)="cpShowCurrent = !cpShowCurrent">
+          {{ cpShowCurrent ? '🙈' : '👁️' }}
+        </button>
+      </div>
+    </div>
+
+    <div class="cp-field">
+      <label>New Password</label>
+      <div class="cp-input-wrap">
+        <input [type]="cpShowNew ? 'text' : 'password'" [(ngModel)]="cpNew"
+               class="cp-input" placeholder="At least 6 characters" autocomplete="new-password">
+        <button type="button" class="cp-eye" (click)="cpShowNew = !cpShowNew">
+          {{ cpShowNew ? '🙈' : '👁️' }}
+        </button>
+      </div>
+    </div>
+
+    <div class="cp-field">
+      <label>Confirm New Password</label>
+      <div class="cp-input-wrap">
+        <input [type]="cpShowConfirm ? 'text' : 'password'" [(ngModel)]="cpConfirm"
+               class="cp-input" placeholder="Repeat new password" autocomplete="new-password">
+        <button type="button" class="cp-eye" (click)="cpShowConfirm = !cpShowConfirm">
+          {{ cpShowConfirm ? '🙈' : '👁️' }}
+        </button>
+      </div>
+    </div>
+
+    <div class="cp-actions">
+      <button class="cp-btn-cancel" (click)="closeCpModal()" [disabled]="cpSubmitting">Cancel</button>
+      <button class="cp-btn-submit" (click)="changePassword()" [disabled]="cpSubmitting">
+        {{ cpSubmitting ? 'Saving…' : 'Change Password' }}
+      </button>
+    </div>
+  </div>
+</div>
 </div>

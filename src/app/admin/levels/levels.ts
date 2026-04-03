@@ -2,6 +2,7 @@ import { Component, OnInit, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
+import { environment } from '../../environment';
 
 interface Course {
   id: number;
@@ -61,7 +62,7 @@ interface DeptEntry {
   styleUrl: './levels.css',
 })
 export class Levels implements OnInit {
-  private api = 'http://localhost/sia-api/admin.php';
+  private api = environment.adminApi;
 
   programs:   Program[] = [];
   allCourses: Course[]  = [];
@@ -118,12 +119,6 @@ export class Levels implements OnInit {
   get currentDeptOptions(): DeptEntry[] {
     return this.deptEntries.filter(d => d.type === this.form.level_type);
   }
-
-  private getHeaders() {
-    const token = sessionStorage.getItem('token') ?? localStorage.getItem('token') ?? '';
-    return { headers: { Authorization: `Bearer ${token}` } };
-  }
-
   constructor(private http: HttpClient, private cdr: ChangeDetectorRef) {}
 
   ngOnInit(): void {
@@ -267,8 +262,7 @@ export class Levels implements OnInit {
     // Persist to DB
     this.http.post<any>(
       `${this.api}?action=rename_department`,
-      { old_name: oldDbName, new_name: newLabel },
-      this.getHeaders()
+      { old_name: oldDbName, new_name: newLabel }
     ).subscribe({
       next: (res) => {
         if (res.success) {
@@ -330,8 +324,7 @@ export class Levels implements OnInit {
     // Call backend to NULL-out department on all programs using this value
     this.http.post<any>(
       `${this.api}?action=delete_department`,
-      { dept_name: dbName },
-      this.getHeaders()
+      { dept_name: dbName }
     ).subscribe({
       next: (res) => {
         this.isDeletingDept = false;
@@ -368,10 +361,10 @@ export class Levels implements OnInit {
 
   loadAll(): void {
     this.isLoading = true;
-    this.http.get<any>(`${this.api}?action=get_courses`, this.getHeaders()).subscribe({
+    this.http.get<any>(`${this.api}?action=get_courses`).subscribe({
       next: (res) => { if (res.success) this.allCourses = res.courses; this.cdr.detectChanges(); }
     });
-    this.http.get<any>(`${this.api}?action=get_programs`, this.getHeaders()).subscribe({
+    this.http.get<any>(`${this.api}?action=get_programs`).subscribe({
       next: (res) => {
         this.isLoading = false;
         if (res.success) {
@@ -553,7 +546,7 @@ export class Levels implements OnInit {
     }
     this.isSaving = true;
     const action = this.isEditing ? 'update_program' : 'create_program';
-    this.http.post<any>(`${this.api}?action=${action}`, this.form, this.getHeaders()).subscribe({
+    this.http.post<any>(`${this.api}?action=${action}`, this.form).subscribe({
       next: (res) => {
         this.isSaving = false;
         if (res.success) {
@@ -579,7 +572,7 @@ export class Levels implements OnInit {
   doDelete(): void {
     if (!this.deleteTarget) return;
     this.isDeleting = true;
-    this.http.post<any>(`${this.api}?action=delete_program`, { id: this.deleteTarget.id }, this.getHeaders()).subscribe({
+    this.http.post<any>(`${this.api}?action=delete_program`, { id: this.deleteTarget.id }).subscribe({
       next: (res) => {
         this.isDeleting = false;
         if (res.success) { this.showToast('success', 'Program deleted.'); this.loadAll(); }

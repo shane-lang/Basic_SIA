@@ -1,0 +1,260 @@
+.coe-page { padding: 24px; max-width: 860px; }
+
+/* Notification */
+.notif { padding: 12px 18px; border-radius: 8px; margin-bottom: 16px; font-size: 14px; }
+.notif-success { background: #dcfce7; color: #166534; border: 1px solid #86efac; }
+.notif-error   { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
+.notif-info    { background: #dbeafe; color: #1e40af; border: 1px solid #93c5fd; }
+
+/* Loading */
+.loading-state { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 48px; color: #64748b; }
+.spinner-ring  { width: 36px; height: 36px; border: 3px solid #e2e8f0; border-top-color: #6366f1; border-radius: 50%; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Status Cards (not enrolled / awaiting payment) */
+.status-card { display: flex; gap: 16px; padding: 24px; border-radius: 14px; border: 1.5px solid transparent; margin-bottom: 20px; }
+.card-not-enrolled { background: #f8fafc; border-color: #cbd5e1; }
+.card-awaiting     { background: #fffbeb; border-color: #fcd34d; }
+.sc-icon  { font-size: 32px; line-height: 1; flex-shrink: 0; }
+.sc-body  { flex: 1; }
+.sc-title { font-size: 17px; font-weight: 700; color: #1e293b; margin-bottom: 6px; }
+.sc-desc  { font-size: 13.5px; color: #475569; margin-bottom: 12px; line-height: 1.6; }
+.sc-chips { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+.chip { padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 500; }
+.chip-green  { background: #dcfce7; color: #166534; }
+.chip-yellow { background: #fef9c3; color: #854d0e; }
+.chip-gray   { background: #f1f5f9; color: #64748b; }
+.sc-steps { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.step { padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 500; }
+.step-active  { background: #dbeafe; color: #1d4ed8; }
+.step-waiting { background: #f1f5f9; color: #94a3b8; }
+.step-arrow   { color: #cbd5e1; font-size: 14px; }
+
+/* ── COE DOCUMENT ─────────────────────────────────────────────── */
+.coe-document {
+  background: #fff;
+  border: 1.5px solid #d1fae5;
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 4px 24px rgba(22,163,74,.10);
+}
+
+/* Document Header */
+.coe-doc-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 24px 28px 20px;
+  background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+  border-bottom: 2px solid #bbf7d0;
+  flex-wrap: wrap;
+}
+.coe-school-logo { font-size: 48px; line-height: 1; flex-shrink: 0; }
+.coe-school-info { flex: 1; min-width: 0; }
+.coe-school-name { font-size: 15px; font-weight: 800; color: #14532d; letter-spacing: .3px; }
+.coe-school-addr { font-size: 11px; color: #166534; margin: 2px 0 8px; }
+.coe-doc-title   { font-size: 18px; font-weight: 800; color: #14532d; letter-spacing: 1px; text-transform: uppercase; }
+
+.coe-ctrl-box {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.coe-ctrl-label  { font-size: 10px; color: #6b7280; text-transform: uppercase; letter-spacing: .5px; }
+.coe-ctrl-number { font-size: 17px; font-weight: 800; color: #15803d; letter-spacing: 1px; }
+.coe-ctrl-date   { font-size: 11px; color: #4b5563; margin-bottom: 8px; }
+.coe-stamp {
+  background: #15803d;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  text-align: center;
+  padding: 6px 14px;
+  border-radius: 6px;
+  letter-spacing: 1px;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+
+/* Sections */
+.coe-section { padding: 20px 28px; border-bottom: 1px solid #f0fdf4; }
+.coe-section:last-child { border-bottom: none; }
+.coe-section-title { font-size: 13px; font-weight: 700; color: #374151; text-transform: uppercase;
+                      letter-spacing: .5px; margin-bottom: 14px; }
+
+/* Student Info Grid */
+.coe-info-grid   { display: flex; flex-direction: column; gap: 0; }
+.coe-info-row    { display: grid; grid-template-columns: 1fr 1fr; border-bottom: 1px solid #f1f5f9; }
+.coe-info-row:last-child { border-bottom: none; }
+.coe-info-cell   { padding: 10px 4px; }
+.coe-label       { display: block; font-size: 10.5px; color: #9ca3af; font-weight: 600;
+                    text-transform: uppercase; letter-spacing: .4px; margin-bottom: 2px; }
+.coe-value       { display: block; font-size: 14px; color: #111827; font-weight: 500; }
+.coe-name-big    { font-size: 15px; font-weight: 700; color: #14532d; }
+
+/* Subjects Table */
+.coe-empty-subs { font-size: 13px; color: #9ca3af; padding: 12px 0; }
+.coe-subjects-table { width: 100%; }
+.coe-th-row, .coe-td-row {
+  display: grid;
+  grid-template-columns: 80px 1fr 100px 70px 1fr 50px;
+  gap: 0;
+  align-items: center;
+  border-bottom: 1px solid #f1f5f9;
+}
+.coe-th-row {
+  background: #f9fafb;
+  border-radius: 8px 8px 0 0;
+  border: 1px solid #e5e7eb;
+}
+.coe-th-row > span, .coe-td-row > span { padding: 8px 10px; font-size: 12px; }
+.coe-th-row > span { font-weight: 700; color: #374151; font-size: 11px; text-transform: uppercase; letter-spacing: .3px; }
+.coe-td-row { border: 1px solid #f1f5f9; border-top: none; }
+.coe-td-row:hover { background: #f9fafb; }
+.coe-td-row > span { font-size: 13px; color: #374151; }
+.col-code  { }
+.col-desc  { }
+.col-sched { font-size: 11.5px !important; }
+.col-room  { }
+.col-instr { }
+.col-units { }
+.fw  { font-weight: 700; color: #1e293b !important; }
+.tc  { text-align: center; font-weight: 700; color: #1e293b !important; }
+.coe-td-total {
+  display: flex;
+  justify-content: space-between;
+  padding: 10px 12px;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-top: none;
+  border-radius: 0 0 8px 8px;
+  font-weight: 700;
+  font-size: 13px;
+  color: #14532d;
+}
+.total-units-val { font-size: 16px; font-weight: 800; }
+
+/* Fees */
+.coe-fees-section { background: #fafafa; }
+.coe-fees-grid { display: flex; flex-direction: column; gap: 0; max-width: 380px; }
+.fee-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  border-bottom: 1px solid #f1f5f9;
+  font-size: 13.5px;
+}
+.fee-row:last-child { border-bottom: none; }
+.fee-label { color: #374151; }
+.fee-val   { font-weight: 600; color: #1e293b; font-variant-numeric: tabular-nums; }
+.fee-discount .fee-label, .fee-discount .fee-val { color: #16a34a; }
+.fee-installment .fee-val { color: #b45309; }
+.fee-total {
+  background: #14532d;
+  border-radius: 8px;
+  margin-top: 6px;
+  padding: 12px 14px !important;
+}
+.fee-total .fee-label { color: #bbf7d0; font-weight: 700; font-size: 12px; letter-spacing: .4px; text-transform: uppercase; }
+.fee-total .fee-val   { color: #fff; font-size: 17px; font-weight: 800; }
+
+/* Footer */
+.coe-doc-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 28px;
+  background: #f8fafc;
+  border-top: 1px solid #e5e7eb;
+  flex-wrap: wrap;
+}
+.coe-footer-note { font-size: 11.5px; color: #6b7280; flex: 1; line-height: 1.5; }
+.btn-download-coe {
+  padding: 12px 24px;
+  background: #15803d;
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .2s;
+  flex-shrink: 0;
+}
+.btn-download-coe:hover:not(:disabled) { background: #166534; }
+.btn-download-coe:disabled { background: #9ca3af; cursor: not-allowed; }
+
+@media (max-width: 600px) {
+  .coe-doc-header   { flex-direction: column; }
+  .coe-ctrl-box     { align-items: flex-start; }
+  .coe-info-row     { grid-template-columns: 1fr; }
+  .coe-subjects-table .coe-th-row,
+  .coe-subjects-table .coe-td-row { grid-template-columns: 70px 1fr 60px; }
+  .col-sched, .col-room, .col-instr { display: none; }
+}
+/* ── Semester term tab bar ────────────────────────────────────────────────── */
+.coe-term-bar {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 14px 20px 0;
+  border-bottom: 2px solid #e5e7eb;
+  margin-bottom: 20px;
+}
+.coe-term-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #6b7280;
+  padding-top: 8px;
+  white-space: nowrap;
+}
+.coe-term-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.coe-term-tab {
+  padding: 7px 14px;
+  border: 1.5px solid #d1d5db;
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  background: #f9fafb;
+  color: #374151;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background .15s, border-color .15s, color .15s;
+  position: relative;
+  bottom: -2px;
+}
+.coe-term-tab:hover { background: #f0fdf4; border-color: #86efac; color: #15803d; }
+.coe-term-tab.active {
+  background: #fff;
+  border-color: #15803d;
+  border-bottom-color: #fff;
+  color: #15803d;
+  font-weight: 700;
+  z-index: 1;
+}
+.coe-term-tab .tab-check { color: #16a34a; font-weight: 700; margin-left: 2px; }
+
+/* ── Term-level loading (smaller, inside the COE area) ───────────────────── */
+.term-loading-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 48px 0;
+  color: #6b7280;
+  gap: 12px;
+}
+.spinner-sm {
+  width: 32px !important;
+  height: 32px !important;
+  border-width: 3px !important;
+}

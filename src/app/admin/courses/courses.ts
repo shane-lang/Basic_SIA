@@ -2,6 +2,7 @@ import { Component, OnInit, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
+import { environment } from '../../environment';
 
 interface Course {
   id: number;
@@ -18,9 +19,14 @@ interface Course {
   instructor?: string;
   room?: string;
   is_general?: number;
+  is_lab?: number;
   enrolled_count?: number;
   created_at?: string;
   level_type?: 'College' | 'SHS' | 'TVET';
+  // PREREQ-PATCH: prerequisite fields returned by get_courses
+  prerequisite_id?:   number | null;
+  prerequisite_code?: string;
+  prerequisite_name?: string;
 }
 
 interface DeptEntry {
@@ -49,7 +55,7 @@ interface Program {
   styleUrl: './courses.css',
 })
 export class Courses implements OnInit {
-  private api = 'http://localhost/sia-api/admin.php';
+  private api = environment.adminApi;
 
   courseList:   Course[] = [];
   filteredList: Course[] = [];
@@ -67,6 +73,7 @@ export class Courses implements OnInit {
   showViewModal   = false;
   viewTarget: Course | null = null;
 
+  // PREREQ-PATCH: form now includes prerequisite_id
   form: Partial<Course> & { _levelType: 'College' | 'SHS' | 'TVET' } = this.emptyForm();
 
   toast: { show: boolean; type: 'success' | 'error'; message: string } =
@@ -98,9 +105,15 @@ export class Courses implements OnInit {
     return 'Department';
   }
 
-  private getHeaders() {
-    const token = sessionStorage.getItem('token') ?? localStorage.getItem('token') ?? '';
-    return { headers: { Authorization: `Bearer ${token}` } };
+  // PREREQ-PATCH: courses eligible as prerequisites for the form's current course
+  // Excludes the course being edited (self-reference) and courses from a different
+  // program (optional: remove the program filter if cross-program prereqs are needed).
+  get prerequisiteCandidates(): Course[] {
+    const editingId = this.isEditing ? (this.form.id ?? 0) : 0;
+    return this.courseList.filter(c =>
+      c.id !== editingId &&
+      (c.program === this.form.program || !this.form.program)
+    );
   }
 
   constructor(private http: HttpClient, private cdr: ChangeDetectorRef) {}
@@ -116,7 +129,6 @@ export class Courses implements OnInit {
       label, dbName: label, type,
     });
 
-    // Unique dept labels per level from DB programs
     const fromDB: Record<string, string[]> = { College: [], SHS: [], TVET: [] };
     for (const p of this.allPrograms) {
       const dept = (p.department ?? '').trim();
@@ -124,7 +136,6 @@ export class Courses implements OnInit {
         fromDB[p.level_type].push(dept);
     }
 
-    // Preserve localStorage-only entries (newly added, no program assigned yet)
     let stored: DeptEntry[] = [];
     try {
       const raw = localStorage.getItem('sia_dept_entries');
@@ -147,7 +158,7 @@ export class Courses implements OnInit {
 
   // ─── Load programs → sync depts → sync DB course depts → load courses ────
   loadPrograms(): void {
-    this.http.get<any>(`${this.api}?action=get_programs`, this.getHeaders()).subscribe({
+    this.http.get<any>(`${this.api}?action=get_programs`).subscribe({
       next: (res) => {
         if (res.success) {
           this.allPrograms = res.programs ?? [];
@@ -163,25 +174,27 @@ export class Courses implements OnInit {
   }
 
   syncAndLoadCourses(): void {
-    this.http.post<any>(`${this.api}?action=sync_course_departments`, {}, this.getHeaders()).subscribe({
+    this.http.post<any>(`${this.api}?action=sync_course_departments`, {}).subscribe({
       next:  () => this.loadCourses(),
       error: () => this.loadCourses(),
     });
   }
 
   // ─── COURSES ─────────────────────────────────────────────────────────────
+  // PREREQ-PATCH: emptyForm includes prerequisite_id: null
   emptyForm(): Partial<Course> & { _levelType: 'College' | 'SHS' | 'TVET' } {
     return {
       code: '', name: '', description: '', credits: 3,
       lec_units: 3, lab_units: 0,
       department: '', program: '', year_level: '1st Year',
       semester: '', is_general: 0, _levelType: 'College',
+      prerequisite_id: null,   // PREREQ-PATCH
     };
   }
 
   loadCourses(): void {
     this.isLoading = true;
-    this.http.get<any>(`${this.api}?action=get_courses`, this.getHeaders()).subscribe({
+    this.http.get<any>(`${this.api}?action=get_courses`).subscribe({
       next: (res) => {
         this.isLoading = false;
         if (res.success) { this.courseList = res.courses ?? []; this.applyFilter(); }
@@ -195,16 +208,12 @@ export class Courses implements OnInit {
     });
   }
 
-  // ─── Infer level type from program match ─────────────────────────────────
   getLevelType(c: Course): 'College' | 'SHS' | 'TVET' {
-    // Use level_type returned directly from API (most reliable — from programs JOIN)
     if (c.level_type && (c.level_type === 'College' || c.level_type === 'SHS' || c.level_type === 'TVET')) {
       return c.level_type;
     }
-    // Fallback: match by program name/code in allPrograms
     const matched = this.allPrograms.find(p => p.name === c.program || p.code === c.program);
     if (matched) return matched.level_type;
-    // Last resort: heuristics
     const yr   = (c.year_level ?? '').toLowerCase();
     const dept = (c.department ?? '').toLowerCase();
     const prog = (c.program ?? '').toLowerCase();
@@ -213,7 +222,6 @@ export class Courses implements OnInit {
     return 'College';
   }
 
-  // ─── Filtering ────────────────────────────────────────────────────────────
   applyFilter(): void {
     let list = [...this.courseList];
     if (this.filterLevel !== 'All')
@@ -245,7 +253,6 @@ export class Courses implements OnInit {
     return [...new Set(list.map(c => (c.department ?? '').trim()).filter(Boolean))].sort();
   }
 
-  // ─── Tab counts ───────────────────────────────────────────────────────────
   get countAll():     number { return this.courseList.length; }
   get countCollege(): number { return this.courseList.filter(c => this.getLevelType(c) === 'College').length; }
   get countSHS():     number { return this.courseList.filter(c => this.getLevelType(c) === 'SHS').length; }
@@ -256,16 +263,16 @@ export class Courses implements OnInit {
 
   getCardLevel(c: Course): string { return this.getLevelType(c); }
 
-  // ─── Form handlers ────────────────────────────────────────────────────────
   onLevelTypeChange(): void {
-    this.form.department = '';
-    this.form.program    = '';
-    this.form.year_level = this.currentYearLevels[0];
-    // SHS doesn't use units
+    this.form.department    = '';
+    this.form.program       = '';
+    this.form.year_level    = this.currentYearLevels[0];
+    this.form.prerequisite_id = null; // PREREQ-PATCH: reset on level change
     if (this.form._levelType === 'SHS') {
       this.form.lec_units = 0;
       this.form.lab_units = 0;
       this.form.credits   = 0;
+      this.form.semester  = '';   // SHS has no semester — clear it
     } else if (!this.form.lec_units && !this.form.lab_units) {
       this.form.lec_units = 3;
       this.form.lab_units = 0;
@@ -277,6 +284,7 @@ export class Courses implements OnInit {
   onProgramChange(): void {
     const prog = this.allPrograms.find(p => p.name === this.form.program);
     if (prog?.department) this.form.department = prog.department;
+    this.form.prerequisite_id = null; // PREREQ-PATCH: reset when program changes
     this.cdr.detectChanges();
   }
 
@@ -300,8 +308,14 @@ export class Courses implements OnInit {
     const levelType = this.getLevelType(c);
     const labU = Number(c.lab_units) || 0;
     const lecU = Number(c.lec_units) || ((c.credits || 0) - labU);
-    this.form = { ...c, lec_units: lecU, lab_units: labU, _levelType: levelType };
-    // Load current shared programs from program_courses (via course_ids in allPrograms)
+    // PREREQ-PATCH: populate prerequisite_id from the course data
+    this.form = {
+      ...c,
+      lec_units: lecU,
+      lab_units: labU,
+      _levelType: levelType,
+      prerequisite_id: c.prerequisite_id ?? null,
+    };
     this.sharedProgramIds = this.allPrograms
       .filter(p => (p.course_ids ?? []).includes(Number(c.id)))
       .map(p => Number(p.id))
@@ -328,17 +342,18 @@ export class Courses implements OnInit {
     if (!this.form.code || !this.form.name) {
       this.showToast('error', 'Code and name are required.'); return;
     }
-    // SHS subjects don't require units
     if (this.form._levelType !== 'SHS' && (!this.form.credits || this.form.credits < 1)) {
       this.showToast('error', 'Units must be at least 1.'); return;
     }
-    // Note: duplicate code is handled server-side — existing courses are reused and linked to new programs
 
     const { _levelType, ...payload } = this.form as any;
     payload.shared_program_ids = this.sharedProgramIds;
+    // PREREQ-PATCH: send prerequisite_id (null = "no prerequisite" — backend clears the row)
+    payload.prerequisite_id = this.form.prerequisite_id ?? null;
+
     this.isSaving = true;
     const action = this.isEditing ? 'update_course' : 'create_course';
-    this.http.post<any>(`${this.api}?action=${action}`, payload, this.getHeaders()).subscribe({
+    this.http.post<any>(`${this.api}?action=${action}`, payload).subscribe({
       next: (res) => {
         this.isSaving = false;
         if (res.success) {
@@ -362,7 +377,7 @@ export class Courses implements OnInit {
   doDelete(): void {
     if (!this.deleteTarget) return;
     this.isDeleting = true;
-    this.http.post<any>(`${this.api}?action=delete_course`, { id: this.deleteTarget.id }, this.getHeaders()).subscribe({
+    this.http.post<any>(`${this.api}?action=delete_course`, { id: this.deleteTarget.id }).subscribe({
       next: (res) => {
         this.isDeleting = false;
         if (res.success) { this.showToast('success', 'Course deleted.'); this.loadCourses(); }
@@ -385,5 +400,22 @@ export class Courses implements OnInit {
   showToast(type: 'success' | 'error', message: string): void {
     this.toast = { show: true, type, message };
     setTimeout(() => { this.toast.show = false; this.cdr.detectChanges(); }, 4000);
+  }
+
+  isMinor(code: string): boolean {
+    if (!code) return false;
+    const upper = code.toUpperCase();
+    return upper.startsWith('GE') ||
+           upper.startsWith('PE') ||
+           upper.startsWith('NSTP') ||
+           upper.startsWith('OJT');
+  }
+
+  // PREREQ-PATCH: helper used by the template to show the selected prerequisite's label
+  getPrerequisiteLabel(): string {
+    const pid = this.form.prerequisite_id;
+    if (!pid) return '— None —';
+    const found = this.courseList.find(c => c.id === pid);
+    return found ? `${found.code} — ${found.name}` : `Course #${pid}`;
   }
 }

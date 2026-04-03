@@ -173,10 +173,9 @@
       </div>
     </div>
   </div>
-</div>
 
-<!-- ══ WINDOW TAB ══ -->
-<div *ngIf="mainTab === 'window'" class="adr-win-page">
+  <!-- ══ WINDOW TAB ══ -->
+  <div *ngIf="mainTab === 'window'" class="adr-win-page">
 
   <!-- Current Status Card -->
   <div class="adr-win-status-card" [class.adr-win-status-open]="windowOpen" [class.adr-win-status-closed]="!windowOpen">
@@ -222,7 +221,8 @@
       <span class="adr-win-note">⚠️ Saving a new window will replace the current one.</span>
     </div>
   </div>
-</div>
+
+</div><!-- /adr-page -->
 
 
 <!-- ══ PROCESS MODAL ══ -->

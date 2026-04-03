@@ -2,17 +2,22 @@ import { Component, OnInit, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
+import { environment } from '../../environment';
 
 interface EnrolledSubject {
   enrollment_id: number; course_id: number;
   code: string; name: string; credits: number;
   instructor: string; day: string; time: string; room: string;
   semester: string; status: string;
+  lecUnits?: number; labUnits?: number; isGeneral?: boolean; isLab?: boolean;
+  lec_units?: number; lab_units?: number; is_general?: number; is_lab?: number;
 }
 interface AvailableSubject {
   id: number; code: string; name: string; credits: number;
   instructor: string; day: string; time: string; room: string;
   capacity: number; enrolled_count: number; available_seats: number;
+  lecUnits?: number; labUnits?: number; isGeneral?: boolean; isLab?: boolean;
+  lec_units?: number; lab_units?: number; is_general?: number; is_lab?: number;
 }
 interface ADRequest {
   id: number; request_type: string; course_id: number;
@@ -20,6 +25,8 @@ interface ADRequest {
   instructor: string; day: string; time: string;
   reason: string; status: string; remarks: string;
   created_at: string; processed_at: string;
+  lecUnits?: number; labUnits?: number; isGeneral?: boolean; isLab?: boolean;
+  lec_units?: number; lab_units?: number; is_general?: number; is_lab?: number;
 }
 interface AddDropWindow {
   start_date: string; end_date: string; label: string;
@@ -33,7 +40,7 @@ interface AddDropWindow {
   styleUrl: './student-add-drop.css'
 })
 export class StudentAddDropComponent implements OnInit {
-  private api = 'http://localhost/sia-api/enrollment.php';
+  private api = environment.enrollApi;
 
   // FIX: store both user_id (from login) and student_id (from students table)
   userId    = 0;
@@ -56,11 +63,6 @@ export class StudentAddDropComponent implements OnInit {
   windowLoading = true;
 
   constructor(private http: HttpClient, private cdr: ChangeDetectorRef) {}
-
-  private hdrs() {
-    return { headers: { Authorization: `Bearer ${sessionStorage.getItem('token') ?? ''}` } };
-  }
-
   ngOnInit() {
     const u = JSON.parse(sessionStorage.getItem('currentUser') || '{}');
     // FIX: Use user_id (the id from the users table stored at login)
@@ -73,7 +75,7 @@ export class StudentAddDropComponent implements OnInit {
 
   loadWindow() {
     this.windowLoading = true;
-    this.http.get<any>(`${this.api}?action=get_add_drop_window`, this.hdrs()).subscribe({
+    this.http.get<any>(`${this.api}?action=get_add_drop_window`).subscribe({
       next: r => {
         this.window     = r.window  || null;
         this.windowOpen = r.is_open || false;
@@ -90,7 +92,7 @@ export class StudentAddDropComponent implements OnInit {
     // Always pass user_id — server resolves to correct students.id
     const idParam = `user_id=${this.userId}`;
 
-    this.http.get<any>(`${this.api}?action=get_student_enrollments&${idParam}`, this.hdrs()).subscribe({
+    this.http.get<any>(`${this.api}?action=get_student_enrollments&${idParam}`).subscribe({
       next: r => {
         this.enrolled  = r.enrolled  || [];
         this.available = r.available || [];
@@ -103,8 +105,13 @@ export class StudentAddDropComponent implements OnInit {
     });
 
     // Always pass user_id for requests too — server resolves correctly
-    this.http.get<any>(`${this.api}?action=get_my_add_drop&user_id=${this.userId}`, this.hdrs()).subscribe({
-      next: r => { this.requests = r.requests || []; this.cdr.detectChanges(); }
+    // BUG-ADDROP-01 FIX: Added error: handler. Without it, a JSON parse failure
+    // (caused by PHP notice/warning leaking into the response body) throws an
+    // uncaught HttpErrorResponse that propagates globally and shows the
+    // "Cannot connect to server" error on unrelated components (e.g. Curriculum).
+    this.http.get<any>(`${this.api}?action=get_my_add_drop&user_id=${this.userId}`).subscribe({
+      next: r => { this.requests = r.requests || []; this.cdr.detectChanges(); },
+      error: () => { this.requests = []; this.cdr.detectChanges(); }
     });
   }
 
@@ -145,7 +152,7 @@ export class StudentAddDropComponent implements OnInit {
       reason:       this.modalReason
     };
     if (this.modalType === 'drop') body.enrollment_id = this.modalSubject.enrollment_id;
-    this.http.post<any>(`${this.api}?action=submit_add_drop`, body, this.hdrs()).subscribe({
+    this.http.post<any>(`${this.api}?action=submit_add_drop`, body).subscribe({
       next: r => {
         this.isSubmitting = false;
         if (r.success) {
@@ -172,4 +179,16 @@ export class StudentAddDropComponent implements OnInit {
   statusCls(s: string)  { return s==='Approved'?'sad-approved':s==='Rejected'?'sad-rejected':'sad-pending'; }
   statusIcon(s: string) { return s==='Approved'?'✅':s==='Rejected'?'❌':'⏳'; }
   seatPct(s: AvailableSubject) { return s.capacity>0 ? Math.round((s.enrolled_count/s.capacity)*100) : 0; }
+
+  // Classify subject as Minor/GE based on course code prefix
+  // GE, PE, NSTP, OJT prefixes = Minor/General Education
+  isMinor(code: string): boolean {
+    if (!code) return false;
+    const upper = code.toUpperCase();
+    return upper.startsWith('GE') ||
+           upper.startsWith('PE') ||
+           upper.startsWith('NSTP') ||
+           upper.startsWith('OJT');
+  }
+
 }

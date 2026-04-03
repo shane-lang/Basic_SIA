@@ -2,6 +2,7 @@ import { Component, OnInit, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
+import { environment } from '../../environment';
 
 type Step = 'faculty' | 'subjects' | 'students';
 
@@ -66,16 +67,11 @@ interface CourseStudent {
   styleUrl: './grading.css',
 })
 export class Grading implements OnInit {
-  private gradesApi = 'http://localhost/sia-api/grades.php';
-
-  private getHeaders(): { headers: HttpHeaders } {
-    const token = sessionStorage.getItem('token') || localStorage.getItem('token') || '';
-    return { headers: new HttpHeaders({ Authorization: `Bearer ${token}` }) };
-  }
+  private gradesApi = environment.gradesApi;
 
   get adminId(): number {
     try {
-      const u = sessionStorage.getItem('currentUser') || localStorage.getItem('currentUser') || '{}';
+      const u = sessionStorage.getItem('currentUser') ?? '{}';
       return JSON.parse(u).id ?? 0;
     } catch { return 0; }
   }
@@ -111,7 +107,7 @@ export class Grading implements OnInit {
 
   loadFaculty(): void {
     this.isLoadingFaculty = true;
-    this.http.get<any>(`${this.gradesApi}?action=admin_get_faculty`, this.getHeaders()).subscribe({
+    this.http.get<any>(`${this.gradesApi}?action=admin_get_faculty`).subscribe({
       next: (res) => {
         this.isLoadingFaculty = false;
         this.faculty = res.success ? (res.faculty || []) : [];
@@ -139,8 +135,7 @@ export class Grading implements OnInit {
     this.isLoadingSubjects = true;
 
     this.http.get<any>(
-      `${this.gradesApi}?action=admin_get_faculty_subjects&faculty_id=${f.id}`,
-      this.getHeaders()
+      `${this.gradesApi}?action=admin_get_faculty_subjects&faculty_id=${f.id}`
     ).subscribe({
       next: (res) => {
         this.isLoadingSubjects = false;
@@ -160,8 +155,7 @@ export class Grading implements OnInit {
     this.isLoadingStudents = true;
 
     this.http.get<any>(
-      `${this.gradesApi}?action=admin_get_course_students&course_id=${sub.courseId}`,
-      this.getHeaders()
+      `${this.gradesApi}?action=admin_get_course_students&course_id=${sub.courseId}`
     ).subscribe({
       next: (res) => {
         this.isLoadingStudents = false;
@@ -200,7 +194,7 @@ export class Grading implements OnInit {
       course_id:     this.selectedSubject!.courseId,
       term, grade,
       submitted_by: this.adminId,
-    }, this.getHeaders()).subscribe({
+    }).subscribe({
       next: (res) => {
         student[savingKey] = false;
         if (res.success) {
@@ -239,7 +233,7 @@ export class Grading implements OnInit {
     this.http.post<any>(`${this.gradesApi}?action=admin_submit_to_registrar`, {
       course_id: this.selectedSubject.courseId,
       submitted_by: this.adminId,
-    }, this.getHeaders()).subscribe({
+    }).subscribe({
       next: (res) => {
         this.isSubmitting = false;
         if (res.success) {

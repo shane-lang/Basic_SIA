@@ -33,6 +33,15 @@
             </span>
             <span class="scholar-badge" *ngIf="student.isScholar">🎓 Scholar</span>
           </div>
+          <!-- RA 10173 Right to Access — student can download their own data -->
+          <div class="privacy-actions">
+            <button class="btn-download-data" (click)="downloadMyData()" title="Download your personal data (RA 10173 right to access)">
+              ⬇️ Download My Data
+            </button>
+            <button class="btn-change-password" (click)="openCpModal()" title="Change your login password">
+              🔑 Change Password
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -92,16 +101,16 @@
         <div class="card">
           <h2>🪪 Personal Information</h2>
           <div class="info-group"><label>Full Name</label><p>{{ fullName }}</p></div>
-          <div class="info-group" *ngIf="student.lrnNo"><label>LRN No.</label><p>{{ student.lrnNo }}</p></div>
+          <ng-container *ngIf="canViewSensitive"><div class="info-group" *ngIf="student.lrnNo"><label>LRN No.</label><p>{{ student.lrnNo }}</p></div></ng-container>
           <div class="info-group"><label>Date of Birth</label><p>{{ student.dateOfBirth ? (student.dateOfBirth | date:'MMM dd, yyyy') : '—' }}</p></div>
           <div class="info-group" *ngIf="student.age"><label>Age</label><p>{{ student.age }}</p></div>
           <div class="info-group"><label>Sex</label><p>{{ student.sex || '—' }}</p></div>
-          <div class="info-group" *ngIf="student.religion"><label>Religion</label><p>{{ student.religion }}</p></div>
-          <div class="info-group" *ngIf="student.placeOfBirth"><label>Place of Birth</label><p>{{ student.placeOfBirth }}</p></div>
-          <div class="info-group" *ngIf="student.citizenship"><label>Citizenship</label><p>{{ student.citizenship }}</p></div>
-          <div class="info-group" *ngIf="student.motherTongue"><label>Mother Tongue</label><p>{{ student.motherTongue }}</p></div>
-          <div class="info-group"><label>IP/Indigenous People</label><p>{{ student.isIndigenous ? 'Yes' : 'No' }}</p></div>
-          <div class="info-group" *ngIf="student.psaBirthCertNo"><label>PSA Birth Cert No.</label><p>{{ student.psaBirthCertNo }}</p></div>
+          <ng-container *ngIf="canViewSensitive"><div class="info-group" *ngIf="student.religion"><label>Religion</label><p>{{ student.religion }}</p></div></ng-container>
+          <ng-container *ngIf="canViewSensitive"><div class="info-group" *ngIf="student.placeOfBirth"><label>Place of Birth</label><p>{{ student.placeOfBirth }}</p></div></ng-container>
+          <ng-container *ngIf="canViewSensitive"><div class="info-group" *ngIf="student.citizenship"><label>Citizenship</label><p>{{ student.citizenship }}</p></div></ng-container>
+          <ng-container *ngIf="canViewSensitive"><div class="info-group" *ngIf="student.motherTongue"><label>Mother Tongue</label><p>{{ student.motherTongue }}</p></div></ng-container>
+          <ng-container *ngIf="canViewSensitive"><div class="info-group"><label>IP/Indigenous People</label><p>{{ student.isIndigenous ? 'Yes' : 'No' }}</p></div></ng-container>
+          <ng-container *ngIf="canViewSensitive"><div class="info-group" *ngIf="student.psaBirthCertNo"><label>PSA Birth Cert No.</label><p>{{ student.psaBirthCertNo }}</p></div></ng-container>
         </div>
 
         <!-- Contact -->
@@ -127,4 +136,57 @@
     </div>
 
   </ng-container>
+
+<!-- ── Change Password Modal ──────────────────────────────────────────── -->
+<div class="cp-overlay" *ngIf="showCpModal" (click)="closeCpModal()">
+  <div class="cp-modal" (click)="$event.stopPropagation()">
+    <div class="cp-header">
+      <h3>🔑 Change Password</h3>
+      <button class="cp-close" (click)="closeCpModal()">✕</button>
+    </div>
+
+    <div class="cp-success" *ngIf="cpSuccess">✅ {{ cpSuccess }}</div>
+    <div class="cp-error"   *ngIf="cpError">⚠️ {{ cpError }}</div>
+
+    <div class="cp-field">
+      <label>Current Password</label>
+      <div class="cp-input-wrap">
+        <input [type]="cpShowCurrent ? 'text' : 'password'" [(ngModel)]="cpCurrent"
+               class="cp-input" placeholder="Enter current password" autocomplete="current-password">
+        <button type="button" class="cp-eye" (click)="cpShowCurrent = !cpShowCurrent">
+          {{ cpShowCurrent ? '🙈' : '👁️' }}
+        </button>
+      </div>
+    </div>
+
+    <div class="cp-field">
+      <label>New Password</label>
+      <div class="cp-input-wrap">
+        <input [type]="cpShowNew ? 'text' : 'password'" [(ngModel)]="cpNew"
+               class="cp-input" placeholder="At least 6 characters" autocomplete="new-password">
+        <button type="button" class="cp-eye" (click)="cpShowNew = !cpShowNew">
+          {{ cpShowNew ? '🙈' : '👁️' }}
+        </button>
+      </div>
+    </div>
+
+    <div class="cp-field">
+      <label>Confirm New Password</label>
+      <div class="cp-input-wrap">
+        <input [type]="cpShowConfirm ? 'text' : 'password'" [(ngModel)]="cpConfirm"
+               class="cp-input" placeholder="Repeat new password" autocomplete="new-password">
+        <button type="button" class="cp-eye" (click)="cpShowConfirm = !cpShowConfirm">
+          {{ cpShowConfirm ? '🙈' : '👁️' }}
+        </button>
+      </div>
+    </div>
+
+    <div class="cp-actions">
+      <button class="cp-btn-cancel" (click)="closeCpModal()" [disabled]="cpSubmitting">Cancel</button>
+      <button class="cp-btn-submit" (click)="changePassword()" [disabled]="cpSubmitting">
+        {{ cpSubmitting ? 'Saving…' : 'Change Password' }}
+      </button>
+    </div>
+  </div>
+</div>
 </div>

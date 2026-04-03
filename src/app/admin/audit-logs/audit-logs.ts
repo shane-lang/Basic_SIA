@@ -2,6 +2,8 @@ import { Component, OnInit, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
+import { environment } from '../../environment';
+import { MaskEmailPipe } from '../../pipes/mask-email.pipe';
 
 interface AuditLog {
   id: number;
@@ -30,17 +32,12 @@ interface AuditStats {
 @Component({
   selector: 'app-audit-logs',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, MaskEmailPipe],
   templateUrl: './audit-logs.html',
   styleUrl: './audit-logs.css',
 })
 export class AuditLogs implements OnInit {
-  private apiUrl = 'http://localhost/sia-api/admin.php';
-
-  private getHeaders(): { headers: HttpHeaders } {
-    const token = sessionStorage.getItem('token') || localStorage.getItem('token') || '';
-    return { headers: new HttpHeaders({ Authorization: `Bearer ${token}` }) };
-  }
+  private apiUrl = environment.adminApi;
 
   logs: AuditLog[]    = [];
   stats: AuditStats | null = null;
@@ -72,7 +69,7 @@ export class AuditLogs implements OnInit {
   }
 
   loadStats(): void {
-    this.http.get<any>(`${this.apiUrl}?action=get_audit_stats`, this.getHeaders()).subscribe({
+    this.http.get<any>(`${this.apiUrl}?action=get_audit_stats`).subscribe({
       next: (res) => {
         if (res.success) { this.stats = res; this.cdr.detectChanges(); }
       }
@@ -94,7 +91,7 @@ export class AuditLogs implements OnInit {
       ...(this.filterDateTo   && { date_to:       this.filterDateTo }),
     });
 
-    this.http.get<any>(`${this.apiUrl}?${params}`, this.getHeaders()).subscribe({
+    this.http.get<any>(`${this.apiUrl}?${params}`).subscribe({
       next: (res) => {
         this.isLoading  = false;
         this.logs       = res.success ? (res.logs || []) : [];

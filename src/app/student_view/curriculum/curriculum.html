@@ -81,6 +81,7 @@
               <colgroup>
                 <col class="col-code">
                 <col class="col-name">
+                <col class="col-type">
                 <col class="col-units">
                 <col class="col-status">
               </colgroup>
@@ -88,6 +89,7 @@
                 <tr>
                   <th>Code</th>
                   <th>Subject</th>
+                  <th class="th-type">Type</th>
                   <th class="th-units">Units</th>
                   <th class="th-status">Status</th>
                 </tr>
@@ -98,16 +100,34 @@
                   <td class="td-name">
                     {{ c.name }}
                     <span *ngIf="c.description" class="course-desc">{{ c.description }}</span>
+                    <!-- Prerequisite notice -->
+                    <span *ngIf="c.prerequisiteCode" class="prereq-chip"
+                          [class.prereq-unmet]="c.prerequisiteId && !isPrereqPassed(c)"
+                          title="Prerequisite: {{ c.prerequisiteName }}">
+                      🔒 Prereq: {{ c.prerequisiteCode }}
+                    </span>
                   </td>
-                  <td class="td-units">{{ c.credits }}</td>
+                  <td class="td-type">
+                    <span class="tag-major" *ngIf="!isMinor(c.code)">Major</span>
+                    <span class="tag-minor" *ngIf="isMinor(c.code)">Minor</span>                  </td>
+                  <td class="td-units">
+                    <span class="units-total">{{ c.credits }}</span>
+                    <span class="units-breakdown">
+                      Lec {{ c.lecUnits }}<ng-container *ngIf="c.labUnits > 0">&nbsp;/&nbsp;Lab&nbsp;{{ c.labUnits }}</ng-container>
+                    </span>
+                  </td>
                   <td class="td-status">
                     <span class="status-chip" [class]="'chip-' + c.status">{{ statusLabel(c.status) }}</span>
+                    <!-- Failed badge with grade -->
+                    <span *ngIf="c.status === 'failed'" class="failed-badge">
+                      ✗ {{ c.grade !== null ? (c.grade | number:'1.2-2') : '5.0' }}
+                    </span>
                   </td>
                 </tr>
               </tbody>
               <tfoot>
                 <tr class="sem-total-row">
-                  <td colspan="2">Semester Total</td>
+                  <td colspan="3">Semester Total</td>
                   <td class="td-units">{{ sem.totalUnits }}</td>
                   <td></td>
                 </tr>

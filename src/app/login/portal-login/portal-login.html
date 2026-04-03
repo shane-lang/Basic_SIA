@@ -1,0 +1,164 @@
+<!-- src/app/login/portal-login/portal-login.html -->
+
+<!-- ── Portal Selector ────────────────────────────────────────────────────── -->
+<div class="selector-page" *ngIf="showSelector">
+  <div class="selector-card">
+    <div class="selector-logo">🏫</div>
+    <h1>St. Benilde SIA</h1>
+    <p>Select your portal to continue</p>
+    <div class="portal-grid">
+      <button *ngFor="let p of portalList" class="portal-btn" (click)="setPortal(p.key)">
+        <span class="p-icon">{{ p.icon }}</span>
+        <span class="p-label">{{ p.label }}</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Welcome Screen (login authentication confirmation) ─────────────────── -->
+<div class="login-page" *ngIf="!showSelector && config && showWelcome" [style.background]="config.bg">
+  <div class="login-card welcome-card" [style.--accent]="config.accent">
+    <div class="welcome-icon">{{ config.icon }}</div>
+    <div class="welcome-checkmark">✓</div>
+    <h1 class="welcome-title">Welcome, {{ welcomeName }}!</h1>
+    <p class="welcome-role">Signed in as <strong>{{ welcomeRole }}</strong></p>
+    <p class="welcome-redirect">Redirecting in <strong>{{ welcomeCountdown }}</strong>s...</p>
+    <button class="btn-login welcome-btn" [style.background]="config.accent" (click)="proceedNow()">
+      Continue to Portal →
+    </button>
+  </div>
+</div>
+
+<!-- ── 2FA OTP Screen ─────────────────────────────────────────────────────── -->
+<div class="login-page" *ngIf="!showSelector && config && showOtp && !showWelcome" [style.background]="config.bg">
+  <div class="login-card otp-card" [style.--accent]="config.accent">
+    <button class="back-btn" (click)="cancelOtp()">← Back to Login</button>
+    <div class="otp-header">
+      <div class="otp-lock-icon">🔐</div>
+      <h1>Two-Factor Authentication</h1>
+      <p class="otp-subtitle">Check your authenticator app for the 6-digit code.</p>
+    </div>
+    <div class="otp-preview-box" *ngIf="otpCode">
+      <span class="otp-preview-label">Dev mode — OTP code:</span>
+      <span class="otp-preview-code">{{ otpCode }}</span>
+      <small>Hidden in production (APP_ENV=production)</small>
+    </div>
+    <div class="error-box" *ngIf="otpError">⚠️ {{ otpError }}</div>
+    <div class="otp-countdown" *ngIf="otpCountdown > 0">
+      Code expires in <strong>{{ otpCountdown }}</strong>s
+    </div>
+    <div class="otp-field">
+      <label>Enter 6-digit code</label>
+      <input
+        type="text" class="otp-input" [(ngModel)]="otpInput"
+        maxlength="6" placeholder="000000"
+        autocomplete="one-time-code" inputmode="numeric"
+        (keyup.enter)="verifyOtp()"
+      />
+    </div>
+    <button class="btn-login" [style.background]="config.accent" (click)="verifyOtp()" [disabled]="otpVerifying || !otpInput">
+      <span *ngIf="!otpVerifying">✓ Verify Code</span>
+      <span *ngIf="otpVerifying" class="spinner"></span>
+    </button>
+  </div>
+</div>
+
+<!-- ── Login Form ─────────────────────────────────────────────────────────── -->
+<div class="login-page" *ngIf="!showSelector && config && !showWelcome && !showOtp && !showForgot" [style.background]="config.bg">
+
+  <div class="login-card" [style.--accent]="config.accent">
+    <button class="back-btn" routerLink="/login">← All Portals</button>
+    <div class="login-header">
+      <div class="portal-icon">{{ config.icon }}</div>
+      <h1>{{ config.label }}</h1>
+    </div>
+    <div class="logout-banner" *ngIf="logoutBanner">⚠️ {{ logoutBanner }}</div>
+    <div class="error-box" *ngIf="errorMessage">⚠️ {{ errorMessage }}</div>
+    <form (ngSubmit)="onSubmit()" novalidate>
+      <div class="field">
+        <label>Email Address</label>
+        <input type="email" [(ngModel)]="email" name="email" placeholder="Enter your email" autocomplete="email" />
+      </div>
+      <div class="field">
+        <label>Password</label>
+        <div class="pw-wrap">
+          <input [type]="showPw ? 'text' : 'password'" [(ngModel)]="password" name="password" placeholder="Enter your password" autocomplete="current-password" />
+          <button type="button" class="pw-toggle" (click)="togglePw()">{{ showPw ? '🙈' : '👁️' }}</button>
+        </div>
+      </div>
+     <div class="forgot-pw-row">
+  <a href="#" class="forgot-pw-link" (click)="showForgot='email'; $event.preventDefault()">
+    Forgot Password?
+  </a>
+</div>
+      <button type="submit" class="btn-login" [style.background]="config.accent" [disabled]="loading">
+        <span *ngIf="!loading">Sign In</span>
+        <span *ngIf="loading" class="spinner"></span>
+      </button>
+    </form>
+    <div class="enroll-section" *ngIf="config.showEnroll">
+      <div class="enroll-divider"><span>New student?</span></div>
+      <button class="btn-enroll" (click)="goEnroll()">🎓 Enroll Now</button>
+    </div>
+    <div class="login-footer">
+      <small>St. Benilde SIA — Student Information & Administration</small>
+    </div>
+  </div>
+</div>
+
+<!-- ── Forgot Password — Step 1: Email ─────────────────────────────────────── -->
+<div class="login-page" *ngIf="!showSelector && config && showForgot === 'email'" [style.background]="config.bg">
+ 
+  <div class="login-card" [style.--accent]="config.accent">
+    <button class="back-btn" (click)="showForgot=''; fpError=''; fpSuccess=''">← Back to Login</button>
+    <div class="login-header">
+      <div class="portal-icon">🔑</div>
+      <h1>Reset Password</h1>
+    </div>
+    <p style="color:#6b7280;font-size:14px;margin-bottom:16px;">Enter your email address and we'll send you a 6-digit reset code.</p>
+    <div class="error-box" *ngIf="fpError">⚠️ {{ fpError }}</div>
+    <div class="success-box" *ngIf="fpSuccess">✓ {{ fpSuccess }}</div>
+    <div class="field">
+      <label>Email Address</label>
+      <input type="email" [(ngModel)]="fpEmail" name="fpEmail" placeholder="your@email.com" [disabled]="fpLoading" />
+    </div>
+    <button class="btn-login" [style.background]="config.accent" [disabled]="fpLoading" (click)="sendForgotOtp()">
+      <span *ngIf="!fpLoading">Send Reset Code</span>
+      <span *ngIf="fpLoading" class="spinner"></span>
+    </button>
+  </div>
+</div>
+
+<!-- ── Forgot Password — Step 2: OTP + New Password ────────────────────────── -->
+<div class="login-page" *ngIf="!showSelector && config && showForgot === 'reset'" [style.background]="config.bg">
+  <div class="login-card" [style.--accent]="config.accent">
+    <button class="back-btn" (click)="showForgot='email'; fpError=''; fpSuccess=''">← Back</button>
+    <div class="login-header">
+      <div class="portal-icon">🔐</div>
+      <h1>Enter Reset Code</h1>
+    </div>
+    <p style="color:#6b7280;font-size:14px;margin-bottom:16px;">Check your email for the 6-digit code sent to <strong>{{ fpEmail }}</strong>.</p>
+    <div class="error-box" *ngIf="fpError">⚠️ {{ fpError }}</div>
+    <div class="success-box" *ngIf="fpSuccess">✓ {{ fpSuccess }}</div>
+    <div class="field">
+      <label>6-Digit Code</label>
+      <input type="text" [(ngModel)]="fpOtp" name="fpOtp" maxlength="6" inputmode="numeric" placeholder="000000" [disabled]="fpLoading" />
+    </div>
+    <div class="field">
+      <label>New Password</label>
+      <input type="password" [(ngModel)]="fpNewPassword" name="fpNewPassword" placeholder="Min. 6 characters" [disabled]="fpLoading" />
+    </div>
+    <div class="field">
+      <label>Confirm New Password</label>
+      <input type="password" [(ngModel)]="fpConfirmPassword" name="fpConfirmPassword" placeholder="Repeat new password" [disabled]="fpLoading" />
+    </div>
+    <button class="btn-login" [style.background]="config.accent" [disabled]="fpLoading" (click)="submitResetPassword()">
+      <span *ngIf="!fpLoading">Reset Password</span>
+      <span *ngIf="fpLoading" class="spinner"></span>
+    </button>
+    <div style="text-align:center;margin-top:12px;">
+      <span *ngIf="fpResendCountdown > 0" style="font-size:13px;color:#6b7280;">Resend code in <strong>{{ fpResendCountdown }}s</strong></span>
+      <a *ngIf="fpResendCountdown === 0" href="#" class="forgot-pw-link" (click)="sendForgotOtp(true); $event.preventDefault()">Resend Code</a>
+    </div>
+  </div>
+</div>

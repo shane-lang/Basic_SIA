@@ -9,7 +9,7 @@
       <p class="hdr-sub">View student information, masterlist, and subject records</p>
     </div>
   </div>
-  <div class="tab-toggle" *ngIf="activeTab !== 'info'">
+  <div class="tab-toggle" *ngIf="activeTab !== 'info' && activeTab !== 'enrollment-history' && activeTab !== 'coe'">
     <button class="tab-btn" [class.tab-active]="activeTab==='student-masterlist'"
       (click)="activeTab='student-masterlist'; loadStudents(1)">
       👤 Student Masterlist
@@ -27,6 +27,19 @@
 <ng-container *ngIf="activeTab === 'info' && selectedStudent">
   <div class="info-back-bar">
     <button class="btn-back" (click)="backToMasterlist()">← Back to Masterlist</button>
+    <button class="btn-history" style="margin-left:8px;" (click)="viewEnrollmentHistory(selectedStudent)">
+      📅 Enrollment History
+    </button>
+    <!-- ── NEW: COE History button ── -->
+    <button class="btn-coe" style="margin-left:8px;" (click)="viewCoeHistory(selectedStudent)">
+      📜 COE History
+    </button>
+    <button class="btn-send-enroll-report"
+            style="margin-left:8px;"
+            (click)="sendEnrollmentReport(selectedStudent.id, selectedStudent.firstName + ' ' + selectedStudent.lastName)"
+            [disabled]="isSendingEnrollReport[selectedStudent.id]">
+      {{ isSendingEnrollReport[selectedStudent.id] ? '📧 Sending…' : '📧 Send Enrollment Report' }}
+    </button>
     <div class="info-badges">
       <span class="cat-badge" [ngClass]="categoryClass(selectedStudent.studentCategory)">
         {{ selectedStudent.studentCategory }}
@@ -165,7 +178,12 @@
       <option value="Approved">Approved</option>
       <option value="Completed">Completed</option>
     </select>
-    <button class="btn-clear-all" *ngIf="searchQuery||filterCategory||filterProgram||filterYearLevel||filterStatus" (click)="clearFilters()">Clear</button>
+    <select class="filter-select" [(ngModel)]="filterScholar" (change)="loadStudents(1)">
+      <option value="">All Students</option>
+      <option value="1">🎓 Scholars Only</option>
+      <option value="0">Non-Scholars Only</option>
+    </select>
+    <button class="btn-clear-all" *ngIf="searchQuery||filterCategory||filterProgram||filterYearLevel||filterStatus||filterScholar" (click)="clearFilters()">Clear</button>
   </div>
 
   <div class="results-bar">
@@ -192,6 +210,7 @@
           <th>Year Level</th>
           <th>Type</th>
           <th>Status</th>
+          <th>Scholar</th>
           <th>Enrollment Date</th>
           <th class="tc">Action</th>
         </tr>
@@ -205,7 +224,7 @@
               <div class="avatar">{{ s.initials }}</div>
               <div>
                 <div class="s-name">{{ s.lastName }}, {{ s.firstName }}</div>
-                <div class="s-email">{{ s.email }}</div>
+                <div class="s-email">{{ s.email | maskEmail }}</div>
               </div>
             </div>
           </td>
@@ -214,9 +233,16 @@
           <td>{{ s.yearLevel }}</td>
           <td><span class="type-pill">{{ s.studentType }}</span></td>
           <td><span class="status-pill" [ngClass]="statusClass(s.enrollmentStatus)">{{ s.enrollmentStatus }}</span></td>
+          <td>
+            <span class="scholar-chip" *ngIf="s.isScholar">🎓 {{ s.scholarType || 'Scholar' }}</span>
+            <span class="no-scholar" *ngIf="!s.isScholar">—</span>
+          </td>
           <td class="mono light">{{ s.enrollmentDate || '—' }}</td>
           <td class="tc">
-            <button class="btn-view" (click)="viewStudentInfo(s)">👁 View</button>
+            <button class="btn-view"    (click)="viewStudentInfo(s)">👁 View</button>
+            <button class="btn-history" (click)="viewEnrollmentHistory(s)" title="View Enrollment History">📅 History</button>
+            <!-- ── NEW: COE shortcut from list row ── -->
+            <button class="btn-coe-sm"  (click)="viewCoeHistory(s)" title="COE History">📜 COE</button>
           </td>
         </tr>
       </tbody>
@@ -322,5 +348,275 @@
       </tbody>
     </table>
   </div>
+
+</ng-container>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- ENROLLMENT HISTORY TAB                                  -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<ng-container *ngIf="activeTab === 'enrollment-history' && selectedStudent">
+  <div class="eh-back-bar">
+    <button class="btn-back" (click)="activeTab = 'student-masterlist'">
+      ← Back to Masterlist
+    </button>
+    <span class="eh-student-chip">
+      📅 Enrollment History — <strong>{{ selectedStudent.firstName }} {{ selectedStudent.lastName }}</strong>
+      <span class="eh-num">{{ selectedStudent.studentNumber }}</span>
+    </span>
+  </div>
+  <app-enrollment-history [studentId]="selectedStudent.id"></app-enrollment-history>
+</ng-container>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<!-- COE HISTORY TAB  ← NEW                                 -->
+<!-- ═══════════════════════════════════════════════════════ -->
+<ng-container *ngIf="activeTab === 'coe' && selectedStudent">
+
+  <!-- Back bar -->
+  <div class="eh-back-bar">
+    <button class="btn-back" (click)="backToMasterlist()">
+      ← Back to Masterlist
+    </button>
+    <button class="btn-back" style="margin-left:6px;" (click)="viewStudentInfo(selectedStudent)">
+      👤 View Profile
+    </button>
+    <span class="eh-student-chip" style="background:#faf5ff; border-color:#ddd6fe; color:#5b21b6;">
+      📜 COE History —
+      <strong>{{ selectedStudent.firstName }} {{ selectedStudent.lastName }}</strong>
+      <span class="eh-num" style="background:#ede9fe; color:#6d28d9;">{{ selectedStudent.studentNumber }}</span>
+    </span>
+  </div>
+
+  <!-- Loading -->
+  <div class="loading-state" *ngIf="isLoadingCoe">
+    <div class="spinner"></div><p>Loading certificates…</p>
+  </div>
+
+  <!-- Empty -->
+  <div class="empty-state" *ngIf="!isLoadingCoe && coeRecords.length === 0">
+    <div class="es-icon">📜</div>
+    <p>No COE records found for this student.</p>
+    <p style="font-size:.82rem; color:#94a3b8; margin-top:4px;">
+      A COE is automatically issued when enrollment is confirmed by the Registrar.
+    </p>
+  </div>
+
+  <!-- COE table -->
+  <div class="coe-history-wrap" *ngIf="!isLoadingCoe && coeRecords.length > 0">
+
+    <!-- ── INLINE COE DOCUMENT PREVIEW ───────────────────────────────── -->
+    <div *ngIf="isLoadingCoeDetail" style="text-align:center; padding:24px; color:#6d28d9;">
+      <div class="spinner"></div><p>Loading COE document…</p>
+    </div>
+
+    <div class="coe-document-preview" *ngIf="!isLoadingCoeDetail && coeDetail && approvedCoeRecord">
+      <!-- Header -->
+      <div class="coe-prev-header">
+        <div class="coe-prev-school-info">
+          <div class="coe-prev-school-name">ST. BENILDE CENTER FOR GLOBAL COMPETENCE, INC.</div>
+          <div class="coe-prev-school-addr">#2647 Rizal Avenue, West Bajac-Bajac, Olongapo City &nbsp;|&nbsp; Telefax: (047) 223-9031</div>
+          <div class="coe-prev-doc-title">CERTIFICATE OF ENROLLMENT</div>
+        </div>
+        <div class="coe-prev-ctrl-box">
+          <div class="coe-prev-ctrl-label">Control No.</div>
+          <div class="coe-prev-ctrl-num">{{ approvedCoeRecord.control_number }}</div>
+          <div class="coe-prev-ctrl-date">{{ formatDate(approvedCoeRecord.approved_at) }}</div>
+          <div class="coe-prev-stamp">OFFICIALLY<br>ENROLLED</div>
+        </div>
+      </div>
+
+      <!-- Student Info Grid -->
+      <div class="coe-prev-info-grid">
+        <div class="coe-prev-info-row">
+          <div class="coe-prev-cell">
+            <span class="coe-prev-lbl">Student Name</span>
+            <span class="coe-prev-val name-big">{{ coeDetail.last_name | uppercase }}, {{ coeDetail.first_name | uppercase }}{{ coeDetail.middle_name ? ' ' + (coeDetail.middle_name | uppercase) : '' }}</span>
+          </div>
+          <div class="coe-prev-cell">
+            <span class="coe-prev-lbl">Student ID</span>
+            <span class="coe-prev-val">{{ coeDetail.student_number }}</span>
+          </div>
+        </div>
+        <div class="coe-prev-info-row">
+          <div class="coe-prev-cell">
+            <span class="coe-prev-lbl">Program &amp; Year</span>
+            <span class="coe-prev-val">{{ coeDetail.program }} — {{ coeDetail.year_level }}</span>
+          </div>
+          <div class="coe-prev-cell">
+            <span class="coe-prev-lbl">Semester</span>
+            <span class="coe-prev-val">{{ coeDetail.semester }}</span>
+          </div>
+        </div>
+        <div class="coe-prev-info-row">
+          <div class="coe-prev-cell">
+            <span class="coe-prev-lbl">Student Type</span>
+            <span class="coe-prev-val">{{ coeDetail.student_type }} — {{ coeDetail.student_category }}</span>
+          </div>
+          <div class="coe-prev-cell">
+            <span class="coe-prev-lbl">Department</span>
+            <span class="coe-prev-val">{{ coeDetail.department || '—' }}</span>
+          </div>
+        </div>
+        <div class="coe-prev-info-row">
+          <div class="coe-prev-cell">
+            <span class="coe-prev-lbl">Address</span>
+            <span class="coe-prev-val">{{ coeDetail.address || '—' }}</span>
+          </div>
+          <div class="coe-prev-cell">
+            <span class="coe-prev-lbl">Contact No.</span>
+            <span class="coe-prev-val">{{ coeDetail.phone || '—' }}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Enrolled Subjects -->
+      <div class="coe-prev-section">
+        <div class="coe-prev-section-title">📚 Enrolled Subjects</div>
+        <div *ngIf="!coeSubjects || coeSubjects.length === 0" style="color:#94a3b8; font-size:.85rem; padding:8px 0;">
+          No enrolled subjects on file.
+        </div>
+        <div class="coe-prev-subjects-table" *ngIf="coeSubjects && coeSubjects.length > 0">
+          <div class="coe-prev-th-row">
+            <span class="col-code">Code</span>
+            <span class="col-desc">Subject</span>
+            <span class="col-sched">Schedule</span>
+            <span class="col-room">Room</span>
+            <span class="col-instr">Instructor</span>
+            <span class="col-units">Units</span>
+          </div>
+          <div class="coe-prev-td-row" *ngFor="let s of coeSubjects">
+            <span class="col-code fw">{{ s.code || s.course_code }}</span>
+            <span class="col-desc">{{ s.name || s.course_name }}</span>
+            <span class="col-sched">{{ s.day }}<br><small>{{ s.time }}</small></span>
+            <span class="col-room">{{ s.room || '—' }}</span>
+            <span class="col-instr">{{ s.instructor || '—' }}</span>
+            <span class="col-units tc">{{ s.lec_units || s.credits || 0 }}</span>
+          </div>
+          <div class="coe-prev-td-total">
+            <span>Total Units</span>
+            <span class="total-units-val">{{ coeTotalUnits }}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Assessment -->
+      <div class="coe-prev-section" *ngIf="coeFees">
+        <div class="coe-prev-section-title">💳 Assessment</div>
+        <div class="coe-prev-fees-grid">
+          <div class="fee-row" *ngIf="coeFees.tuition_fee > 0">
+            <span class="fee-label">Tuition Fee</span>
+            <span class="fee-val">₱ {{ coeFees.tuition_fee | number:'1.2-2' }}</span>
+          </div>
+          <div class="fee-row" *ngIf="coeFees.miscellaneous_fee > 0">
+            <span class="fee-label">Miscellaneous</span>
+            <span class="fee-val">₱ {{ coeFees.miscellaneous_fee | number:'1.2-2' }}</span>
+          </div>
+          <div class="fee-row" *ngIf="coeFees.registration_fee > 0">
+            <span class="fee-label">Registration</span>
+            <span class="fee-val">₱ {{ coeFees.registration_fee | number:'1.2-2' }}</span>
+          </div>
+          <div class="fee-row" *ngIf="coeFees.laboratory_fee > 0">
+            <span class="fee-label">Laboratory Fee</span>
+            <span class="fee-val">₱ {{ coeFees.laboratory_fee | number:'1.2-2' }}</span>
+          </div>
+          <div class="fee-row" *ngIf="coeFees.energy_fee > 0">
+            <span class="fee-label">Energy Fee</span>
+            <span class="fee-val">₱ {{ coeFees.energy_fee | number:'1.2-2' }}</span>
+          </div>
+          <div class="fee-row fee-discount" *ngIf="coeFees.discount > 0">
+            <span class="fee-label">Scholarship Discount</span>
+            <span class="fee-val">− ₱ {{ coeFees.discount | number:'1.2-2' }}</span>
+          </div>
+          <div class="fee-row fee-installment" *ngIf="coeFees.installment_fee > 0">
+            <span class="fee-label">Installment Charge</span>
+            <span class="fee-val">₱ {{ coeFees.installment_fee | number:'1.2-2' }}</span>
+          </div>
+          <div class="fee-row fee-total">
+            <span class="fee-label">TOTAL ASSESSMENT</span>
+            <span class="fee-val">₱ {{ coeFees.total_assessment | number:'1.2-2' }}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Footer / Download -->
+      <div class="coe-prev-footer">
+        <div class="coe-prev-footer-note">
+          Issued by the Office of the Registrar — {{ formatDate(approvedCoeRecord.approved_at) }}.
+        </div>
+        <button class="btn-dl-coe" (click)="downloadCoePdf(approvedCoeRecord)" [disabled]="isGeneratingCoe[approvedCoeRecord.id]">
+          {{ isGeneratingCoe[approvedCoeRecord.id] ? '⏳ Preparing PDF…' : '📄 Download PDF Copy' }}
+        </button>
+      </div>
+    </div>
+    <!-- /coe-document-preview -->
+    <div class="coe-summary-bar">
+      <div class="coe-sum-item">
+        <span class="coe-sum-num">{{ coeRecords.length }}</span>
+        <span class="coe-sum-lbl">Total COE{{ coeRecords.length !== 1 ? 's' : '' }}</span>
+      </div>
+      <div class="coe-sum-item">
+        <span class="coe-sum-num approved">{{ coeRecords | coeCount:'Approved' }}</span>
+        <span class="coe-sum-lbl">Approved</span>
+      </div>
+      <div class="coe-sum-item">
+        <span class="coe-sum-num pending">{{ coeRecords | coeCount:'Pending' }}</span>
+        <span class="coe-sum-lbl">Pending</span>
+      </div>
+    </div>
+
+    <div class="table-container">
+      <table class="master-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Control No.</th>
+            <th>Purpose</th>
+            <th class="tc">Copies</th>
+            <th>Status</th>
+            <th>Requested</th>
+            <th>Date Issued</th>
+            <th>Issued By</th>
+            <th>Notes</th>
+            <th class="tc">Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr *ngFor="let coe of coeRecords; let i = index"
+              [class.coe-row-approved]="coe.status === 'Approved'"
+              [class.coe-row-pending]="coe.status === 'Pending'"
+              [class.coe-row-rejected]="coe.status === 'Rejected'">
+            <td class="mono light">{{ i + 1 }}</td>
+            <td class="mono coe-ctrl-cell">
+              <span *ngIf="coe.control_number" class="coe-ctrl-num">{{ coe.control_number }}</span>
+              <span *ngIf="!coe.control_number" class="light">—</span>
+            </td>
+            <td>{{ coe.purpose || 'General Purpose' }}</td>
+            <td class="tc">{{ coe.copies }}</td>
+            <td>
+              <span class="coe-status-pill" [ngClass]="coeStatusClass(coe.status)">
+                {{ coe.status === 'Approved' ? '✅ Approved' : coe.status === 'Rejected' ? '✕ Rejected' : '⏳ Pending' }}
+              </span>
+            </td>
+            <td class="mono light">{{ formatDate(coe.requested_at) }}</td>
+            <td class="mono light">{{ coe.approved_at ? formatDate(coe.approved_at) : '—' }}</td>
+            <td class="light">{{ coe.approved_by_name || '—' }}</td>
+            <td class="light" style="max-width:160px; white-space:normal; font-size:.8rem;">
+              {{ coe.registrar_notes || '—' }}
+            </td>
+            <td class="tc">
+              <button class="btn-dl-coe"
+                      *ngIf="coe.status === 'Approved'"
+                      (click)="downloadCoePdf(coe)"
+                      [disabled]="isGeneratingCoe[coe.id]"
+                      title="Download COE PDF">
+                {{ isGeneratingCoe[coe.id] ? '⏳' : '📄 PDF' }}
+              </button>
+              <span *ngIf="coe.status !== 'Approved'" class="light" style="font-size:.78rem;">—</span>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div><!-- /table-container -->
+  </div><!-- /coe-history-wrap -->
 
 </ng-container>

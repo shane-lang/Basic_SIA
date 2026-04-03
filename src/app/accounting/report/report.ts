@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { MethodFilterPipe } from './method-filter.pipe';
+import { environment } from '../../environment';
 
 type Period = 'weekly' | 'monthly' | 'yearly';
 
@@ -56,12 +57,7 @@ interface ProgramIncome {
   styleUrl: './report.css',
 })
 export class Report implements OnInit {
-  private apiUrl = 'http://localhost/sia-api/Accounting.php';
-
-  private getHeaders(): { headers: HttpHeaders } {
-    const token = sessionStorage.getItem('token') || localStorage.getItem('token') || '';
-    return { headers: new HttpHeaders({ Authorization: `Bearer ${token}` }) };
-  }
+  private apiUrl = environment.accountingApi;
 
   constructor(private http: HttpClient, private cdr: ChangeDetectorRef) {}
 
@@ -108,7 +104,7 @@ export class Report implements OnInit {
 
   loadSummary(): void {
     this.isLoadingSummary = true;
-    this.http.get<any>(`${this.apiUrl}?action=get_income_summary`, this.getHeaders()).subscribe({
+    this.http.get<any>(`${this.apiUrl}?action=get_income_summary`).subscribe({
       next: (res) => {
         this.isLoadingSummary = false;
         if (res.success) { this.summary = res; }
@@ -128,7 +124,7 @@ export class Report implements OnInit {
       week_start: this.selectedWeekStart,
     });
 
-    this.http.get<any>(`${this.apiUrl}?${params}`, this.getHeaders()).subscribe({
+    this.http.get<any>(`${this.apiUrl}?${params}`).subscribe({
       next: (res) => {
         this.isLoadingReport = false;
         if (res.success) { this.report = res; }
@@ -146,7 +142,7 @@ export class Report implements OnInit {
       month:  this.activePeriod === 'monthly' ? String(this.selectedMonth) : '0',
     });
 
-    this.http.get<any>(`${this.apiUrl}?${params}`, this.getHeaders()).subscribe({
+    this.http.get<any>(`${this.apiUrl}?${params}`).subscribe({
       next: (res) => {
         this.isLoadingProgram = false;
         if (res.success) { this.programData = res.programs || []; }
@@ -277,9 +273,9 @@ export class Report implements OnInit {
     });
 
     // Fetch report data for the selected modal period
-    this.http.get<any>(`${this.apiUrl}?${params}`, this.getHeaders()).subscribe({
+    this.http.get<any>(`${this.apiUrl}?${params}`).subscribe({
       next: (reportRes) => {
-        this.http.get<any>(`${this.apiUrl}?${progParams}`, this.getHeaders()).subscribe({
+        this.http.get<any>(`${this.apiUrl}?${progParams}`).subscribe({
           next: (progRes) => {
             const rpt = reportRes.success ? reportRes as IncomeReport : null;
             const prg: ProgramIncome[] = progRes.success ? (progRes.programs || []) : [];

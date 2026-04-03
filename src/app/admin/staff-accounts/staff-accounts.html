@@ -1,0 +1,265 @@
+<div class="page-wrap">
+
+  <!-- Toast -->
+  <div class="toast" [class.toast-show]="toast.show" [class.toast-success]="toast.type==='success'" [class.toast-error]="toast.type==='error'">
+    <span class="toast-icon">{{ toast.type === 'success' ? '✅' : '❌' }}</span>
+    {{ toast.message }}
+  </div>
+
+  <!-- Page Header -->
+  <div class="page-header">
+    <div class="page-header-left">
+      <div class="page-icon">👥</div>
+      <div>
+        <h1>Staff Accounts</h1>
+        <p class="page-sub">Manage admin, accounting, and registrar accounts</p>
+      </div>
+    </div>
+    <button class="btn-add" (click)="openAdd()">
+      <span>＋</span> Add Staff Account
+    </button>
+  </div>
+
+  <!-- Stats Bar -->
+  <div class="stats-bar">
+    <div class="stat-item">
+      <span class="stat-val">{{ totalCount }}</span>
+      <span class="stat-lbl">Total</span>
+    </div>
+    <div class="stat-item stat-blue">
+      <span class="stat-val">{{ adminCount }}</span>
+      <span class="stat-lbl">Admins</span>
+    </div>
+    <div class="stat-item stat-green">
+      <span class="stat-val">{{ accountingCount }}</span>
+      <span class="stat-lbl">Accounting</span>
+    </div>
+    <div class="stat-item stat-purple">
+      <span class="stat-val">{{ registrarCount }}</span>
+      <span class="stat-lbl">Registrar</span>
+    </div>
+    <div class="stat-item stat-teal">
+      <span class="stat-val">{{ activeCount }}</span>
+      <span class="stat-lbl">Active</span>
+    </div>
+  </div>
+
+  <!-- Toolbar -->
+  <div class="toolbar">
+    <div class="search-wrap">
+      <span class="search-icon">🔍</span>
+      <input class="search-input" type="text" placeholder="Search name or email…"
+             [(ngModel)]="searchQuery" (input)="onSearch()">
+      <button class="search-clear" *ngIf="searchQuery" (click)="searchQuery=''; onSearch()">✕</button>
+    </div>
+    <div class="filter-tabs">
+      <button class="filter-tab" [class.active]="filterRole===''"           (click)="setRole('')">All</button>
+      <button class="filter-tab" [class.active]="filterRole==='admin'"      (click)="setRole('admin')">⚙️ Admin</button>
+      <button class="filter-tab" [class.active]="filterRole==='accounting'" (click)="setRole('accounting')">💰 Accounting</button>
+      <button class="filter-tab" [class.active]="filterRole==='registrar'"  (click)="setRole('registrar')">📋 Registrar</button>
+    </div>
+  </div>
+
+  <!-- Loading -->
+  <div *ngIf="isLoading" class="loading-state">
+    <div class="spinner"></div><p>Loading staff accounts…</p>
+  </div>
+
+  <!-- Empty -->
+  <div *ngIf="!isLoading && staffList.length === 0" class="empty-state">
+    <div class="empty-icon">👥</div>
+    <h3>No staff accounts found</h3>
+    <p>{{ searchQuery || filterRole ? 'Try adjusting your filters.' : 'Add your first staff account to get started.' }}</p>
+    <button class="btn-add" (click)="openAdd()" *ngIf="!searchQuery && !filterRole">＋ Add Staff Account</button>
+  </div>
+
+  <!-- Table -->
+  <div *ngIf="!isLoading && staffList.length > 0" class="table-card">
+    <table class="staff-table">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Email</th>
+          <th>Role</th>
+          <th>Position</th>
+          <th>Department</th>
+          <th>Status</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr *ngFor="let s of staffList" [class.row-inactive]="!s.is_active">
+          <td class="name-cell">
+            <div class="avatar" [class]="'avatar-' + s.role">{{ initials(s) }}</div>
+            <div class="name-info">
+              <span class="name-full">{{ s.first_name }} {{ s.last_name }}</span>
+              <span class="name-phone" *ngIf="s.phone">{{ s.phone }}</span>
+            </div>
+          </td>
+          <td class="email-cell">{{ s.email }}</td>
+          <td>
+            <span class="role-badge" [class]="'role-' + s.role">{{ roleLabel(s.role) }}</span>
+          </td>
+          <td>{{ s.position || '—' }}</td>
+          <td>{{ s.department || '—' }}</td>
+          <td>
+            <button class="toggle-btn" [class.toggle-on]="s.is_active" [class.toggle-off]="!s.is_active"
+                    (click)="toggleActive(s)" [title]="s.is_active ? 'Click to deactivate' : 'Click to activate'">
+              <span class="toggle-dot"></span>
+              <span class="toggle-label">{{ s.is_active ? 'Active' : 'Inactive' }}</span>
+            </button>
+          </td>
+          <td class="actions-cell">
+            <button class="btn-action btn-edit-sm"  (click)="openEdit(s)"      title="Edit">✏️</button>
+            <button class="btn-action btn-reset-sm" (click)="openReset(s)"     title="Reset Password">🔑</button>
+            <button class="btn-action btn-del-sm"   (click)="confirmDelete(s)" title="Delete">🗑️</button>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+
+    <!-- Pagination -->
+    <div class="table-footer">
+      <span>Showing {{ staffList.length }} of {{ total }} staff</span>
+      <div class="pagination" *ngIf="totalPages > 1">
+        <button class="pg-btn" [disabled]="page <= 1" (click)="prevPage()">‹ Prev</button>
+        <span class="pg-info">Page {{ page }} of {{ totalPages }}</span>
+        <button class="pg-btn" [disabled]="page >= totalPages" (click)="nextPage()">Next ›</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ── Add / Edit Modal ── -->
+<div class="modal-bg" *ngIf="showModal" (click)="closeModal()">
+  <div class="modal-box" (click)="$event.stopPropagation()">
+    <div class="modal-head">
+      <h2>{{ isEditing ? '✏️ Edit Staff Account' : '➕ Add Staff Account' }}</h2>
+      <button class="modal-x" (click)="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-row two-col">
+        <div class="form-group">
+          <label>First Name <span class="req">*</span></label>
+          <input class="form-ctrl" type="text" [(ngModel)]="form.first_name" placeholder="e.g. Maria">
+        </div>
+        <div class="form-group">
+          <label>Last Name <span class="req">*</span></label>
+          <input class="form-ctrl" type="text" [(ngModel)]="form.last_name" placeholder="e.g. Santos">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Email Address <span class="req">*</span></label>
+        <input class="form-ctrl" type="email" [(ngModel)]="form.email" placeholder="e.g. maria@school.edu">
+      </div>
+      <!-- Role: select on create, read-only badge on edit -->
+      <div class="form-group">
+        <label>Role <span class="req" *ngIf="!isEditing">*</span></label>
+        <select class="form-ctrl" [(ngModel)]="form.role" *ngIf="!isEditing">
+          <option value="">— Select Role —</option>
+          <option *ngFor="let r of ROLES" [value]="r.value">{{ r.label }}</option>
+        </select>
+        <div class="role-readonly" *ngIf="isEditing">
+          <span class="role-badge" [class]="'role-' + form.role">{{ roleLabel(form.role) }}</span>
+          <span class="role-hint">Role cannot be changed after creation.</span>
+        </div>
+      </div>
+      <div class="form-row two-col">
+        <div class="form-group">
+          <label>Phone</label>
+          <input class="form-ctrl" type="text" [(ngModel)]="form.phone" placeholder="e.g. 09xx-xxx-xxxx">
+        </div>
+        <div class="form-group">
+          <label>Position / Title</label>
+          <input class="form-ctrl" type="text" [(ngModel)]="form.position" placeholder="e.g. Head Accountant">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Department</label>
+        <select class="form-ctrl" [(ngModel)]="form.department">
+          <option value="">— Select Department —</option>
+          <option *ngFor="let d of DEPARTMENTS" [value]="d">{{ d }}</option>
+        </select>
+      </div>
+      <div class="default-pw-note" *ngIf="!isEditing">
+        <span class="note-icon">ℹ️</span>
+        Default password will be <strong>Role@{{ currentYear }}</strong> (e.g. <code>Admin@{{ currentYear }}</code>). Share it securely after creation.
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn-cancel" (click)="closeModal()">Cancel</button>
+      <button class="btn-save" (click)="save()" [disabled]="isSaving">
+        {{ isSaving ? 'Saving…' : (isEditing ? '💾 Update Account' : '✅ Create Account') }}
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Reset Password Modal ── -->
+<div class="modal-bg" *ngIf="showResetModal" (click)="closeResetModal()">
+  <div class="modal-box modal-sm" (click)="$event.stopPropagation()">
+    <div class="modal-head">
+      <h2>🔑 Reset Password</h2>
+      <button class="modal-x" (click)="closeResetModal()">✕</button>
+    </div>
+    <div class="modal-body" *ngIf="resetTarget">
+      <!-- Result state -->
+      <div class="reset-result" *ngIf="resetResult">
+        <div class="reset-success-icon">✅</div>
+        <p>Password has been reset for <strong>{{ resetTarget.first_name }} {{ resetTarget.last_name }}</strong>.</p>
+        <div class="new-pw-box">
+          <span class="new-pw-label">New Password</span>
+          <code class="new-pw-val">{{ resetResult.split(' ')[0] }}</code>
+        </div>
+        <p class="reset-warn">Share this securely. The user's active sessions have been terminated.</p>
+      </div>
+      <!-- Input state -->
+      <ng-container *ngIf="!resetResult">
+        <p class="reset-info">Resetting password for <strong>{{ resetTarget.first_name }} {{ resetTarget.last_name }}</strong> ({{ resetTarget.email }}).</p>
+        <div class="form-group">
+          <label>New Password</label>
+          <input class="form-ctrl" type="text" [(ngModel)]="resetPassword"
+                 placeholder="Leave blank for default (Role@{{ currentYear }})">
+          <p class="form-hint">Minimum 8 characters. Leave blank to use the default.</p>
+        </div>
+      </ng-container>
+    </div>
+    <div class="modal-foot">
+      <button class="btn-cancel" (click)="closeResetModal()">{{ resetResult ? 'Close' : 'Cancel' }}</button>
+      <button class="btn-save" (click)="doReset()" [disabled]="isResetting || !!resetResult" *ngIf="!resetResult">
+        {{ isResetting ? 'Resetting…' : '🔑 Reset Password' }}
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Delete Confirm Modal ── -->
+<div class="modal-bg" *ngIf="showDeleteModal" (click)="closeDeleteModal()">
+  <div class="modal-box modal-sm" (click)="$event.stopPropagation()">
+    <div class="modal-head danger-head">
+      <h2>🗑️ Delete Staff Account</h2>
+      <button class="modal-x" (click)="closeDeleteModal()">✕</button>
+    </div>
+    <div class="modal-body" *ngIf="deleteTarget">
+      <div class="danger-info">
+        <p>Are you sure you want to permanently delete:</p>
+        <div class="danger-target">
+          <div class="avatar" [class]="'avatar-' + deleteTarget.role">{{ initials(deleteTarget) }}</div>
+          <div>
+            <strong>{{ deleteTarget.first_name }} {{ deleteTarget.last_name }}</strong>
+            <div class="danger-email">{{ deleteTarget.email }}</div>
+          </div>
+          <span class="role-badge" [class]="'role-' + deleteTarget.role">{{ roleLabel(deleteTarget.role) }}</span>
+        </div>
+        <p class="danger-warn">⚠️ This cannot be undone. All sessions will be terminated.</p>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn-cancel" (click)="closeDeleteModal()">Cancel</button>
+      <button class="btn-danger" (click)="doDelete()" [disabled]="isDeleting">
+        {{ isDeleting ? 'Deleting…' : '🗑️ Delete Account' }}
+      </button>
+    </div>
+  </div>
+</div>

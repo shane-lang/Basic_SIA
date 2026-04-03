@@ -15,30 +15,73 @@
 
       <nav class="nav-menu">
         <ul class="nav-links-list">
+
           <li>
-            <a routerLink="/registrar/tor-evaluation" routerLinkActive="active" class="nav-link" (click)="closeSidebarOnMobile()">
+            <a routerLink="/registrar/pending-registrations" routerLinkActive="active"
+               class="nav-link" (click)="closeSidebarOnMobile()">
+              <span class="nav-icon">✅</span>
+              <span class="nav-label">Pending Approvals</span>
+              <span class="nav-badge" *ngIf="pendingTorCount() > 0">{{ pendingTorCount() }}</span>
+            </a>
+          </li>
+
+          <li>
+            <a routerLink="/registrar/students" routerLinkActive="active"
+               class="nav-link" (click)="closeSidebarOnMobile()">
+              <span class="nav-icon">🎓</span>
+              <span class="nav-label">Student Enrollment</span>
+            </a>
+          </li>
+
+          <li>
+            <a routerLink="/registrar/tor-evaluation" routerLinkActive="active"
+               class="nav-link" (click)="closeSidebarOnMobile()">
               <span class="nav-icon">📄</span>
               <span class="nav-label">TOR Evaluation</span>
             </a>
           </li>
+
           <li>
-            <a routerLink="/registrar/add-drop" routerLinkActive="active" class="nav-link" (click)="closeSidebarOnMobile()">
+            <a routerLink="/registrar/add-drop" routerLinkActive="active"
+               class="nav-link" (click)="closeSidebarOnMobile()">
               <span class="nav-icon">📋</span>
               <span class="nav-label">Add / Drop Subjects</span>
             </a>
           </li>
+
           <li>
-            <a routerLink="/registrar/grade-submission" routerLinkActive="active" class="nav-link" (click)="closeSidebarOnMobile()">
+            <a routerLink="/registrar/grade-submission" routerLinkActive="active"
+               class="nav-link" (click)="closeSidebarOnMobile()">
               <span class="nav-icon">📝</span>
               <span class="nav-label">Grade Submission</span>
             </a>
           </li>
+
           <li>
-            <a routerLink="/registrar/masterlist" routerLinkActive="active" class="nav-link" (click)="closeSidebarOnMobile()">
+            <a routerLink="/registrar/masterlist" routerLinkActive="active"
+               class="nav-link" (click)="closeSidebarOnMobile()">
               <span class="nav-icon">🗂️</span>
               <span class="nav-label">Masterlist</span>
             </a>
           </li>
+
+          <!--<li>
+            <a routerLink="/registrar/coe" routerLinkActive="active"
+               class="nav-link" (click)="closeSidebarOnMobile()">
+              <span class="nav-icon">📜</span>
+              <span class="nav-label">COE Generator</span>
+              <span class="nav-badge" *ngIf="pendingCoeCount() > 0">{{ pendingCoeCount() }}</span>
+            </a>
+          </li>-->
+            <li>
+            <a routerLink="/registrar/student_masterlist" routerLinkActive="active"
+               class="nav-link" (click)="closeSidebarOnMobile()">
+              <span class="nav-icon">📜</span>
+              <span class="nav-label">Student Masterlist</span>
+              <span class="nav-badge" *ngIf="pendingCoeCount() > 0">{{ pendingCoeCount() }}</span>
+            </a>
+          </li>
+
         </ul>
       </nav>
 
@@ -50,7 +93,8 @@
             <p class="user-role">{{ userRole() }}</p>
           </div>
         </div>
-        <!--<button class="btn-logout" (click)="logout()">🚪 Logout</button>-->
+        <button class="btn-change-pw" (click)="openCpModal()">🔑 Change Password</button>
+        <button class="btn-logout" (click)="logout()">🚪 Logout</button>
       </div>
     </mat-sidenav>
 
@@ -67,6 +111,7 @@
           <p class="header-subtitle">Registrar's Office</p>
         </div>
         <div class="header-actions">
+          <button class="btn-change-pw-header" (click)="openCpModal()">🔑 Password</button>
           <button class="btn-logout-header" (click)="logout()">🚪 Logout</button>
         </div>
       </header>
@@ -77,4 +122,57 @@
       </main>
     </mat-sidenav-content>
   </mat-sidenav-container>
+
+<!-- ── Change Password Modal ──────────────────────────────────────────── -->
+<div class="cp-overlay" *ngIf="showCpModal" (click)="closeCpModal()">
+  <div class="cp-modal" (click)="$event.stopPropagation()">
+    <div class="cp-header">
+      <h3>🔑 Change Password</h3>
+      <button class="cp-close" (click)="closeCpModal()">✕</button>
+    </div>
+
+    <div class="cp-success" *ngIf="cpSuccess">✅ {{ cpSuccess }}</div>
+    <div class="cp-error"   *ngIf="cpError">⚠️ {{ cpError }}</div>
+
+    <div class="cp-field">
+      <label>Current Password</label>
+      <div class="cp-input-wrap">
+        <input [type]="cpShowCurrent ? 'text' : 'password'" [(ngModel)]="cpCurrent"
+               class="cp-input" placeholder="Enter current password" autocomplete="current-password">
+        <button type="button" class="cp-eye" (click)="cpShowCurrent = !cpShowCurrent">
+          {{ cpShowCurrent ? '🙈' : '👁️' }}
+        </button>
+      </div>
+    </div>
+
+    <div class="cp-field">
+      <label>New Password</label>
+      <div class="cp-input-wrap">
+        <input [type]="cpShowNew ? 'text' : 'password'" [(ngModel)]="cpNew"
+               class="cp-input" placeholder="At least 6 characters" autocomplete="new-password">
+        <button type="button" class="cp-eye" (click)="cpShowNew = !cpShowNew">
+          {{ cpShowNew ? '🙈' : '👁️' }}
+        </button>
+      </div>
+    </div>
+
+    <div class="cp-field">
+      <label>Confirm New Password</label>
+      <div class="cp-input-wrap">
+        <input [type]="cpShowConfirm ? 'text' : 'password'" [(ngModel)]="cpConfirm"
+               class="cp-input" placeholder="Repeat new password" autocomplete="new-password">
+        <button type="button" class="cp-eye" (click)="cpShowConfirm = !cpShowConfirm">
+          {{ cpShowConfirm ? '🙈' : '👁️' }}
+        </button>
+      </div>
+    </div>
+
+    <div class="cp-actions">
+      <button class="cp-btn-cancel" (click)="closeCpModal()" [disabled]="cpSubmitting">Cancel</button>
+      <button class="cp-btn-submit" (click)="changePassword()" [disabled]="cpSubmitting">
+        {{ cpSubmitting ? 'Saving…' : 'Change Password' }}
+      </button>
+    </div>
+  </div>
+</div>
 </div>

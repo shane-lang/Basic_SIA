@@ -113,6 +113,8 @@
         <div class="card-code-wrap">
           <span class="card-code">{{ c.code }}</span>
           <span class="card-units">{{ c.credits }} units</span>
+          <span class="tag-major" *ngIf="!isMinor(c.code)">Major</span>
+          <span class="tag-minor" *ngIf="isMinor(c.code)">Minor / GE</span>          <span class="units-breakdown">Lec {{ c.lec_units || c.credits }}<ng-container *ngIf="c.lab_units > 0"> / Lab {{ c.lab_units }}</ng-container></span>
           <span class="card-level-badge"
                 [class.badge-college]="getCardLevel(c) === 'College'"
                 [class.badge-shs]="getCardLevel(c) === 'SHS'"
@@ -241,7 +243,8 @@
             No {{ form._levelType }} programs yet — create them in <strong>Levels &amp; Programs</strong>.
           </p>
         </div>
-        <div class="form-group">
+        <!-- Semester hidden for SHS — PH K-12 SHS does not use semester terms -->
+        <div class="form-group" *ngIf="form._levelType !== 'SHS'">
           <label>Semester</label>
           <select class="form-ctrl" [(ngModel)]="form.semester">
             <option value="">— Select —</option>
@@ -283,14 +286,34 @@
           </p>
         </div>
         <div class="form-group">
-          <label>Year Level</label>
+          <!-- SHS: "Grade Level" with Grade 11/12 options; College/TVET: "Year Level" -->
+          <label>{{ form._levelType === 'SHS' ? 'Grade Level' : 'Year Level' }}</label>
           <select class="form-ctrl" [(ngModel)]="form.year_level">
             <option *ngFor="let y of currentYearLevels" [value]="y">{{ y }}</option>
           </select>
         </div>
+
+      <!-- PREREQ-PATCH: Optional prerequisite dropdown (College & TVET only) -->
+      <div class="form-group" *ngIf="form._levelType !== 'SHS'">
+        <label>
+          Prerequisite
+          <span class="form-hint-inline">— optional: course that must be passed first</span>
+        </label>
+        <select class="form-ctrl" [(ngModel)]="form.prerequisite_id">
+          <option [ngValue]="null">— None (no prerequisite) —</option>
+          <option *ngFor="let c of prerequisiteCandidates"
+                  [ngValue]="c.id">
+            {{ c.code }} — {{ c.name }}
+          </option>
+        </select>
+        <p class="form-hint" *ngIf="form.prerequisite_id">
+          Students must pass
+          <strong>{{ getPrerequisiteLabel() }}</strong>
+          before enrolling in this course.
+        </p>
       </div>
 
-
+      </div>
 
     </div>
 
@@ -331,13 +354,13 @@
       <h2 class="view-name">{{ viewTarget.name }}</h2>
       <p class="view-desc">{{ viewTarget.description || 'No description available.' }}</p>
       <div class="view-grid">
-        <div class="view-item"><label>Department / Strand</label><p>{{ viewTarget.department || '—' }}</p></div>
-        <div class="view-item"><label>Year Level</label><p>{{ viewTarget.year_level || '—' }}</p></div>
-        <div class="view-item"><label>Program</label><p>{{ viewTarget.program || '—' }}</p></div>
-        <div class="view-item"><label>Semester</label><p>{{ viewTarget.semester || '—' }}</p></div>
+        <div class="view-item"><label>{{ viewTarget && getCardLevel(viewTarget) === 'SHS' ? 'Strand' : 'Department / Strand' }}</label><p>{{ viewTarget.department || '—' }}</p></div>
+        <div class="view-item"><label>{{ viewTarget && getCardLevel(viewTarget) === 'SHS' ? 'Grade Level' : 'Year Level' }}</label><p>{{ viewTarget.year_level || '—' }}</p></div>
+        <div class="view-item"><label>{{ viewTarget && getCardLevel(viewTarget) === 'SHS' ? 'Strand / Program' : 'Program' }}</label><p>{{ viewTarget.program || '—' }}</p></div>
+        <!-- Semester: hidden for SHS — not applicable in PH K-12 -->
+        <div class="view-item" *ngIf="viewTarget && getCardLevel(viewTarget) !== 'SHS'"><label>Semester</label><p>{{ viewTarget.semester || '—' }}</p></div>
         <div class="view-item"><label>Enrolled</label><p>{{ viewTarget.enrolled_count ?? 0 }} students</p></div>
         <div class="view-item"><label>Instructor</label><p>{{ viewTarget.instructor || '—' }}</p></div>
-
       </div>
     </div>
     <div class="modal-foot">

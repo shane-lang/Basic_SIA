@@ -2,6 +2,7 @@ import { Component, OnInit, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
+import { environment } from '../../environment';
 
 type ViewMode = 'thumbnail' | 'list';
 type TabMode  = 'by-student' | 'by-course' | 'pending-release';
@@ -52,6 +53,7 @@ interface PendingCourse {
 }
 
 interface Subject {
+  lecUnits?: number; labUnits?: number; isGeneral?: boolean; isLab?: boolean;
   enrollmentId: number; courseId: number;
   code: string; name: string; credits: number;
   instructor: string; semester: string;
@@ -68,13 +70,8 @@ interface Subject {
   styleUrl: './grade-submission.css',
 })
 export class GradeSubmission implements OnInit {
-  private gradesApi    = 'http://localhost/sia-api/grades.php';  // used for release only
-  private registrarApi = 'http://localhost/sia-api/registrar.php';
-
-  private getHeaders(): { headers: HttpHeaders } {
-    const token = sessionStorage.getItem('token') || localStorage.getItem('token') || '';
-    return { headers: new HttpHeaders({ Authorization: `Bearer ${token}` }) };
-  }
+  private gradesApi    = environment.gradesApi;  // used for release only
+  private registrarApi = environment.registrarApi;
   constructor(private http: HttpClient, private cdr: ChangeDetectorRef) {}
 
   // View state
@@ -124,7 +121,7 @@ export class GradeSubmission implements OnInit {
 
   loadPendingRelease(): void {
     this.isLoadingPending = true;
-    this.http.get<any>(`${this.gradesApi}?action=registrar_pending_grades`, this.getHeaders()).subscribe({
+    this.http.get<any>(`${this.gradesApi}?action=registrar_pending_grades`).subscribe({
       next: (res) => {
         this.isLoadingPending = false;
         this.pendingCourses = res.success ? (res.courses || []) : [];
@@ -151,7 +148,7 @@ export class GradeSubmission implements OnInit {
     course.isReleasing = true;
     this.http.post<any>(`${this.gradesApi}?action=registrar_release_grades`, {
       course_id: course.courseId,
-    }, this.getHeaders()).subscribe({
+    }).subscribe({
       next: (res) => {
         course.isReleasing = false;
         if (res.success) {
@@ -190,7 +187,7 @@ export class GradeSubmission implements OnInit {
       ...(this.filterCategory    && { category: this.filterCategory }),
     });
 
-    this.http.get<any>(`${this.registrarApi}?${p}`, this.getHeaders()).subscribe({
+    this.http.get<any>(`${this.registrarApi}?${p}`).subscribe({
       next: (res) => {
         this.isLoadingStudents = false;
         if (res.success) {
@@ -225,8 +222,7 @@ export class GradeSubmission implements OnInit {
     this.subjects = [];
 
     this.http.get<any>(
-      `${this.registrarApi}?action=get_grade_student_detail&student_id=${s.id}`,
-      this.getHeaders()
+      `${this.registrarApi}?action=get_grade_student_detail&student_id=${s.id}`
     ).subscribe({
       next: (res) => {
         this.isLoadingSubjects = false;
@@ -247,7 +243,7 @@ export class GradeSubmission implements OnInit {
     this.isLoadingCourses = true;
     const p = new URLSearchParams({ action: 'get_grade_courses' });
     if (this.filterCourseCategory) p.set('category', this.filterCourseCategory);
-    this.http.get<any>(`${this.registrarApi}?${p}`, this.getHeaders()).subscribe({
+    this.http.get<any>(`${this.registrarApi}?${p}`).subscribe({
       next: (res) => {
         this.isLoadingCourses = false;
         this.courses = res.success ? (res.courses || []) : [];
@@ -265,8 +261,7 @@ export class GradeSubmission implements OnInit {
     this.courseStudents = [];
 
     this.http.get<any>(
-      `${this.registrarApi}?action=get_course_students&course_id=${c.id}`,
-      this.getHeaders()
+      `${this.registrarApi}?action=get_course_students&course_id=${c.id}`
     ).subscribe({
       next: (res) => {
         this.isLoadingSubjects = false;
@@ -317,4 +312,16 @@ export class GradeSubmission implements OnInit {
     this.toast = { show: true, type, message };
     setTimeout(() => { this.toast.show = false; this.cdr.detectChanges(); }, 3500);
   }
+
+  // Classify subject as Minor/GE based on course code prefix
+  // GE, PE, NSTP, OJT prefixes = Minor/General Education
+  isMinor(code: string): boolean {
+    if (!code) return false;
+    const upper = code.toUpperCase();
+    return upper.startsWith('GE') ||
+           upper.startsWith('PE') ||
+           upper.startsWith('NSTP') ||
+           upper.startsWith('OJT');
+  }
+
 }

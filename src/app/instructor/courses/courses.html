@@ -20,10 +20,10 @@
       <span class="stat-val">{{ courses.length }}</span>
       <span class="stat-lbl">Courses Handled</span>
     </div>
-    <div class="stat-card stat-teal">
+    <!--<div class="stat-card stat-teal">
       <span class="stat-val">{{ totalStudents }}</span>
       <span class="stat-lbl">Total Students</span>
-    </div>
+    </div>-->
     <div class="stat-card stat-green">
       <span class="stat-val">{{ totalGraded }}</span>
       <span class="stat-lbl">Fully Graded</span>
@@ -50,10 +50,9 @@
       <!-- Course Header -->
       <div class="cc-head">
         <div class="cc-code-wrap">
-          <span class="cc-code">{{ c.code }}</span>
-          <span class="cc-lab" *ngIf="c.isLab">🔬 Lab</span>
-        </div>
+          <span class="cc-code">{{ c.code }}</span>        </div>
         <span class="cc-credits">{{ c.credits }} units</span>
+        <span class="units-breakdown">Lec {{ c.lecUnits || c.credits }}<ng-container *ngIf="c.labUnits > 0"> / Lab {{ c.labUnits }}</ng-container></span>
       </div>
 
       <!-- Course Name -->

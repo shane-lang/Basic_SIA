@@ -2,6 +2,7 @@ import { Component, OnInit, OnDestroy, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
+import { environment } from '../../environment';
 
 interface Schedule {
   payment_type: string;
@@ -22,11 +23,26 @@ interface Permit {
   id: number; exam_period: string; school_year: string;
   semester: string; status: string; requested_at: string;
   approved_at: string; remarks: string;
+  permit_identifier?: string;
   // populated by get_permit_details
   student_number?: string; first_name?: string; last_name?: string;
   program?: string; year_level?: string;
   approved_by_first?: string; approved_by_last?: string;
   courses?: { code: string; name: string; instructor: string }[];
+}
+
+interface PaymentRecord {
+  id: number;
+  orArNumber: string;
+  orArType: string;       // 'OR' | 'AR'
+  amount: number;
+  paymentDate: string;
+  paymentMethod: string;
+  gcashRef: string;
+  examPeriod: string;
+  notes: string;
+  createdAt: string;
+  verifiedBy: string;
 }
 
 @Component({
@@ -37,8 +53,8 @@ interface Permit {
   styleUrl: './payment-schedule.css'
 })
 export class PaymentSchedule implements OnInit, OnDestroy {
-  private apiUrl      = 'http://localhost/sia-api/accounting.php';
-  private enrollApi   = 'http://localhost/sia-api/enrollment.php';
+  private apiUrl      = environment.accountingApi;
+  private enrollApi   = environment.enrollApi;
 
   // BUG FIX: use students-table PK (studentDbId), NOT user.id
   studentId   = 0;
@@ -57,8 +73,38 @@ export class PaymentSchedule implements OnInit, OnDestroy {
   }
   isRequesting = false;
   msg = ''; msgType: 'ok'|'err' = 'ok';
+  paymentPlan   = 'full';   // 'full' | 'installment' — loaded from get_student_context
+  paymentStatus = '';       // 'Paid' | 'Pending' — loaded from get_student_context
 
-  periods = ['Prelim','Midterm','Finals'] as const;
+  // ── Scholarship fields ────────────────────────────────────────────────────
+  isScholar       = false;
+  isFullScholar   = false;   // true = full scholarship approved, no payment needed
+  scholarPending  = false;   // true = declared but not yet approved
+  scholarApproved = false;   // true = approved by accounting
+  scholarType     = '';
+  scholarGrantor  = '';
+  scholarshipAmount = 0;
+
+  // Full-payment students now see per-period cards (Prelim, Midterm, Finals)
+  // just like installment students. Each period unlocks independently when
+  // Accounting sends a notice for it — no single "Full" mega-card.
+  // The 'Full' value is kept only for legacy backend compatibility.
+  get displayPeriods(): string[] {
+    return ['Prelim', 'Midterm', 'Finals'];
+  }
+
+  // Scholar permit section always shows the three individual periods (scholars never pay,
+  // they just request per-period permits as Accounting unlocks each one).
+  readonly scholarPeriods = ['Prelim', 'Midterm', 'Finals'] as const;
+
+  // ── Tab state ─────────────────────────────────────────────────────────────
+  activeTab: 'schedule' | 'history' = 'schedule';
+
+  // ── Payment History ───────────────────────────────────────────────────────
+  paymentHistory: PaymentRecord[] = [];
+  historyTotalPaid  = 0;
+  isLoadingHistory  = false;
+  historyLoaded     = false;   // lazy-load: only fetch on first tab switch
 
   // ── Payment modal ────────────────────────────────────────────────────────
   showPayModal   = false;
@@ -82,7 +128,7 @@ export class PaymentSchedule implements OnInit, OnDestroy {
   pendingTerms: Set<string> = new Set();
 
   loadPendingTerms(): void {
-    this.http.get<any>(`${this.apiUrl}?action=get_pending_payments`, this.getHeaders()).subscribe({
+    this.http.get<any>(`${this.apiUrl}?action=get_pending_payments`).subscribe({
       next: (res) => {
         this.pendingTerms = new Set();
         if (res.success && res.payments) {
@@ -105,22 +151,14 @@ export class PaymentSchedule implements OnInit, OnDestroy {
   showPermitViewer  = false;
   viewingPermit: Permit | null = null;
   isLoadingPermit   = false;
-
-  
-  /** Returns HTTP headers with the auth token. Call this in every API request. */
-  private getHeaders() {
-    const token = sessionStorage.getItem('token') ?? '';
-    return { headers: { Authorization: `Bearer ${token}` } };
-  }
-
   constructor(private http: HttpClient, private cdr: ChangeDetectorRef) {}
 
   ngOnInit(): void {
     const s = sessionStorage.getItem('currentUser');
-    if (s) { const u = JSON.parse(s); this.studentId = u.id; this.studentInfo = u; }
+    if (s) { const u = JSON.parse(s); this.studentId = parseInt(String(u.id), 10) || 0; this.studentInfo = u; }
 
     const dbId = sessionStorage.getItem('studentDbId');
-    if (dbId) this.studentId = parseInt(dbId, 10);
+    if (dbId && parseInt(dbId, 10) > 0) this.studentId = parseInt(dbId, 10);
 
     this.payDate = new Date().toISOString().split('T')[0];
 
@@ -143,11 +181,34 @@ export class PaymentSchedule implements OnInit, OnDestroy {
 
     // Always fetch fresh from API — do not rely on sessionStorage cache
     // load() is called inside the callback so category is set before rendering
-    this.http.get<any>(`${this.enrollApi}?action=get_student_context&student_id=${this.studentId}`, this.getHeaders()).subscribe({
+    this.http.get<any>(`${this.enrollApi}?action=get_student_context&student_id=${this.studentId}`).subscribe({
       next: (res) => {
         if (res.success) {
           const cat = (res.student?.studentCategory ?? '').toUpperCase();
-          this.studentType = res.student?.studentType ?? '';
+          this.studentType   = res.student?.studentType   ?? '';
+          this.paymentPlan   = res.student?.paymentPlan   === 'installment' ? 'installment' : 'full';
+          this.paymentStatus = res.student?.paymentStatus ?? '';
+
+          // ── Scholarship status ───────────────────────────────────────────
+          this.isScholar        = res.student?.isScholar        ?? false;
+          this.isFullScholar    = res.student?.isFullScholar     ?? false;
+          this.scholarPending   = res.student?.scholarPending    ?? false;
+          this.scholarApproved  = res.student?.scholarApproved   ?? false;
+          this.scholarType      = res.student?.scholarType       ?? '';
+          this.scholarGrantor   = res.student?.scholarGrantor    ?? '';
+          this.scholarshipAmount = res.student?.scholarshipAmount ?? 0;
+
+          // ── Safe fallback: derive isFullScholar from existing fields ─────
+          // Even if enrollment.php doesn't return isFullScholar yet,
+          // scholar + Paid + scholarshipAmount > 0 = full scholar approved
+          if (!this.isFullScholar && this.isScholar && this.scholarshipAmount > 0
+              && (res.student?.paymentStatus === 'Paid'
+                  || res.student?.approvalStatus === 'Approved')) {
+            this.isFullScholar = true;
+          }
+
+          // Full scholar = force full payment plan (no installment needed)
+          if (this.isFullScholar) this.paymentPlan = 'full';
           // Fallback: infer from student number if DB category is blank
           const studentNum: string = res.student?.id ?? '';
           if (cat) {
@@ -158,6 +219,17 @@ export class PaymentSchedule implements OnInit, OnDestroy {
             this.studentCategory = 'TVET';
           }
           sessionStorage.setItem('studentCategory', this.studentCategory);
+
+          // FIX SOA-DUE-DATES: Capture the students-table PK (dbId) returned by
+          // get_student_context so that loadDueDates() sends the correct student_id.
+          // Without this, students who land here directly (skipping dashboard) keep
+          // this.studentId = users.id, which doesn't match students.id in the DB,
+          // so get_due_dates can't resolve semester → falls back to global dates.
+          const resolvedDbId = res.student?.dbId ?? 0;
+          if (resolvedDbId > 0) {
+            this.studentId = resolvedDbId;
+            sessionStorage.setItem('studentDbId', String(resolvedDbId));
+          }
         }
         this.load();
         this.cdr.detectChanges();
@@ -178,11 +250,17 @@ export class PaymentSchedule implements OnInit, OnDestroy {
 
   load(): void {
     this.isLoading = true;
-    this.http.get<any>(`${this.apiUrl}?action=get_payment_schedule&student_id=${this.studentId}`, this.getHeaders()).subscribe({
+    this.http.get<any>(`${this.apiUrl}?action=get_payment_schedule&student_id=${this.studentId}`).subscribe({
       next: (res) => {
         this.schedule = res.success ? res.schedule : null;
         this.notices  = res.notices  || {};
         this.isLoading = false;
+        // ── Fallback: detect full scholar from schedule total = 0 ──────────
+        if (!this.isFullScholar && this.isScholar
+            && this.schedule && (this.schedule.total_assessment ?? 1) <= 0) {
+          this.isFullScholar = true;
+          this.paymentPlan   = 'full';
+        }
         this.loadPermits();
         this.loadDueDates();
         this.loadPendingTerms();
@@ -193,34 +271,150 @@ export class PaymentSchedule implements OnInit, OnDestroy {
   }
 
   loadPermits(): void {
-    this.http.get<any>(`${this.apiUrl}?action=get_student_permit_status&student_id=${this.studentId}`, this.getHeaders()).subscribe({
+    this.http.get<any>(`${this.apiUrl}?action=get_student_permit_status&student_id=${this.studentId}`).subscribe({
       next: (res) => { this.permits = res.success ? res.permits : []; this.cdr.detectChanges(); }
     });
   }
 
   loadDueDates(): void {
-    this.http.get<any>(`${this.apiUrl}?action=get_due_dates`).subscribe({
-      next: (res) => { if (res.success && res.dueDates) { this.dueDates = res.dueDates; this.cdr.detectChanges(); } }
+    const sid = this.studentId || 0;
+    // Pass student_id so the backend resolves semester from the student's record
+    // and returns the correctly scoped due dates for their current term.
+    const url = sid > 0
+      ? `${this.apiUrl}?action=get_due_dates&student_id=${sid}`
+      : `${this.apiUrl}?action=get_due_dates`;
+    this.http.get<any>(url).subscribe({
+      next: (res) => {
+        if (res.success && res.dueDates) {
+          // Merge with blank defaults so all four period keys always exist
+          // even if the API returns a partial result.
+          const blank: Record<string, { label: string; date_range: string }> = {
+            downpayment: { label: 'Downpayment', date_range: '' },
+            prelim:      { label: 'Prelim',      date_range: '' },
+            midterm:     { label: 'Midterm',     date_range: '' },
+            finals:      { label: 'Finals',      date_range: '' },
+          };
+          this.dueDates = { ...blank, ...res.dueDates };
+          this.cdr.detectChanges();
+        }
+      }
     });
   }
 
-  getStatus(period: string): string {
-    const p = period.toLowerCase() as any;
-    return this.schedule ? (this.schedule as any)[p+'_status'] : 'locked';
+  // ── Payment History ───────────────────────────────────────────────────────
+
+  switchTab(tab: 'schedule' | 'history'): void {
+    this.activeTab = tab;
+    if (tab === 'history' && !this.historyLoaded) {
+      this.loadPaymentHistory();
+    }
+    this.cdr.detectChanges();
   }
 
-  getDue(period: string):  number { const p=period.toLowerCase() as any; return this.schedule?(this.schedule as any)[p+'_due']:0; }
-  getPaid(period: string): number { const p=period.toLowerCase() as any; return this.schedule?(this.schedule as any)[p+'_paid']:0; }
-  getBalance(period: string): number { return Math.max(0, this.getDue(period) - this.getPaid(period)); }
+  loadPaymentHistory(): void {
+    this.isLoadingHistory = true;
+    this.cdr.detectChanges();
+    // BUG-SOA-05 FIX: Scope history to the student's current semester.
+    // Without ?semester=, the backend returns ALL semesters mixed together,
+    // making the SOA history show wrong totals and stale records.
+    const sem = encodeURIComponent(this.studentInfo?.semester || '');
+    this.http.get<any>(`${this.apiUrl}?action=get_student_payment_history&student_id=${this.studentId}&semester=${sem}`).subscribe({
+      next: (res) => {
+        this.isLoadingHistory = false;
+        this.historyLoaded    = true;
+        if (res.success) {
+          this.paymentHistory  = res.history  || [];
+          this.historyTotalPaid = res.totalPaid || 0;
+        } else {
+          this.paymentHistory  = [];
+          this.historyTotalPaid = 0;
+        }
+        this.cdr.detectChanges();
+      },
+      error: () => {
+        this.isLoadingHistory = false;
+        this.historyLoaded    = true;
+        this.paymentHistory   = [];
+        this.cdr.detectChanges();
+      }
+    });
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+
+  get totalAssessmentDisplay(): number {
+    return this.schedule?.total_assessment ?? 0;
+  }
+
+  getStatus(period: string): string {
+    if (period === 'Full') {
+      if (this.isFullScholar) {
+        return ['Prelim','Midterm','Finals'].some(p => this.getNotice(p)) ? 'paid' : 'locked';
+      }
+      if (this.paymentPlan === 'full') {
+        const hasNotice = ['Prelim','Midterm','Finals'].some(p => this.getNotice(p));
+        const hasUnlock = this.schedule && (
+          (this.schedule as any)['prelim_status']  !== 'locked' ||
+          (this.schedule as any)['midterm_status'] !== 'locked' ||
+          (this.schedule as any)['finals_status']  !== 'locked'
+        );
+        if (!(hasNotice || hasUnlock)) return 'locked';
+        return this.remainingBalance <= 0 ? 'paid' : 'unpaid';
+      }
+      return 'locked';
+    }
+
+    const p = period.toLowerCase() as any;
+    const schedStatus = this.schedule ? (this.schedule as any)[p+'_status'] : 'locked';
+
+    if (this.isFullScholar) {
+      if (this.schedule && schedStatus !== 'locked') return 'paid';
+      return this.getNotice(period) ? 'paid' : 'locked';
+    }
+
+    if (this.paymentPlan === 'full') {
+      // Full-plan: period unlocks when Accounting sends a notice (or schedules row unlocked).
+      // If the student has no remaining balance → mark as 'paid' so the badge
+      // shows "✅ Paid" instead of "Unpaid" for someone who already settled in full.
+      const hasNotice  = !!this.getNotice(period);
+      const isUnlocked = schedStatus !== 'locked';
+      if (!(hasNotice || isUnlocked)) return 'locked';
+      return this.remainingBalance <= 0 ? 'paid' : 'unpaid';
+    }
+
+    return schedStatus;
+  }
+
+  getDue(period: string): number {
+    if (period === 'Full') return this.schedule ? (this.schedule.total_assessment || 0) : 0;
+    // Full-plan: all periods share the total — show total_assessment on each card
+    // (there is no per-period breakdown for lump-sum students)
+    if (this.paymentPlan === 'full') {
+      return this.schedule ? (this.schedule.total_assessment || 0) : 0;
+    }
+    const p = period.toLowerCase() as any;
+    return this.schedule ? ((this.schedule as any)[p+'_due'] || 0) : 0;
+  }
+
+  getPaid(period: string): number {
+    if (period === 'Full') return this.totalPaid;
+    // Full-plan: all payment is one lump sum — show actual total paid on each card
+    if (this.paymentPlan === 'full') {
+      return this.totalPaid;
+    }
+    const p = period.toLowerCase() as any;
+    return this.schedule ? ((this.schedule as any)[p+'_paid'] || 0) : 0;
+  }
+
+  getBalance(period: string): number {
+    return Math.max(0, this.getDue(period) - this.getPaid(period));
+  }
 
   get totalPaid(): number {
     if (!this.schedule) return 0;
-    // Use server-computed total_paid (sum of all installment_payments) — accurate even
-    // when a student overpays a term or pays into a not-yet-unlocked period.
     if (this.schedule.total_paid !== undefined && this.schedule.total_paid > 0) {
       return this.schedule.total_paid;
     }
-    // Fallback: sum period fields (less accurate but safe)
     return (this.schedule.downpayment_paid || 0)
          + (this.schedule.prelim_paid  || 0)
          + (this.schedule.midterm_paid || 0)
@@ -233,15 +427,47 @@ export class PaymentSchedule implements OnInit, OnDestroy {
   }
 
   getNotice(period: string): Notice | null { return this.notices[period] || null; }
-  getPermit(period: string): Permit | undefined { return this.permits.find(p => p.exam_period === period); }
+
+  // BUG-FULLPAY-01 FIX: For the 'Full' card, find any permit across all three periods.
+  // Prefer approved > pending > any, so the card shows the most meaningful status.
+  getPermit(period: string): Permit | undefined {
+    if (period === 'Full') {
+      const all = ['Prelim','Midterm','Finals'];
+      return (
+        this.permits.find(p => all.includes(p.exam_period) && p.status === 'approved') ||
+        this.permits.find(p => all.includes(p.exam_period) && p.status === 'pending')  ||
+        this.permits.find(p => all.includes(p.exam_period))
+      );
+    }
+    return this.permits.find(p => p.exam_period === period);
+  }
 
   canRequest(period: string): boolean {
-    const status = this.getStatus(period);
-    // Allow permit request if paid OR partial (any amount paid counts)
-    if (status !== 'paid' && status !== 'partial') return false;
+    // Full-card: for full-payment plan — check each period independently
+    if (period === 'Full') {
+      const allDone = ['Prelim','Midterm','Finals'].every(p => {
+        const permit = this.permits.find(x => x.exam_period === p);
+        return permit && (permit.status === 'pending' || permit.status === 'approved');
+      });
+      if (allDone) return false;
+      if (this.getStatus('Full') === 'locked') return false;
+      // Full-plan or scholar: notice sent is sufficient to request
+      return this.paymentPlan === 'full' || this.isFullScholar;
+    }
+
+    // Single period
     const permit = this.getPermit(period);
     if (permit && (permit.status === 'pending' || permit.status === 'approved')) return false;
-    return true;
+
+    const status = this.getStatus(period);
+    if (status === 'locked') return false;
+    if (this.isFullScholar) return true;
+
+    // Full-plan: notice sent (status !== 'locked') is sufficient — no payment_status check
+    if (this.paymentPlan === 'full') return true;
+
+    // Installment: must have an actual payment recorded (status = 'paid' or 'partial')
+    return status === 'paid' || status === 'partial';
   }
 
   requestPermit(period: string): void {
@@ -251,7 +477,7 @@ export class PaymentSchedule implements OnInit, OnDestroy {
       exam_period: period,
       school_year: this.studentInfo.school_year || '2025-2026',
       semester:    this.studentInfo.semester    || '2nd Semester'
-    }, this.getHeaders()).subscribe({
+    }).subscribe({
       next: (res) => {
         this.isRequesting = false;
         this.msg     = res.message;
@@ -314,7 +540,7 @@ export class PaymentSchedule implements OnInit, OnDestroy {
       gcash_reference:    this.payGcashRef.trim(),
       exam_period:        this.payPeriod,
       notes:              this.payNote.trim(),
-    }, this.getHeaders()).subscribe({
+    }).subscribe({
       next: (res) => {
         this.isSubmitting = false;
         if (res.success) {
@@ -356,7 +582,7 @@ export class PaymentSchedule implements OnInit, OnDestroy {
   }
 
   private checkApprovalPoll(): void {
-    this.http.get<any>(`${this.apiUrl}?action=get_payment_schedule&student_id=${this.studentId}`, this.getHeaders()).subscribe({
+    this.http.get<any>(`${this.apiUrl}?action=get_payment_schedule&student_id=${this.studentId}`).subscribe({
       next: (res) => {
         if (!res.success) return;
         const sched = res.schedule;
@@ -374,6 +600,8 @@ export class PaymentSchedule implements OnInit, OnDestroy {
           this.pendingTerms.delete(this.payPeriod);
           this.loadPermits();
           this.loadPendingTerms();
+          // Invalidate history cache so next visit to History tab shows fresh data
+          this.historyLoaded = false;
           this.closePayModal();
           this.msg     = `✅ Payment approved by Accounting!`;
           this.msgType = 'ok';
@@ -392,7 +620,7 @@ export class PaymentSchedule implements OnInit, OnDestroy {
     this.cdr.detectChanges();
 
     // Fetch full permit details including courses + approver name
-    this.http.get<any>(`${this.apiUrl}?action=get_permit_details&permit_id=${permit.id}&student_id=${this.studentId}`, this.getHeaders()).subscribe({
+    this.http.get<any>(`${this.apiUrl}?action=get_permit_details&permit_id=${permit.id}&student_id=${this.studentId}`).subscribe({
       next: (res) => {
         this.isLoadingPermit = false;
         if (res.success) {
@@ -494,6 +722,7 @@ export class PaymentSchedule implements OnInit, OnDestroy {
   <div class="permit-bar">
     <div class="permit-bar-title">${p.exam_period.toUpperCase()} EXAMINATION PERMIT</div>
     <div class="permit-bar-sub">${p.semester} &nbsp;&nbsp; A.Y. ${p.school_year}</div>
+    <div class="permit-bar-date">Permit No.: <strong>${p.permit_identifier || '—'}</strong></div>
   </div>
 
   <!-- STUDENT INFO -->

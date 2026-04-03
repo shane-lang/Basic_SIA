@@ -78,4 +78,14 @@ export class ManageSubjectsComponent implements OnInit {
       this.filterSubjects();
     }
   }
+
+  isMinor(code: string): boolean {
+    if (!code) return false;
+    const upper = code.toUpperCase();
+    return upper.startsWith('GE') ||
+           upper.startsWith('PE') ||
+           upper.startsWith('NSTP') ||
+           upper.startsWith('OJT');
+  }
+
 }

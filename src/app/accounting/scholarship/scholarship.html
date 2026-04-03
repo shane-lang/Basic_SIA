@@ -1,0 +1,261 @@
+<div class="scholarship-panel">
+
+  <!-- Header -->
+  <div class="panel-header">
+    <div class="header-left">
+      <span class="header-icon">🎓</span>
+      <div>
+        <h3>Scholarship Management</h3>
+        <p *ngIf="studentName">{{ studentName }}</p>
+      </div>
+    </div>
+    <button *ngIf="!showGrantForm && !activeScholarship" class="btn-grant" (click)="openGrantForm()">
+      + Grant Scholarship
+    </button>
+  </div>
+
+  <!-- Alerts -->
+  <div class="alert alert-success" *ngIf="successMsg">✅ {{ successMsg }}</div>
+  <div class="alert alert-error"   *ngIf="errorMsg">⚠️ {{ errorMsg }}</div>
+
+  <!-- Loading -->
+  <div class="loading-state" *ngIf="isLoading"><div class="spin"></div><p>Loading scholarship data...</p></div>
+
+  <!-- ── Active Scholarship ── -->
+  <div *ngIf="!isLoading && activeScholarship" class="active-scholar-card">
+    <div class="acs-header">
+      <div>
+        <span class="acs-badge">✅ Active Scholarship</span>
+        <h4>{{ activeScholarship.scholar_type }}</h4>
+      </div>
+      <div class="acs-amount">₱{{ fmt(activeScholarship.scholarship_amount) }}</div>
+    </div>
+    <div class="acs-body">
+      <div class="info-row"><span>Grantor / Source</span><strong>{{ activeScholarship.grantor || '—' }}</strong></div>
+      <div class="info-row"><span>Semester</span><strong>{{ activeScholarship.semester || '—' }}</strong></div>
+      <div class="info-row" *ngIf="activeScholarship.notes">
+        <span>Notes</span><strong>{{ activeScholarship.notes }}</strong>
+      </div>
+      <div class="info-row">
+        <span>Granted By</span>
+        <strong>{{ activeScholarship.granted_by_email || '—' }}</strong>
+      </div>
+      <div class="info-row">
+        <span>Date Granted</span>
+        <strong>{{ fmtDate(activeScholarship.created_at) }}</strong>
+      </div>
+      <div class="info-row" *ngIf="totalAssessment > 0">
+        <span>Coverage</span>
+        <strong>
+          {{ activeScholarship.scholarship_amount >= totalAssessment ? '100% — Full Tuition' :
+             ((activeScholarship.scholarship_amount / totalAssessment * 100) | number:'1.0-0') + '% of ₱' + fmt(totalAssessment) }}
+        </strong>
+      </div>
+    </div>
+    <div class="acs-actions">
+      <button class="btn-update" (click)="openGrantForm()">🔄 Update / Extend</button>
+      <button class="btn-revoke" (click)="openRevokeModal()">✕ Revoke</button>
+    </div>
+  </div>
+
+  <!-- ── No active scholarship ── -->
+  <div *ngIf="!isLoading && !activeScholarship && !showGrantForm" class="no-scholar">
+    <div class="no-scholar-icon">🎓</div>
+    <p>No active scholarship for this student.</p>
+    <button class="btn-grant" (click)="openGrantForm()">+ Grant Scholarship</button>
+  </div>
+
+  <!-- ── Grant Form ── -->
+  <div *ngIf="showGrantForm" class="grant-form-card">
+    <h4>{{ activeScholarship ? '🔄 Update Scholarship' : '+ Grant New Scholarship' }}</h4>
+
+    <div class="form-row">
+      <label>Scholarship Type <span class="req">*</span></label>
+      <select class="finput" [(ngModel)]="grantForm.scholar_type">
+        <option *ngFor="let t of scholarTypes" [value]="t">{{ t }}</option>
+      </select>
+    </div>
+
+    <div class="form-row">
+      <label>Grantor / Source <span class="req">*</span></label>
+      <input class="finput" type="text" [(ngModel)]="grantForm.grantor"
+             placeholder="e.g. CHED, LGU Olongapo, School Merit">
+    </div>
+
+    <div class="form-row">
+      <label>Semester</label>
+      <input class="finput" type="text" [(ngModel)]="grantForm.semester"
+             placeholder="e.g. 2nd Semester, AY 2025-2026">
+    </div>
+
+    <div class="form-row full-tuition-row">
+      <label class="checkbox-label">
+        <input type="checkbox" [(ngModel)]="grantForm.full_tuition">
+        Full Tuition Scholarship
+        <span class="hint" *ngIf="totalAssessment > 0">(covers full ₱{{ fmt(totalAssessment) }})</span>
+      </label>
+    </div>
+
+    <div class="form-row" *ngIf="!grantForm.full_tuition">
+      <label>Scholarship Amount (₱) <span class="req">*</span></label>
+      <input class="finput" type="number" [(ngModel)]="grantForm.scholarship_amount" min="1"
+             placeholder="e.g. 5000">
+      <small *ngIf="totalAssessment > 0 && grantForm.scholarship_amount > 0" class="hint-sm">
+        {{ ((grantForm.scholarship_amount / totalAssessment) * 100 | number:'1.0-0') }}% of total assessment
+      </small>
+    </div>
+
+    <div class="form-row">
+      <label>Notes / Remarks (optional)</label>
+      <textarea class="finput" rows="2" [(ngModel)]="grantForm.notes"
+                placeholder="e.g. Scholarship docs verified and on file"></textarea>
+    </div>
+
+    <div class="form-actions">
+      <button class="btn-cancel" (click)="cancelGrant()" [disabled]="isSaving">Cancel</button>
+      <button class="btn-confirm" (click)="submitGrant()" [disabled]="isSaving">
+        {{ isSaving ? '⏳ Saving...' : (activeScholarship ? '💾 Update Scholarship' : '✅ Grant Scholarship') }}
+      </button>
+    </div>
+  </div>
+
+  <!-- ── Scholarship History ── -->
+  <div *ngIf="!isLoading && history.length > 0" class="history-section">
+    <h4>📋 Scholarship History ({{ history.length }})</h4>
+    <div class="history-table-wrap">
+      <table class="htable">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Type</th>
+            <th>Grantor</th>
+            <th>Amount</th>
+            <th>Semester</th>
+            <th>Status</th>
+            <th>Granted By</th>
+            <th>Date</th>
+            <th>Revoked By</th>
+            <th>Revoke Reason</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr *ngFor="let h of history; let i = index" [class.active-row]="h.is_active">
+            <td>{{ i + 1 }}</td>
+            <td><strong>{{ h.scholar_type }}</strong></td>
+            <td>{{ h.grantor || '—' }}</td>
+            <td><strong class="amount">₱{{ fmt(h.scholarship_amount) }}</strong></td>
+            <td>{{ h.semester || '—' }}</td>
+            <td>
+              <span class="badge" [class.badge-active]="h.is_active" [class.badge-revoked]="!h.is_active">
+                {{ h.is_active ? '✅ Active' : '✕ Revoked' }}
+              </span>
+            </td>
+            <td class="small-text">{{ h.granted_by_email || '—' }}</td>
+            <td class="small-text">{{ fmtDate(h.created_at) }}</td>
+            <td class="small-text">{{ h.revoked_by_email || '—' }}</td>
+            <td class="small-text">{{ h.revoke_reason || '—' }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<!-- ── Revoke Modal ── -->
+<div class="modal-overlay" *ngIf="showRevokeModal" (click)="cancelRevoke()">
+  <div class="modal-box" (click)="$event.stopPropagation()">
+    <h4>✕ Revoke Scholarship</h4>
+    <p class="revoke-warning">
+      This will remove the <strong>{{ activeScholarship?.scholar_type }}</strong> scholarship
+      of <strong>₱{{ fmt(activeScholarship?.scholarship_amount ?? 0) }}</strong> and
+      restore the student's original tuition amount.
+    </p>
+    <div class="form-row">
+      <label>Reason for Revocation <span class="req">*</span></label>
+      <textarea class="finput" rows="3" [(ngModel)]="revokeReason"
+                placeholder="e.g. No longer qualified, docs expired..."></textarea>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" (click)="cancelRevoke()" [disabled]="isRemoving">Cancel</button>
+      <button class="btn-revoke-confirm" (click)="confirmRevoke()"
+              [disabled]="isRemoving || !revokeReason.trim()">
+        {{ isRemoving ? '⏳ Removing...' : '✕ Confirm Revoke' }}
+      </button>
+    </div>
+  </div>
+</div>
+
+<style>
+.scholarship-panel { font-family: inherit; }
+.panel-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; }
+.header-left  { display:flex; gap:10px; align-items:center; }
+.header-icon  { font-size:2rem; }
+.panel-header h3 { margin:0; font-size:1rem; font-weight:700; }
+.panel-header p  { margin:2px 0 0; font-size:.85rem; color:#6b7280; }
+
+.alert { padding:10px 14px; border-radius:8px; font-size:.87rem; margin-bottom:12px; }
+.alert-success { background:#dcfce7; color:#166534; border:1px solid #bbf7d0; }
+.alert-error   { background:#fee2e2; color:#991b1b; border:1px solid #fecaca; }
+
+.loading-state { display:flex; flex-direction:column; align-items:center; gap:8px; padding:24px; color:#6b7280; font-size:.85rem; }
+.spin { width:24px; height:24px; border:3px solid #e5e7eb; border-top-color:#6366f1; border-radius:50%; animation:spin .7s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }
+
+.active-scholar-card { background:#f0fdf4; border:1.5px solid #86efac; border-radius:12px; padding:16px; margin-bottom:16px; }
+.acs-header { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:12px; }
+.acs-badge  { background:#dcfce7; color:#166534; font-size:.75rem; font-weight:700; padding:3px 10px; border-radius:20px; display:inline-block; margin-bottom:4px; }
+.acs-header h4 { margin:4px 0 0; font-size:1rem; }
+.acs-amount { font-size:1.8rem; font-weight:800; color:#166534; }
+.info-row   { display:flex; gap:10px; justify-content:space-between; font-size:.85rem; padding:4px 0; border-bottom:1px solid #d1fae5; }
+.info-row span { color:#6b7280; }
+.info-row strong { color:#1f2937; }
+.acs-actions { display:flex; gap:8px; margin-top:12px; }
+
+.no-scholar { text-align:center; padding:24px; background:#f9fafb; border-radius:10px; border:1px dashed #d1d5db; margin-bottom:16px; }
+.no-scholar-icon { font-size:2rem; margin-bottom:8px; }
+.no-scholar p { color:#6b7280; font-size:.9rem; margin:0 0 12px; }
+
+.grant-form-card { background:#fff; border:1px solid #e5e7eb; border-radius:10px; padding:16px; margin-bottom:16px; }
+.grant-form-card h4 { margin:0 0 14px; font-size:.95rem; font-weight:700; }
+.form-row { margin-bottom:12px; }
+.form-row label { display:block; font-size:.82rem; font-weight:600; color:#374151; margin-bottom:4px; }
+.finput { width:100%; border:1px solid #d1d5db; border-radius:7px; padding:8px 10px; font-size:.88rem; box-sizing:border-box; }
+.finput:focus { outline:none; border-color:#6366f1; }
+.full-tuition-row .checkbox-label { display:flex; align-items:center; gap:8px; font-size:.88rem; cursor:pointer; }
+.hint    { font-size:.78rem; color:#6366f1; }
+.hint-sm { font-size:.77rem; color:#6b7280; margin-top:3px; display:block; }
+.req { color:#ef4444; }
+.form-actions { display:flex; gap:10px; justify-content:flex-end; margin-top:14px; }
+
+.history-section { margin-top:16px; }
+.history-section h4 { font-size:.92rem; font-weight:700; margin:0 0 10px; color:#1f2937; }
+.history-table-wrap { overflow-x:auto; }
+.htable { width:100%; border-collapse:collapse; font-size:.8rem; }
+.htable th { background:#f9fafb; border:1px solid #e5e7eb; padding:7px 10px; font-weight:600; text-align:left; white-space:nowrap; }
+.htable td { border:1px solid #f3f4f6; padding:7px 10px; vertical-align:top; }
+.htable tr.active-row td { background:#f0fdf4; }
+.amount   { color:#1d4ed8; }
+.small-text { font-size:.75rem; color:#6b7280; }
+.badge { padding:2px 8px; border-radius:20px; font-size:.75rem; font-weight:600; }
+.badge-active  { background:#dcfce7; color:#166534; }
+.badge-revoked { background:#fee2e2; color:#991b1b; }
+
+/* Buttons */
+.btn-grant { background:#6366f1; color:#fff; border:none; padding:8px 16px; border-radius:7px; font-size:.85rem; font-weight:600; cursor:pointer; }
+.btn-grant:hover { background:#4f46e5; }
+.btn-update { background:#eff6ff; color:#1d4ed8; border:1px solid #bfdbfe; padding:6px 14px; border-radius:7px; font-size:.82rem; cursor:pointer; }
+.btn-revoke { background:#fff1f2; color:#be123c; border:1px solid #fecdd3; padding:6px 14px; border-radius:7px; font-size:.82rem; cursor:pointer; }
+.btn-cancel  { background:#f3f4f6; color:#374151; border:none; padding:8px 16px; border-radius:7px; font-size:.85rem; cursor:pointer; }
+.btn-confirm { background:#6366f1; color:#fff; border:none; padding:8px 16px; border-radius:7px; font-size:.85rem; font-weight:600; cursor:pointer; }
+.btn-confirm:disabled, .btn-cancel:disabled { opacity:.5; cursor:not-allowed; }
+.btn-revoke-confirm { background:#dc2626; color:#fff; border:none; padding:8px 16px; border-radius:7px; font-size:.85rem; font-weight:600; cursor:pointer; }
+.btn-revoke-confirm:disabled { opacity:.5; cursor:not-allowed; }
+
+/* Revoke Modal */
+.modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,.5); display:flex; align-items:center; justify-content:center; z-index:9999; }
+.modal-box     { background:#fff; border-radius:12px; padding:24px; max-width:460px; width:90%; }
+.modal-box h4  { margin:0 0 12px; font-size:1rem; font-weight:700; }
+.revoke-warning { font-size:.87rem; color:#6b7280; background:#fff1f2; border:1px solid #fecdd3; border-radius:8px; padding:10px 12px; margin-bottom:14px; }
+.modal-footer  { display:flex; gap:10px; justify-content:flex-end; margin-top:14px; }
+</style>

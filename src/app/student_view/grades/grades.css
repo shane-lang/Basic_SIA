@@ -138,3 +138,14 @@
   color: #6366f1; background: #eef2ff; display: inline-block;
   padding: 0.2rem 0.6rem; border-radius: 10px;
 }
+/* ── Lec/Lab/Major/Minor tags (shared) ── */
+.td-type { text-align: center; }
+.tag-major, .tag-minor, .tag-lab {
+  display: inline-block; font-size: 10px; font-weight: 700;
+  padding: 2px 8px; border-radius: 10px; line-height: 1.6; margin: 1px;
+}
+.tag-major { background: #dbeafe; color: #1e40af; }
+.tag-minor { background: #dcfce7; color: #166534; }
+.tag-lab   { background: #fef9c3; color: #854d0e; }
+.units-total { font-weight: 700; }
+.units-breakdown { display: block; font-size: 10px; color: #6b7280; margin-top: 2px; white-space: nowrap; }

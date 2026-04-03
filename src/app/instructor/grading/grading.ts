@@ -1,12 +1,17 @@
 import { Component, OnInit, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { HttpClient, HttpHeaders } from '@angular/common/http';
+import { HttpClient } from '@angular/common/http';
 import { ActivatedRoute } from '@angular/router';
+import { environment } from '../../environment';
 
 type Step = 'courses' | 'students';
 
 interface Course {
+  isLab?: boolean;
+  isGeneral?: boolean;
+  lecUnits?: number;
+  labUnits?: number;
   id: number;
   code: string;
   name: string;
@@ -17,6 +22,7 @@ interface Course {
   enrolledCount: number;
   gradeCompletion: number;
   submittedCount: number;
+  courseIds?: number[];   // all DB variant IDs merged into this card (e.g. GE103-BMD, GE103-CA)
 }
 
 interface Student {
@@ -51,13 +57,7 @@ interface Student {
   styleUrl: './grading.css',
 })
 export class InstructorGrading implements OnInit {
-  private api = 'http://localhost/sia-api/faculty.php';
-
-  private getHeaders() {
-    const token = sessionStorage.getItem('token') || localStorage.getItem('token') || '';
-    return { headers: new HttpHeaders({ Authorization: `Bearer ${token}` }) };
-  }
-
+  private readonly api = `${environment.facultyApi}`;
   constructor(
     private http: HttpClient,
     private cdr: ChangeDetectorRef,
@@ -97,7 +97,7 @@ export class InstructorGrading implements OnInit {
   /* ─── Courses ─────────────────────────────────────── */
   loadCourses(): void {
     this.isLoadingCourses = true;
-    this.http.get<any>(`${this.api}?action=get_my_courses`, this.getHeaders()).subscribe({
+    this.http.get<any>(`${this.api}?action=get_my_courses`).subscribe({
       next: (res) => {
         this.isLoadingCourses = false;
         this.courses = res.success ? (res.courses || []) : [];
@@ -131,8 +131,10 @@ export class InstructorGrading implements OnInit {
     this.isLoadingStudents = true;
 
     this.http.get<any>(
-      `${this.api}?action=get_course_students&course_id=${course.id}`,
-      this.getHeaders()
+      `${this.api}?action=get_course_students&` +
+      (course.courseIds && course.courseIds.length > 1
+        ? course.courseIds.map(id => `course_ids[]=${id}`).join('&')
+        : `course_id=${course.id}`)
     ).subscribe({
       next: (res) => {
         this.isLoadingStudents = false;
@@ -182,7 +184,7 @@ export class InstructorGrading implements OnInit {
       course_id:     this.selectedCourse!.id,
       term,
       grade,
-    }, this.getHeaders()).subscribe({
+    }).subscribe({
       next: (res) => {
         (student as any)[savingKey] = false;
         if (res.success) {
@@ -209,9 +211,11 @@ export class InstructorGrading implements OnInit {
     if (!hasGrades) { this.showToast('error','No grades to submit yet.'); return; }
 
     this.isSubmitting = true;
+    const courseIds = this.selectedCourse.courseIds && this.selectedCourse.courseIds.length > 1
+      ? this.selectedCourse.courseIds
+      : [this.selectedCourse.id];
     this.http.post<any>(`${this.api}?action=submit_to_registrar`,
-      { course_id: this.selectedCourse.id },
-      this.getHeaders()
+      { course_id: this.selectedCourse.id, course_ids: courseIds }
     ).subscribe({
       next: (res) => {
         this.isSubmitting = false;
@@ -253,4 +257,16 @@ export class InstructorGrading implements OnInit {
     if (pct >= 50)  return '#d97706';
     return '#dc2626';
   }
+
+  // Classify subject as Minor/GE based on course code prefix
+  // GE, PE, NSTP, OJT prefixes = Minor/General Education
+  isMinor(code: string): boolean {
+    if (!code) return false;
+    const upper = code.toUpperCase();
+    return upper.startsWith('GE') ||
+           upper.startsWith('PE') ||
+           upper.startsWith('NSTP') ||
+           upper.startsWith('OJT');
+  }
+
 }

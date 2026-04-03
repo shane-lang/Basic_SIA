@@ -1,497 +1,308 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnInit, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { MatTableModule } from '@angular/material/table';
-import { MatButtonModule } from '@angular/material/button';
-import { MatInputModule } from '@angular/material/input';
-import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatIconModule } from '@angular/material/icon';
-import { MatChipsModule } from '@angular/material/chips';
-import { MatCardModule } from '@angular/material/card';
-import { MatDividerModule } from '@angular/material/divider';
-import { MatBadgeModule } from '@angular/material/badge';
-import { PaymentService } from '../../services/payment.service';
+import { HttpClient } from '@angular/common/http';
+import { environment } from '../../environment';
 
-interface StudentEnrollment {
-  id: string;
+// ── API base URLs (same pattern as the rest of the app) ────────────────────
+const REGISTRAR_API  = environment.registrarApi;
+const ENROLLMENT_API = environment.enrollApi;
+
+// ── Interfaces matching actual DB columns returned by registrar.php ─────────
+interface Student {
+  id: number;
+  studentNumber: string;
   firstName: string;
   lastName: string;
+  middleName: string;
+  fullName: string;
   email: string;
   phone: string;
   program: string;
   yearLevel: string;
-  gpa: number;
-  studentType: 'New' | 'Continuing' | 'Returning';
-  enrollmentStatus: 'Pending' | 'Enrolled' | 'Completed' | 'Dropped';
-  paymentStatus: 'Pending' | 'Paid' | 'Overdue';
-  approvalStatus: 'Pending' | 'Approved' | 'Rejected';
+  semester: string;
+  studentType: string;
+  studentCategory: string;
+  enrollmentStatus: string;
+  paymentStatus: string;
+  approvalStatus: string;
+  isScholar: number;
+  scholarType: string;
   enrollmentDate: string;
-  paymentAmount?: number;
-  paymentDate?: string;
-  paymentReference?: string;
+  // detail fields (loaded on demand)
+  courses?: EnrolledCourse[];
+  fees?: FeeBreakdown;
+  loadingDetail?: boolean;
 }
 
 interface EnrolledCourse {
-  id: string;
+  enrollment_id: number;
+  course_id: number;
   code: string;
   name: string;
   credits: number;
+  lecUnits?: number;
+  labUnits?: number;
+  isGeneral?: boolean;
+  isLab?: boolean;
   instructor: string;
-  schedule: string;
+  day: string;
+  time: string;
   room: string;
-  enrollmentDate: string;
-  status: 'Pending' | 'Enrolled' | 'Completed' | 'Dropped';
+  semester: string;
+  status: string;
+}
+
+interface FeeBreakdown {
+  tuitionFee: number;
+  miscellaneousFee: number;
+  registrationFee: number;
+  laboratoryFee: number;
+  energyFee: number;
+  subtotal: number;
+  discount: number;
+  installmentFee: number;
+  totalAssessment: number;
+  totalPaid: number;
+  balance: number;
+  paymentStatus: string;
 }
 
 @Component({
   selector: 'app-student-enrollment-review',
   standalone: true,
-  imports: [
-    CommonModule,
-    FormsModule,
-    MatTableModule,
-    MatButtonModule,
-    MatInputModule,
-    MatFormFieldModule,
-    MatIconModule,
-    MatChipsModule,
-    MatCardModule,
-    MatDividerModule,
-    MatBadgeModule
-  ],
+  imports: [CommonModule, FormsModule],
   templateUrl: './student-enrollment-review.html',
-  styleUrl: './student-enrollment-review.css'
+  styleUrl: './student-enrollment-review.css',
 })
 export class StudentEnrollmentReviewComponent implements OnInit {
-  // Search and filter
-  searchQuery = '';
-  filterStatus: string | null = null;
-  filterPaymentStatus: string | null = null;
+  // ── State ─────────────────────────────────────────────────────────────────
+  students: Student[]  = [];
+  programs: string[]   = [];
+  loading              = false;
+  error                = '';
 
-  // Selected student(s)
-  selectedStudent: StudentEnrollment | null = null;
-  selectedStudentCourses: EnrolledCourse[] = [];
-  showStudentDetails = false;
-  selectedStudentIds: Set<string> = new Set();
+  // Filters
+  searchQuery   = '';
+  filterStatus  = '';
+  filterProgram = '';
+  filterCategory = '';
+  filterPayment = '';
 
-  // All enrolled students (mock data)
-  allStudents: StudentEnrollment[] = [];
+  // Pagination
+  page       = 1;
+  limit      = 20;
+  total      = 0;
+  totalPages = 0;
 
-  // Stats
-  totalPendingEnrollments = 0;
-  totalApprovedEnrollments = 0;
-  totalUnpaidEnrollments = 0;
-  totalEnrollments = 0;
+  // Stats (derived from total counts, not current page)
+  stats = { total: 0, pending: 0, enrolled: 0, unpaid: 0 };
 
-  constructor(private paymentService: PaymentService) {}
+  // Detail panel
+  selectedStudent: Student | null = null;
+  showDetail = false;
+
+  // Notifications
+  notifications: { id: number; type: string; message: string }[] = [];
+  private _notifId = 0;
+
+  constructor(private http: HttpClient, private cdr: ChangeDetectorRef) {}
 
   ngOnInit(): void {
-    this.loadMockData();
-    this.updatePaymentStatusFromAccounting();
-    this.updateStatistics();
+    this.loadStudents();
+    this.loadStats();
   }
 
-  loadMockData(): void {
-    // Mock data for enrolled students
-    this.allStudents = [
-      {
-        id: 'STU-001234',
-        firstName: 'Maria',
-        lastName: 'Santos',
-        email: 'maria.santos@university.edu',
-        phone: '09171234567',
-        program: 'BS Information Technology',
-        yearLevel: '2nd Year',
-        gpa: 3.45,
-        studentType: 'Continuing',
-        enrollmentStatus: 'Enrolled',
-        paymentStatus: 'Paid',
-        approvalStatus: 'Approved',
-        enrollmentDate: '2025-01-15',
-        paymentAmount: 25000,
-        paymentDate: '2025-01-10',
-        paymentReference: 'GCH-20250110-001'
-      },
-      {
-        id: 'STU-001235',
-        firstName: 'Juan',
-        lastName: 'Dela Cruz',
-        email: 'juan.cruz@university.edu',
-        phone: '09171234568',
-        program: 'BS Computer Science',
-        yearLevel: '1st Year',
-        gpa: 0,
-        studentType: 'New',
-        enrollmentStatus: 'Pending',
-        paymentStatus: 'Pending',
-        approvalStatus: 'Pending',
-        enrollmentDate: '2025-01-20',
-        paymentAmount: 30000
-      },
-      {
-        id: 'STU-001236',
-        firstName: 'Anna',
-        lastName: 'Garcia',
-        email: 'anna.garcia@university.edu',
-        phone: '09171234569',
-        program: 'BS Information Systems',
-        yearLevel: '3rd Year',
-        gpa: 3.8,
-        studentType: 'Continuing',
-        enrollmentStatus: 'Enrolled',
-        paymentStatus: 'Paid',
-        approvalStatus: 'Approved',
-        enrollmentDate: '2025-01-12',
-        paymentAmount: 25000,
-        paymentDate: '2025-01-08',
-        paymentReference: 'GCH-20250108-002'
-      },
-      {
-        id: 'STU-001237',
-        firstName: 'Luis',
-        lastName: 'Rodriguez',
-        email: 'luis.rodriguez@university.edu',
-        phone: '09171234570',
-        program: 'BS Civil Engineering',
-        yearLevel: '4th Year',
-        gpa: 3.2,
-        studentType: 'Continuing',
-        enrollmentStatus: 'Pending',
-        paymentStatus: 'Overdue',
-        approvalStatus: 'Pending',
-        enrollmentDate: '2025-01-18',
-        paymentAmount: 25000
-      },
-      {
-        id: 'STU-001238',
-        firstName: 'Maria',
-        lastName: 'Lopez',
-        email: 'maria.lopez@university.edu',
-        phone: '09171234571',
-        program: 'BS Information Technology',
-        yearLevel: '2nd Year',
-        gpa: 3.6,
-        studentType: 'Continuing',
-        enrollmentStatus: 'Enrolled',
-        paymentStatus: 'Paid',
-        approvalStatus: 'Approved',
-        enrollmentDate: '2025-01-16',
-        paymentAmount: 25000,
-        paymentDate: '2025-01-14',
-        paymentReference: 'GCH-20250114-003'
-      },
-      {
-        id: 'STU-001239',
-        firstName: 'Pedro',
-        lastName: 'Reyes',
-        email: 'pedro.reyes@university.edu',
-        phone: '09171234572',
-        program: 'BS Computer Science',
-        yearLevel: '1st Year',
-        gpa: 0,
-        studentType: 'New',
-        enrollmentStatus: 'Enrolled',
-        paymentStatus: 'Paid',
-        approvalStatus: 'Approved',
-        enrollmentDate: '2025-01-19',
-        paymentAmount: 30000,
-        paymentDate: '2025-01-17',
-        paymentReference: 'GCH-20250117-004'
-      }
-    ];
-  }
+  // ── Load student list from registrar.php ──────────────────────────────────
+  loadStudents(): void {
+    this.loading = true;
+    this.error   = '';
 
-  get filteredStudents(): StudentEnrollment[] {
-    return this.allStudents.filter(student => {
-      const searchLower = this.searchQuery.toLowerCase();
-      const matchesSearch = searchLower === '' ||
-                           student.firstName.toLowerCase().includes(searchLower) ||
-                           student.lastName.toLowerCase().includes(searchLower) ||
-                           student.id.toLowerCase().includes(searchLower) ||
-                           student.email.toLowerCase().includes(searchLower);
+    // FIX: removed manual _token — authInterceptor adds it automatically.
+    // Double _token in URL caused Apache to reject the OPTIONS preflight (CORS error).
+    const params: Record<string, string> = {
+      action: 'masterlist_students',
+      page:   String(this.page),
+      limit:  String(this.limit),
+    };
 
-      const matchesStatus = this.filterStatus === null || this.filterStatus === '' || student.enrollmentStatus === this.filterStatus;
-      const matchesPayment = this.filterPaymentStatus === null || this.filterPaymentStatus === '' || student.paymentStatus === this.filterPaymentStatus;
+    if (this.searchQuery)    params['q']        = this.searchQuery;
+    if (this.filterStatus)   params['status']   = this.filterStatus;
+    if (this.filterProgram)  params['program']  = this.filterProgram;
+    if (this.filterCategory) params['category'] = this.filterCategory;
+    if (this.filterPayment)  params['payment']  = this.filterPayment;
 
-      return matchesSearch && matchesStatus && matchesPayment;
-    });
-  }
+    const qs = new URLSearchParams(params).toString();
 
-  updateStatistics(): void {
-    this.totalEnrollments = this.allStudents.length;
-    this.totalPendingEnrollments = this.allStudents.filter(s => s.enrollmentStatus === 'Pending').length;
-    this.totalApprovedEnrollments = this.allStudents.filter(s => s.approvalStatus === 'Approved').length;
-    this.totalUnpaidEnrollments = this.allStudents.filter(s => s.paymentStatus !== 'Paid').length;
-  }
-
-  updatePaymentStatusFromAccounting(): void {
-    // Update payment status for all students from the accounting payment service
-    this.allStudents.forEach(student => {
-      this.paymentService.getPaymentStatus(student.id).subscribe(payment => {
-        if (payment) {
-          student.paymentStatus = payment.status;
-          student.paymentAmount = payment.amount;
-          student.paymentDate = payment.paidDate;
-          student.paymentReference = payment.paymentReference;
+    this.http.get<any>(`${REGISTRAR_API}?${qs}`).subscribe({
+      next: (res) => {
+        this.loading    = false;
+        if (res.success) {
+          this.students   = res.students ?? [];
+          this.total      = res.total    ?? 0;
+          this.totalPages = res.totalPages ?? 0;
+          this.programs   = res.programs  ?? [];
+        } else {
+          this.error = res.message || 'Failed to load students';
         }
-      });
+        this.cdr.detectChanges();
+      },
+      error: () => {
+        this.loading = false;
+        this.error = 'Connection error. Make sure XAMPP is running.';
+        this.cdr.detectChanges();
+      }
     });
   }
 
-  viewStudentDetails(student: StudentEnrollment): void {
-    this.selectedStudent = student;
-    this.selectedStudentCourses = this.getStudentCourses(student.id);
-    this.showStudentDetails = true;
+  // ── Load stats (separate counts per status) ───────────────────────────────
+  loadStats(): void {
+    // FIX: removed manual token reads — authInterceptor sends token automatically.
+
+    // Total
+    this.http.get<any>(`${REGISTRAR_API}?action=masterlist_students&limit=1&page=1`).subscribe({
+      next: (res) => {
+        if (res.success) this.stats.total = res.total ?? 0;
+      }
+    });
+
+    // Pending enrollment
+    this.http.get<any>(`${REGISTRAR_API}?action=masterlist_students&status=Pending&limit=1&page=1`).subscribe({
+      next: (res) => {
+        if (res.success) this.stats.pending = res.total ?? 0;
+      }
+    });
+
+    // Enrolled
+    this.http.get<any>(`${REGISTRAR_API}?action=masterlist_students&status=Enrolled&limit=1&page=1`).subscribe({
+      next: (res) => {
+        if (res.success) this.stats.enrolled = res.total ?? 0;
+      }
+    });
   }
 
-  closeStudentDetails(): void {
-    this.showStudentDetails = false;
+  // ── View student detail (load courses + fees) ─────────────────────────────
+  viewDetail(student: Student): void {
+    this.selectedStudent = { ...student, loadingDetail: true, courses: [], fees: undefined };
+    this.showDetail      = true;
+
+    // FIX: removed manual _token — interceptor handles it.
+
+    // 1. Load enrolled courses from enrollment.php
+    this.http.get<any>(`${ENROLLMENT_API}?action=get_student_enrollments&student_id=${student.id}`).subscribe({
+      next: (res) => {
+        if (res.success && this.selectedStudent) {
+          this.selectedStudent.courses = (res.enrolled ?? []).map((c: any) => ({
+            enrollment_id: c.enrollment_id,
+            course_id:     c.course_id,
+            code:          c.code,
+            name:          c.name,
+            credits:       +c.credits,
+            lecUnits:      +(c.lecUnits ?? c.lec_units ?? c.credits ?? 0),
+            labUnits:      +(c.labUnits ?? c.lab_units ?? 0),
+            isGeneral:     !!(c.isGeneral ?? c.is_general),
+            isLab:         !!(c.isLab ?? c.is_lab),
+            instructor:    c.instructor || '—',
+            day:           c.day        || '—',
+            time:          c.time       || '—',
+            room:          c.room       || '—',
+            semester:      c.semester   || '—',
+            status:        c.status,
+          }));
+        }
+        if (this.selectedStudent) this.selectedStudent.loadingDetail = false;
+        this.cdr.detectChanges();
+      },
+      error: () => {
+        if (this.selectedStudent) this.selectedStudent.loadingDetail = false;
+        this.cdr.detectChanges();
+      }
+    });
+
+    // 2. Load fee breakdown from enrollment.php get_student_context
+    this.http.get<any>(`${ENROLLMENT_API}?action=get_student_context&student_id=${student.id}`).subscribe({
+      next: (res) => {
+        if (res.success && res.fees && this.selectedStudent) {
+          this.selectedStudent.fees = res.fees as FeeBreakdown;
+          this.cdr.detectChanges();
+        }
+      }
+    });
+  }
+
+  closeDetail(): void {
+    this.showDetail      = false;
     this.selectedStudent = null;
-    this.selectedStudentCourses = [];
   }
 
-  getStudentCourses(studentId: string): EnrolledCourse[] {
-    // Mock data for student courses
-    const coursesByStudent: { [key: string]: EnrolledCourse[] } = {
-      'STU-001234': [
-        {
-          id: '1',
-          code: 'CS111',
-          name: 'Introduction to Programming',
-          credits: 3,
-          instructor: 'Engr. Maria Santos',
-          schedule: 'MWF 8:00 AM - 9:30 AM',
-          room: 'CS Building Room 101',
-          enrollmentDate: '2025-01-15',
-          status: 'Enrolled'
-        },
-        {
-          id: '2',
-          code: 'CS112',
-          name: 'Web Development Basics',
-          credits: 3,
-          instructor: 'Engr. Juan Reyes',
-          schedule: 'TTh 10:00 AM - 11:30 AM',
-          room: 'CS Building Room 205',
-          enrollmentDate: '2025-01-15',
-          status: 'Enrolled'
-        },
-        {
-          id: '3',
-          code: 'MATH101',
-          name: 'Discrete Mathematics',
-          credits: 4,
-          instructor: 'Engr. Anna Garcia',
-          schedule: 'MWF 9:45 AM - 11:15 AM',
-          room: 'Science Building Room 301',
-          enrollmentDate: '2025-01-15',
-          status: 'Pending'
-        }
-      ],
-      'STU-001235': [
-        {
-          id: '1',
-          code: 'CS111',
-          name: 'Introduction to Programming',
-          credits: 3,
-          instructor: 'Engr. Maria Santos',
-          schedule: 'MWF 8:00 AM - 9:30 AM',
-          room: 'CS Building Room 101',
-          enrollmentDate: '2025-01-20',
-          status: 'Pending'
-        }
-      ],
-      'STU-001236': [
-        {
-          id: '2',
-          code: 'CS112',
-          name: 'Web Development Basics',
-          credits: 3,
-          instructor: 'Engr. Juan Reyes',
-          schedule: 'TTh 10:00 AM - 11:30 AM',
-          room: 'CS Building Room 205',
-          enrollmentDate: '2025-01-12',
-          status: 'Enrolled'
-        },
-        {
-          id: '4',
-          code: 'CS113',
-          name: 'Database Fundamentals',
-          credits: 3,
-          instructor: 'Engr. Luis Rodriguez',
-          schedule: 'TTh 1:00 PM - 2:30 PM',
-          room: 'CS Building Room 312',
-          enrollmentDate: '2025-01-12',
-          status: 'Enrolled'
-        }
-      ],
-      'STU-001237': [
-        {
-          id: '5',
-          code: 'ENG101',
-          name: 'English Composition',
-          credits: 3,
-          instructor: 'Prof. Sarah Kim',
-          schedule: 'MWF 1:00 PM - 2:30 PM',
-          room: 'Liberal Arts Building Room 115',
-          enrollmentDate: '2025-01-18',
-          status: 'Pending'
-        }
-      ],
-      'STU-001238': [
-        {
-          id: '1',
-          code: 'CS111',
-          name: 'Introduction to Programming',
-          credits: 3,
-          instructor: 'Engr. Maria Santos',
-          schedule: 'MWF 8:00 AM - 9:30 AM',
-          room: 'CS Building Room 101',
-          enrollmentDate: '2025-01-16',
-          status: 'Enrolled'
-        },
-        {
-          id: '3',
-          code: 'MATH101',
-          name: 'Discrete Mathematics',
-          credits: 4,
-          instructor: 'Engr. Anna Garcia',
-          schedule: 'MWF 9:45 AM - 11:15 AM',
-          room: 'Science Building Room 301',
-          enrollmentDate: '2025-01-16',
-          status: 'Enrolled'
-        }
-      ],
-      'STU-001239': [
-        {
-          id: '1',
-          code: 'CS111',
-          name: 'Introduction to Programming',
-          credits: 3,
-          instructor: 'Engr. Maria Santos',
-          schedule: 'MWF 8:00 AM - 9:30 AM',
-          room: 'CS Building Room 101',
-          enrollmentDate: '2025-01-19',
-          status: 'Enrolled'
-        },
-        {
-          id: '2',
-          code: 'CS112',
-          name: 'Web Development Basics',
-          credits: 3,
-          instructor: 'Engr. Juan Reyes',
-          schedule: 'TTh 10:00 AM - 11:30 AM',
-          room: 'CS Building Room 205',
-          enrollmentDate: '2025-01-19',
-          status: 'Enrolled'
-        }
-      ]
-    };
-
-    return coursesByStudent[studentId] || [];
+  // ── Pagination ────────────────────────────────────────────────────────────
+  goToPage(p: number): void {
+    if (p < 1 || p > this.totalPages) return;
+    this.page = p;
+    this.loadStudents();
   }
 
-  approveEnrollment(student: StudentEnrollment): void {
-    if (student.approvalStatus === 'Pending') {
-      // Check if student has paid
-      if (student.paymentStatus !== 'Paid') {
-        this.addNotification('warning', `Cannot approve: ${student.firstName} ${student.lastName} has not completed payment (Status: ${student.paymentStatus})`);
-        return;
-      }
-      student.approvalStatus = 'Approved';
-      student.enrollmentStatus = 'Enrolled';
-      this.addNotification('success', `Enrollment approved for ${student.firstName} ${student.lastName} (Payment verified)`);
-    }
+  applyFilters(): void {
+    this.page = 1;
+    this.loadStudents();
+    this.loadStats();
   }
 
-  canApproveEnrollment(student: StudentEnrollment): boolean {
-    return student.approvalStatus === 'Pending' && student.paymentStatus === 'Paid';
+  clearFilters(): void {
+    this.searchQuery    = '';
+    this.filterStatus   = '';
+    this.filterProgram  = '';
+    this.filterCategory = '';
+    this.filterPayment  = '';
+    this.page           = 1;
+    this.loadStudents();
+    this.loadStats();
   }
 
-  rejectEnrollment(student: StudentEnrollment): void {
-    if (student.approvalStatus === 'Pending') {
-      student.approvalStatus = 'Rejected';
-      student.enrollmentStatus = 'Dropped';
-      this.addNotification('warning', `Enrollment rejected for ${student.firstName} ${student.lastName}`);
-    }
-  }
-
-  getStatusColor(status: string): string {
-    const colors: { [key: string]: string } = {
-      'Pending': '#ff9800',
-      'Enrolled': '#4caf50',
-      'Approved': '#2196f3',
-      'Rejected': '#f44336',
-      'Completed': '#9c27b0',
-      'Dropped': '#9e9e9e',
-      'Paid': '#4caf50',
-      'Overdue': '#f44336'
-    };
-    return colors[status] || '#999';
-  }
-
-  getDisplayName(student: StudentEnrollment): string {
-    return `${student.firstName} ${student.lastName}`;
-  }
-
-  toggleStudentSelection(studentId: string): void {
-    if (this.selectedStudentIds.has(studentId)) {
-      this.selectedStudentIds.delete(studentId);
-    } else {
-      this.selectedStudentIds.add(studentId);
-    }
-  }
-
-  isStudentSelected(studentId: string): boolean {
-    return this.selectedStudentIds.has(studentId);
-  }
-
-  selectAllStudents(): void {
-    this.filteredStudents.forEach(student => {
-      this.selectedStudentIds.add(student.id);
-    });
-  }
-
-  deselectAllStudents(): void {
-    this.selectedStudentIds.clear();
-  }
-
-  get selectedStudentCount(): number {
-    return this.selectedStudentIds.size;
-  }
-
-  get areAllStudentsSelected(): boolean {
-    return this.selectedStudentIds.size === this.filteredStudents.length && this.filteredStudents.length > 0;
-  }
-
-  getTotalEnrolledCredits(courses: EnrolledCourse[]): number {
-    return courses
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  get totalCredits(): number {
+    return (this.selectedStudent?.courses ?? [])
       .filter(c => c.status === 'Enrolled' || c.status === 'Pending')
-      .reduce((sum, course) => sum + course.credits, 0);
+      .reduce((s, c) => s + c.credits, 0);
   }
 
-  notifications: Array<{ type: string; message: string; id: number }> = [];
-  notificationCounter = 0;
+  statusClass(status: string): string {
+    const map: Record<string, string> = {
+      Enrolled: 'badge-green',
+      Pending:  'badge-yellow',
+      Dropped:  'badge-gray',
+      Approved: 'badge-blue',
+      Rejected: 'badge-red',
+      Paid:     'badge-green',
+      Unpaid:   'badge-red',
+      Partial:  'badge-yellow',
+    };
+    return map[status] ?? 'badge-gray';
+  }
 
-  addNotification(type: string, message: string): void {
-    const id = this.notificationCounter++;
-    this.notifications.push({ type, message, id });
+  fmt(val: number): string {
+    return '₱' + val.toLocaleString('en-PH', { minimumFractionDigits: 2 });
+  }
 
+  // ── Notifications ─────────────────────────────────────────────────────────
+  notify(type: string, message: string): void {
+    const id = this._notifId++;
+    this.notifications.push({ id, type, message });
     setTimeout(() => {
       this.notifications = this.notifications.filter(n => n.id !== id);
-    }, 3000);
+      this.cdr.detectChanges();
+    }, 4000);
   }
 
-  dismissNotification(id: number): void {
+  dismiss(id: number): void {
     this.notifications = this.notifications.filter(n => n.id !== id);
   }
 
-  clearSearch(): void {
-    this.searchQuery = '';
+  isMinor(code: string): boolean {
+    if (!code) return false;
+    const upper = code.toUpperCase();
+    return upper.startsWith('GE') || upper.startsWith('PE') ||
+           upper.startsWith('NSTP') || upper.startsWith('OJT');
   }
 
-  resetFilters(): void {
-    this.filterStatus = null;
-    this.filterPaymentStatus = null;
-  }
 }

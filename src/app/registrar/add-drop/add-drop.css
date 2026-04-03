@@ -166,3 +166,58 @@
 .adr-mf-confirm:disabled { opacity:0.5;cursor:not-allowed; }
 .adr-mf-approve { background:linear-gradient(135deg,#065f46,#10b981); }
 .adr-mf-reject  { background:linear-gradient(135deg,#7f1d1d,#dc2626); }
+/* ── Add/Drop Window Tab ──────────────────────────────────────────────────── */
+.adr-win-dot { font-size:0.65rem;font-weight:800;padding:2px 7px;border-radius:20px;letter-spacing:0.3px; }
+.adr-win-open   { background:#dcfce7;color:#15803d; }
+.adr-win-closed { background:#fee2e2;color:#dc2626; }
+
+.adr-win-page { display:flex;flex-direction:column;gap:18px; }
+
+/* Status card */
+.adr-win-status-card {
+  display:flex;align-items:center;gap:16px;
+  border-radius:14px;padding:20px 24px;
+  border:2px solid;transition:all 0.2s;
+}
+.adr-win-status-open   { background:linear-gradient(135deg,#f0fdf4,#dcfce7);border-color:#86efac; }
+.adr-win-status-closed { background:linear-gradient(135deg,#fff1f2,#fee2e2);border-color:#fca5a5; }
+.adr-win-status-icon { font-size:2.2rem;flex-shrink:0; }
+.adr-win-status-info { flex:1; }
+.adr-win-status-title { font-size:1.05rem;font-weight:700;color:#1e293b; }
+.adr-win-status-title strong { font-size:1.1rem; }
+.adr-win-status-sub { font-size:0.82rem;color:#475569;margin-top:4px; }
+
+/* Form card */
+.adr-win-form-card {
+  background:#fff;border:1.5px solid #e2e8f0;border-radius:14px;
+  padding:24px;box-shadow:0 2px 12px rgba(0,0,0,0.05);
+}
+.adr-win-form-title { font-size:1rem;font-weight:800;color:#1e293b;margin-bottom:4px; }
+.adr-win-form-sub   { font-size:0.82rem;color:#64748b;margin-bottom:18px; }
+
+.adr-win-success { background:#dcfce7;border:1.5px solid #86efac;border-radius:8px;padding:10px 14px;font-size:0.85rem;color:#166534;font-weight:600;margin-bottom:14px; }
+.adr-win-error   { background:#fff1f2;border:1.5px solid #fca5a5;border-radius:8px;padding:10px 14px;font-size:0.85rem;color:#be123c;font-weight:600;margin-bottom:14px; }
+
+.adr-win-fields { display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:20px; }
+@media (max-width:600px) { .adr-win-fields { grid-template-columns:1fr; } }
+.adr-win-full { grid-column:1 / -1; }
+
+.adr-win-field {}
+.adr-win-lbl { display:block;font-size:0.76rem;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px; }
+.adr-win-req { color:#ef4444; }
+.adr-win-input {
+  width:100%;padding:10px 12px;border:2px solid #e2e8f0;border-radius:9px;
+  font-size:0.88rem;outline:none;box-sizing:border-box;color:#1e293b;
+  transition:border-color 0.15s;
+}
+.adr-win-input:focus { border-color:#3b82f6; }
+
+.adr-win-form-footer { display:flex;align-items:center;gap:16px;flex-wrap:wrap; }
+.adr-win-save-btn {
+  padding:11px 26px;background:linear-gradient(135deg,#1e3a8a,#3b82f6);
+  color:#fff;border:none;border-radius:10px;font-size:0.9rem;font-weight:700;
+  cursor:pointer;transition:opacity 0.15s,transform 0.1s;
+}
+.adr-win-save-btn:hover:not(:disabled) { opacity:0.9;transform:translateY(-1px); }
+.adr-win-save-btn:disabled { opacity:0.5;cursor:not-allowed; }
+.adr-win-note { font-size:0.76rem;color:#94a3b8;font-style:italic; }

@@ -2,57 +2,193 @@
 <div class="dashboard-header">
   <div class="header-content">
     <h1>📊 Admin Dashboard</h1>
-    <p class="header-subtitle">{{ semesterInfo.current }}</p>
+    <p class="header-subtitle">System Overview</p>
   </div>
+  <div *ngIf="isLoading" class="loading-chip">⏳ Loading...</div>
 </div>
 
-<!-- Stats Grid -->
+<!-- ── Primary stat cards ── -->
 <div class="stats-container">
-  <div *ngFor="let stat of stats" class="stat-card" [style.border-top]="'3px solid ' + stat.color">
+
+  <div class="stat-card" style="border-top: 3px solid #3b82f6;">
     <div class="stat-header">
-      <span class="stat-icon">{{ stat.icon }}</span>
+      <span class="stat-icon">👨‍🎓</span>
       <div class="stat-info">
-        <h3 class="stat-label">{{ stat.label }}</h3>
-        <p class="stat-change">{{ stat.change }}</p>
+        <h3 class="stat-label">Student Profiles</h3>
+        <p class="stat-change">
+          <span class="chip enrolled">✓ {{ enrolledStudents }} enrolled</span>
+          <span class="chip pending" *ngIf="pendingStudents > 0">⏳ {{ pendingStudents }} pending</span>
+        </p>
       </div>
     </div>
-    <div class="stat-value">{{ stat.value }}</div>
+    <div class="stat-value">{{ totalStudents | number }}</div>
+    <div class="stat-sub">{{ enrollmentRate }}% enrollment rate</div>
+  </div>
+
+  <div class="stat-card" style="border-top: 3px solid #6366f1;">
+    <div class="stat-header">
+      <span class="stat-icon">🔑</span>
+      <div class="stat-info">
+        <h3 class="stat-label">Student Accounts</h3>
+        <p class="stat-change">
+          <span class="chip enrolled">Total user logins</span>
+        </p>
+      </div>
+    </div>
+    <div class="stat-value">{{ studentUserAccounts | number }}</div>
+    <div class="stat-sub" *ngIf="orphanAccounts > 0" style="color:#f59e0b;">
+      ⚠️ {{ orphanAccounts }} accounts with no profile
+    </div>
+    <div class="stat-sub" *ngIf="orphanAccounts === 0 && !isLoading" style="color:#10b981;">
+      ✓ All accounts have profiles
+    </div>
+  </div>
+
+  <div class="stat-card" style="border-top: 3px solid #10b981;">
+    <div class="stat-header">
+      <span class="stat-icon">👨‍🏫</span>
+      <div class="stat-info">
+        <h3 class="stat-label">Total Faculty</h3>
+        <p class="stat-change">Active faculty members</p>
+      </div>
+    </div>
+    <div class="stat-value">{{ facultyCount | number }}</div>
+  </div>
+
+  <div class="stat-card" style="border-top: 3px solid #f59e0b;">
+    <div class="stat-header">
+      <span class="stat-icon">📚</span>
+      <div class="stat-info">
+        <h3 class="stat-label">Active Courses</h3>
+        <p class="stat-change">In curriculum</p>
+      </div>
+    </div>
+    <div class="stat-value">{{ courseCount | number }}</div>
+  </div>
+
+</div>
+
+<!-- ── User accounts breakdown ── -->
+<div class="section-card" *ngIf="!isLoading && totalUserAccounts > 0">
+  <h3 class="section-title">🔑 User Accounts by Role</h3>
+  <div class="role-grid">
+    <div class="role-chip" *ngFor="let role of userCountsByRole | keyvalue">
+      <span class="role-label">{{ roleLabel(role.key) }}</span>
+      <span class="role-count">{{ role.value }}</span>
+    </div>
+    <div class="role-chip total-chip">
+      <span class="role-label">📊 Total Accounts</span>
+      <span class="role-count">{{ totalUserAccounts }}</span>
+    </div>
   </div>
 </div>
 
-<!-- Semester Info -->
-<div class="semester-info">
-  <h3>Current Semester Information</h3>
-  <div class="semester-grid">
-    <div class="semester-item">
-      <span class="semester-label">Semester:</span>
-      <span class="semester-value">{{ semesterInfo.current }}</span>
+<!-- ── Students by program ── -->
+<div class="two-col-grid" *ngIf="!isLoading">
+
+  <div class="section-card">
+    <h3 class="section-title">🎓 Students by Program</h3>
+    <div *ngIf="byProgram.length === 0" class="empty-note">No data yet.</div>
+    <div class="bar-list">
+      <div class="bar-row" *ngFor="let p of byProgram">
+        <span class="bar-label" [title]="p.program">{{ p.program || 'Unknown' }}</span>
+        <div class="bar-track">
+          <div class="bar-fill" [style.width.%]="totalStudents ? (p.cnt / totalStudents * 100) : 0"></div>
+        </div>
+        <span class="bar-count">{{ p.cnt }}</span>
+      </div>
     </div>
-    <div class="semester-item">
-      <span class="semester-label">Start Date:</span>
-      <span class="semester-value">{{ semesterInfo.startDate }}</span>
+  </div>
+
+  <div class="section-card">
+    <h3 class="section-title">📅 Students by Year Level</h3>
+    <div *ngIf="byYearLevel.length === 0" class="empty-note">No data yet.</div>
+    <div class="bar-list">
+      <div class="bar-row" *ngFor="let y of byYearLevel">
+        <span class="bar-label">{{ y.year_level || 'Unknown' }}</span>
+        <div class="bar-track">
+          <div class="bar-fill blue" [style.width.%]="totalStudents ? (y.cnt / totalStudents * 100) : 0"></div>
+        </div>
+        <span class="bar-count">{{ y.cnt }}</span>
+      </div>
     </div>
-    <div class="semester-item">
-      <span class="semester-label">End Date:</span>
-      <span class="semester-value">{{ semesterInfo.endDate }}</span>
+  </div>
+
+</div>
+
+<!-- ── Enrollment status breakdown ── -->
+<div class="section-card" *ngIf="!isLoading && totalStudents > 0">
+  <h3 class="section-title">📋 Enrollment Status</h3>
+  <div class="status-pills">
+    <div class="status-pill enrolled">
+      <span class="pill-count">{{ enrolledStudents }}</span>
+      <span class="pill-label">Enrolled</span>
     </div>
-    <div class="semester-item">
-      <span class="semester-label">Enrollment Cutoff:</span>
-      <span class="semester-value">{{ semesterInfo.enrollmentCutoff }}</span>
+    <div class="status-pill pending">
+      <span class="pill-count">{{ pendingStudents }}</span>
+      <span class="pill-label">Pending</span>
+    </div>
+    <div class="status-pill inactive">
+      <span class="pill-count">{{ inactiveStudents }}</span>
+      <span class="pill-label">Inactive / Other</span>
+    </div>
+    <div class="status-pill total">
+      <span class="pill-count">{{ totalStudents }}</span>
+      <span class="pill-label">Total Profiles</span>
     </div>
   </div>
 </div>
 
-<!-- Recent Activities -->
-<div class="recent-activities">
-  <h3>Recent Activities</h3>
-  <div class="activities-list">
-    <div *ngFor="let activity of recentActivities" class="activity-item">
-      <div class="activity-icon">{{ activity.icon }}</div>
-      <div class="activity-content">
-        <p class="activity-text">{{ activity.activity }}</p>
-        <p class="activity-time">{{ activity.timestamp }}</p>
-      </div>
-    </div>
-  </div>
-</div>
+<style>
+.dashboard-header { display:flex; justify-content:space-between; align-items:center; padding:16px 0 20px; }
+.dashboard-header h1 { font-size:1.4rem; font-weight:700; margin:0; }
+.header-subtitle { color:#6b7280; font-size:.9rem; margin:2px 0 0; }
+.loading-chip { background:#eff6ff; color:#1d4ed8; padding:4px 12px; border-radius:20px; font-size:.8rem; }
+
+.stats-container { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:14px; margin-bottom:20px; }
+.stat-card { background:#fff; border-radius:10px; padding:16px; box-shadow:0 1px 4px rgba(0,0,0,.08); }
+.stat-header { display:flex; gap:10px; align-items:flex-start; margin-bottom:8px; }
+.stat-icon { font-size:1.6rem; }
+.stat-label { font-weight:600; font-size:.88rem; color:#374151; margin:0; }
+.stat-change { font-size:.78rem; color:#6b7280; margin:2px 0 0; display:flex; gap:4px; flex-wrap:wrap; }
+.stat-value { font-size:2rem; font-weight:800; color:#111827; }
+.stat-sub { font-size:.76rem; color:#6b7280; margin-top:3px; }
+
+.chip { padding:2px 7px; border-radius:10px; font-size:.74rem; }
+.chip.enrolled { background:#dcfce7; color:#166534; }
+.chip.pending  { background:#fef3c7; color:#92400e; }
+
+.section-card { background:#fff; border-radius:10px; padding:16px 18px; box-shadow:0 1px 4px rgba(0,0,0,.08); margin-bottom:16px; }
+.section-title { font-size:.92rem; font-weight:700; color:#1f2937; margin:0 0 14px; }
+.empty-note { color:#9ca3af; font-size:.85rem; }
+
+.role-grid { display:flex; flex-wrap:wrap; gap:10px; }
+.role-chip { display:flex; align-items:center; gap:8px; background:#f9fafb; border:1px solid #e5e7eb; border-radius:8px; padding:8px 14px; }
+.role-label { font-size:.85rem; color:#374151; }
+.role-count { font-size:1.1rem; font-weight:700; color:#1d4ed8; }
+.total-chip { background:#eff6ff; border-color:#bfdbfe; }
+
+.two-col-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:16px; }
+@media(max-width:700px){ .two-col-grid { grid-template-columns:1fr; } }
+
+.bar-list { display:flex; flex-direction:column; gap:8px; }
+.bar-row { display:flex; align-items:center; gap:8px; }
+.bar-label { width:130px; font-size:.78rem; color:#374151; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex-shrink:0; }
+.bar-track { flex:1; background:#f3f4f6; border-radius:4px; height:10px; overflow:hidden; }
+.bar-fill  { height:100%; background:#6366f1; border-radius:4px; transition:width .4s; }
+.bar-fill.blue { background:#3b82f6; }
+.bar-count { font-size:.78rem; font-weight:600; color:#374151; width:32px; text-align:right; }
+
+.status-pills { display:flex; flex-wrap:wrap; gap:12px; }
+.status-pill { display:flex; flex-direction:column; align-items:center; border-radius:10px; padding:12px 20px; min-width:90px; }
+.status-pill.enrolled { background:#dcfce7; }
+.status-pill.pending  { background:#fef3c7; }
+.status-pill.inactive { background:#f3f4f6; }
+.status-pill.total    { background:#eff6ff; }
+.pill-count { font-size:1.6rem; font-weight:800; }
+.status-pill.enrolled .pill-count { color:#166534; }
+.status-pill.pending  .pill-count { color:#92400e; }
+.status-pill.inactive .pill-count { color:#374151; }
+.status-pill.total    .pill-count { color:#1d4ed8; }
+.pill-label { font-size:.75rem; color:#6b7280; margin-top:3px; }
+</style>

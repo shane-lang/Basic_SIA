@@ -8,6 +8,7 @@ import { MatInputModule } from '@angular/material/input';
 import { MatButtonModule } from '@angular/material/button';
 import { MatIconModule } from '@angular/material/icon';
 import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
+import { environment } from '../../environment';
 
 @Component({
   selector: 'app-gcash',
@@ -20,8 +21,8 @@ import { MatSnackBar, MatSnackBarModule } from '@angular/material/snack-bar';
   styleUrl: './gcash.css',
 })
 export class Gcash implements OnInit {
-  private apiUrl         = 'http://localhost/sia-api/accounting.php';
-  private enrollmentApi  = 'http://localhost/sia-api/enrollment.php';
+  private apiUrl         = environment.accountingApi;
+  private enrollmentApi  = environment.enrollApi;
 
   // Form fields (plain properties — NOT signals, for ngModel compatibility)
   referenceNumber  = '';
@@ -38,14 +39,6 @@ export class Gcash implements OnInit {
   encodedData: any = null;
   processing       = false;
   submitted        = false; // true after successful submission to accounting
-
-  
-  /** Returns HTTP headers with the auth token. Call this in every API request. */
-  private getHeaders() {
-    const token = sessionStorage.getItem('token') ?? '';
-    return { headers: { Authorization: `Bearer ${token}` } };
-  }
-
   constructor(
     private http: HttpClient,
     private snackBar: MatSnackBar,
@@ -61,7 +54,7 @@ export class Gcash implements OnInit {
     if (!stored) return;
     const user = JSON.parse(stored);
 
-    this.http.get<any>(`${this.enrollmentApi}?action=get_profile&user_id=${user.id}`, this.getHeaders()).subscribe({
+    this.http.get<any>(`${this.enrollmentApi}?action=get_profile&user_id=${user.id}`).subscribe({
       next: (res) => {
         if (res.success) {
           const s = res.student;
@@ -87,6 +80,10 @@ export class Gcash implements OnInit {
 
           this.cdr.detectChanges();
         }
+      },
+      error: () => {
+        this.snackBar.open('Failed to load student profile. Please refresh.', 'Close', { duration: 3000 });
+        this.cdr.detectChanges();
       }
     });
   }
@@ -117,7 +114,7 @@ export class Gcash implements OnInit {
     };
 
     // Submit to accounting API
-    this.http.post<any>(`${this.apiUrl}?action=submit_gcash`, payload, this.getHeaders()).subscribe({
+    this.http.post<any>(`${this.apiUrl}?action=submit_gcash`, payload).subscribe({
       next: (res) => {
         this.processing = false;
         if (res.success) {

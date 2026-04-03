@@ -1,7 +1,8 @@
 import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { HttpClient, HttpHeaders } from '@angular/common/http';
+import { HttpClient } from '@angular/common/http';
+import { environment } from '../../environment';
 
 @Component({
   selector: 'app-settings',
@@ -11,7 +12,7 @@ import { HttpClient, HttpHeaders } from '@angular/common/http';
   styleUrl: './settings.css',
 })
 export class Settings implements OnInit {
-  private apiUrl = 'http://localhost/sia-api/enrollment.php';
+  private apiUrl = environment.enrollApi;
 
   period = { is_open: false, start: '', end: '', label: '' };
   isOpen = false;
@@ -22,15 +23,9 @@ export class Settings implements OnInit {
 
   constructor(private http: HttpClient) {}
   ngOnInit(): void { this.loadPeriod(); }
-
-  private getHeaders() {
-    const token = localStorage.getItem('token') || sessionStorage.getItem('token') || '';
-    return { headers: new HttpHeaders({ Authorization: `Bearer ${token}` }) };
-  }
-
   loadPeriod(): void {
     this.isLoading = true;
-    this.http.get<any>(`${this.apiUrl}?action=get_enrollment_period`, this.getHeaders()).subscribe({
+    this.http.get<any>(`${this.apiUrl}?action=get_enrollment_period`).subscribe({
       next: res => {
         if (res.success) {
           const p = res.period ?? {};
@@ -49,7 +44,7 @@ export class Settings implements OnInit {
   savePeriod(): void {
     this.isSaving = true; this.saveMsg = '';
     const body = { is_open: this.period.is_open, start: this.period.start, end: this.period.end, label: this.period.label };
-    this.http.post<any>(`${this.apiUrl}?action=set_enrollment_period`, body, this.getHeaders()).subscribe({
+    this.http.post<any>(`${this.apiUrl}?action=set_enrollment_period`, body).subscribe({
       next: res => {
         this.isSaving = false;
         this.saveMsgType = res.success ? 'success' : 'error';

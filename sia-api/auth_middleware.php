@@ -1,101 +1,233 @@
 <?php
+// =============================================================================
+// auth_middleware.php — Updated: first_name/last_name fetched from
+//                       role-specific tables (students, faculty, staff_profiles)
+//                       instead of the users table.
+//
+// FIX AUTH-01: Token extraction now uses EVERY possible source Apache/XAMPP
+//              can deliver the Authorization header through, plus multiple
+//              fallback channels (X-Auth-Token header, _token query param).
+//              This resolves the {"success":false,"message":"Authentication
+//              required","code":"NO_TOKEN"} error that occurs because Apache
+//              strips the Authorization header before PHP sees it.
+// =============================================================================
+
+define('REFRESH_WINDOW_MINUTES', 30);
+
 /**
- * auth_middleware.php — self-healing version
- * Creates the sessions table automatically if it doesn't exist.
- * Include at the top of every protected PHP file.
+ * Verify the Bearer token and return the authenticated user array.
+ * Exits with 401/403 JSON on failure.
+ *
+ * Returned array keys: user_id, role, email, first_name, last_name
+ * Optional extra key:  new_token (set when the token was silently rotated)
  */
-function requireAuth(mysqli $conn, string $requiredRole = ''): array {
+function requireAuth(mysqli $conn, string $requiredRole = '', bool $allowPublic = false): ?array {
 
-    // ── Auto-create sessions table if missing (safe to run every request) ──
-    $conn->query("
-        CREATE TABLE IF NOT EXISTS sessions (
-            id         INT AUTO_INCREMENT PRIMARY KEY,
-            user_id    INT NOT NULL,
-            token      VARCHAR(64) NOT NULL UNIQUE,
-            role       VARCHAR(30) NOT NULL DEFAULT 'student',
-            expires_at DATETIME NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            INDEX idx_token (token),
-            INDEX idx_user  (user_id)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-    ");
-
-    // ── Extract Bearer token from Authorization header ──
-    $header = $_SERVER['HTTP_AUTHORIZATION']
-           ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION']
-           ?? (function_exists('apache_request_headers')
-               ? (apache_request_headers()['Authorization']
-               ?? apache_request_headers()['authorization'] ?? '') : '');
+    // ── 1. Extract Bearer token — try EVERY possible source ──────────────────
+    //
+    //  Apache/XAMPP has multiple ways it may (or may not) deliver the
+    //  Authorization header to PHP depending on:
+    //    • Apache version & OS
+    //    • PHP SAPI (mod_php vs CGI vs FPM)
+    //    • Whether AllowOverride is set and .htaccess RewriteRules fired
+    //    • Whether mod_rewrite rewrote the env var name
+    //
+    //  We probe every known location in priority order so that at least one
+    //  succeeds on any deployment.
 
     $token = '';
-    if (preg_match('/^Bearer\s+(\S+)$/i', $header, $m)) {
-        $token = $m[1];
-    }
-    // Fallback: allow ?token= query param
-    if (!$token && !empty($_GET['token'])) {
-        $token = trim($_GET['token']);
+
+    // --- Source A: Standard server variables (populated by mod_php or FPM) ---
+    $candidates = [
+        // Set by .htaccess: RewriteRule ^ - [E=HTTP_AUTHORIZATION:...]
+        $_SERVER['HTTP_AUTHORIZATION']          ?? '',
+        // Alternative capitalisation some XAMPP builds use
+        $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '',
+        // Set by .htaccess: SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1
+        $_SERVER['HTTP_X_AUTH_TOKEN']           ?? '',
+        // Raw env variable written by some CGI wrappers
+        getenv('HTTP_AUTHORIZATION')            ?: '',
+        getenv('REDIRECT_HTTP_AUTHORIZATION')   ?: '',
+    ];
+
+    // --- Source B: getallheaders() — available in mod_php, PHP 7.3+ globally --
+    if (function_exists('getallheaders')) {
+        $allHeaders = getallheaders();
+        // Header names are case-insensitive per RFC 7230
+        foreach ($allHeaders as $name => $value) {
+            $normalized = strtolower($name);
+            if ($normalized === 'authorization') {
+                $candidates[] = $value;
+                break;
+            }
+            if ($normalized === 'x-auth-token') {
+                // Also store X-Auth-Token from getallheaders() as a low-priority candidate
+                $candidates[] = 'X-Auth-Token: ' . $value;
+            }
+        }
     }
 
+    // --- Source C: apache_request_headers() — alias for getallheaders() ------
+    if (!$token && function_exists('apache_request_headers')) {
+        $apacheHeaders = apache_request_headers();
+        foreach ($apacheHeaders as $name => $value) {
+            if (strtolower($name) === 'authorization') {
+                $candidates[] = $value;
+                break;
+            }
+        }
+    }
+
+    // --- Extract Bearer token from whichever candidate contains it -----------
+    foreach ($candidates as $candidate) {
+        $candidate = trim((string)$candidate);
+        if ($candidate === '') continue;
+
+        // Standard: "Bearer <token>"
+        if (preg_match('/^Bearer\s+(\S+)$/i', $candidate, $m)) {
+            $token = $m[1];
+            break;
+        }
+
+        // X-Auth-Token forwarded as "X-Auth-Token: <value>" string
+        if (preg_match('/^X-Auth-Token:\s*(\S+)$/i', $candidate, $m)) {
+            $token = $m[1];
+            break;
+        }
+
+        // Raw token without "Bearer" prefix (some mobile clients)
+        if (strlen($candidate) === 64 && ctype_xdigit($candidate)) {
+            $token = $candidate;
+            break;
+        }
+    }
+
+    // --- Source D: X-Auth-Token header (explicit, client-side alternative) ---
+    if (!$token && !empty($_SERVER['HTTP_X_AUTH_TOKEN'])) {
+        $token = trim($_SERVER['HTTP_X_AUTH_TOKEN']);
+    }
+
+    // --- Source E: _token query param (last resort, e.g. for downloads) ------
+    if (!$token && !empty($_GET['_token'])) {
+        $token = trim($_GET['_token']);
+    }
+
+    // ── 2. No token found ─────────────────────────────────────────────────────
     if (!$token) {
-        http_response_code(401);
-        echo json_encode([
-            'success' => false,
-            'message' => 'Authentication required',
-            'code'    => 'NO_TOKEN',
-        ]);
-        exit();
+        if ($allowPublic) return null;
+        _authFail(401, 'Authentication required', 'NO_TOKEN');
     }
 
+    // ── 3. Look up session ────────────────────────────────────────────────────
     $stmt = $conn->prepare("
-        SELECT s.user_id, s.role, s.expires_at,
-               u.email, u.first_name, u.last_name
-        FROM sessions s
-        JOIN users u ON u.id = s.user_id
-        WHERE s.token = ? LIMIT 1
+        SELECT s.user_id, s.role, s.expires_at, s.token,
+               u.email
+        FROM   sessions s
+        JOIN   users    u ON u.id = s.user_id
+        WHERE  s.token = ?
+        LIMIT  1
     ");
 
     if (!$stmt) {
-        // sessions table still doesn't exist somehow
-        http_response_code(401);
-        echo json_encode(['success' => false, 'message' => 'Session store unavailable', 'code' => 'DB_ERROR']);
-        exit();
+        _authFail(500, 'Session store unavailable', 'DB_ERROR');
     }
 
-    $stmt->bind_param("s", $token);
+    $stmt->bind_param('s', $token);
     $stmt->execute();
     $row = $stmt->get_result()->fetch_assoc();
     $stmt->close();
 
     if (!$row) {
-        http_response_code(401);
-        echo json_encode([
-            'success' => false,
-            'message' => 'Session expired. Please log in again.',
-            'code'    => 'SESSION_EXPIRED',
-        ]);
-        exit();
+        // The session was not found. This could mean:
+        // 1. Token is invalid/expired
+        // 2. Another device logged in and replaced this session (no-dual-login)
+        // We can't distinguish without the user_id, so return a generic 401.
+        // The Angular interceptor will redirect to login and show the message.
+        _authFail(401, 'Your session has ended. You may have been logged in from another device.', 'SESSION_NOT_FOUND');
     }
 
-    if (strtotime($row['expires_at']) < time()) {
-        $del = $conn->prepare("DELETE FROM sessions WHERE token = ?");
-        $del->bind_param("s", $token);
+    $expiresAt = strtotime($row['expires_at']);
+
+    // ── 4. Hard-expired ───────────────────────────────────────────────────────
+    if ($expiresAt < time()) {
+        $del = $conn->prepare('DELETE FROM sessions WHERE token = ?');
+        $del->bind_param('s', $token);
         $del->execute();
         $del->close();
-        http_response_code(401);
-        echo json_encode([
-            'success' => false,
-            'message' => 'Session expired. Please log in again.',
-            'code'    => 'SESSION_EXPIRED',
-        ]);
-        exit();
+        _authFail(401, 'Session expired. Please log in again.', 'SESSION_EXPIRED');
     }
 
+    // ── 5. Role check ─────────────────────────────────────────────────────────
     if ($requiredRole && $row['role'] !== $requiredRole) {
-        http_response_code(403);
-        echo json_encode(['success' => false, 'message' => 'Access denied.', 'code' => 'FORBIDDEN']);
-        exit();
+        _authFail(403, 'Access denied.', 'FORBIDDEN');
     }
 
-    return $row;
+    // ── 6. Silent token rotation when close to expiry ─────────────────────────
+    $newToken = null;
+    $ttlHours = (int) env('SESSION_TTL_HOURS', '8');
+
+    if ($expiresAt - time() < REFRESH_WINDOW_MINUTES * 60) {
+        $newToken  = bin2hex(random_bytes(32));
+        $newExpiry = date('Y-m-d H:i:s', strtotime("+{$ttlHours} hours"));
+
+        $upd = $conn->prepare('UPDATE sessions SET token = ?, expires_at = ? WHERE token = ?');
+        $upd->bind_param('sss', $newToken, $newExpiry, $token);
+        $upd->execute();
+        $upd->close();
+
+        header("X-New-Token: $newToken");
+    }
+
+    // ── 7. Fetch name from the correct profile table ──────────────────────────
+    $profile = _getProfileName($conn, (int)$row['user_id'], $row['role']);
+
+    $authUser = [
+        'user_id'    => (int) $row['user_id'],
+        'role'       => $row['role'],
+        'email'      => $row['email'],
+        'first_name' => $profile['first_name'],
+        'last_name'  => $profile['last_name'],
+    ];
+    if ($newToken) {
+        $authUser['new_token'] = $newToken;
+    }
+
+    return $authUser;
 }
-?>
+
+// ── Fetch name from role-specific table ───────────────────────────────────────
+function _getProfileName(mysqli $conn, int $userId, string $role): array {
+    switch ($role) {
+        case 'student':
+            $st = $conn->prepare("SELECT first_name, last_name FROM students WHERE user_id = ? LIMIT 1");
+            break;
+        case 'faculty':
+            $st = $conn->prepare("SELECT first_name, last_name FROM faculty WHERE user_id = ? LIMIT 1");
+            break;
+        case 'admin':
+        case 'accounting':
+        case 'registrar':
+            $st = $conn->prepare("SELECT first_name, last_name FROM staff_profiles WHERE user_id = ? LIMIT 1");
+            break;
+        default:
+            return ['first_name' => '', 'last_name' => ''];
+    }
+
+    if (!$st) return ['first_name' => '', 'last_name' => ''];
+    $st->bind_param('i', $userId);
+    $st->execute();
+    $profile = $st->get_result()->fetch_assoc();
+    $st->close();
+
+    return [
+        'first_name' => $profile['first_name'] ?? '',
+        'last_name'  => $profile['last_name']  ?? '',
+    ];
+}
+
+// ── Internal helper ───────────────────────────────────────────────────────────
+function _authFail(int $code, string $message, string $errorCode): never {
+    http_response_code($code);
+    echo json_encode(['success' => false, 'message' => $message, 'code' => $errorCode]);
+    exit();
+}

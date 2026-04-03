@@ -130,7 +130,7 @@
           <div class="time-hr">{{ log.created_at | date:'h:mm:ss a' }}</div>
         </td>
         <td class="td-user">
-          <div class="user-email">{{ log.user_email || 'System' }}</div>
+          <div class="user-email">{{ (log.user_email | maskEmail) || 'System' }}</div>
           <!--<div class="user-id" *ngIf="log.user_id">ID: {{ log.user_id }}</div>-->
         </td>
         <td>
@@ -165,7 +165,7 @@
       <span class="action-tag" [ngClass]="actionClass(selectedLog.action)">{{ formatAction(selectedLog.action) }}</span>
     </h2>
     <p class="modal-meta">
-      By <strong>{{ selectedLog.user_email }}</strong> ·
+      By <strong>{{ selectedLog.user_email | maskEmail }}</strong> ·
       <span class="role-badge" [ngClass]="roleClass(selectedLog.user_role)">{{ selectedLog.user_role }}</span> ·
       {{ selectedLog.created_at | date:'medium' }}
     </p>

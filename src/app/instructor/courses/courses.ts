@@ -1,7 +1,8 @@
 import { Component, OnInit, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { HttpClient, HttpHeaders } from '@angular/common/http';
+import { HttpClient } from '@angular/common/http';
 import { Router } from '@angular/router';
+import { environment } from '../../environment';
 
 interface Course {
   id: number;
@@ -13,6 +14,9 @@ interface Course {
   program: string;
   yearLevel: string;
   isLab: boolean;
+  isGeneral: boolean;
+  lecUnits: number;
+  labUnits: number;
   enrolledCount: number;
   submittedCount: number;
   releasedCount: number;
@@ -20,6 +24,7 @@ interface Course {
   midtermDone: number;
   finalDone: number;
   gradeCompletion: number;
+  courseIds?: number[];   // all DB variant IDs merged into this card (e.g. GE103-BMD, GE103-CA)
 }
 
 @Component({
@@ -30,24 +35,18 @@ interface Course {
   styleUrl: './courses.css',
 })
 export class InstructorCourses implements OnInit {
-  private api = 'http://localhost/sia-api/faculty.php';
+  private readonly api = `${environment.facultyApi}`;
 
   courses: Course[] = [];
   isLoading = true;
   facultyInfo: { name: string; department: string; specialty: string } | null = null;
-
-  private getHeaders() {
-    const token = sessionStorage.getItem('token') || localStorage.getItem('token') || '';
-    return { headers: new HttpHeaders({ Authorization: `Bearer ${token}` }) };
-  }
-
   constructor(private http: HttpClient, private router: Router, private cdr: ChangeDetectorRef) {}
 
   ngOnInit(): void { this.loadCourses(); }
 
   loadCourses(): void {
     this.isLoading = true;
-    this.http.get<any>(`${this.api}?action=get_my_courses`, this.getHeaders()).subscribe({
+    this.http.get<any>(`${this.api}?action=get_my_courses`).subscribe({
       next: (res) => {
         this.isLoading = false;
         if (res.success) {
@@ -72,4 +71,16 @@ export class InstructorCourses implements OnInit {
     if (pct >= 50)  return '#d97706';
     return '#dc2626';
   }
+
+  // Classify subject as Minor/GE based on course code prefix
+  // GE, PE, NSTP, OJT prefixes = Minor/General Education
+  isMinor(code: string): boolean {
+    if (!code) return false;
+    const upper = code.toUpperCase();
+    return upper.startsWith('GE') ||
+           upper.startsWith('PE') ||
+           upper.startsWith('NSTP') ||
+           upper.startsWith('OJT');
+  }
+
 }

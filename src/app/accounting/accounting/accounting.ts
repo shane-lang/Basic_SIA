@@ -1,7 +1,11 @@
-import { Component, OnInit, ChangeDetectorRef } from '@angular/core';
+import { Component, OnInit, OnDestroy, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
+import { Subject, Subscription } from 'rxjs';
+import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
+import { environment } from '../../environment';
+import { MaskRefPipe } from '../../pipes/mask-ref.pipe';
 
 interface PendingPayment {
   logId:           number;
@@ -76,15 +80,43 @@ interface LiquidationReport {
   grandTotal:   number;
 }
 
+// ── UI-02: Per-student payment record ────────────────────────────────────────
+interface StudentPaymentRecord {
+  id:            number;
+  orArNumber:    string;
+  orArType:      string;
+  examPeriod:    string;
+  paymentDate:   string;
+  amount:        number;
+  paymentMethod: string;
+  verifiedBy:    string;
+  semester:      string;
+}
+
+interface StudentPaymentModalData {
+  studentId:       number;
+  studentNumber:   string;
+  firstName:       string;
+  lastName:        string;
+  history:         StudentPaymentRecord[];
+  totalPaid:       number;
+  totalAssessment: number;
+  balance:         number;
+  guardianEmail:   string;
+  semesters:       string[];
+  selectedSemester: string;
+}
+
 @Component({
   selector: 'app-accounting',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, MaskRefPipe],
   templateUrl: './accounting.html',
   styleUrl: './accounting.css',
 })
-export class Accounting implements OnInit {
-  private apiUrl = 'http://localhost/sia-api/accounting.php';
+export class Accounting implements OnInit, OnDestroy {
+  private apiUrl   = environment.accountingApi;
+  private enrollApi = environment.enrollApi;  // used for get_enrollment_period (public endpoint)
 
   currentTab: 'pending' | 'history' | 'installment' | 'liquidation' | 'duedates' = 'pending';
 
@@ -101,14 +133,397 @@ export class Accounting implements OnInit {
   // ── History view mode ─────────────────────────────────────
   historyViewMode: 'thumbnail' | 'list' = 'list';
 
-  // ── Search/Filter ─────────────────────────────────────────
-  searchQuery      = '';
-  filterMethod: 'all' | 'cash' | 'gcash' = 'all';
+  // ── Search/Filter (pending tab) ──────────────────────────
+  searchQuery        = '';
+
+  // ── Pending course-group cards ────────────────────────────
+  activePendingCardKey = '';
+
+  /** Build pending-tab course cards directly from the loaded pendingPayments list.
+   *  Only groups that actually have a pending transaction will appear — avoids
+   *  showing ALL enrolled students like the shared courseGroups query does. */
+  get groupedPendingCards(): { label: string; groups: any[] }[] {
+    // Deduplicate by category|program|year_level|semester key
+    const map = new Map<string, any>();
+    for (const p of this.pendingPayments) {
+      const key = `${p.studentCategory}|${p.program}|${p.yearLevel}|${p.semester}`;
+      if (!map.has(key)) {
+        map.set(key, {
+          category:      p.studentCategory || 'College',
+          program:       p.program,
+          year_level:    p.yearLevel,
+          strand:        '',
+          semester:      p.semester,
+          student_count: 0,
+          pending_count: 0,
+        });
+      }
+      const g = map.get(key)!;
+      // Count distinct students
+      g.student_count++;
+      g.pending_count++;
+    }
+    // Deduplicate student counts (one student may have multiple pending rows)
+    const studentMap = new Map<string, Set<number>>();
+    for (const p of this.pendingPayments) {
+      const key = `${p.studentCategory}|${p.program}|${p.yearLevel}|${p.semester}`;
+      if (!studentMap.has(key)) studentMap.set(key, new Set());
+      studentMap.get(key)!.add(p.studentId);
+    }
+    for (const [key, g] of map.entries()) {
+      g.student_count = studentMap.get(key)?.size ?? 0;
+      g.pending_count = g.student_count;
+    }
+    // Group by category
+    const catMap = new Map<string, any[]>();
+    for (const g of map.values()) {
+      const cat = g.category || 'College';
+      if (!catMap.has(cat)) catMap.set(cat, []);
+      catMap.get(cat)!.push(g);
+    }
+    return Array.from(catMap.entries()).map(([label, groups]) => ({ label, groups }));
+  }
+
+  pendingCardKey(g: any): string {
+    return `${g.program}|${g.year_level}|${g.semester}|${g.category}`;
+  }
+
+  isPendingCardActive(g: any): boolean {
+    return this.activePendingCardKey === this.pendingCardKey(g);
+  }
+
+  onPendingCardClick(g: any): void {
+    const key = this.pendingCardKey(g);
+    if (this.activePendingCardKey === key) {
+      this.activePendingCardKey = '';
+      this.pendingCardFilter    = null;
+    } else {
+      this.activePendingCardKey = key;
+      this.pendingCardFilter    = g;
+    }
+    this.pendingPage = 1;
+    this.cdr.detectChanges();
+  }
+
+  // Holds the currently active course-group card filter for pending tab
+  pendingCardFilter: any = null;
+
+  // ── Pending semester filter ───────────────────────────────
+  pendingFilterSemester = '';
+
+  get pendingSemesterOptions(): string[] {
+    const seen = new Set<string>();
+    for (const p of this.pendingPayments) {
+      if (p.semester) seen.add(p.semester.trim());
+    }
+    return Array.from(seen).sort();
+  }
+
+  onPendingSemesterChange(): void {
+    this.pendingPage = 1;
+    this.cdr.detectChanges();
+  }
+
+  // ── Pending tab pagination ────────────────────────────────
+  pendingPage      = 1;
+  readonly PENDING_PAGE_SIZE = 10;
+
+  get pendingTotalPages(): number {
+    return Math.max(1, Math.ceil(this.groupedPending.length / this.PENDING_PAGE_SIZE));
+  }
+
+  get pagedGroupedPending() {
+    const start = (this.pendingPage - 1) * this.PENDING_PAGE_SIZE;
+    return this.groupedPending.slice(start, start + this.PENDING_PAGE_SIZE);
+  }
+
+  pendingPrevPage(): void {
+    if (this.pendingPage > 1) { this.pendingPage--; this.cdr.detectChanges(); }
+  }
+
+  pendingNextPage(): void {
+    if (this.pendingPage < this.pendingTotalPages) { this.pendingPage++; this.cdr.detectChanges(); }
+  }
+
+  clearPendingFilters(): void {
+    this.searchQuery          = '';
+    this.activePendingCardKey = '';
+    this.pendingCardFilter    = null;
+    this.pendingFilterSemester = '';
+    this.pendingPage          = 1;
+  }
+
+  get activeFilterCount(): number {
+    return [
+      this.searchQuery,
+      this.activePendingCardKey,
+      this.pendingFilterSemester,
+    ].filter(v => !!v).length;
+  }
+
+  // ── Grouped pending: track which student cards are expanded ──
+  expandedPendingStudents = new Set<number>();
+  expandedHistoryStudents = new Set<number>();
+
+  togglePendingStudent(studentId: number): void {
+    if (this.expandedPendingStudents.has(studentId)) {
+      this.expandedPendingStudents.delete(studentId);
+    } else {
+      this.expandedPendingStudents.add(studentId);
+    }
+    this.cdr.detectChanges();
+  }
+
+  toggleHistoryStudent(studentId: number): void {
+    if (this.expandedHistoryStudents.has(studentId)) {
+      this.expandedHistoryStudents.delete(studentId);
+    } else {
+      this.expandedHistoryStudents.add(studentId);
+    }
+    this.cdr.detectChanges();
+  }
+
+  // ── Group helper methods (replaces pipes — avoids NG8113 warnings) ─────────
+  groupHasMethod(rows: any[], method: string): boolean {
+    return rows.some(r => (r.paymentMethod || '').toLowerCase() === method.toLowerCase());
+  }
+  groupSumAmount(rows: any[]): number {
+    return rows.reduce((sum, r) => sum + (r.gcashAmount || 0), 0);
+  }
+  groupAllVerified(rows: any[]): boolean {
+    return rows.length > 0 && rows.every(r => r.status === 'Verified');
+  }
+  groupCountVerified(rows: any[]): number {
+    return rows.filter(r => r.status === 'Verified').length;
+  }
+  groupCountRejected(rows: any[]): number {
+    return rows.filter(r => r.status === 'Rejected').length;
+  }
+
+  /** Flat filtered list — used only for summary counts */
+  get filteredPendingFlat(): PendingPayment[] {
+    const q   = this.searchQuery.toLowerCase();
+    const g   = this.pendingCardFilter;
+    const sem = this.pendingFilterSemester;
+    return this.pendingPayments.filter(p => {
+      const matchSearch = !q
+        || (p.firstName + ' ' + p.lastName).toLowerCase().includes(q)
+        || p.studentNumber.toLowerCase().includes(q);
+      const matchCard = !g
+        || (p.program      === g.program
+         && p.yearLevel    === g.year_level
+         && p.semester     === g.semester
+         && (p.studentCategory || 'College') === (g.category || 'College'));
+      const matchSem = !sem || p.semester === sem;
+      return matchSearch && matchCard && matchSem;
+    });
+  }
+
+  /** Grouped pending: Map<studentId, PendingPayment[]> — for the accordion view */
+  get groupedPending(): { studentId: number; firstName: string; lastName: string; studentNumber: string; program: string; yearLevel: string; rows: PendingPayment[] }[] {
+    const map = new Map<number, PendingPayment[]>();
+    for (const p of this.filteredPendingFlat) {
+      const existing = map.get(p.studentId);
+      if (existing) existing.push(p);
+      else map.set(p.studentId, [p]);
+    }
+    return Array.from(map.entries()).map(([studentId, rows]) => ({
+      studentId,
+      firstName:     rows[0].firstName,
+      lastName:      rows[0].lastName,
+      studentNumber: rows[0].studentNumber,
+      program:       rows[0].program,
+      yearLevel:     rows[0].yearLevel,
+      rows,
+    }));
+  }
+
+  /** Total pending amount across all filtered rows */
+  get pendingTotalAmount(): number {
+    return this.filteredPendingFlat.reduce((s, p) => s + (p.gcashAmount || 0), 0);
+  }
+
+  /** Grouped history: Map<studentId, PaymentHistory[]> — for the accordion view */
+  get groupedHistory(): { studentId: number; firstName: string; lastName: string; studentNumber: string; program: string; rows: PaymentHistory[] }[] {
+    const map = new Map<number, PaymentHistory[]>();
+    for (const h of this.paymentHistory) {
+      const existing = map.get(h.studentId);
+      if (existing) existing.push(h);
+      else map.set(h.studentId, [h]);
+    }
+    return Array.from(map.entries()).map(([studentId, rows]) => ({
+      studentId,
+      firstName:     rows[0].firstName,
+      lastName:      rows[0].lastName,
+      studentNumber: rows[0].studentNumber,
+      program:       rows[0].program,
+      // Sort by semester desc (most recent first), then by date desc within each semester
+      rows: [...rows].sort((a, b) => {
+        const semCmp = (b.semester ?? '').localeCompare(a.semester ?? '');
+        if (semCmp !== 0) return semCmp;
+        return (b.gcashDate || b.verifiedAt || '').localeCompare(a.gcashDate || a.verifiedAt || '');
+      }),
+    }));
+  }
+
+  // ── History: server-side pagination & filter state ────────
+  historySearchQuery      = '';
+  historyFilterMethod     = '';          // '' | 'Cash' | 'GCash'
+  historyFilterPeriod     = '';          // '' | 'Prelim' | 'Midterm' | 'Finals' | 'Full' | 'Downpayment'
+  historyFilterSemester   = '';          // free text partial match
+  historyFilterCategory   = '';          // '' | 'College' | 'SHS' | 'TVET'
+  historyFilterDepartment = '';          // free text partial match
+  historyFilterYearLevel  = '';          // '' | '1st Year' | '2nd Year' | etc.
+  historyFilterStatus     = '';          // '' | 'Verified' | 'Rejected'
+  historyPage             = 1;
+  historyLimit            = 25;
+  historyTotal            = 0;
+  historyTotalPages       = 1;
+
+  get historyActiveFilterCount(): number {
+    return [
+      this.historySearchQuery,
+      this.historyFilterMethod,
+      this.historyFilterPeriod,
+      this.historyFilterSemester,
+      this.historyFilterCategory,
+      this.historyFilterDepartment,
+      this.historyFilterYearLevel,
+      this.historyFilterStatus,
+    ].filter(v => !!v).length;
+  }
+
+  // Dynamic program options — scoped by selected category, derived from loaded courseGroups
+  get historyProgramOptions(): string[] {
+    const cat = this.historyFilterCategory;
+    const groups = cat
+      ? this.courseGroups.filter(g => (g.category || '').toUpperCase() === cat.toUpperCase())
+      : this.courseGroups;
+    const seen = new Set<string>();
+    for (const g of groups) {
+      if (g.program) seen.add(g.program.trim());
+    }
+    return Array.from(seen).sort();
+  }
+
+  // Dynamic year level options — scoped by category
+  get historyYearLevelOptions(): { value: string; label: string }[] {
+    const cat = this.historyFilterCategory;
+    if (cat === 'SHS') return [
+      { value: 'Grade 11', label: 'Grade 11' },
+      { value: 'Grade 12', label: 'Grade 12' },
+    ];
+    if (cat === 'TVET') return [
+      { value: '1st Year', label: '1st Year' },
+      { value: '2nd Year', label: '2nd Year' },
+      { value: '3rd Year', label: '3rd Year' },
+    ];
+    if (cat === 'College') return [
+      { value: '1st Year', label: '1st Year' },
+      { value: '2nd Year', label: '2nd Year' },
+      { value: '3rd Year', label: '3rd Year' },
+      { value: '4th Year', label: '4th Year' },
+    ];
+    // All categories
+    return [
+      { value: '1st Year',  label: '1st Year'  },
+      { value: '2nd Year',  label: '2nd Year'  },
+      { value: '3rd Year',  label: '3rd Year'  },
+      { value: '4th Year',  label: '4th Year'  },
+      { value: 'Grade 11',  label: 'Grade 11'  },
+      { value: 'Grade 12',  label: 'Grade 12'  },
+    ];
+  }
+
+  get historyYearLevelLabel(): string {
+    return this.historyFilterCategory === 'SHS' ? 'All Grade Levels' : 'All Year Levels';
+  }
+
+  // Dynamic semester options — scoped by category, deduped
+  get historySemesterOptions(): string[] {
+    const cat = this.historyFilterCategory;
+    const groups = cat
+      ? this.courseGroups.filter(g => (g.category || '').toUpperCase() === cat.toUpperCase())
+      : this.courseGroups;
+    const seen = new Set<string>();
+    for (const g of groups) {
+      if (g.semester) seen.add(g.semester.trim());
+    }
+    return Array.from(seen).sort();
+  }
+
+  // Reset dependent filters when category changes
+  onHistoryCategoryChange(): void {
+    this.historyFilterDepartment = '';
+    this.historyFilterYearLevel  = '';
+    this.historyFilterSemester   = '';
+    this.applyHistoryFilters();
+  }
+
+  // ── History course group cards ─────────────────────────────────────────────
+  activeHistoryCardKey = '';
+
+  historyCardKey(g: any): string {
+    return `${g.program}|${g.year_level}|${g.semester}|${g.category}`;
+  }
+
+  get groupedHistoryCards(): { label: string; groups: any[] }[] {
+    const catMap = new Map<string, any[]>();
+    for (const g of this.courseGroups) {
+      const cat = g.category || 'College';
+      if (!catMap.has(cat)) catMap.set(cat, []);
+      catMap.get(cat)!.push(g);
+    }
+    return Array.from(catMap.entries()).map(([label, groups]) => ({ label, groups }));
+  }
+
+  onHistoryCardClick(g: any): void {
+    const key = this.historyCardKey(g);
+    if (this.activeHistoryCardKey === key) {
+      this.activeHistoryCardKey    = '';
+      this.historyFilterDepartment = '';
+      this.historyFilterYearLevel  = '';
+      this.historyFilterSemester   = '';
+      this.historyFilterCategory   = '';
+    } else {
+      this.activeHistoryCardKey    = key;
+      this.historyFilterDepartment = g.program  || '';
+      this.historyFilterYearLevel  = g.year_level || '';
+      this.historyFilterSemester   = g.semester  || '';
+      this.historyFilterCategory   = g.category  || '';
+    }
+    this.applyHistoryFilters();
+  }
+
+  isHistoryCardActive(g: any): boolean {
+    return this.activeHistoryCardKey === this.historyCardKey(g);
+  }
+
+  clearHistoryFilters(): void {
+    this.historySearchQuery      = '';
+    this.historyFilterMethod     = '';
+    this.historyFilterPeriod     = '';
+    this.historyFilterSemester   = '';
+    this.historyFilterCategory   = '';
+    this.historyFilterDepartment = '';
+    this.historyFilterYearLevel  = '';
+    this.historyFilterStatus     = '';
+    this.activeHistoryCardKey    = '';
+    this.historyPage             = 1;
+    this.loadPaymentHistory();
+  }
+
+  onHistorySearchInput(value: string): void {
+    this.historySearch$.next(value);
+  }
+
+  private historySearch$ = new Subject<string>();
+  private historySubs    = new Subscription();
 
   showModal        = false;
   modalMode: 'approve' | 'reject' | 'edit' | 'editHistory' = 'approve';
   selectedPayment: PendingPayment | null = null;
-  modalNotes       = '';
+  modalNotes       = ''  ;
   isProcessing     = false;
 
   // Cash-specific fields for accounting to fill in
@@ -145,9 +560,12 @@ export class Accounting implements OnInit {
   accountingUserId = 0;
 
   // ── Due Dates ─────────────────────────────────────────────
-  dueDatesLoading = false;
-  dueDatesSaving  = false;
-  dueDatesSaved   = false;
+  dueDatesLoading   = false;
+  dueDatesSaving    = false;
+  dueDatesSaved     = false;
+  // Always driven from admin enrollment period — never manually set by accounting.
+  dueDatesSemester   = '';   // e.g. "1st Semester"  (from admin enrollment period)
+  dueDatesSchoolYear = '';   // e.g. "2025-2026"     (from admin enrollment period)
   dueDates: Record<string, { label: string; date_range: string }> = {
     downpayment: { label: 'Downpayment', date_range: '' },
     prelim:      { label: 'Prelim',      date_range: '' },
@@ -155,14 +573,245 @@ export class Accounting implements OnInit {
     finals:      { label: 'Finals',      date_range: '' },
   };
 
-  
-  /** Returns HTTP headers with the auth token. Call this in every API request. */
-  private getHeaders() {
-    const token = sessionStorage.getItem('token') ?? '';
-    return { headers: { Authorization: `Bearer ${token}` } };
-  }
+  // ── UI-02: Per-Student Payment Modal ──────────────────────
+  showStudentPaymentModal  = false;
+  studentPaymentModalTab: 'history' | 'soa' = 'history';
+  studentPaymentModalData: StudentPaymentModalData | null = null;
+  isLoadingStudentPayments = false;
+  isSendingSoaModal        = false;
+  soaModalResult           = '';
+  // ─────────────────────────────────────────────────────────
 
   constructor(private http: HttpClient, private cdr: ChangeDetectorRef) {}
+
+  printSoa(): void {
+    const snap    = this.soaViewerSnapshot;
+    const student = this.soaViewerStudent;
+    if (!snap || !student) return;
+
+    const fmt = (n: number) => (+n || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 });
+    const isInstallment = snap.payment_plan === 'installment';
+    const rows = this.soaViewerInstallmentRows();
+
+    const fmtDate = (d: string) => d
+      ? new Date(d).toLocaleDateString('en-PH', { month: '2-digit', day: '2-digit', year: '2-digit' })
+      : '';
+
+    // ── Schedule of payment rows ─────────────────────────────────────────────
+    let schedRows = '';
+    if (isInstallment) {
+      for (const p of rows) {
+        schedRows += `<tr>
+          <td style="padding:3px 6px;">${p.label}</td>
+          <td style="padding:3px 6px;">${p.paid ? `<span style="color:#166534;font-weight:600;">${fmtDate(p.paymentDate)}</span>` : '<span style="color:#9ca3af;">—</span>'}</td>
+          <td style="padding:3px 6px;text-align:right;">${p.paid ? fmt(p.amountPaid) : ''}</td>
+          <td style="padding:3px 6px;text-align:center;font-size:9px;color:#1d4ed8;font-weight:700;">${p.paid ? (p.orNo || '') : ''}</td>
+        </tr>
+        <tr><td colspan="4" style="padding:1px;"></td></tr>`;
+      }
+    } else {
+      const fp = snap.payments?.[0];
+      schedRows = `<tr>
+        <td style="padding:3px 6px;">Full Payment</td>
+        <td style="padding:3px 6px;">${fp ? `<span style="color:#166534;font-weight:600;">${fmtDate(fp.payment_date)}</span>` : ''}</td>
+        <td style="padding:3px 6px;text-align:right;">${snap.total_paid > 0 ? fmt(snap.total_paid) : ''}</td>
+        <td style="padding:3px 6px;text-align:center;">${fp?.or_ar_number || ''}</td>
+      </tr>`;
+    }
+
+    // ── Installment breakdown table ──────────────────────────────────────────
+    let installBlock = '';
+    if (isInstallment) {
+      const installRows = rows.map(p => `
+        <tr>
+          <td>${p.term === 'Downpayment' ? 'Downpayment :' : p.term === 'Finals' ? 'Final:' : p.term + ' :'}</td>
+          <td>${p.paid ? `<span style="color:#166534;font-weight:600;">${fmtDate(p.paymentDate)}</span>` : '<span style="color:#9ca3af;">—</span>'}</td>
+          <td style="text-align:right;${p.paid ? 'color:#16a34a;font-weight:700;' : ''}">${fmt(p.paid ? p.amountPaid : p.amount)}</td>
+        </tr>`).join('');
+      installBlock = `
+        <table class="install-table">
+          <thead><tr><th>INSTALLMENT PAYMENT</th><th>DATE PAID</th><th style="text-align:right;">AMOUNT</th></tr></thead>
+          <tbody>${installRows}</tbody>
+        </table>
+        <div style="text-align:right;font-size:11px;font-weight:700;margin-top:6px;padding-right:4px;">
+          Total amount to be paid: &nbsp;<span style="background:#add8e6;padding:2px 8px;">${fmt(snap.total_assessment)}</span>
+        </div>`;
+    }
+
+    const payStatusLabel = snap.balance <= 0 ? '✅ Fully Paid'
+      : snap.total_paid > 0 ? '🔶 Partially Paid' : '❌ Unpaid';
+    const payStatusColor = snap.balance <= 0 ? '#166534' : snap.total_paid > 0 ? '#854d0e' : '#991b1b';
+    const payStatusBg    = snap.balance <= 0 ? '#dcfce7' : snap.total_paid > 0 ? '#fef9c3' : '#fee2e2';
+
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>SOA – ${student.name}</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:Arial,sans-serif;font-size:10px;padding:18px 22px;color:#000;width:780px;}
+  .top-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;}
+  .logo-area{display:flex;align-items:center;gap:10px;}
+  .logo-circle{width:70px;height:70px;border:2px solid #000;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;text-align:center;font-weight:900;}
+  .school-info-center{text-align:center;flex:1;}
+  .school-name-big{font-size:18px;font-weight:900;text-transform:uppercase;letter-spacing:1px;color:#1a1a6e;}
+  .school-name-sub{font-size:9px;text-transform:uppercase;letter-spacing:0.5px;}
+  .school-addr{font-size:8.5px;color:#444;margin-top:1px;}
+  .badges-right{display:flex;gap:8px;align-items:center;}
+  .badge-img{width:45px;height:45px;border:1px solid #ccc;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:7px;text-align:center;}
+  .soa-title{text-align:center;font-size:11px;font-weight:900;text-transform:uppercase;border-top:2px solid #000;border-bottom:1px solid #000;padding:3px;margin:6px 0;}
+  .info-bar{display:grid;grid-template-columns:1fr auto auto;gap:0;border:1px solid #000;margin-bottom:4px;}
+  .info-cell{padding:3px 8px;border-right:1px solid #000;font-size:10px;}
+  .info-cell:last-child{border-right:none;}
+  .info-label{font-size:8.5px;color:#555;}
+  .info-val{font-weight:700;font-size:11px;}
+  .info-bar2{display:grid;grid-template-columns:1fr 1fr 1fr;border:1px solid #000;border-top:none;margin-bottom:8px;}
+  .main-grid{display:grid;grid-template-columns:300px 1fr;gap:16px;}
+  .assess-table{width:100%;border-collapse:collapse;font-size:10px;}
+  .assess-table td{padding:2px 4px;border-bottom:1px dotted #ddd;}
+  .assess-table td:last-child{text-align:right;min-width:70px;}
+  .assess-section-title{text-align:center;font-size:10px;font-weight:700;background:#f0f0f0;border:1px solid #ccc;padding:3px;margin-bottom:2px;}
+  .subtotal-row td{font-weight:700;border-top:1px solid #000;padding-top:3px;}
+  .total-row td{font-weight:900;font-size:11px;background:#d0d0d0;padding:3px 4px;}
+  .final-row td{font-weight:900;font-size:12px;background:#4040a0;color:#fff;padding:4px;}
+  .sched-table{width:100%;border-collapse:collapse;font-size:10px;}
+  .sched-table th{background:#4040a0;color:#fff;padding:3px 6px;text-align:left;font-size:9.5px;}
+  .sched-table td{border:1px solid #ccc;padding:2px 6px;}
+  .total-balance-box{border:2px solid #000;padding:5px 10px;text-align:center;margin:10px 0;}
+  .total-balance-label{font-size:11px;font-weight:700;}
+  .total-balance-amt{font-size:16px;font-weight:900;color:#c00;}
+  .install-table{width:100%;border-collapse:collapse;font-size:10px;margin-top:8px;}
+  .install-table th{background:#f0c040;color:#000;font-weight:700;padding:3px 6px;border:1px solid #999;}
+  .install-table td{border:1px solid #ccc;padding:3px 6px;}
+  .policies{font-size:8px;margin-top:10px;color:#333;}
+  .policies p{margin-bottom:2px;}
+  .sig-area{display:grid;grid-template-columns:1fr 1fr;gap:30px;margin-top:16px;}
+  .sig-block{text-align:center;}
+  .sig-name{font-size:11px;font-weight:900;border-bottom:1.5px solid #000;padding-bottom:2px;margin-bottom:2px;}
+  .sig-title{font-size:9px;}
+  @media print{body{padding:8px 12px;}@page{margin:8mm;size:A4;} .no-print{display:none!important;}}
+</style></head><body>
+
+<div class="top-header">
+  <div class="logo-area">
+    <div class="logo-circle">ST.<br>BENILDE</div>
+  </div>
+  <div class="school-info-center">
+    <div class="school-name-big">ST. BENILDE</div>
+    <div class="school-name-sub">Center for Global Competence, Inc.</div>
+    <div class="school-addr">2647 RIZAL AVENUE, WEST BAJAC-BAJAC, OLONGAPO CITY &nbsp;|&nbsp; TELEFAX: (047) 223 - 9031</div>
+  </div>
+  <div class="badges-right">
+    <div class="badge-img">CHED<br>Reg.</div>
+    <div class="badge-img">DepEd<br>Reg.</div>
+    <div class="badge-img">TESDA<br>Reg.</div>
+  </div>
+</div>
+
+<div class="soa-title">STATEMENT OF ACCOUNT &nbsp; ${snap.semester}</div>
+
+<div class="info-bar">
+  <div class="info-cell"><div class="info-label">Name:</div><div class="info-val">${student.name.toUpperCase()}</div></div>
+  <div class="info-cell"><div class="info-label">Course:</div><div class="info-val">${student.program || ''}</div></div>
+  <div class="info-cell"><div class="info-label">Department:</div><div class="info-val">ICTD</div></div>
+</div>
+<div class="info-bar2">
+  <div class="info-cell"><div class="info-label">Payment Plan:</div><div class="info-val">${(snap.payment_plan || 'full').charAt(0).toUpperCase() + (snap.payment_plan || 'full').slice(1)}</div></div>
+  <div class="info-cell"><div class="info-label">Semester:</div><div class="info-val">${snap.semester}</div></div>
+  <div class="info-cell"><div class="info-label">Student No.:</div><div class="info-val">${student.number}</div></div>
+</div>
+
+<div class="main-grid">
+  <div>
+    <div class="assess-section-title">ASSESSMENT FOR ${snap.semester?.toUpperCase()}</div>
+    <table class="assess-table">
+      <tr><td>No. of Units</td><td>${snap.units || ''}</td></tr>
+      <tr><td>Tuition Fee</td><td>${fmt(snap.tuition_fee)}</td></tr>
+      <tr><td>Miscellaneous Fee</td><td>${fmt(snap.miscellaneous_fee)}</td></tr>
+      <tr><td>Registration Fee</td><td>${fmt(snap.registration_fee)}</td></tr>
+      <tr><td>NSTP Fee</td><td></td></tr>
+      <tr><td>ENERGY FEE</td><td>${snap.energy_fee ? fmt(snap.energy_fee) : ''}</td></tr>
+      <tr><td>Supervision Fee</td><td></td></tr>
+      <tr><td style="padding-top:4px;"># of laboratory</td><td></td></tr>
+      <tr><td>Laboratory Fees:</td><td>${snap.laboratory_fee ? fmt(snap.laboratory_fee) : ''}</td></tr>
+      <tr><td style="padding-left:12px;">Computer Lab.</td><td></td></tr>
+      <tr><td style="padding-left:12px;">Kitchen Lab.</td><td></td></tr>
+      <tr><td style="padding-left:12px;">Bartending Lab.</td><td></td></tr>
+      <tr><td style="padding-left:12px;">F&amp;B Lab.</td><td></td></tr>
+      <tr><td style="padding-left:12px;">Housekeeping Lab.</td><td></td></tr>
+      <tr><td>Penalty Late Payment</td><td></td></tr>
+      <tr><td>&nbsp;</td><td></td></tr>
+      <tr class="subtotal-row"><td>Subtotal</td><td>${fmt(snap.subtotal)}</td></tr>
+      <tr><td>Discount of TF</td><td>${snap.discount > 0 ? fmt(snap.discount) : '- -'}</td></tr>
+      <tr><td>Installment Fee</td><td>${isInstallment ? fmt(snap.installment_fee || 0) : ''}</td></tr>
+      <tr class="total-row"><td>TOTAL ASSESSMENT</td><td>${fmt(snap.total_assessment)}</td></tr>
+    </table>
+    <table class="assess-table" style="margin-top:4px;">
+      <tr class="final-row"><td>FINAL ASSESSMENT</td><td>${fmt(snap.total_assessment)}</td></tr>
+    </table>
+  </div>
+
+  <div>
+    <table class="sched-table">
+      <thead>
+        <tr>
+          <th>SCHEDULE OF PAYMENT</th>
+          <th>DATE OF PAYMENTS</th>
+          <th style="text-align:right;">PAYMENTS</th>
+          <th style="text-align:center;">O.R./A.R. NO.</th>
+        </tr>
+      </thead>
+      <tbody>${schedRows}</tbody>
+    </table>
+
+    <div class="total-balance-box">
+      <span class="total-balance-label">Total Balance &nbsp;&nbsp;</span>
+      <span class="total-balance-amt">${fmt(snap.balance)}</span>
+    </div>
+
+    ${installBlock}
+  </div>
+</div>
+
+<div class="policies">
+  <strong>Withdrawal Policies</strong>
+  <p>1. In case of withdrawal of enrollment, the amount of Php7,388.00 (Registration and Miscellaneous fees) shall be retained at all times.</p>
+  <p>2. In case withdrawal is filed during the first week of classes, 50% of other fees shall be paid in addition to Php7,388.00.</p>
+  <p>3. In case withdrawal is filed during the second week of classes, 50% of other fees shall be paid in addition to Php7,388.00.</p>
+  <p>4. In case withdrawal is filed during the third week of classes, 100% of the total assessment shall be paid.</p>
+  <p>5. No document shall be released to any withdrawing student without complete payment of financial obligation.</p>
+</div>
+
+<div class="sig-area">
+  <div class="sig-block">
+    <div class="sig-name">Jhomer M. Onoya</div>
+    <div class="sig-title">Account Management Officer</div>
+    <div style="font-size:9px;margin-top:8px;">DATE &nbsp;&nbsp;&nbsp;&nbsp; ${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</div>
+  </div>
+  <div class="sig-block">
+    <div class="sig-name">${student.name.toUpperCase()}</div>
+    <div class="sig-title">Signature Over Printed Name</div>
+    <div style="margin-top:8px;font-size:9px;">Acknowledged by:</div>
+  </div>
+</div>
+
+<div style="text-align:right;margin-top:10px;">
+  <span style="background:${payStatusBg};color:${payStatusColor};font-size:12px;font-weight:700;padding:4px 14px;border-radius:20px;">${payStatusLabel}</span>
+</div>
+
+<div class="no-print" style="text-align:center;margin-top:16px;">
+  <button onclick="window.print()" style="background:#1a1a6e;color:white;border:none;padding:10px 32px;font-size:14px;font-weight:700;border-radius:7px;cursor:pointer;margin-right:10px;">🖨️ Print SOA</button>
+  <button onclick="window.close()" style="background:#64748b;color:white;border:none;padding:10px 24px;font-size:14px;font-weight:700;border-radius:7px;cursor:pointer;">✕ Close</button>
+</div>
+
+</body></html>`;
+
+    const win = window.open('', '_blank', 'width=860,height=900');
+    if (!win) return;
+    win.document.write(html);
+    win.document.close();
+  }
+
+  // Course groups for dynamic filter dropdowns
+  courseGroups: any[] = [];
 
   ngOnInit(): void {
     const stored = sessionStorage.getItem('currentUser');
@@ -171,50 +820,105 @@ export class Accounting implements OnInit {
       this.accountingUserId = u.id;
     }
     this.loadPendingPayments();
+    this.loadCourseGroups();
+    // Pre-fill semester + school year from admin enrollment period on startup
+    // so the Payment Due Dates tab already shows the correct scope when opened.
+    this.loadDueDatesWithPeriod();
+
+    // Wire 350ms debounce on the history search input
+    this.historySubs.add(
+      this.historySearch$.pipe(
+        debounceTime(350),
+        distinctUntilChanged()
+      ).subscribe(q => {
+        this.historySearchQuery = q;
+        this.historyPage = 1;
+        this.loadPaymentHistory();
+      })
+    );
+  }
+
+  ngOnDestroy(): void {
+    this.historySubs.unsubscribe();
   }
 
   isCash(p: PendingPayment | null): boolean  { return p?.paymentMethod?.toLowerCase() === 'cash'; }
   isGCash(p: PendingPayment | null): boolean { return p?.paymentMethod?.toLowerCase() === 'gcash'; }
 
-  get filteredPending(): PendingPayment[] {
-    return this.pendingPayments.filter(p => {
-      const q = this.searchQuery.toLowerCase();
-      const matchSearch = !q || (p.firstName + ' ' + p.lastName).toLowerCase().includes(q) || p.studentNumber.toLowerCase().includes(q) || p.program.toLowerCase().includes(q);
-      const matchMethod = this.filterMethod === 'all' || (this.filterMethod === 'cash' && this.isCash(p)) || (this.filterMethod === 'gcash' && this.isGCash(p));
-      return matchSearch && matchMethod;
-    });
-  }
+  get filteredPending(): PendingPayment[] { return this.filteredPendingFlat; }
 
-  get filteredHistory(): PaymentHistory[] {
-    return this.paymentHistory.filter(p => {
-      const q = this.searchQuery.toLowerCase();
-      return !q || (p.firstName + ' ' + p.lastName).toLowerCase().includes(q) || p.studentNumber.toLowerCase().includes(q);
-    });
-  }
+  // filteredHistory removed — history is now filtered server-side via loadPaymentHistory()
 
   // ── Data loading ──────────────────────────────────────────
   loadPendingPayments(): void {
     this.isLoadingPending = true;
     this.cdr.detectChanges();
-    this.http.get<any>(`${this.apiUrl}?action=get_pending_payments`, this.getHeaders()).subscribe({
+    this.http.get<any>(`${this.apiUrl}?action=get_pending_payments`).subscribe({
       next: (res) => { this.pendingPayments = res.success ? res.payments : []; this.isLoadingPending = false; this.cdr.detectChanges(); },
       error: () => { this.errorMessage = 'Failed to load pending payments.'; this.isLoadingPending = false; this.cdr.detectChanges(); }
+    });
+  }
+
+  loadCourseGroups(): void {
+    this.http.get<any>(`${this.apiUrl}?action=get_course_groups`).subscribe({
+      next: (res) => { this.courseGroups = res.success ? res.groups : []; this.cdr.detectChanges(); },
+      error: () => {}
     });
   }
 
   loadPaymentHistory(): void {
     this.isLoadingHistory = true;
     this.cdr.detectChanges();
-    this.http.get<any>(`${this.apiUrl}?action=get_payment_history`, this.getHeaders()).subscribe({
-      next: (res) => { this.paymentHistory = res.success ? res.history : []; this.isLoadingHistory = false; this.cdr.detectChanges(); },
+
+    const params: Record<string, string> = {
+      action: 'get_payment_history',
+      page:   String(this.historyPage),
+      limit:  String(this.historyLimit),
+    };
+    if (this.historySearchQuery.trim())      params['q']            = this.historySearchQuery.trim();
+    if (this.historyFilterMethod)            params['method']       = this.historyFilterMethod;
+    if (this.historyFilterPeriod)            params['exam_period']  = this.historyFilterPeriod;
+    if (this.historyFilterSemester.trim())   params['semester']     = this.historyFilterSemester.trim();
+    if (this.historyFilterCategory)          params['category']     = this.historyFilterCategory;
+    if (this.historyFilterDepartment.trim()) params['department']   = this.historyFilterDepartment.trim();
+    if (this.historyFilterYearLevel)         params['year_level']   = this.historyFilterYearLevel;
+    if (this.historyFilterStatus)            params['status']       = this.historyFilterStatus;
+
+    const qs = Object.entries(params).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&');
+
+    this.http.get<any>(`${this.apiUrl}?${qs}`).subscribe({
+      next: (res) => {
+        this.paymentHistory    = res.success ? res.history : [];
+        this.historyTotal      = res.total      ?? 0;
+        this.historyTotalPages = res.totalPages ?? 1;
+        this.isLoadingHistory  = false;
+        this.cdr.detectChanges();
+      },
       error: () => { this.isLoadingHistory = false; this.cdr.detectChanges(); }
     });
+  }
+
+  onHistorySearchChange(value: string): void {
+    this.historySearch$.next(value);
+  }
+
+  historyPrevPage(): void {
+    if (this.historyPage > 1) { this.historyPage--; this.loadPaymentHistory(); }
+  }
+
+  historyNextPage(): void {
+    if (this.historyPage < this.historyTotalPages) { this.historyPage++; this.loadPaymentHistory(); }
+  }
+
+  applyHistoryFilters(): void {
+    this.historyPage = 1;
+    this.loadPaymentHistory();
   }
 
   loadInstallmentStudents(): void {
     this.isLoadingInstallmentStudents = true;
     this.cdr.detectChanges();
-    this.http.get<any>(`${this.apiUrl}?action=get_installment_students`, this.getHeaders()).subscribe({
+    this.http.get<any>(`${this.apiUrl}?action=get_installment_students`).subscribe({
       next: (res) => {
         this.isLoadingInstallmentStudents = false;
         this.installmentStudents = res.success ? res.students : [];
@@ -227,10 +931,22 @@ export class Accounting implements OnInit {
   switchTab(tab: 'pending' | 'history' | 'installment' | 'liquidation' | 'duedates'): void {
     this.currentTab = tab;
     this.searchQuery = '';
-    if (tab === 'history')      this.loadPaymentHistory();
+    if (tab === 'history') {
+      // Reset history pagination/filters when switching to this tab
+      this.historyPage             = 1;
+      this.historySearchQuery      = '';
+      this.historyFilterMethod     = '';
+      this.historyFilterPeriod     = '';
+      this.historyFilterSemester   = '';
+      this.historyFilterCategory   = '';
+      this.historyFilterDepartment = '';
+      this.historyFilterYearLevel  = '';
+      this.historyFilterStatus     = '';
+      this.loadPaymentHistory();
+    }
     if (tab === 'installment')  this.loadInstallmentStudents();
     if (tab === 'liquidation')  this.loadLiquidation();
-    if (tab === 'duedates')     this.loadDueDates();
+    if (tab === 'duedates')     this.loadDueDatesWithPeriod();
     this.cdr.detectChanges();
   }
 
@@ -322,7 +1038,7 @@ export class Accounting implements OnInit {
       payload.gcash_date      = this.editForm.gcashDate;
       payload.gcash_reference = this.editForm.gcashReference;
     }
-    this.http.post<any>(`${this.apiUrl}?action=correct_verified_payment`, payload, this.getHeaders()).subscribe({
+    this.http.post<any>(`${this.apiUrl}?action=correct_verified_payment`, payload).subscribe({
       next: (res) => {
         this.isProcessing = false;
         if (res.success) {
@@ -384,13 +1100,16 @@ export class Accounting implements OnInit {
 
     const action = this.modalMode === 'approve' ? 'verify_payment' : 'reject_payment';
 
-    this.http.post<any>(`${this.apiUrl}?action=${action}`, payload, this.getHeaders()).subscribe({
+    this.http.post<any>(`${this.apiUrl}?action=${action}`, payload).subscribe({
       next: (res) => {
         this.isProcessing = false;
         if (res.success) {
           this.pendingPayments = this.pendingPayments.filter(p => p.logId !== this.selectedPayment!.logId);
           this.closeModal();
           if (this.currentTab === 'history') this.loadPaymentHistory();
+        } else if (res.locked) {
+          // Period still locked — remind accounting to send notice first
+          this.errorMessage = '🔒 ' + (res.message || 'Send a payment notice to unlock this period first.');
         }
         this.cdr.detectChanges();
       },
@@ -408,7 +1127,7 @@ export class Accounting implements OnInit {
       gcash_amount:   this.editForm.gcashAmount,
       gcash_date:     this.editForm.gcashDate,
       semester:       this.editForm.semester,
-    }, this.getHeaders()).subscribe({
+    }).subscribe({
       next: (res) => {
         this.isProcessing = false;
         if (res.success) {
@@ -457,7 +1176,7 @@ export class Accounting implements OnInit {
     this.http.post<any>(`${this.apiUrl}?action=record_installment`, {
       ...this.installmentForm,
       accounting_user_id: this.accountingUserId,
-    }, this.getHeaders()).subscribe({
+    }).subscribe({
       next: (res) => {
         this.isProcessing = false;
         if (res.success) {
@@ -489,7 +1208,7 @@ export class Accounting implements OnInit {
   loadLiquidation(): void {
     this.isLoadingLiquidation = true;
     this.cdr.detectChanges();
-    this.http.get<any>(`${this.apiUrl}?action=get_liquidation&date_from=${this.liquidationDateFrom}&date_to=${this.liquidationDateTo}`, this.getHeaders()).subscribe({
+    this.http.get<any>(`${this.apiUrl}?action=get_liquidation&date_from=${this.liquidationDateFrom}&date_to=${this.liquidationDateTo}`).subscribe({
       next: (res) => {
         this.isLoadingLiquidation = false;
         if (res.success) this.liquidationReport = res;
@@ -500,11 +1219,56 @@ export class Accounting implements OnInit {
   }
 
   // ── Due Dates ─────────────────────────────────────────────
+
+  /**
+   * Fetch the active enrollment period from admin, then load the due dates
+   * scoped to that semester + school year.
+   * The semester scope is ALWAYS driven by the admin enrollment period —
+   * accounting cannot override it manually.  Called every time the tab opens.
+   */
+  loadDueDatesWithPeriod(): void {
+    this.dueDatesLoading = true;
+    this.http.get<any>(`${this.enrollApi}?action=get_enrollment_period`).subscribe({
+      next: res => {
+        // Prefer the pre-parsed fields (semester / school_year) added by FIX EP-01.
+        // Fall back to regex-parsing the label string for legacy rows.
+        const period = res.period ?? {};
+        if (period.semester && period.school_year) {
+          this.dueDatesSemester   = period.semester.trim();
+          this.dueDatesSchoolYear = period.school_year.trim().replace('\u2013', '-');
+        } else {
+          const label    = (period.label ?? res.label ?? '').trim();
+          const semMatch = label.match(/\b(1st\s+Semester|2nd\s+Semester|Summer|Midyear)\b/i);
+          const ayMatch  = label.match(/\b(\d{4}[-\u2013]\d{4})\b/);
+          this.dueDatesSemester   = semMatch ? semMatch[1].replace(/\s+/g, ' ') : '';
+          this.dueDatesSchoolYear = ayMatch  ? ayMatch[1].replace('\u2013', '-')  : '';
+        }
+        this.cdr.detectChanges();
+        this.loadDueDates();
+      },
+      // On error still attempt to load whatever is in the global key
+      error: () => { this.dueDatesLoading = false; this.cdr.detectChanges(); }
+    });
+  }
+
+  /** Load due dates for the current enrollment-period scope (set by loadDueDatesWithPeriod). */
   loadDueDates(): void {
     this.dueDatesLoading = true;
-    this.http.get<any>(`${this.apiUrl}?action=get_due_dates`, this.getHeaders()).subscribe({
+    let url = `${this.apiUrl}?action=get_due_dates`;
+    if (this.dueDatesSemester && this.dueDatesSchoolYear) {
+      url += `&semester=${encodeURIComponent(this.dueDatesSemester)}`
+           + `&school_year=${encodeURIComponent(this.dueDatesSchoolYear)}`;
+    }
+    this.http.get<any>(url).subscribe({
       next: res => {
-        if (res.success && res.dueDates) this.dueDates = res.dueDates;
+        if (res.success && res.dueDates) {
+          // Merge so that any period not returned by the API keeps its default label
+          Object.keys(res.dueDates).forEach(k => {
+            if (this.dueDates[k] !== undefined) {
+              this.dueDates[k] = res.dueDates[k];
+            }
+          });
+        }
         this.dueDatesLoading = false;
         this.cdr.detectChanges();
       },
@@ -512,15 +1276,22 @@ export class Accounting implements OnInit {
     });
   }
 
+  /** Save due dates scoped to the active enrollment period. */
   saveDueDates(): void {
+    if (!this.dueDatesSemester || !this.dueDatesSchoolYear) return;
     this.dueDatesSaving = true;
     this.dueDatesSaved  = false;
-    this.http.post<any>(`${this.apiUrl}?action=save_due_dates`, this.dueDates, this.getHeaders()).subscribe({
+    const payload = {
+      ...this.dueDates,
+      semester:    this.dueDatesSemester,
+      school_year: this.dueDatesSchoolYear,
+    };
+    this.http.post<any>(`${this.apiUrl}?action=save_due_dates`, payload).subscribe({
       next: res => {
         this.dueDatesSaving = false;
         if (res.success) {
           this.dueDatesSaved = true;
-          setTimeout(() => { this.dueDatesSaved = false; this.cdr.detectChanges(); }, 3000);
+          setTimeout(() => { this.dueDatesSaved = false; this.cdr.detectChanges(); }, 3500);
         }
         this.cdr.detectChanges();
       },
@@ -545,6 +1316,203 @@ export class Accounting implements OnInit {
     if (!dateStr) return '—';
     return new Date(dateStr).toLocaleString('en-PH');
   }
+
+  // ── UI-02: Per-Student Payment Modal ─────────────────────────────────────
+  /**
+   * Opens the per-student payment modal.
+   * Called when the user clicks a student name in either the card view or list view.
+   */
+  openStudentPaymentModal(studentId: number, firstName: string, lastName: string, studentNumber: string): void {
+    this.showStudentPaymentModal  = true;
+    this.studentPaymentModalTab   = 'history';
+    this.soaModalResult           = '';
+    this.isSendingSoaModal        = false;
+    this.isLoadingStudentPayments = true;
+    this.studentPaymentModalData  = null;
+    this.cdr.detectChanges();
+
+    // Load ALL history first (no semester filter) to build the semester selector list,
+    // then default to showing the most recent semester.
+    this.http.get<any>(`${this.apiUrl}?action=get_student_payment_history&student_id=${studentId}&all_semesters=1`)
+      .subscribe({
+        next: (res) => {
+          this.isLoadingStudentPayments = false;
+          if (res.success) {
+            const allHistory: StudentPaymentRecord[] = (res.history ?? []).map((r: any) => ({
+              ...r,
+              semester: r.semester ?? '',
+            }));
+
+            // Collect unique semesters in reverse-chronological order
+            const semSet = new Set<string>();
+            for (const r of allHistory) {
+              if (r.semester) semSet.add(r.semester);
+            }
+            const semesters = Array.from(semSet);
+
+            // Default to the student's current semester (returned by the API) or the first semester in the list
+            const defaultSem = res.student?.semester ?? semesters[0] ?? '';
+
+            // Filter history to the default semester
+            const filteredHistory = defaultSem
+              ? allHistory.filter(r => r.semester === defaultSem)
+              : allHistory;
+
+            // Compute totals for the default semester
+            const semTotalPaid = filteredHistory.reduce((s, r) => s + r.amount, 0);
+
+            this.studentPaymentModalData = {
+              studentId,
+              studentNumber,
+              firstName,
+              lastName,
+              history:         filteredHistory,
+              totalPaid:       semTotalPaid,
+              totalAssessment: res.totalAssessment  ?? 0,
+              balance:         Math.max(0, (res.totalAssessment ?? 0) - semTotalPaid),
+              guardianEmail:   res.student?.guardian_email ?? res.guardianEmail ?? '',
+              semesters,
+              selectedSemester: defaultSem,
+            };
+
+            // Store the full unfiltered history for switching semesters without re-fetching
+            (this.studentPaymentModalData as any).__allHistory = allHistory;
+            (this.studentPaymentModalData as any).__allTotalAssessments = res.semesterAssessments ?? {};
+          }
+          this.cdr.detectChanges();
+        },
+        error: () => {
+          this.isLoadingStudentPayments = false;
+          this.cdr.detectChanges();
+        }
+      });
+  }
+
+  /** Called when the user picks a different semester in the per-student payment modal. */
+  onStudentPaymentSemesterChange(sem: string): void {
+    if (!this.studentPaymentModalData) return;
+    const allHistory: StudentPaymentRecord[] = (this.studentPaymentModalData as any).__allHistory ?? [];
+    const assessments: Record<string, number> = (this.studentPaymentModalData as any).__allTotalAssessments ?? {};
+
+    const filtered = sem ? allHistory.filter(r => r.semester === sem) : allHistory;
+    const semTotalPaid = filtered.reduce((s, r) => s + r.amount, 0);
+    const totalAssessment = assessments[sem] ?? this.studentPaymentModalData.totalAssessment;
+
+    this.studentPaymentModalData = {
+      ...this.studentPaymentModalData,
+      selectedSemester: sem,
+      history:          filtered,
+      totalPaid:        semTotalPaid,
+      totalAssessment,
+      balance:          Math.max(0, totalAssessment - semTotalPaid),
+    };
+    // Re-attach the hidden full-history reference
+    (this.studentPaymentModalData as any).__allHistory = allHistory;
+    (this.studentPaymentModalData as any).__allTotalAssessments = assessments;
+    this.cdr.detectChanges();
+  }
+
+  closeStudentPaymentModal(): void {
+    this.showStudentPaymentModal = false;
+    this.studentPaymentModalData = null;
+    this.soaModalResult          = '';
+    this.cdr.detectChanges();
+  }
+
+  /**
+   * Sends SOA from inside the per-student modal (SOA tab).
+   */
+  /**
+   * Build installment schedule rows from the SOA snapshot payments_json.
+   * Returns one row per term (Downpayment, Prelim, Midterm, Finals) with
+   * paid/unpaid status — matching the student-view enrollment SOA layout.
+   */
+  /**
+   * Build installment schedule rows from the SOA snapshot.
+   * Matches the student-view enrollment SOA exactly:
+   *   DP = 25% of total_assessment
+   *   Prelim = Midterm = Finals = 25% each (remaining 75% split equally)
+   * For each term, checks payments_json for a matching exam_period entry.
+   * Also handles 'Full' period entries for students who paid everything at once.
+   */
+  soaViewerInstallmentRows(): Array<{term: string; label: string; paid: boolean; amount: number; amountPaid: number; paymentDate: string; orNo: string}> {
+    const snap = this.soaViewerSnapshot;
+    if (!snap) return [];
+
+    const payments: any[] = snap.payments || [];
+    const total  = +(snap.total_assessment || 0);
+
+    // FIX SOA-STALE-01: Use the ACTUAL downpayment paid (from payments_json) as the
+    // DP amount instead of always computing total/4. When the cashier records an
+    // amount that differs from total/4 (e.g. ₱8,034.25 vs ₱8,034.25 exactly),
+    // the old total/4 split could round differently and give wrong Prelim/Midterm/Finals
+    // due amounts, causing them to never match and always show as unpaid.
+    // Sum payments per period first so we have the actual DP paid.
+    const paidByTerm: Record<string, { total: number; orNo: string; date: string }> = {};
+    for (const p of payments) {
+      const period = (p.exam_period || '').trim();
+      if (!period || period === 'Full') continue;
+      if (!paidByTerm[period]) paidByTerm[period] = { total: 0, orNo: '', date: '' };
+      paidByTerm[period].total += +(p.amount || 0);
+      if (!paidByTerm[period].orNo) paidByTerm[period].orNo = p.or_ar_number || '';
+      if (!paidByTerm[period].date) paidByTerm[period].date = p.payment_date || '';
+    }
+
+    // Use actual DP paid if available; otherwise fall back to total/4 for the schedule display
+    const dpActual = paidByTerm['Downpayment']?.total ?? 0;
+    const dp       = dpActual > 0 ? dpActual : Math.round(total / 4 * 100) / 100;
+    const remain   = Math.max(0, total - dp);
+    const third    = remain > 0 ? Math.round(remain / 3 * 100) / 100 : 0;
+    const finals   = Math.max(0, remain - third - third);
+
+    const termDefs = [
+      { term: 'Downpayment', label: '1st — Downpayment (DP)', due: dp },
+      { term: 'Prelim',      label: '2nd — Prelim',           due: third },
+      { term: 'Midterm',     label: '3rd — Midterm',          due: third },
+      { term: 'Finals',      label: '4th — Finals',           due: finals },
+    ];
+
+    return termDefs.map(t => {
+      const rec = paidByTerm[t.term];
+      return {
+        term:        t.term,
+        label:       t.label,
+        paid:        !!rec && rec.total > 0,
+        amount:      t.due,
+        amountPaid:  rec ? rec.total : 0,
+        paymentDate: rec ? rec.date  : '',
+        orNo:        rec ? (rec.orNo ? `${rec.orNo}` : '') : '',
+      };
+    });
+  }
+
+  sendSoaFromModal(): void {
+    if (!this.studentPaymentModalData || this.isSendingSoaModal) return;
+    this.isSendingSoaModal = true;
+    this.soaModalResult    = '';
+    this.cdr.detectChanges();
+
+    this.http.post<any>(`${environment.notifyApi}?action=send_soa`, {
+      student_id: this.studentPaymentModalData.studentId,
+    }).subscribe({
+      next: (res) => {
+        this.isSendingSoaModal = false;
+        if (res.success) {
+          const emails = (res.recipients || []).map((r: any) => r.email).join(', ');
+          this.soaModalResult = `✅ SOA sent to: ${emails}`;
+        } else {
+          this.soaModalResult = `❌ ${res.message || 'Failed to send SOA. Make sure a guardian email is saved.'}`;
+        }
+        this.cdr.detectChanges();
+      },
+      error: () => {
+        this.isSendingSoaModal = false;
+        this.soaModalResult    = '❌ Network error. Could not send SOA.';
+        this.cdr.detectChanges();
+      }
+    });
+  }
+  // ─────────────────────────────────────────────────────────────────────────
 
   // ── Amount to words ──────────────────────────────────────────────────────
   private amountToWords(amount: number): string {
@@ -815,6 +1783,91 @@ export class Accounting implements OnInit {
     const win = window.open('', '_blank', 'width=760,height=860');
     if (!win) return;
     win.document.write(html); win.document.close();
+  }
+
+
+  // ── Existing: Send SOA to parent/guardian (card/list button) ─────────────
+  isSendingSoa: { [studentId: number]: boolean } = {};
+
+  // ── SOA Viewer Modal ──────────────────────────────────────────────────────
+  showSoaViewer       = false;
+  soaViewerLoading    = false;
+  soaViewerStudent: { id: number; name: string; number: string; program: string } | null = null;
+  soaViewerSnapshot: any = null;
+  soaViewerSemesters: string[] = [];
+  soaViewerSemester   = '';
+
+  openSoaViewer(studentId: number, firstName: string, lastName: string, studentNumber: string, program: string): void {
+    this.soaViewerStudent  = { id: studentId, name: `${lastName}, ${firstName}`, number: studentNumber, program };
+    this.soaViewerSnapshot = null;
+    this.soaViewerSemesters = [];
+    this.soaViewerSemester  = '';
+    this.showSoaViewer     = true;
+    document.body.classList.add('soa-print-mode');
+    this.loadSoaSnapshot(studentId);
+    this.cdr.detectChanges();
+  }
+
+  closeSoaViewer(): void {
+    this.showSoaViewer = false;
+    this.soaViewerStudent = null;
+    document.body.classList.remove('soa-print-mode');
+    this.cdr.detectChanges();
+  }
+
+  loadSoaSnapshot(studentId: number, semester = ''): void {
+    this.soaViewerLoading = true;
+    this.cdr.detectChanges();
+    const qs = semester
+      ? `action=get_soa_snapshot&student_id=${studentId}&semester=${encodeURIComponent(semester)}`
+      : `action=get_soa_snapshot&student_id=${studentId}`;
+    this.http.get<any>(`${this.enrollApi}?${qs}`).subscribe({
+      next: (res) => {
+        this.soaViewerLoading   = false;
+        this.soaViewerSnapshot  = res.snapshot || null;
+        this.soaViewerSemesters = res.availableSemesters || [];
+        if (this.soaViewerSnapshot) this.soaViewerSemester = this.soaViewerSnapshot.semester;
+        this.cdr.detectChanges();
+      },
+      error: () => { this.soaViewerLoading = false; this.cdr.detectChanges(); }
+    });
+  }
+
+  onSoaSemesterChange(sem: string): void {
+    if (!this.soaViewerStudent) return;
+    this.soaViewerSemester = sem;
+    this.loadSoaSnapshot(this.soaViewerStudent.id, sem);
+  }
+
+  fmtPeso(n: number): string {
+    return (n || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 });
+  }
+
+  sendSoa(studentId: number, studentName: string): void {
+    if (this.isSendingSoa[studentId]) return;
+    if (!confirm(`Send Statement of Account to the parent/guardian of ${studentName}?\n\nMake sure a guardian email is saved in their record.`)) return;
+
+    this.isSendingSoa[studentId] = true;
+    this.cdr.detectChanges();
+
+    this.http.post<any>(`${environment.notifyApi}?action=send_soa`, {
+      student_id: studentId,
+    }).subscribe({
+      next: (res) => {
+        this.isSendingSoa[studentId] = false;
+        if (res.success) {
+          alert(`✅ SOA sent successfully to:\n${(res.recipients || []).map((r: any) => r.email).join('\n')}\n\nBalance: ₱${(res.balance || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}`);
+        } else {
+          alert(`❌ Failed to send SOA:\n${res.message || 'Unknown error.'}\n\nMake sure a guardian email is saved in the student record.`);
+        }
+        this.cdr.detectChanges();
+      },
+      error: () => {
+        this.isSendingSoa[studentId] = false;
+        alert('❌ Network error. Could not send SOA. Please check your connection and try again.');
+        this.cdr.detectChanges();
+      }
+    });
   }
 
 }

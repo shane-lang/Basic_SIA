@@ -1,8 +1,10 @@
 import { Component, OnInit, OnDestroy, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { Router, NavigationEnd } from '@angular/router';
 import { Subscription, filter } from 'rxjs';
+import { environment } from '../../environment';
 
 interface StudentProfile {
   // Core
@@ -34,16 +36,20 @@ interface StudentProfile {
 @Component({
   selector: 'app-profile',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, FormsModule],
   templateUrl: './profile.html',
   styleUrl: './profile.css',
 })
 export class Profile implements OnInit, OnDestroy {
-  private apiUrl = 'http://localhost/sia-api/enrollment.php';
+  private apiUrl = environment.enrollApi;
   private routerSub!: Subscription;
 
   isLoading = true;
   errorMessage = '';
+  // Only registrar/admin can see ultra-sensitive fields (PSA cert, LRN, religion, etc.)
+  canViewSensitive = (['registrar', 'admin'].includes(
+    JSON.parse(sessionStorage.getItem('currentUser') || '{}')?.role ?? ''
+  ));
 
   student: StudentProfile = {
     id: '', dbId: 0, firstName: '', lastName: '', middleName: '', suffix: '',
@@ -58,14 +64,6 @@ export class Profile implements OnInit, OnDestroy {
     isScholar: false, scholarType: '', scholarGrantor: '', scholarshipAmount: 0,
     profilePicture: 'https://ui-avatars.com/api/?name=Student&size=150',
   };
-
-  
-  /** Returns HTTP headers with the auth token. Call this in every API request. */
-  private getHeaders() {
-    const token = sessionStorage.getItem('token') ?? '';
-    return { headers: { Authorization: `Bearer ${token}` } };
-  }
-
   constructor(private http: HttpClient, private router: Router, private cdr: ChangeDetectorRef) {}
 
   get isSHS(): boolean { return (this.student.studentCategory ?? '').toUpperCase() === 'SHS'; }
@@ -91,19 +89,78 @@ export class Profile implements OnInit, OnDestroy {
 
   ngOnDestroy(): void { this.routerSub?.unsubscribe(); }
 
+  // ── RA 10173 Right to Access — export own personal data ──────────────────
+  downloadMyData(): void {
+    const exportData = {
+      notice: 'Personal data export under Republic Act No. 10173 (Data Privacy Act of 2012). Right to access exercised by the data subject.',
+      exportedAt: new Date().toISOString(),
+      personal: {
+        firstName:        this.student.firstName,
+        lastName:         this.student.lastName,
+        middleName:       this.student.middleName,
+        email:            this.student.email,
+        phone:            this.student.phone,
+        dateOfBirth:      this.student.dateOfBirth,
+        sex:              this.student.sex,
+        address:          this.student.address,
+        program:          this.student.program,
+        yearLevel:        this.student.yearLevel,
+        studentCategory:  this.student.studentCategory,
+        studentNumber:    this.student.id,
+        enrollmentStatus: this.student.enrollmentStatus,
+        enrollmentDate:   this.student.enrollmentDate,
+        paymentStatus:    this.student.paymentStatus,
+        isScholar:        this.student.isScholar,
+        scholarType:      this.student.scholarType,
+      }
+    };
+
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `my-data-${this.student.id}-${new Date().toISOString().slice(0,10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
   loadProfile(): void {
     this.isLoading = true; this.errorMessage = ''; this.cdr.detectChanges();
     const storedUser = sessionStorage.getItem('currentUser');
     if (!storedUser) { this.errorMessage = 'Not logged in.'; this.isLoading = false; this.cdr.detectChanges(); return; }
     const user = JSON.parse(storedUser);
-    this.http.get<any>(`${this.apiUrl}?action=get_profile&user_id=${user.id}`, this.getHeaders()).subscribe({
+
+    // BUG-PROFILE-01 FIX: Prefer studentDbId (students.id PK) over user.id
+    // (users.id FK). studentDbId is set by dashboard.ts on first load, and by
+    // Student.service.ts fetchProfile(). If it hasn't been set yet (e.g. user
+    // navigated directly to /profile before visiting dashboard), we fall back
+    // to user_id and let the PHP side resolve it via the students.user_id column.
+    // This prevents the "Profile not found" error on direct navigation.
+    const storedDbId = sessionStorage.getItem('studentDbId');
+    const apiParam   = storedDbId && parseInt(storedDbId, 10) > 0
+      ? `student_id=${storedDbId}`
+      : `user_id=${user.id}`;
+
+    this.http.get<any>(`${this.apiUrl}?action=get_profile&${apiParam}`).subscribe({
       next: (res) => {
-        if (res.success) { this.student = res.student; }
-        else { this.errorMessage = 'Profile not found. Please complete enrollment first.'; }
+        if (res.success) {
+          this.student = res.student;
+          // Persist studentDbId for other components (curriculum, SOA, etc.)
+          if (res.student?.dbId) {
+            sessionStorage.setItem('studentDbId', String(res.student.dbId));
+          }
+        }
+        else { this.errorMessage = res.message || 'Profile not found. Please complete enrollment first.'; }
         this.isLoading = false; this.cdr.detectChanges();
       },
-      error: () => {
-        this.errorMessage = 'Failed to load profile. Please check your connection.';
+      error: (err) => {
+        // BUG-PROFILE-02 FIX: distinguish network errors from logical failures.
+        // A network/CORS/500 error arrives here; a logical failure (profile not
+        // found, unenrolled) arrives in next() with success:false. This message
+        // now correctly says "connection" only for actual connectivity problems.
+        this.errorMessage = 'Cannot connect to server. Please check XAMPP is running.';
         this.isLoading = false; this.cdr.detectChanges();
       }
     });
@@ -119,5 +176,59 @@ export class Profile implements OnInit, OnDestroy {
     if (this.student.gpa >= 3.0) return 'Very Good';
     if (this.student.gpa >= 2.5) return 'Good';
     return 'Fair';
+  }
+
+  // ── Change Password modal ────────────────────────────────────────────────
+  showCpModal   = false;
+  cpCurrent     = ''; cpNew = ''; cpConfirm = '';
+  cpShowCurrent = false; cpShowNew = false; cpShowConfirm = false;
+  cpError       = ''; cpSuccess = ''; cpSubmitting = false;
+
+  openCpModal(): void {
+    this.showCpModal = true;
+    this.cpCurrent = this.cpNew = this.cpConfirm = '';
+    this.cpError = this.cpSuccess = '';
+    this.cpShowCurrent = this.cpShowNew = this.cpShowConfirm = false;
+    this.cdr.detectChanges();
+  }
+
+  closeCpModal(): void { this.showCpModal = false; this.cdr.detectChanges(); }
+
+  changePassword(): void {
+    this.cpError = ''; this.cpSuccess = '';
+    if (!this.cpCurrent || !this.cpNew || !this.cpConfirm) {
+      this.cpError = 'All fields are required.'; return;
+    }
+    if (this.cpNew.length < 6) {
+      this.cpError = 'New password must be at least 6 characters.'; return;
+    }
+    if (this.cpNew !== this.cpConfirm) {
+      this.cpError = 'New password and confirmation do not match.'; return;
+    }
+    const token = sessionStorage.getItem('token')
+                  ?? localStorage.getItem('sia_student_token')
+                  ?? '';
+    this.cpSubmitting = true; this.cdr.detectChanges();
+    this.http.post<any>(
+      `${environment.authApi}?action=change_password`,
+      { current_password: this.cpCurrent, new_password: this.cpNew, confirm_password: this.cpConfirm },
+      { headers: { Authorization: `Bearer ${token}` } }
+    ).subscribe({
+      next: res => {
+        this.cpSubmitting = false;
+        if (res.success) {
+          this.cpSuccess = res.message;
+          this.cpCurrent = this.cpNew = this.cpConfirm = '';
+        } else {
+          this.cpError = res.message || 'Password change failed.';
+        }
+        this.cdr.detectChanges();
+      },
+      error: () => {
+        this.cpSubmitting = false;
+        this.cpError = 'Connection error. Please try again.';
+        this.cdr.detectChanges();
+      }
+    });
   }
 }
