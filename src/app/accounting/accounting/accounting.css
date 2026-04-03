@@ -956,7 +956,13 @@
 .gr-ref     { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: monospace; font-size: 12px; color: #6b7280; }
 .gr-amount  { width: 88px; text-align: right; flex-shrink: 0; }
 .gr-date    { width: 96px; text-align: right; flex-shrink: 0; font-size: 12px; color: #9ca3af; }
-.gr-actions { width: 130px; display: flex; gap: 4px; justify-content: flex-end; flex-shrink: 0; }
+.gr-actions { width: 160px; display: flex; gap: 4px; justify-content: flex-end; flex-shrink: 0; }
+.btn-print-receipt { background: #0d9488; color: white; border: none; border-radius: 5px; padding: 4px 8px; font-size: 12px; cursor: pointer; font-weight: 600; }
+.btn-print-receipt:hover { background: #0f766e; }
+.btn-print-or { background: #1d4ed8; }
+.btn-print-or:hover { background: #1e40af; }
+.btn-print-ar { background: #7c3aed; }
+.btn-print-ar:hover { background: #6d28d9; }
 
 /* ── Filter Panel (2-row filter bar) ── */
 .filter-panel { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }

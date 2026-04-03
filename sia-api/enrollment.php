@@ -3183,11 +3183,43 @@ function getStudentContext($conn) {
     // BUG-REENROLL-NEW-FIX: removed $studentType !== 'New' gate — New students
     // must be allowed to re-enroll so they can become Old. The gate caused New
     // students to be permanently stuck on their first semester with no way to advance.
-    if ($approvalStatus === 'Approved' && $enrollStatus === 'Enrolled') {
+    //
+    // FIX REENROLL-NEWSTUDENT-01: However, a brand-new student who was JUST confirmed
+    // by the Registrar (student_type='New', zero Completed enrollments) must NOT be
+    // flagged for re-enrollment. The old gate removal exposed this: if the enrollment
+    // period label differs even slightly from the student's stored semester, the
+    // detection fires and shows "Re-enrollment" to a student on their very first login.
+    //
+    // Rule: New students only see re-enrollment prompt if they already have at least
+    // one Completed enrollment row — meaning they've finished their first semester.
+    // Old/Continuing/Transferee students keep the existing behavior.
+    $hasCompletedEnrollments = true; // default: allow re-enroll check
+    if ($studentType === 'New') {
+        $compChkR = $conn->query(
+            "SELECT COUNT(*) AS cnt FROM enrollments
+             WHERE student_id = $student_id AND status = 'Completed'"
+        );
+        $hasCompletedEnrollments = $compChkR && (int)$compChkR->fetch_assoc()['cnt'] > 0;
+    }
+
+    if ($approvalStatus === 'Approved' && $enrollStatus === 'Enrolled' && $hasCompletedEnrollments) {
         $period = getEnrollmentPeriodRow($conn);
         if ($period['is_open'] ?? false) {
             $periodLabel = trim($period['label'] ?? '');
-            $studentSem  = trim($s['semester'] ?? '');
+            // FIX RE-ENROLL-LOOP: Use $semester (resolved at line ~2992, re-fetched from DB
+            // after any auto-approve writes) instead of stale $s['semester'] which still holds
+            // the OLD semester value from the initial SELECT — causing needsReEnroll=true
+            // immediately after re-enrollment because the comparison never matched.
+            $studentSem  = trim($semester ?? $s['semester'] ?? '');
+            // Apply the same AY normalization to $studentSem so the comparison is apples-to-apples
+            $studentSem = preg_replace_callback(
+                '/AY\s*(\d{4})-(\d{4})/i',
+                function($m) {
+                    $y1 = (int)$m[1]; $y2 = (int)$m[2];
+                    return 'AY ' . min($y1,$y2) . '-' . max($y1,$y2);
+                },
+                $studentSem
+            );
 
             // FIX RE-ENROLL-AY: Normalize reversed AY (e.g. "AY 2027-2026" -> "AY 2026-2027")
             // Admin may accidentally type the years in reverse order.

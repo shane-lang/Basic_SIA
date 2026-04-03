@@ -260,7 +260,7 @@
               Your card will not appear in Accounting until you submit the reference number here.
             </p>
             <p *ngIf="paymentMethod !== 'GCash'">
-              Go to the Accounting Office and pay your tuition fee. They will record your payment and issue an Official Receipt.
+              Go to the Accounting Office and pay your tuition fee. They will record your payment and issue a Service Invoice.
             </p>
           </div>
         </div>
@@ -1062,7 +1062,7 @@
                   <th>SCHEDULE OF PAYMENT</th>
                   <th>DATE OF PAYMENTS</th>
                   <th>PAYMENTS</th>
-                  <th>O.R./A.R. NO.</th>
+                  <th>INVOICE NO.</th>
                 </tr>
               </thead>
               <tbody>
@@ -1164,7 +1164,7 @@
         </div>
       </div>
 
-      <!-- OR/AR Payment Receipt History -->
+      <!-- Service Invoice History -->
       <div class="term-payments-section" *ngIf="(soaSemesters.length > 0 || paymentReceipts.length > 0) && (isCollege || isTransferee)">
         <div style="margin-bottom:14px;" *ngIf="fees">
       </div>
@@ -1184,8 +1184,8 @@
         </div>
 
       <div class="section-header">
-          <h2>🧾 Payment Receipts (OR / AR)</h2>
-          <p class="section-sub">Official and Acknowledgement Receipts issued by Accounting</p>
+          <h2>🧾 Service Invoices</h2>
+          <p class="section-sub">Service invoices issued by Accounting</p>
         </div>
 
         <!-- Fully Paid Banner -->
@@ -1195,7 +1195,7 @@
             <div class="fp-title">FULLY PAID</div>
             <div class="fp-sub">
               <strong>{{ student.firstName }} {{ student.lastName }}</strong> — {{ student.program }}, {{ student.yearLevel }}<br>
-              <span>Final Receipt: <strong>{{ paymentReceipts[paymentReceipts.length - 1]?.orArNumber }}</strong></span>
+              <span>Final Invoice: <strong>{{ paymentReceipts[paymentReceipts.length - 1]?.orArNumber }}</strong></span>
             </div>
           </div>
         </div>
@@ -1206,7 +1206,7 @@
             <thead>
               <tr>
                 <th>#</th>
-                <th>OR/AR No.</th>
+                <th>Invoice No.</th>
                 <th>Type</th>
                 <th>Date</th>
                 <th>Period</th>
@@ -1225,8 +1225,10 @@
                 <td>{{ r.method }}</td>
                 <td style="text-align:right;font-weight:700;color:#1d4ed8;">₱{{ r.amount | number:'1.2-2' }}</td>
                 <td style="text-align:center;">
-                  <button *ngIf="r.orArType==='OR'" class="btn-print-receipt" (click)="viewOR(r)">👁️ View OR</button>
-                  <button *ngIf="r.orArType==='AR'" class="btn-print-receipt btn-print-ar" (click)="viewAR(r)">👁️ View AR</button>
+                  <button *ngIf="r.orArType==='OR'" class="btn-print-receipt" (click)="viewOR(r)" title="View Service Invoice">👁️ View</button>
+                  <button *ngIf="r.orArType==='OR'" class="btn-print-receipt btn-print-or" (click)="printOR(r)" title="Print Service Invoice">🖨️ Print</button>
+                  <button *ngIf="r.orArType==='AR'" class="btn-print-receipt btn-print-ar" (click)="viewAR(r)" title="View Service Invoice">👁️ View</button>
+                  <button *ngIf="r.orArType==='AR'" class="btn-print-receipt btn-print-ar" (click)="printAR(r)" title="Print Service Invoice">🖨️ Print</button>
                 </td>
               </tr>
             </tbody>
@@ -1235,7 +1237,7 @@
       </div>
 
       <div class="term-payments-section" *ngIf="paymentReceipts.length === 0 && !isFeeLoading && (isCollege || isTransferee)">
-        <div class="no-data"><p>Payment receipts will appear once Accounting records your payment.</p></div>
+        <div class="no-data"><p>Service invoices will appear once Accounting records your payment.</p></div>
       </div>
 
       <!-- SHS — free tuition notice -->
@@ -1357,6 +1359,8 @@
 .receipt-fullpaid-card { display:flex; align-items:center; gap:1rem; background:#f0fdf4; border:1.5px solid #86efac; border-radius:10px; padding:1rem 1.2rem; margin-bottom:1rem; }
 .btn-print-receipt { background:#0d9488; color:white; border:none; border-radius:5px; padding:5px 12px; font-size:12px; cursor:pointer; font-weight:600; border-radius:6px; }
 .btn-print-receipt:hover { background:#0f766e; }
+.btn-print-or { background:#1d4ed8; }
+.btn-print-or:hover { background:#1e40af; }
 .btn-print-ar { background:#7c3aed; }
 .btn-print-ar:hover { background:#6d28d9; }
 .fp-icon { font-size:2rem; }

@@ -3675,9 +3675,20 @@ function getCourseGroups(mysqli $conn): void {
     // This prevents students from a previous semester (who haven't re-enrolled yet)
     // from appearing in the Send Notice / Permit Generation cards.
     $activeSem = $semFilter !== '' ? $semFilter : $currentSem;
-    $semWhere = $activeSem !== ''
-        ? "AND s.semester = '" . $conn->real_escape_string($activeSem) . "'"
-        : '';
+    // FIX COURSE-GROUP-03: Use flexible semester matching (same as FILTER-09).
+    // The sys_config label (e.g. "1st Semester, AY 2024-2025") often doesn't exactly
+    // match students.semester (e.g. "1st Semester"). Match both directions with LIKE.
+    if ($activeSem !== '') {
+        $escFull  = $conn->real_escape_string($activeSem);
+        $semPart  = $conn->real_escape_string(trim(preg_replace('/[,\s]*AY[\s\d\-]+$/i', '', $activeSem)));
+        $semWhere = "AND (
+            s.semester = '$escFull'
+            OR s.semester LIKE '$semPart%'
+            OR '$escFull' LIKE CONCAT(s.semester, '%')
+        )";
+    } else {
+        $semWhere = '';
+    }
     $catWhere = ($catFilter && $catFilter !== 'ALL')
         ? "AND UPPER(COALESCE(s.student_category,'College')) = '" . $conn->real_escape_string($catFilter) . "'"
         : '';
@@ -3752,9 +3763,20 @@ function getPermitCourseGroups(mysqli $conn): void {
     $status       = in_array($rawStatus, ['pending','approved','rejected','all'], true)
                     ? $rawStatus : 'approved';
 
-    $semWhere   = $semFilter
-        ? "AND s.semester = '" . $conn->real_escape_string($semFilter) . "'"
-        : '';
+    // FIX PERMIT-COURSE-GROUP-01: Use flexible semester matching — same issue as
+    // FILTER-09 / COURSE-GROUP-03. The stored students.semester often omits the
+    // "AY YYYY-YYYY" suffix that the sys_config label includes, causing zero results.
+    if ($semFilter !== '') {
+        $escFull = $conn->real_escape_string($semFilter);
+        $semPart = $conn->real_escape_string(trim(preg_replace('/[,\s]*AY[\s\d\-]+$/i', '', $semFilter)));
+        $semWhere = "AND (
+            s.semester = '$escFull'
+            OR s.semester LIKE '$semPart%'
+            OR '$escFull' LIKE CONCAT(s.semester, '%')
+        )";
+    } else {
+        $semWhere = '';
+    }
     $catWhere   = ($catFilter && $catFilter !== 'ALL')
         ? "AND UPPER(COALESCE(s.student_category,'College')) = '" . $conn->real_escape_string($catFilter) . "'"
         : '';
@@ -4469,7 +4491,21 @@ function getAllEnrolledStudents($conn) {
     if ($filterProgram   !== '') $extraWhere .= " AND s.program = '" . $conn->real_escape_string($filterProgram) . "'";
     if ($filterYearLevel !== '') $extraWhere .= " AND LOWER(s.year_level) = LOWER('" . $conn->real_escape_string($filterYearLevel) . "')";
     if ($filterCategory  !== '') $extraWhere .= " AND UPPER(COALESCE(s.student_category,'College')) = UPPER('" . $conn->real_escape_string($filterCategory) . "')";
-    if ($filterSemester  !== '') $extraWhere .= " AND s.semester = '" . $conn->real_escape_string($filterSemester) . "'";
+    // FIX FILTER-09: Use flexible semester matching instead of exact string equality.
+    // The sys_config enrollment_period label (e.g. "1st Semester, AY 2024-2025") often
+    // does not exactly match what is stored in students.semester (e.g. "1st Semester" or
+    // "1st Semester, AY 2024-2025"). Using LIKE on both sides ensures students are found
+    // regardless of whether the AY suffix is present in the stored value or the filter.
+    if ($filterSemester !== '') {
+        $escFull = $conn->real_escape_string($filterSemester);
+        // Strip trailing ", AY YYYY-YYYY" to get the bare semester label (e.g. "1st Semester")
+        $semPart = $conn->real_escape_string(trim(preg_replace('/[,\s]*AY[\s\d\-]+$/i', '', $filterSemester)));
+        $extraWhere .= " AND (
+            s.semester = '$escFull'
+            OR s.semester LIKE '$semPart%'
+            OR '$escFull' LIKE CONCAT(s.semester, '%')
+        )";
+    }
     if ($filterPayPlan   !== '') $extraWhere .= " AND s.payment_plan = '" . $conn->real_escape_string($filterPayPlan) . "'";
     if ($filterPayStatus !== '') $extraWhere .= " AND s.payment_status = '" . $conn->real_escape_string($filterPayStatus) . "'";
 
@@ -4511,7 +4547,7 @@ function getAllEnrolledStudents($conn) {
         LEFT JOIN tuition_fees      tf ON tf.student_id = s.id AND tf.semester = s.semester
         LEFT JOIN payment_schedules ps ON ps.student_id = s.id
         WHERE s.approval_status   = 'Approved'
-          AND s.enrollment_status = 'Enrolled'
+          AND s.enrollment_status IN ('Enrolled', 'Confirmed')
           $extraWhere
         ORDER BY s.payment_plan ASC, s.last_name ASC, s.first_name ASC
     ");

@@ -1533,6 +1533,10 @@ export class Accounting implements OnInit, OnDestroy {
 
   // ── Print OR (Official Receipt) ──────────────────────────────────────────
   viewOR(h: PaymentHistory): void {
+    this.openServiceInvoice(h);
+  }
+
+  printOR(h: PaymentHistory): void {
     const name = `${h.lastName || ''}, ${h.firstName || ''}`;
     const amount = h.gcashAmount || 0;
     const amtWords = this.amountToWords(amount);
@@ -1547,7 +1551,6 @@ export class Accounting implements OnInit, OnDestroy {
   *{box-sizing:border-box;margin:0;padding:0;}
   body{font-family:Arial,sans-serif;font-size:10.5px;padding:14px 18px;color:#000;background:#fff;width:720px;}
   .outer{display:grid;grid-template-columns:220px 1fr;gap:0;border:1.5px solid #000;}
-  /* LEFT PANEL */
   .left-panel{border-right:1.5px solid #000;display:flex;flex-direction:column;}
   .part-header{background:#000;color:#fff;text-align:center;font-size:9px;font-weight:700;padding:3px;}
   .part-table{width:100%;border-collapse:collapse;font-size:9.5px;}
@@ -1556,7 +1559,6 @@ export class Accounting implements OnInit, OnDestroy {
   .part-table .total-row td{font-weight:700;background:#f5f5f5;}
   .subj-area{border-top:1.5px solid #000;padding:4px;font-size:9px;}
   .subj-row{display:grid;grid-template-columns:55px 1fr 25px;border-bottom:1px solid #ddd;padding:1px 0;}
-  /* RIGHT PANEL */
   .right-panel{display:flex;flex-direction:column;}
   .school-header{display:flex;align-items:flex-start;gap:8px;padding:6px 8px;border-bottom:1.5px solid #000;}
   .logo-circle{width:52px;height:52px;border:2px solid #000;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:7.5px;text-align:center;flex-shrink:0;font-weight:700;}
@@ -1566,7 +1568,6 @@ export class Accounting implements OnInit, OnDestroy {
   .deped-badge{font-size:8px;border:1px solid #999;padding:2px 5px;border-radius:3px;margin-left:auto;white-space:nowrap;align-self:flex-start;}
   .receipt-bar{text-align:center;background:#fff;border-bottom:1.5px solid #000;padding:4px;}
   .receipt-bar-title{font-size:13px;font-weight:900;letter-spacing:1.5px;}
-  .receipt-bar-sub{font-size:8.5px;color:#444;}
   .body-pad{padding:6px 10px;}
   .field-row{display:flex;align-items:flex-end;gap:5px;margin-bottom:4px;}
   .flabel{font-size:9px;white-space:nowrap;}
@@ -1581,15 +1582,9 @@ export class Accounting implements OnInit, OnDestroy {
   .sig-block{text-align:center;}
   .sig-line{border-top:1px solid #000;padding-top:3px;font-size:8.5px;margin-top:20px;}
   .footer{font-size:7.5px;color:#444;padding:4px 8px;border-top:1px dashed #aaa;}
-  @media print{
-    body{padding:6px 10px;}
-    @page{margin:6mm;size:A4 landscape;}
-    .no-print{display:none!important;}
-  }
+  @media print{body{padding:6px 10px;}@page{margin:6mm;size:A4 landscape;}.no-print{display:none!important;}}
 </style></head><body>
-
 <div class="outer">
-  <!-- LEFT: Particulars + Subjects -->
   <div class="left-panel">
     <div class="part-header">In settlement of the following:</div>
     <table class="part-table">
@@ -1602,23 +1597,17 @@ export class Accounting implements OnInit, OnDestroy {
       <tr><td>5th Payment</td><td></td></tr>
       <tr><td>6th Payment</td><td></td></tr>
       <tr><td>Others</td><td></td></tr>
-      <tr class="total-row"><td>Total Due</td><td>${period==='Full' ? fmt(amount) : fmt(amount)}</td></tr>
+      <tr class="total-row"><td>Total Due</td><td>${fmt(amount)}</td></tr>
       <tr><td>Less: Withholding Tax</td><td></td></tr>
       <tr class="total-row"><td>Payment Due</td><td>${fmt(amount)}</td></tr>
     </table>
     <div class="subj-area">
-      <div class="subj-row" style="font-weight:700;font-size:9px;border-bottom:1px solid #000;">
-        <span>Code</span><span>Subject</span><span>Units</span>
-      </div>
+      <div class="subj-row" style="font-weight:700;font-size:9px;border-bottom:1px solid #000;"><span>Code</span><span>Subject</span><span>Units</span></div>
       <div class="subj-row"><span>${h.program || ''}</span><span>${h.semester || ''}</span><span></span></div>
-      <div class="subj-row"><span></span><span></span><span></span></div>
-      <div class="subj-row"><span></span><span></span><span></span></div>
       <div class="subj-row"><span></span><span></span><span></span></div>
       <div class="subj-row"><span></span><span></span><span></span></div>
     </div>
   </div>
-
-  <!-- RIGHT: Header + Receipt Body -->
   <div class="right-panel">
     <div class="school-header">
       <div class="logo-circle">ST.<br>BENILDE</div>
@@ -1631,62 +1620,30 @@ export class Accounting implements OnInit, OnDestroy {
       </div>
       <div class="deped-badge">Registered with:<br>CHED · TESDA · DepEd</div>
     </div>
-
-    <div class="receipt-bar">
-      <div class="receipt-bar-title">OFFICIAL RECEIPT (EXEMPT)</div>
-    </div>
-
+    <div class="receipt-bar"><div class="receipt-bar-title">OFFICIAL RECEIPT (EXEMPT)</div></div>
     <div class="body-pad">
-      <div class="field-row">
-        <span class="flabel">RECEIVED from</span>
-        <span class="fval">${name}</span>
-        <span class="flabel">with TIN</span>
-        <span class="fval" style="max-width:90px;"></span>
-      </div>
-      <div class="field-row">
-        <span class="flabel">business style of</span>
-        <span class="fval"></span>
-        <span class="flabel">and address at</span>
-        <span class="fval">Olongapo City</span>
-      </div>
-      <div class="field-row">
-        <span class="flabel">in partial/full payment for</span>
-        <span class="fval">${h.program || ''} — ${h.semester || ''}</span>
-      </div>
-      <div class="field-row">
-        <span class="flabel">the sum of</span>
-        <span class="fval sum-words">( P ${fmt(amount)} ) &nbsp; ${amtWords}</span>
-        <span class="flabel">pesos</span>
-      </div>
-
+      <div class="field-row"><span class="flabel">RECEIVED from</span><span class="fval">${name}</span><span class="flabel">with TIN</span><span class="fval" style="max-width:90px;"></span></div>
+      <div class="field-row"><span class="flabel">business style of</span><span class="fval"></span><span class="flabel">and address at</span><span class="fval">Olongapo City</span></div>
+      <div class="field-row"><span class="flabel">in partial/full payment for</span><span class="fval">${h.program || ''} — ${h.semester || ''}</span></div>
+      <div class="field-row"><span class="flabel">the sum of</span><span class="fval sum-words">( P ${fmt(amount)} ) &nbsp; ${amtWords}</span><span class="flabel">pesos</span></div>
       <div class="pay-method">
         <span class="flabel">Form of Payment:</span>
         <span class="cb"><span class="cb-sq">${isCashPay ? '✓' : ''}</span> Cash</span>
         <span class="cb"><span class="cb-sq">${!isCashPay ? '✓' : ''}</span> Check</span>
         <span class="flabel" style="margin-left:8px;">Bank</span>
         <span class="fval" style="max-width:90px;">${!isCashPay ? (h.gcashReference || '') : ''}</span>
-        <span class="flabel">Check No.</span>
-        <span class="fval" style="max-width:70px;"></span>
-        <span class="flabel">Date</span>
-        <span class="fval" style="max-width:80px;">${payDate}</span>
+        <span class="flabel">Check No.</span><span class="fval" style="max-width:70px;"></span>
+        <span class="flabel">Date</span><span class="fval" style="max-width:80px;">${payDate}</span>
       </div>
     </div>
-
-    <div class="receipt-no-bar">
-      <span style="font-size:9px;margin-right:8px;">No.</span>
-      <span class="receipt-no">${h.orArNumber || '—'}</span>
-    </div>
-
+    <div class="receipt-no-bar"><span style="font-size:9px;margin-right:8px;">No.</span><span class="receipt-no">${h.orArNumber || '—'}</span></div>
     <div class="sig-row">
-      <div>
-        <div style="font-size:8px;color:#555;"><em>THIS DOCUMENT IS NOT VALID FOR CLAIM OF INPUT TAXES</em></div>
-      </div>
+      <div><div style="font-size:8px;color:#555;"><em>THIS DOCUMENT IS NOT VALID FOR CLAIM OF INPUT TAXES</em></div></div>
       <div class="sig-block">
         <div style="height:24px;font-size:10px;">${h.verifiedByName || ''}</div>
         <div class="sig-line">Cashier/Authorized Representative</div>
       </div>
     </div>
-
     <div class="footer">
       200-Elitre 1503 42501-52500 &nbsp;|&nbsp; BIR Authority to Print No.: OCN: 018AU20220000004994<br>
       Printer's Accreditation No.: 018MP2019000000000001 &nbsp;|&nbsp; Date Issued: 01-09-2019<br>
@@ -1694,12 +1651,10 @@ export class Accounting implements OnInit, OnDestroy {
     </div>
   </div>
 </div>
-
 <div class="no-print" style="text-align:center;margin-top:14px;">
   <button onclick="window.print()" style="background:#1d4ed8;color:white;border:none;padding:10px 32px;font-size:14px;font-weight:700;border-radius:7px;cursor:pointer;margin-right:10px;">🖨️ Print</button>
   <button onclick="window.close()" style="background:#64748b;color:white;border:none;padding:10px 24px;font-size:14px;font-weight:700;border-radius:7px;cursor:pointer;">✕ Close</button>
 </div>
-
 </body></html>`;
     const win = window.open('', '_blank', 'width=800,height=700');
     if (!win) return;
@@ -1707,6 +1662,10 @@ export class Accounting implements OnInit, OnDestroy {
   }
 
   viewAR(h: PaymentHistory): void {
+    this.openServiceInvoice(h);
+  }
+
+  printAR(h: PaymentHistory): void {
     const name = `${h.lastName || ''}, ${h.firstName || ''}`;
     const amount = h.gcashAmount || 0;
     const fmt = (n: number) => n.toLocaleString('en-PH', { minimumFractionDigits: 2 });
@@ -1738,7 +1697,7 @@ export class Accounting implements OnInit, OnDestroy {
   .sig-area{display:flex;justify-content:flex-end;margin-top:24px;}
   .sig-block{text-align:center;min-width:140px;}
   .sig-line{border-top:1.5px solid #000;padding-top:3px;font-size:9px;font-weight:700;}
-  @media print{body{padding:10px 14px;}@page{margin:8mm;} .no-print{display:none!important;}}
+  @media print{body{padding:10px 14px;}@page{margin:8mm;}.no-print{display:none!important;}}
 </style></head><body>
 <div class="header">
   <div class="school-name">St. Benilde Center for Global Competence, Inc.</div>
@@ -1776,14 +1735,136 @@ export class Accounting implements OnInit, OnDestroy {
   </div>
 </div>
 <div class="no-print" style="text-align:center;margin-top:16px;padding:12px;background:#f8fafc;border-top:1px solid #e2e8f0;">
-      <button onclick="window.print()" style="background:#7c3aed;color:white;border:none;padding:10px 32px;font-size:14px;font-weight:700;border-radius:7px;cursor:pointer;margin-right:10px;">🖨️ Print</button>
-      <button onclick="window.close()" style="background:#64748b;color:white;border:none;padding:10px 24px;font-size:14px;font-weight:700;border-radius:7px;cursor:pointer;">✕ Close</button>
-    </div>
+  <button onclick="window.print()" style="background:#7c3aed;color:white;border:none;padding:10px 32px;font-size:14px;font-weight:700;border-radius:7px;cursor:pointer;margin-right:10px;">🖨️ Print</button>
+  <button onclick="window.close()" style="background:#64748b;color:white;border:none;padding:10px 24px;font-size:14px;font-weight:700;border-radius:7px;cursor:pointer;">✕ Close</button>
+</div>
 </body></html>`;
     const win = window.open('', '_blank', 'width=760,height=860');
     if (!win) return;
     win.document.write(html); win.document.close();
   }
+
+  // ── Service Invoice (online/browser view — NOT an official receipt) ─────────
+  openServiceInvoice(h: PaymentHistory): void {
+    const name = `${h.lastName || ''}, ${h.firstName || ''}`;
+    const stNum = h.studentNumber || '';
+    const amount = h.gcashAmount || 0;
+    const fmt = (n: number) => n.toLocaleString('en-PH', { minimumFractionDigits: 2 });
+    const period = h.examPeriod || '';
+    const method = h.paymentMethod || '';
+    const gcashRef = h.gcashReference || '';
+    const orNo = h.orArNumber || '';
+    const payDate = h.gcashDate || h.verifiedAt || '';
+    const totalAssess = h.totalAssessment || 0;
+    const totalPaid = h.totalPaid || amount;
+    const balance = Math.max(0, totalAssess - totalPaid);
+
+    let statusClass = 'status-unpaid'; let statusLabel = 'UNPAID';
+    if (balance <= 0) { statusClass = 'status-paid'; statusLabel = 'FULLY PAID'; }
+    else if (totalPaid > 0) { statusClass = 'status-partial'; statusLabel = 'PARTIALLY PAID'; }
+
+    const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Service Invoice — ${orNo}</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700&display=swap');
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:'Source Sans 3',Arial,sans-serif;background:#eee;padding:20px;font-size:12px;color:#111;}
+  .page{background:white;width:148mm;margin:0 auto;padding:10mm 12mm 8mm;box-shadow:0 2px 12px rgba(0,0,0,.15);}
+  .school-header{display:flex;align-items:center;gap:10px;border-bottom:2px solid #1a3c6e;padding-bottom:8px;margin-bottom:8px;}
+  .logo-circle{width:52px;height:52px;background:#1a3c6e;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;color:white;font-weight:700;font-size:16px;}
+  .school-name{font-size:15px;font-weight:700;color:#1a3c6e;line-height:1.2;}
+  .school-addr{font-size:10px;color:#555;}
+  .doc-type{margin-top:12px;text-align:center;}
+  .doc-type h2{font-size:14px;letter-spacing:2px;color:#1a3c6e;text-transform:uppercase;font-weight:700;}
+  .doc-number{font-size:18px;font-weight:700;color:#c8352a;letter-spacing:1px;margin-top:2px;}
+  .meta-row{display:flex;justify-content:space-between;font-size:10px;color:#666;margin-top:4px;}
+  .badge-row{text-align:center;margin-top:6px;}
+  .status-badge{display:inline-block;border-radius:4px;font-size:9px;font-weight:700;letter-spacing:1px;padding:2px 8px;text-transform:uppercase;}
+  .status-paid{background:#d1e7dd;color:#0a6640;border:1px solid #a3cfbb;}
+  .status-partial{background:#fff3cd;color:#856404;border:1px solid #ffc107;}
+  .status-unpaid{background:#f8d7da;color:#842029;border:1px solid #f5c2c7;}
+  .not-receipt-badge{display:inline-block;background:#fff3cd;color:#856404;border:1px solid #ffc107;border-radius:4px;font-size:9px;font-weight:700;letter-spacing:1px;padding:2px 8px;text-transform:uppercase;margin-left:6px;}
+  .divider{border:none;border-top:1px dashed #ccc;margin:8px 0;}
+  .section-title{font-size:9px;text-transform:uppercase;letter-spacing:1px;color:#888;font-weight:600;margin-bottom:4px;}
+  .info-grid{display:grid;grid-template-columns:1fr 1fr;gap:2px 16px;margin-bottom:8px;}
+  .field label{font-size:9px;color:#888;text-transform:uppercase;display:block;}
+  .field span{font-size:11px;font-weight:600;}
+  .box{background:#f8f9fb;border:1px solid #dde;border-radius:4px;padding:8px 10px;margin-bottom:8px;}
+  .amt-center{text-align:center;margin:4px 0 8px;}
+  .amt-label{font-size:9px;color:#888;text-transform:uppercase;letter-spacing:1px;}
+  .amt-value{font-size:26px;font-weight:700;color:#1a3c6e;}
+  table.bk{width:100%;font-size:10px;border-collapse:collapse;}
+  table.bk td{padding:2px 4px;}
+  table.bk td:last-child{text-align:right;font-weight:600;}
+  .total-row td{border-top:1px solid #ccc;padding-top:4px;font-weight:700;font-size:11px;}
+  .bal-row td{color:#c8352a;}
+  .bal-row.paid td{color:#1a7a3c;}
+  .footer-note{text-align:center;font-size:9px;color:#bbb;margin-top:8px;letter-spacing:1px;border-top:1px solid #eee;padding-top:6px;}
+  .sig-row{display:flex;justify-content:space-between;margin-top:10px;}
+  .sig{text-align:center;}
+  .sig .line{border-top:1px solid #333;width:100px;margin:22px auto 2px;}
+  .sig .sig-name{font-size:10px;font-weight:600;}
+  .sig .sig-role{font-size:9px;color:#888;}
+  @media print{body{background:white;padding:0;}.page{box-shadow:none;}.no-print{display:none;}}
+</style></head><body>
+<div class="no-print" style="text-align:center;margin-bottom:12px;">
+  <button onclick="window.print()" style="background:#1a3c6e;color:white;border:none;padding:8px 20px;border-radius:4px;cursor:pointer;font-size:13px;">🖨️ Print Invoice</button>
+  <button onclick="window.close()" style="margin-left:8px;background:#eee;border:none;padding:8px 16px;border-radius:4px;cursor:pointer;font-size:13px;">Close</button>
+</div>
+<div class="page">
+  <div class="school-header">
+    <div class="logo-circle">S</div>
+    <div>
+      <div class="school-name">St. Benilde Center for Global Competence, Inc.</div>
+      <div class="school-addr">#2647 Rizal Avenue, West Bajac-Bajac, Olongapo City | Tel/Fax: (047) 223-9031</div>
+    </div>
+  </div>
+  <div class="doc-type">
+    <h2>Service Invoice</h2>
+    <div class="doc-number">Ref. No. ${orNo}</div>
+    <div class="meta-row"><span>Date: ${payDate}</span></div>
+    <div class="badge-row">
+      <span class="status-badge ${statusClass}">${statusLabel}</span>
+
+    </div>
+  </div>
+  <hr class="divider">
+  <div class="section-title">Student Information</div>
+  <div class="info-grid">
+    <div class="field"><label>Name</label><span>${name}</span></div>
+    <div class="field"><label>Student No.</label><span>${stNum}</span></div>
+    <div class="field"><label>Program</label><span>${h.program || ''}</span></div>
+    <div class="field"><label>Semester</label><span>${h.semester || ''}</span></div>
+  </div>
+  <hr class="divider">
+  <div class="section-title">Payment for This Period</div>
+  <div class="box">
+    <div class="amt-center">
+      <div class="amt-label">Amount — ${period}</div>
+      <div class="amt-value">₱${fmt(amount)}</div>
+    </div>
+    <table class="bk">
+      <tr><td>Payment Method</td><td>${method}</td></tr>
+      ${gcashRef ? `<tr><td>GCash Ref</td><td>${gcashRef}</td></tr>` : ''}
+      <tr class="total-row"><td>Total Assessment</td><td>₱${fmt(totalAssess)}</td></tr>
+      <tr><td>Total Paid to Date</td><td>₱${fmt(totalPaid)}</td></tr>
+      <tr class="bal-row ${balance <= 0 ? 'paid' : ''}"><td>Remaining Balance</td><td>₱${fmt(balance)}</td></tr>
+    </table>
+  </div>
+  <div class="sig-row">
+    <div class="sig"><div class="line"></div><div class="sig-name">${h.verifiedByName || 'Accounting Office'}</div><div class="sig-role">Accounting Staff</div></div>
+    <div class="sig"><div class="line"></div><div class="sig-name">${name}</div><div class="sig-role">Student / Representative</div></div>
+  </div>
+  <div class="footer-note">SERVICE INVOICE </div>
+</div>
+</body></html>`;
+    const win = window.open('', '_blank', 'width=760,height=860');
+    if (!win) return;
+    win.document.write(html);
+    win.document.close();
+  }
+
 
 
   // ── Existing: Send SOA to parent/guardian (card/list button) ─────────────

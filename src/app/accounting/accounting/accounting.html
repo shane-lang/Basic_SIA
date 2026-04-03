@@ -272,8 +272,10 @@
               <span class="gr-date muted">{{ formatDate(h.gcashDate || h.verifiedAt) }}</span>
               <span class="gr-actions">
                 <span class="badge" [class.verified]="h.status === 'Verified'" [class.rejected]="h.status === 'Rejected'">{{ h.status === 'Verified' ? '✓' : '✗' }}</span>
-                <button *ngIf="h.status==='Verified' && h.orArType==='OR'" class="btn-print-receipt" (click)="viewOR(h)">👁️</button>
-                <button *ngIf="h.status==='Verified' && h.orArType==='AR'" class="btn-print-receipt btn-print-ar" (click)="viewAR(h)">👁️</button>
+                <button *ngIf="h.status==='Verified' && h.orArType==='OR'" class="btn-print-receipt" (click)="viewOR(h)" title="View Service Invoice">👁️</button>
+                <button *ngIf="h.status==='Verified' && h.orArType==='OR'" class="btn-print-receipt btn-print-or" (click)="printOR(h)" title="Print Official Receipt">🖨️</button>
+                <button *ngIf="h.status==='Verified' && h.orArType==='AR'" class="btn-print-receipt btn-print-ar" (click)="viewAR(h)" title="View Service Invoice">👁️</button>
+                <button *ngIf="h.status==='Verified' && h.orArType==='AR'" class="btn-print-receipt btn-print-ar" (click)="printAR(h)" title="Print Acknowledgement Receipt">🖨️</button>
                 <button *ngIf="h.status==='Verified'" class="btn-edit-sm" (click)="openEditHistory(h)">✏️</button>
                 <button *ngIf="h.status==='Verified'" class="btn-send-soa-sm" (click)="sendSoa(h.studentId, h.firstName + ' ' + h.lastName)" [disabled]="isSendingSoa[h.studentId]">{{ isSendingSoa[h.studentId] ? '…' : '📧' }}</button>
               </span>
