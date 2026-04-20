@@ -1,14 +1,16 @@
 <!-- GRADES HEADER -->
+<div class="grades-wrap" (mousemove)="resetLockTimer()" (click)="resetLockTimer()">
 <div class="grades-header">
   <div>
     <h1>📊 Academic Grades</h1>
-    <p class="grades-sub">Prelim · Midterm · Final · Academic Standing</p>
+    <p class="grades-sub" *ngIf="!isSHS">Prelim · Midterm · Final · Academic Standing</p>
+    <p class="grades-sub" *ngIf="isSHS">1st Quarter · 2nd Quarter · 3rd Quarter · 4th Quarter · Academic Standing</p>
     <p class="grades-note">🔒 Grades are visible only after the registrar releases them.</p>
   </div>
   <div class="sem-wrap">
-    <label class="sem-label">📅 View Semester</label>
+    <label class="sem-label">📅 {{ isSHS ? 'View School Year' : 'View Semester' }}</label>
     <select class="sem-select" [(ngModel)]="selectedSemester" (ngModelChange)="onSemesterChange()">
-      <option value="">All Semesters</option>
+      <option value="">{{ isSHS ? 'All School Years' : 'All Semesters' }}</option>
       <option *ngFor="let s of semesters" [value]="s">{{ s }}</option>
     </select>
   </div>
@@ -58,7 +60,10 @@
   <!-- GRADES TABLE -->
   <section class="grades-table-section">
     <div class="section-header">
-      <h2>📋 Subject Grades — {{ selectedSemester || 'All Semesters' }}</h2>
+      <h2>📋 Subject Grades — {{ selectedSemester || (isSHS ? 'All School Years' : 'All Semesters') }}</h2>
+      <p class="grades-note" *ngIf="isSHS" style="margin-top:0.25rem;font-size:0.82rem;color:#6b7280">
+        SHS grades are reported per school year (Grade 11 · Grade 12).
+      </p>
     </div>
     <div *ngIf="grades.length === 0" class="grades-empty">
       <div>📚</div><h3>No grades available yet</h3>
@@ -70,8 +75,17 @@
           <tr>
             <th>Code</th><th>Subject</th><th>Instructor</th>
             <th class="tc">Units</th>
-            <th class="tc">Prelim</th><th class="tc">Midterm</th>
-            <th class="tc">Final</th><th class="tc">Overall</th>
+            <!-- College: Prelim / Midterm / Final -->
+            <ng-container *ngIf="!isSHS">
+              <th class="tc">Prelim</th><th class="tc">Midterm</th>
+              <th class="tc">Final</th>
+            </ng-container>
+            <!-- SHS: K-12 PH uses quarterly grading — map Prelim=Q1, Midterm=Q2, Final=Final Grade -->
+            <ng-container *ngIf="isSHS">
+              <th class="tc">Q1</th><th class="tc">Q2</th>
+              <th class="tc">Final Grade</th>
+            </ng-container>
+            <th class="tc">Overall</th>
             <th class="tc">Remarks</th><th>Description</th>
           </tr>
         </thead>
@@ -132,3 +146,4 @@
 
   </ng-container>
 </div>
+</div>  <!-- /grades-wrap -->

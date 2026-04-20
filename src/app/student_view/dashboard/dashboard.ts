@@ -145,7 +145,8 @@ export class StudentDashboard implements OnInit {
   get isSHS():         boolean { return this.studentCategory === 'SHS'; }
   get isTVET():        boolean { return this.studentCategory === 'TVET'; }
   get isCollege():     boolean { return !this.isSHS && !this.isTVET; }
-  get isTransferee():  boolean { return this.studentType === 'Transferee'; }
+  // FIX TRANSFEREE-CASE-FE-01: Case-insensitive — DB may store 'transferee' (lowercase).
+  get isTransferee():  boolean { return this.studentType.toLowerCase() === 'transferee'; }
   get isFreeStudent(): boolean { return (this.isSHS || this.isTVET) && !this.isTransferee; }
   // For SHS: show 'Grade 11' / 'Grade 12' instead of '1st Year' / '2nd Year'
   get displayYearLevel(): string {

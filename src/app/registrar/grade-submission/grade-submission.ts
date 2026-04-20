@@ -32,6 +32,8 @@ interface GradeCourse {
   instructor: string;
   program: string;
   credits: number;
+  yearLevel: string;
+  courseSemester: string;
   enrolledCount: number;
   prelimDone: number;
   midtermDone: number;
@@ -46,6 +48,7 @@ interface PendingCourse {
   facultyName: string;
   semester: string;
   department: string;
+  program: string;
   submittedCount: number;
   releasedCount: number;
   pendingRelease: number;
@@ -57,6 +60,7 @@ interface Subject {
   enrollmentId: number; courseId: number;
   code: string; name: string; credits: number;
   instructor: string; semester: string;
+  yearLevel: string; courseSemester: string;
   prelim: number | null; midterm: number | null; final: number | null;
   overall: number | null; remarks: string;
   prelimAt: string | null; midtermAt: string | null; finalAt: string | null;
@@ -96,6 +100,83 @@ export class GradeSubmission implements OnInit {
   courses: GradeCourse[] = [];
   isLoadingCourses = false;
   filterCourseCategory = '';  // 'College' | 'SHS' | 'TVET' | ''
+  collapsedPrograms = new Set<string>();
+  collapsedPending         = new Set<string>();   // key: dept
+  collapsedPendingProgram  = new Set<string>();   // key: dept::program
+  collapsedStudentPrograms = new Set<string>();
+
+  toggleProgram(program: string): void {
+    if (this.collapsedPrograms.has(program)) {
+      this.collapsedPrograms.delete(program);
+    } else {
+      this.collapsedPrograms.add(program);
+    }
+  }
+
+  isProgramCollapsed(program: string): boolean {
+    return this.collapsedPrograms.has(program);
+  }
+
+  togglePending(dept: string): void {
+    if (this.collapsedPending.has(dept)) this.collapsedPending.delete(dept);
+    else this.collapsedPending.add(dept);
+  }
+  isPendingCollapsed(dept: string): boolean {
+    return this.collapsedPending.has(dept);
+  }
+
+  togglePendingProgram(dept: string, program: string): void {
+    const key = `${dept}::${program}`;
+    if (this.collapsedPendingProgram.has(key)) this.collapsedPendingProgram.delete(key);
+    else this.collapsedPendingProgram.add(key);
+  }
+  isPendingProgramCollapsed(dept: string, program: string): boolean {
+    return this.collapsedPendingProgram.has(`${dept}::${program}`);
+  }
+
+  toggleStudentProgram(program: string): void {
+    if (this.collapsedStudentPrograms.has(program)) {
+      this.collapsedStudentPrograms.delete(program);
+    } else {
+      this.collapsedStudentPrograms.add(program);
+    }
+  }
+
+  isStudentProgramCollapsed(program: string): boolean {
+    return this.collapsedStudentPrograms.has(program);
+  }
+
+  get groupedPendingCourses(): { dept: string; programs: { program: string; courses: PendingCourse[] }[] }[] {
+    const deptMap = new Map<string, Map<string, PendingCourse[]>>();
+    for (const c of this.pendingCourses) {
+      const dept = c.department?.trim() || 'Other';
+      const prog = c.program?.trim()    || 'General';
+      if (!deptMap.has(dept)) deptMap.set(dept, new Map());
+      const progMap = deptMap.get(dept)!;
+      if (!progMap.has(prog)) progMap.set(prog, []);
+      progMap.get(prog)!.push(c);
+    }
+    return Array.from(deptMap.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([dept, progMap]) => ({
+        dept,
+        programs: Array.from(progMap.entries())
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([program, courses]) => ({ program, courses })),
+      }));
+  }
+
+  get groupedStudents(): { program: string; students: GradeStudent[] }[] {
+    const map = new Map<string, GradeStudent[]>();
+    for (const s of this.students) {
+      const prog = s.program?.trim() || 'Other';
+      if (!map.has(prog)) map.set(prog, []);
+      map.get(prog)!.push(s);
+    }
+    return Array.from(map.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([program, students]) => ({ program, students }));
+  }
 
   // Pending release
   pendingCourses: PendingCourse[] = [];
@@ -137,6 +218,7 @@ export class GradeSubmission implements OnInit {
       instructor: course.facultyName, program: course.department,
       credits: 0, enrolledCount: course.submittedCount,
       prelimDone: 0, midtermDone: 0, finalDone: 0, gradeCompletion: 0,
+      yearLevel: '', courseSemester: course.semester ?? '',
     };
     this.selectCourse(fakeCourse);
   }
@@ -322,6 +404,74 @@ export class GradeSubmission implements OnInit {
            upper.startsWith('PE') ||
            upper.startsWith('NSTP') ||
            upper.startsWith('OJT');
+  }
+
+  // ── Grouping helpers ──────────────────────────────────────
+  private _normYear(yr: string): string {
+    const l = (yr || '').toLowerCase();
+    if (l.includes('5') || l.includes('fifth'))  return '5th Year';
+    if (l.includes('4') || l.includes('fourth')) return '4th Year';
+    if (l.includes('3') || l.includes('third'))  return '3rd Year';
+    if (l.includes('2') || l.includes('second')) return '2nd Year';
+    if (l.includes('1') || l.includes('first'))  return '1st Year';
+    return yr || 'Other';
+  }
+
+  private _normSem(s: string): string {
+    const l = (s || '').toLowerCase();
+    if (l.includes('summer') || l.includes('mid')) return 'Summer';
+    if (l.includes('2nd') || l.includes('second')) return '2nd Semester';
+    if (l.includes('1st') || l.includes('first'))  return '1st Semester';
+    return s || 'Other';
+  }
+  /** By Course tab: courses grouped by program */
+  get groupedCourses(): { program: string; courses: GradeCourse[] }[] {
+    const progMap = new Map<string, GradeCourse[]>();
+    for (const c of this.courses) {
+      const prog = c.program?.trim() || 'Other';
+      if (!progMap.has(prog)) progMap.set(prog, []);
+      progMap.get(prog)!.push(c);
+    }
+    return Array.from(progMap.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([program, courses]) => ({ program, courses }));
+  }
+
+
+
+  /** Student detail view: subjects grouped by year level then semester */
+  get groupedSubjects(): { yearLevel: string; semesters: { semester: string; subjects: Subject[]; totalUnits: number }[] }[] {
+    const YEAR_ORDER = ['1st Year','2nd Year','3rd Year','4th Year','5th Year','Other'];
+    const SEM_ORDER  = ['1st Semester','2nd Semester','Summer','Other'];
+    const yearMap    = new Map<string, Map<string, Subject[]>>();
+
+    for (const s of this.subjects) {
+      const yr  = s.yearLevel      ? this._normYear(s.yearLevel)      : 'Other';
+      const sem = s.courseSemester ? this._normSem(s.courseSemester)  : 'Other';
+      if (!yearMap.has(yr))  yearMap.set(yr, new Map());
+      const sm = yearMap.get(yr)!;
+      if (!sm.has(sem)) sm.set(sem, []);
+      sm.get(sem)!.push(s);
+    }
+
+    return Array.from(yearMap.entries())
+      .sort(([a],[b]) => {
+        const ia = YEAR_ORDER.indexOf(a), ib = YEAR_ORDER.indexOf(b);
+        return ia !== -1 && ib !== -1 ? ia - ib : a.localeCompare(b);
+      })
+      .map(([yearLevel, semMap]) => ({
+        yearLevel,
+        semesters: Array.from(semMap.entries())
+          .sort(([a],[b]) => {
+            const ia = SEM_ORDER.indexOf(a), ib = SEM_ORDER.indexOf(b);
+            return ia !== -1 && ib !== -1 ? ia - ib : a.localeCompare(b);
+          })
+          .map(([semester, subjects]) => ({
+            semester,
+            subjects,
+            totalUnits: subjects.reduce((n, s) => n + (s.credits || 0), 0),
+          })),
+      }));
   }
 
 }

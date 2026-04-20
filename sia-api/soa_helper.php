@@ -40,6 +40,8 @@ function saveSoaSnapshot(mysqli $conn, int $student_id, string $semester = ''): 
         id               INT AUTO_INCREMENT PRIMARY KEY,
         student_id       INT         NOT NULL,
         semester         VARCHAR(100) NOT NULL,
+        -- Student identity fields frozen at snapshot time
+        department       VARCHAR(200)  DEFAULT NULL,
         -- Fee breakdown (mirrors tuition_fees columns)
         units            INT          NOT NULL DEFAULT 0,
         tuition_fee      DECIMAL(10,2) NOT NULL DEFAULT 0,
@@ -60,11 +62,19 @@ function saveSoaSnapshot(mysqli $conn, int $student_id, string $semester = ''): 
         subjects_json    MEDIUMTEXT   DEFAULT NULL,
         -- Payment receipts snapshot (JSON array of installment_payments rows)
         payments_json    MEDIUMTEXT   DEFAULT NULL,
+        -- Extra fees snapshot (JSON array of fee_config line items: fee_key, fee_label, rate, is_per_unit, amount)
+        extra_fees_json  MEDIUMTEXT   DEFAULT NULL,
         -- Metadata
         snapshotted_at   TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         UNIQUE KEY uq_student_semester (student_id, semester),
         INDEX idx_student (student_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+    // Backfill extra_fees_json on tables created before this column was added.
+    // ADD COLUMN IF NOT EXISTS is a no-op when the column already exists.
+    $conn->query("ALTER TABLE soa_snapshots ADD COLUMN IF NOT EXISTS extra_fees_json MEDIUMTEXT DEFAULT NULL");
+    // Backfill department column (added to fix ICTD department bug in SOA header).
+    $conn->query("ALTER TABLE soa_snapshots ADD COLUMN IF NOT EXISTS department VARCHAR(200) DEFAULT NULL");
 
     // ── Resolve semester if not provided ──────────────────────────────────────
     if ($semester === '') {
@@ -75,6 +85,33 @@ function saveSoaSnapshot(mysqli $conn, int $student_id, string $semester = ''): 
         $semR->close();
     }
     if ($semester === '') return false;
+
+    // ── Resolve department label from student_category ─────────────────────────
+    // FIX SOA-DEPT-01: The SOA header must show the correct department for TVET
+    // and SHS students ("Technical-Vocational..." / "Senior High School...") instead
+    // of the College department stored in programs.department (e.g. "ICTD").
+    // We read student_category here and apply the same override logic as getProfile().
+    $deptR = $conn->prepare("SELECT student_category, student_type, program FROM students WHERE id = ? LIMIT 1");
+    $deptR->bind_param('i', $student_id);
+    $deptR->execute();
+    $deptRow = $deptR->get_result()->fetch_assoc();
+    $deptR->close();
+    $snapDepartment = '';
+    $snapCat  = strtoupper(trim($deptRow['student_category'] ?? ''));
+    $snapProg = trim($deptRow['program'] ?? '');
+    if ($snapCat === 'TVET') {
+        $snapDepartment = 'Technical-Vocational Education and Training (TVET)';
+    } elseif ($snapCat === 'SHS') {
+        $snapDepartment = 'Senior High School (SHS)';
+    } else {
+        // College: read from programs table
+        $progR = $conn->prepare("SELECT department FROM programs WHERE name = ? OR code = ? LIMIT 1");
+        $progR->bind_param('ss', $snapProg, $snapProg);
+        $progR->execute();
+        $progRow = $progR->get_result()->fetch_assoc();
+        $progR->close();
+        $snapDepartment = $progRow['department'] ?? '';
+    }
 
     // ── Read tuition_fees row — MUST be scoped to the requested semester ────────
     // FIX SOA-TF-SEMESTER-01: tuition_fees has a semester column but the original
@@ -121,7 +158,102 @@ function saveSoaSnapshot(mysqli $conn, int $student_id, string $semester = ''): 
         $stype = trim($catRow['student_type'] ?? '');
         $isFreeStudent = ($cat === 'SHS' && $stype !== 'Transferee')
                       || ($cat === 'TVET' && $stype !== 'Transferee');
-        if (!$isFreeStudent) return false; // College / transferee with no fees yet — skip
+
+        // FIX TVET-TRANSFEREE-SOA-02: TVET Transferees pay a flat rate (₱20k) but
+        // may not have a tuition_fees row yet if registerTransferee() was called
+        // before the TVET-TRANSFEREE-SOA-01 fix was deployed, or if getStudentContext()
+        // has never been triggered. Rather than returning false (blank SOA), seed a
+        // flat-rate snapshot directly from fee_config so Accounting/Registrar
+        // always see the correct ₱20,000 assessment — not an empty SOA.
+        if (!$isFreeStudent && $cat === 'TVET' && strcasecmp($stype, 'Transferee') === 0) {
+            $fcSnapRes = $conn->query(
+                "SELECT config_value FROM fee_config
+                 WHERE category='TVET' AND config_key='transferee_flat_rate' LIMIT 1"
+            );
+            $fcSnapRow   = $fcSnapRes ? $fcSnapRes->fetch_assoc() : null;
+            $flatSnapRaw = $fcSnapRow ? json_decode($fcSnapRow['config_value'] ?? '{}', true) : [];
+            $flatSnap    = isset($flatSnapRaw['value']) ? (float)$flatSnapRaw['value'] : 20000.0;
+
+            // FIX TVET-INST-PLAN-02: Read the student's actual payment_plan and load
+            // the installment_fee from fee_config so the fallback seed never hard-codes
+            // 'full'/₱0 for a student who already chose installment.
+            $planFallbackRow = $conn->query(
+                "SELECT payment_plan FROM students WHERE id = $student_id LIMIT 1"
+            );
+            $planFallback   = trim($planFallbackRow ? ($planFallbackRow->fetch_assoc()['payment_plan'] ?? 'full') : 'full');
+            $planFallback   = ($planFallback === 'installment') ? 'installment' : 'full';
+
+            $instFeeSnap = 0.0;
+            if ($planFallback === 'installment') {
+                $fcInstRes = $conn->query(
+                    "SELECT config_value FROM fee_config
+                     WHERE category='TVET' AND config_key='installment_fee' LIMIT 1"
+                );
+                $fcInstRow   = $fcInstRes ? $fcInstRes->fetch_assoc() : null;
+                $fcInstRaw   = $fcInstRow ? json_decode($fcInstRow['config_value'] ?? '{}', true) : [];
+                $instFeeSnap = isset($fcInstRaw['value']) ? (float)$fcInstRaw['value'] : 750.0;
+            }
+            $totalAssessSnap = $flatSnap + $instFeeSnap;
+
+            $semEscSnap = $conn->real_escape_string($semester);
+            // Also write the missing tuition_fees row so future re-seeds work normally.
+            // Use the correct installment_fee and total_assessment from the student's plan.
+            $conn->query("INSERT INTO tuition_fees
+                (student_id, units, tuition_fee, miscellaneous_fee, registration_fee,
+                 laboratory_fee, energy_fee, subtotal, discount, installment_fee,
+                 total_assessment, semester)
+                VALUES ($student_id, 0, 0, 0, 0, 0, 0,
+                        $flatSnap, 0, $instFeeSnap, $totalAssessSnap, '$semEscSnap')
+                ON DUPLICATE KEY UPDATE
+                    subtotal=$flatSnap, installment_fee=$instFeeSnap,
+                    total_assessment=$totalAssessSnap,
+                    semester='$semEscSnap', updated_at=NOW()");
+
+            $stmtSnap = $conn->prepare("
+                INSERT INTO soa_snapshots
+                    (student_id, semester, department, units, tuition_fee, miscellaneous_fee,
+                     registration_fee, laboratory_fee, energy_fee, subtotal, discount,
+                     installment_fee, total_assessment, total_paid, balance,
+                     payment_plan, payment_status, subjects_json, payments_json)
+                VALUES (?, ?, ?, 0, ?, 0, 0, 0, 0, ?, ?, ?, 0, ?,
+                        ?, 'Pending', '[]', '[]')
+                ON DUPLICATE KEY UPDATE
+                    department       = VALUES(department),
+                    -- FIX SOA-SNAPSHOT-PLAN-01 (TVET branch): same upgrade-guard fix
+                    installment_fee  = IF(VALUES(installment_fee) > installment_fee OR (payment_plan = 'full' AND VALUES(payment_plan) = 'installment'), VALUES(installment_fee), installment_fee),
+                    total_assessment = IF(VALUES(total_assessment) > total_assessment OR (payment_plan = 'full' AND VALUES(payment_plan) = 'installment'), VALUES(total_assessment), total_assessment),
+                    balance          = IF(VALUES(total_assessment) > total_assessment OR (payment_plan = 'full' AND VALUES(payment_plan) = 'installment'), VALUES(balance), balance),
+                    payment_plan     = IF(VALUES(payment_plan) = 'installment', VALUES(payment_plan), payment_plan),
+                    snapshotted_at   = NOW()
+            ");
+            if ($stmtSnap) {
+                // bind: student_id(i), semester(s), department(s),
+                //       flatSnap(d = tuition_fee placeholder),
+                //       flatSnap(d = subtotal), instFeeSnap(d), totalAssessSnap(d),
+                //       totalAssessSnap(d = balance), planFallback(s)
+                $stmtSnap->bind_param('issdddddds',
+                    $student_id, $semester, $snapDepartment,
+                    $flatSnap,           // tuition_fee
+                    $flatSnap,           // subtotal
+                    $instFeeSnap,        // installment_fee
+                    $totalAssessSnap,    // total_assessment
+                    $totalAssessSnap,    // balance
+                    $planFallback);      // payment_plan
+                $ok = $stmtSnap->execute();
+                $stmtSnap->close();
+                return $ok;
+            }
+            return false;
+        }
+
+        if (!$isFreeStudent) return false; // College with no fees yet — skip
+
+        // FIX FREE-SNAPSHOT-01: Wipe any stale non-zero snapshot (e.g. written when
+        // TVET was wrongly treated as a paying student). The ON DUPLICATE KEY guard
+        // never overwrites non-zero fees, so we must delete first before re-writing ₱0.
+        $semEscDel = $conn->real_escape_string($semester);
+        $conn->query("DELETE FROM soa_snapshots WHERE student_id = $student_id AND semester = '$semEscDel'
+                      AND total_assessment > 0");
 
         // Build enrolled subjects list (same as below)
         $semEscFree = $conn->real_escape_string($semester);
@@ -149,12 +281,13 @@ function saveSoaSnapshot(mysqli $conn, int $student_id, string $semester = ''): 
 
         $stmtFree = $conn->prepare("
             INSERT INTO soa_snapshots
-                (student_id, semester, units, tuition_fee, miscellaneous_fee,
+                (student_id, semester, department, units, tuition_fee, miscellaneous_fee,
                  registration_fee, laboratory_fee, energy_fee, subtotal, discount,
                  installment_fee, total_assessment, total_paid, balance,
                  payment_plan, payment_status, subjects_json, payments_json)
-            VALUES (?, ?, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 'full', 'Free', ?, ?)
+            VALUES (?, ?, ?, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 'full', 'Free', ?, ?)
             ON DUPLICATE KEY UPDATE
+                department       = VALUES(department),
                 total_paid       = 0,
                 balance          = 0,
                 payment_status   = 'Free',
@@ -163,7 +296,7 @@ function saveSoaSnapshot(mysqli $conn, int $student_id, string $semester = ''): 
                 snapshotted_at   = NOW()
         ");
         if (!$stmtFree) return false;
-        $stmtFree->bind_param('isss', $student_id, $semester, $subjectsJsonFree, $paymentsJsonFree);
+        $stmtFree->bind_param('issss', $student_id, $semester, $snapDepartment, $subjectsJsonFree, $paymentsJsonFree);
         $ok = $stmtFree->execute();
         $stmtFree->close();
         return $ok;
@@ -252,8 +385,34 @@ function saveSoaSnapshot(mysqli $conn, int $student_id, string $semester = ''): 
     // Reliable proxy: if installment_fee > 0 in the stored tuition_fees row, it was installment.
     $payPlan = ($instFee > 0) ? 'installment' : 'full';
 
-    $subjectsJson = json_encode($subjects);
-    $paymentsJson = json_encode($payments);
+    // ── Extra fees (custom fee_config line items, e.g. PRISAA) ─────────────
+    // These are NOT stored in tuition_fees — they live only in fee_config.
+    // We re-read them live from fee_config at snapshot time so they are
+    // always available in the printed SOA (accounting view + student view).
+    $stdKeys     = ['tuition_rate_per_unit','misc_fee','reg_fee','lab_fee_per_room','energy_rate_per_unit','installment_fee'];
+    $efStmt      = $conn->prepare("SELECT fee_key, fee_label, value, is_per_unit FROM fee_config WHERE category='College' AND is_active=1 ORDER BY sort_order");
+    $extraFeesList = [];
+    if ($efStmt) {
+        $efStmt->execute();
+        $efRes = $efStmt->get_result();
+        while ($efRow = $efRes->fetch_assoc()) {
+            if (!in_array($efRow['fee_key'], $stdKeys)) {
+                $amt = (float)$efRow['value'] * ($efRow['is_per_unit'] ? $units : 1);
+                $extraFeesList[] = [
+                    'fee_key'    => $efRow['fee_key'],
+                    'fee_label'  => $efRow['fee_label'],
+                    'is_per_unit'=> (int)$efRow['is_per_unit'],
+                    'rate'       => (float)$efRow['value'],
+                    'amount'     => $amt,
+                ];
+            }
+        }
+        $efStmt->close();
+    }
+
+    $subjectsJson  = json_encode($subjects);
+    $paymentsJson  = json_encode($payments);
+    $extraFeesJson = json_encode($extraFeesList);
 
     // ── Upsert ────────────────────────────────────────────────────────────────
     // FIX SOA-FREEZE-01: On DUPLICATE KEY, NEVER overwrite fee breakdown columns
@@ -267,12 +426,13 @@ function saveSoaSnapshot(mysqli $conn, int $student_id, string $semester = ''): 
     // a non-zero value with either 0 or a different semester's fee total.
     $stmt = $conn->prepare("
         INSERT INTO soa_snapshots
-            (student_id, semester, units, tuition_fee, miscellaneous_fee,
+            (student_id, semester, department, units, tuition_fee, miscellaneous_fee,
              registration_fee, laboratory_fee, energy_fee, subtotal, discount,
              installment_fee, total_assessment, total_paid, balance,
-             payment_plan, payment_status, subjects_json, payments_json)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             payment_plan, payment_status, subjects_json, payments_json, extra_fees_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON DUPLICATE KEY UPDATE
+            department        = VALUES(department),
             units             = IF(units = 0,             VALUES(units),             units),
             tuition_fee       = IF(tuition_fee = 0,       VALUES(tuition_fee),       tuition_fee),
             miscellaneous_fee = IF(miscellaneous_fee = 0, VALUES(miscellaneous_fee), miscellaneous_fee),
@@ -281,26 +441,32 @@ function saveSoaSnapshot(mysqli $conn, int $student_id, string $semester = ''): 
             energy_fee        = IF(energy_fee = 0,        VALUES(energy_fee),        energy_fee),
             subtotal          = IF(subtotal = 0,          VALUES(subtotal),          subtotal),
             discount          = IF(discount = 0,          VALUES(discount),          discount),
-            installment_fee   = IF(installment_fee = 0,   VALUES(installment_fee),   installment_fee),
-            total_assessment  = IF(total_assessment = 0,  VALUES(total_assessment),  total_assessment),
-            payment_plan      = IF(payment_plan = 'full' AND VALUES(payment_plan) = 'installment', VALUES(payment_plan), payment_plan),
+            -- FIX SOA-SNAPSHOT-PLAN-01: Allow installment_fee and total_assessment to be
+            -- upgraded when the student switches from full to installment. The old guards
+            -- failed because total_assessment was never 0 (seeded at registration as full).
+            -- Fix: also update when the incoming value is GREATER than stored (plan upgrade
+            -- always increases total by the installment surcharge).
+            installment_fee   = IF(VALUES(installment_fee) > installment_fee OR (payment_plan = 'full' AND VALUES(payment_plan) = 'installment'), VALUES(installment_fee), installment_fee),
+            total_assessment  = IF(VALUES(total_assessment) > total_assessment OR (payment_plan = 'full' AND VALUES(payment_plan) = 'installment'), VALUES(total_assessment), total_assessment),
+            payment_plan      = IF(VALUES(payment_plan) = 'installment', VALUES(payment_plan), payment_plan),
             total_paid        = VALUES(total_paid),
             balance           = VALUES(balance),
             payment_status    = VALUES(payment_status),
             subjects_json     = IF(subjects_json IS NULL OR subjects_json = '[]', VALUES(subjects_json), subjects_json),
             payments_json     = VALUES(payments_json),
+            extra_fees_json   = VALUES(extra_fees_json),
             snapshotted_at    = NOW()
     ");
     if (!$stmt) return false;
 
     $stmt->bind_param(
-        'isddddddddddddssss',
-        $student_id, $semester,
+        'issddddddddddddsssss',
+        $student_id, $semester, $snapDepartment,
         $units, $tuition, $misc, $reg, $lab, $energy, $subtotal,
         $discount, $instFee, $totalAssess,
         $totalPaid, $balance,
         $payPlan, $payStatus,
-        $subjectsJson, $paymentsJson
+        $subjectsJson, $paymentsJson, $extraFeesJson
     );
     $ok = $stmt->execute();
     $stmt->close();

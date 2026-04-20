@@ -24,6 +24,7 @@ export class StudentLayout implements OnInit, OnDestroy {
   currentUserName  = '';
   currentUserEmail = '';
   isSHS            = false;   // hides Add-Drop link for SHS students
+  isFreeStudent    = false;   // SHS/TVET non-transferee — hides Payment Schedule nav
 
   constructor(private router: Router, private auth: AuthService) {}
 
@@ -58,7 +59,9 @@ export class StudentLayout implements OnInit, OnDestroy {
 
     // Detect SHS — enrollment page stores this in sessionStorage after loading student data
     const cat = (sessionStorage.getItem('studentCategory') ?? '').toUpperCase();
-    this.isSHS = cat === 'SHS';
+    const isTransferee = (sessionStorage.getItem('studentType') ?? '').toLowerCase().includes('transferee');
+    this.isSHS         = cat === 'SHS';
+    this.isFreeStudent = (cat === 'SHS' || cat === 'TVET') && !isTransferee;
 
     if (typeof window !== 'undefined') {
       const isMobileView = window.innerWidth <= 768;

@@ -61,14 +61,22 @@
       <div *ngIf="errorMessage"   class="error-message"><strong>Error:</strong> {{ errorMessage }}</div>
       <div *ngIf="successMessage" class="success-message"><strong>Success:</strong> {{ successMessage }}</div>
       <form (ngSubmit)="login()" class="login-form">
-        <mat-form-field class="full-width">
+        <mat-form-field class="full-width" [class.field-has-error]="loginErrors['email']">
           <mat-label>Email Address</mat-label>
-          <input matInput type="email" [(ngModel)]="email" name="email" [disabled]="loading" required>
+          <input matInput type="email" [(ngModel)]="email" name="email" [disabled]="loading" required
+            [class.input-error]="loginErrors['email']"
+            (blur)="validateLoginField('email')"
+            (input)="loginTouched['email'] && validateLoginField('email')">
         </mat-form-field>
-        <mat-form-field class="full-width">
+        <div class="login-field-error" *ngIf="loginErrors['email']">⚠ {{ loginErrors['email'] }}</div>
+        <mat-form-field class="full-width" [class.field-has-error]="loginErrors['password']">
           <mat-label>Password</mat-label>
-          <input matInput type="password" [(ngModel)]="password" name="password" [disabled]="loading" required>
+          <input matInput type="password" [(ngModel)]="password" name="password" [disabled]="loading" required
+            [class.input-error]="loginErrors['password']"
+            (blur)="validateLoginField('password')"
+            (input)="loginTouched['password'] && validateLoginField('password')">
         </mat-form-field>
+        <div class="login-field-error" *ngIf="loginErrors['password']">⚠ {{ loginErrors['password'] }}</div>
         <div class="forgot-pw-row">
           <a href="#" class="forgot-pw-link" (click)="view='forgot'; $event.preventDefault()">Forgot Password?</a>
         </div>
@@ -112,10 +120,13 @@
       <div *ngIf="fpError"   class="error-message"><strong>Error:</strong> {{ fpError }}</div>
       <div *ngIf="fpSuccess" class="success-message"><strong>✓</strong> {{ fpSuccess }}</div>
       <div class="login-form">
-        <mat-form-field class="full-width">
+        <mat-form-field class="full-width" [class.field-has-error]="forgotErrors['fpEmail']">
           <mat-label>Email Address</mat-label>
-          <input matInput type="email" [(ngModel)]="fpEmail" name="fpEmail" [disabled]="fpLoading" placeholder="your@email.com">
+          <input matInput type="email" [(ngModel)]="fpEmail" name="fpEmail" [disabled]="fpLoading" placeholder="your@email.com"
+            [class.input-error]="forgotErrors['fpEmail']"
+            (input)="forgotErrors['fpEmail'] = ''">
         </mat-form-field>
+        <div class="login-field-error" *ngIf="forgotErrors['fpEmail']">⚠ {{ forgotErrors['fpEmail'] }}</div>
         <button mat-raised-button color="primary" class="login-button" [disabled]="fpLoading" (click)="sendForgotOtp()">
           {{ fpLoading ? 'Sending...' : 'Send Reset Code' }}
         </button>
@@ -140,18 +151,27 @@
       <div *ngIf="fpError"   class="error-message"><strong>Error:</strong> {{ fpError }}</div>
       <div *ngIf="fpSuccess" class="success-message"><strong>✓</strong> {{ fpSuccess }}</div>
       <div class="login-form">
-        <mat-form-field class="full-width">
+        <mat-form-field class="full-width" [class.field-has-error]="forgotErrors['fpOtp']">
           <mat-label>6-Digit Code</mat-label>
-          <input matInput type="text" [(ngModel)]="fpOtp" name="fpOtp" maxlength="6" inputmode="numeric" placeholder="000000" [disabled]="fpLoading">
+          <input matInput type="text" [(ngModel)]="fpOtp" name="fpOtp" maxlength="6" inputmode="numeric" placeholder="000000" [disabled]="fpLoading"
+            [class.input-error]="forgotErrors['fpOtp']"
+            (input)="forgotErrors['fpOtp'] = ''">
         </mat-form-field>
-        <mat-form-field class="full-width">
+        <div class="login-field-error" *ngIf="forgotErrors['fpOtp']">⚠ {{ forgotErrors['fpOtp'] }}</div>
+        <mat-form-field class="full-width" [class.field-has-error]="forgotErrors['fpNewPassword']">
           <mat-label>New Password</mat-label>
-          <input matInput type="password" [(ngModel)]="fpNewPassword" name="fpNewPassword" [disabled]="fpLoading" placeholder="Min. 6 characters">
+          <input matInput type="password" [(ngModel)]="fpNewPassword" name="fpNewPassword" [disabled]="fpLoading" placeholder="Min. 6 characters"
+            [class.input-error]="forgotErrors['fpNewPassword']"
+            (input)="forgotErrors['fpNewPassword'] = ''">
         </mat-form-field>
-        <mat-form-field class="full-width">
+        <div class="login-field-error" *ngIf="forgotErrors['fpNewPassword']">⚠ {{ forgotErrors['fpNewPassword'] }}</div>
+        <mat-form-field class="full-width" [class.field-has-error]="forgotErrors['fpConfirmPassword']">
           <mat-label>Confirm New Password</mat-label>
-          <input matInput type="password" [(ngModel)]="fpConfirmPassword" name="fpConfirmPassword" [disabled]="fpLoading">
+          <input matInput type="password" [(ngModel)]="fpConfirmPassword" name="fpConfirmPassword" [disabled]="fpLoading"
+            [class.input-error]="forgotErrors['fpConfirmPassword']"
+            (input)="forgotErrors['fpConfirmPassword'] = ''">
         </mat-form-field>
+        <div class="login-field-error" *ngIf="forgotErrors['fpConfirmPassword']">⚠ {{ forgotErrors['fpConfirmPassword'] }}</div>
         <button mat-raised-button color="primary" class="login-button" [disabled]="fpLoading" (click)="submitResetPassword()">
           {{ fpLoading ? 'Resetting...' : 'Reset Password' }}
         </button>
@@ -357,11 +377,13 @@
         <div class="form-grid">
           <div class="form-group">
             <label>Last Name <span class="req">*</span></label>
-            <input type="text" class="form-control" [(ngModel)]="regForm.lastName" placeholder="Dela Cruz">
+            <input type="text" class="form-control" [(ngModel)]="regForm.lastName" placeholder="Dela Cruz" [class.is-invalid]="fieldErrors['lastName']" (blur)="validateStep2Field('lastName')" (input)="fieldErrors['lastName'] && validateStep2Field('lastName')">
+            <div class="field-error" *ngIf="fieldErrors['lastName']">{{ fieldErrors['lastName'] }}</div>
           </div>
           <div class="form-group">
             <label>First Name <span class="req">*</span></label>
-            <input type="text" class="form-control" [(ngModel)]="regForm.firstName" placeholder="Juan">
+            <input type="text" class="form-control" [(ngModel)]="regForm.firstName" placeholder="Juan" [class.is-invalid]="fieldErrors['firstName']" (blur)="validateStep2Field('firstName')" (input)="fieldErrors['firstName'] && validateStep2Field('firstName')">
+            <div class="field-error" *ngIf="fieldErrors['firstName']">{{ fieldErrors['firstName'] }}</div>
           </div>
           <div class="form-group">
             <label>Middle Name <span class="req">*</span></label>
@@ -381,10 +403,11 @@
           <div class="form-group">
             <label>Type of Student <span class="req">*</span></label>
             <div class="radio-group">
-              <label class="radio-opt"><input type="radio" name="studentType" [(ngModel)]="regForm.studentType" value="New"> New</label>
-              <label class="radio-opt"><input type="radio" name="studentType" [(ngModel)]="regForm.studentType" value="Old"> Old</label>
-              <label class="radio-opt"><input type="radio" name="studentType" [(ngModel)]="regForm.studentType" value="Transferee"> Transferee</label>
+              <label class="radio-opt"><input type="radio" name="studentType" [(ngModel)]="regForm.studentType" value="New" (change)="sanitizePrevSchoolLevels(); regForm.lrnNo=''"> New</label>
+              <label class="radio-opt"><input type="radio" name="studentType" [(ngModel)]="regForm.studentType" value="Old" (change)="sanitizePrevSchoolLevels(); regForm.lrnNo=''"> Old</label>
+              <label class="radio-opt"><input type="radio" name="studentType" [(ngModel)]="regForm.studentType" value="Transferee" (change)="sanitizePrevSchoolLevels(); regForm.lrnNo=''"> Transferee</label>
             </div>
+            <div class="field-error" *ngIf="fieldErrors['studentType']">{{ fieldErrors['studentType'] }}</div>
           </div>
 
           <!-- ⚠️ Transferee Notice — shown when Transferee is selected -->
@@ -415,13 +438,25 @@
               </div>
             </div>
           </div>
+          <!-- LRN (New/Old students) OR Previous Student No. (College/TVET Transferees) -->
           <div class="form-group">
-            <label>LRN No. <span class="req">*</span></label>
-            <input type="text" class="form-control" [(ngModel)]="regForm.lrnNo" placeholder="Learner Reference Number">
+            <label>{{ getIdFieldMeta().label }} <span class="req">*</span></label>
+            <input
+              type="text"
+              class="form-control"
+              [(ngModel)]="regForm.lrnNo"
+              [placeholder]="getIdFieldMeta().placeholder"
+              [class.is-invalid]="fieldErrors['lrnNo']"
+              (blur)="validateStep2Field('lrnNo')"
+              (input)="fieldErrors['lrnNo'] && validateStep2Field('lrnNo')"
+            >
+            <small class="field-hint">{{ getIdFieldMeta().hint }}</small>
+            <div class="field-error" *ngIf="fieldErrors['lrnNo']">{{ fieldErrors['lrnNo'] }}</div>
           </div>
           <div class="form-group">
             <label>Date of Birth <span class="req">*</span></label>
-            <input type="date" class="form-control" [(ngModel)]="regForm.dateOfBirth" (change)="computeAgeFromDOB()">
+            <input type="date" class="form-control" [(ngModel)]="regForm.dateOfBirth" (change)="computeAgeFromDOB()" [class.is-invalid]="fieldErrors['dateOfBirth']" (blur)="validateStep2Field('dateOfBirth')">
+            <div class="field-error" *ngIf="fieldErrors['dateOfBirth']">{{ fieldErrors['dateOfBirth'] }}</div>
           </div>
           <div class="form-group">
             <label>Age</label>
@@ -435,17 +470,24 @@
               <div class="prev-school-row" *ngFor="let sch of previousSchools; let i = index">
                 <select class="form-control ps-level" [(ngModel)]="sch.level" [name]="'schLevel'+i">
                   <option value="">-- Level --</option>
-                  <option value="Elementary">Elementary</option>
-                  <option value="Junior High School">Junior High School</option>
-                  <option value="Senior High School">Senior High School</option>
-                  <option value="College">College</option>
-                  <option value="Vocational">Vocational</option>
+                  <option *ngFor="let lvl of getPrevSchoolLevels()" [value]="lvl">{{ lvl }}</option>
                 </select>
                 <input type="text" class="form-control ps-name" [(ngModel)]="sch.schoolName" [name]="'schName'+i" placeholder="School Name">
-                <input type="text" class="form-control ps-year" [(ngModel)]="sch.schoolYear" [name]="'schYear'+i" placeholder="SY e.g. 2022-2023">
+                <div class="ps-year-range">
+                  <select class="form-control" [(ngModel)]="sch.yearFrom" [name]="'schYearFrom'+i">
+                    <option value="">From</option>
+                    <option *ngFor="let y of yearFromOptions" [value]="y">{{ y }}</option>
+                  </select>
+                  <span class="year-dash">–</span>
+                  <select class="form-control" [(ngModel)]="sch.yearTo" [name]="'schYearTo'+i">
+                    <option value="">To</option>
+                    <option *ngFor="let y of yearToOptions(sch.yearFrom)" [value]="y">{{ y }}</option>
+                  </select>
+                </div>
                 <button class="btn-remove-school" type="button" (click)="removePreviousSchool(i)" *ngIf="previousSchools.length > 1" title="Remove">✕</button>
               </div>
               <button class="btn-add-school" type="button" (click)="addPreviousSchool()">+ Add Another School</button>
+              <div class="field-error" *ngIf="fieldErrors['previousSchools']">{{ fieldErrors['previousSchools'] }}</div>
             </div>
           </div>
           <div class="form-group">
@@ -468,27 +510,86 @@
           </div>
           <div class="form-group">
             <label>Religion <span class="req">*</span></label>
-            <input type="text" class="form-control" [(ngModel)]="regForm.religion" placeholder="e.g. Roman Catholic">
+            <select class="form-control" [(ngModel)]="regForm.religion" [class.is-invalid]="fieldErrors['religion']" (change)="validateStep2Field('religion')">
+              <option value="">— Select Religion —</option>
+              <option *ngFor="let r of religionOptions" [value]="r">{{ r }}</option>
+            </select>
+            <div class="field-error" *ngIf="fieldErrors['religion']">{{ fieldErrors['religion'] }}</div>
           </div>
           <div class="form-group">
             <label>Place of Birth <span class="req">*</span></label>
-            <input type="text" class="form-control" [(ngModel)]="regForm.placeOfBirth" placeholder="City, Province">
+            <input type="text" class="form-control" [(ngModel)]="regForm.placeOfBirth" placeholder="City, Province" [class.is-invalid]="fieldErrors['placeOfBirth']" (blur)="validateStep2Field('placeOfBirth')" (input)="fieldErrors['placeOfBirth'] && validateStep2Field('placeOfBirth')">
+            <div class="field-error" *ngIf="fieldErrors['placeOfBirth']">{{ fieldErrors['placeOfBirth'] }}</div>
           </div>
           <div class="form-group">
             <label>Nationality <span class="req">*</span></label>
-            <input type="text" class="form-control" [(ngModel)]="regForm.citizenship" placeholder="Filipino">
+            <input type="text" class="form-control" [(ngModel)]="regForm.citizenship" placeholder="Filipino" [class.is-invalid]="fieldErrors['citizenship']" (blur)="validateStep2Field('citizenship')" (input)="fieldErrors['citizenship'] && validateStep2Field('citizenship')">
+            <div class="field-error" *ngIf="fieldErrors['citizenship']">{{ fieldErrors['citizenship'] }}</div>
           </div>
+          <!-- Home Address — collapsible breakdown -->
           <div class="form-group full-col">
             <label>Home Address <span class="req">*</span></label>
-            <input type="text" class="form-control" [(ngModel)]="regForm.homeAddress" placeholder="Street, Barangay, City">
+
+            <!-- Summary pill shown when address is filled and collapsed -->
+            <div class="addr-summary" *ngIf="!addrExpanded && regForm.homeAddress" (click)="addrExpanded=true">
+              <span class="addr-summary-text">{{ regForm.homeAddress }}</span>
+              <span class="addr-edit-btn">✏️ Edit</span>
+            </div>
+
+            <!-- Toggle button shown when nothing is filled yet -->
+            <button type="button" class="btn-addr-toggle"
+                    *ngIf="!addrExpanded && !regForm.homeAddress"
+                    (click)="addrExpanded=true">
+              📍 Enter Address
+            </button>
+
+            <!-- Error shown below toggle when validation fires -->
+            <div class="field-error" *ngIf="!addrExpanded && (fieldErrors['addrBarangay'] || fieldErrors['addrCity'] || fieldErrors['addrProvince'])">
+              Please complete your home address.
+            </div>
+
+            <!-- Expanded breakdown -->
+            <div class="address-grid" *ngIf="addrExpanded">
+              <div class="addr-field">
+                <label class="addr-label">Street / House No. <span class="optional-tag">Optional</span></label>
+                <input type="text" class="form-control" [(ngModel)]="regForm.addrStreet" placeholder="e.g. 123 Rizal St." name="addrStreet">
+              </div>
+              <div class="addr-field">
+                <label class="addr-label">Purok <span class="optional-tag">Optional</span></label>
+                <input type="text" class="form-control" [(ngModel)]="regForm.addrPurok" placeholder="e.g. 4" name="addrPurok">
+              </div>
+              <div class="addr-field">
+                <label class="addr-label">Barangay <span class="req">*</span></label>
+                <input type="text" class="form-control" [(ngModel)]="regForm.addrBarangay" placeholder="e.g. Sta. Rita" name="addrBarangay" [class.is-invalid]="fieldErrors['addrBarangay']" (blur)="validateStep2Field('addrBarangay')" (input)="fieldErrors['addrBarangay'] && validateStep2Field('addrBarangay')">
+                <div class="field-error" *ngIf="fieldErrors['addrBarangay']">{{ fieldErrors['addrBarangay'] }}</div>
+              </div>
+              <div class="addr-field">
+                <label class="addr-label">City / Municipality <span class="req">*</span></label>
+                <input type="text" class="form-control" [(ngModel)]="regForm.addrCity" placeholder="e.g. Olongapo City" name="addrCity" [class.is-invalid]="fieldErrors['addrCity']" (blur)="validateStep2Field('addrCity')" (input)="fieldErrors['addrCity'] && validateStep2Field('addrCity')">
+                <div class="field-error" *ngIf="fieldErrors['addrCity']">{{ fieldErrors['addrCity'] }}</div>
+              </div>
+              <div class="addr-field">
+                <label class="addr-label">Province <span class="req">*</span></label>
+                <input type="text" class="form-control" [(ngModel)]="regForm.addrProvince" placeholder="e.g. Zambales" name="addrProvince" [class.is-invalid]="fieldErrors['addrProvince']" (blur)="validateStep2Field('addrProvince')" (input)="fieldErrors['addrProvince'] && validateStep2Field('addrProvince')">
+                <div class="field-error" *ngIf="fieldErrors['addrProvince']">{{ fieldErrors['addrProvince'] }}</div>
+              </div>
+              <div class="addr-field full-addr-col">
+                <button type="button" class="btn-addr-done" (click)="collapseAddress()">✓ Done</button>
+              </div>
+            </div>
           </div>
           <div class="form-group">
             <label>Contact Number <span class="req">*</span></label>
-            <input type="tel" class="form-control" [(ngModel)]="regForm.contactNumber" placeholder="09XXXXXXXXX">
+            <input type="tel" class="form-control" [(ngModel)]="regForm.contactNumber" placeholder="09XXXXXXXXX" [class.is-invalid]="fieldErrors['contactNumber']" (blur)="validateStep2Field('contactNumber')" (input)="fieldErrors['contactNumber'] && validateStep2Field('contactNumber')">
+            <div class="field-error" *ngIf="fieldErrors['contactNumber']">{{ fieldErrors['contactNumber'] }}</div>
           </div>
           <div class="form-group">
             <label>Mother Tongue <span class="req">*</span></label>
-            <input type="text" class="form-control" [(ngModel)]="regForm.motherTongue" placeholder="e.g. Tagalog, Ilocano, Bisaya">
+            <select class="form-control" [(ngModel)]="regForm.motherTongue" [class.is-invalid]="fieldErrors['motherTongue']" (change)="validateStep2Field('motherTongue')">
+              <option value="">— Select Mother Tongue —</option>
+              <option *ngFor="let t of motherTongueOptions" [value]="t">{{ t }}</option>
+            </select>
+            <div class="field-error" *ngIf="fieldErrors['motherTongue']">{{ fieldErrors['motherTongue'] }}</div>
           </div>
         </div>
       </div>
@@ -501,6 +602,7 @@
           <div class="radio-group">
             <label class="radio-opt"><input type="radio" name="isIndigenous" [(ngModel)]="regForm.isIndigenous" value="Yes"> Yes</label>
             <label class="radio-opt"><input type="radio" name="isIndigenous" [(ngModel)]="regForm.isIndigenous" value="No"> No</label>
+            <div class="field-error" *ngIf="fieldErrors['isIndigenous']">{{ fieldErrors['isIndigenous'] }}</div>
           </div>
         </div>
       </div>
@@ -514,36 +616,26 @@
             <div class="radio-group">
               <label class="radio-opt"><input type="radio" name="hasSpecialNeeds" [(ngModel)]="regForm.hasSpecialNeeds" value="Yes"> Yes</label>
               <label class="radio-opt"><input type="radio" name="hasSpecialNeeds" [(ngModel)]="regForm.hasSpecialNeeds" value="No" (change)="regForm.specialNeedsDetails=''"> No</label>
+              <div class="field-error" *ngIf="fieldErrors['hasSpecialNeeds']">{{ fieldErrors['hasSpecialNeeds'] }}</div>
             </div>
           </div>
           <div class="form-group" *ngIf="regForm.hasSpecialNeeds==='Yes'">
             <label>Please specify <span class="req">*</span></label>
-            <input type="text" class="form-control" [(ngModel)]="regForm.specialNeedsDetails" placeholder="Describe your needs">
+            <input type="text" class="form-control" [(ngModel)]="regForm.specialNeedsDetails" placeholder="Describe your needs" [class.is-invalid]="fieldErrors['specialNeedsDetails']" (blur)="validateStep2Field('specialNeedsDetails')" (input)="fieldErrors['specialNeedsDetails'] && validateStep2Field('specialNeedsDetails')">
+            <div class="field-error" *ngIf="fieldErrors['specialNeedsDetails']">{{ fieldErrors['specialNeedsDetails'] }}</div>
           </div>
           <div class="form-group">
             <label>Assistive Technology Availability <span class="req">*</span></label>
             <div class="radio-group">
               <label class="radio-opt"><input type="radio" name="hasAssistiveTech" [(ngModel)]="regForm.hasAssistiveTech" value="Yes"> Yes</label>
               <label class="radio-opt"><input type="radio" name="hasAssistiveTech" [(ngModel)]="regForm.hasAssistiveTech" value="No" (change)="regForm.assistiveTechDetails=''"> No</label>
+              <div class="field-error" *ngIf="fieldErrors['hasAssistiveTech']">{{ fieldErrors['hasAssistiveTech'] }}</div>
             </div>
           </div>
           <div class="form-group" *ngIf="regForm.hasAssistiveTech==='Yes'">
             <label>Please specify <span class="req">*</span></label>
-            <input type="text" class="form-control" [(ngModel)]="regForm.assistiveTechDetails" placeholder="e.g. Hearing aid, wheelchair">
-          </div>
-        </div>
-      </div>
-
-      <!-- TVET-only: Year Level note -->
-      <div class="form-section" *ngIf="isTVET">
-        <h3 class="section-heading">🔧 TVET Program Details</h3>
-        <div class="form-grid">
-          <div class="form-group full-col">
-            <label>Year Level <span class="req">*</span></label>
-            <div class="radio-group">
-              <label class="radio-opt"><input type="radio" name="tvetYear" [(ngModel)]="regForm.yearLevel" value="1st Year"> 1st Year</label>
-              <label class="radio-opt"><input type="radio" name="tvetYear" [(ngModel)]="regForm.yearLevel" value="2nd Year"> 2nd Year</label>
-            </div>
+            <input type="text" class="form-control" [(ngModel)]="regForm.assistiveTechDetails" placeholder="e.g. Hearing aid, wheelchair" [class.is-invalid]="fieldErrors['assistiveTechDetails']" (blur)="validateStep2Field('assistiveTechDetails')" (input)="fieldErrors['assistiveTechDetails'] && validateStep2Field('assistiveTechDetails')">
+            <div class="field-error" *ngIf="fieldErrors['assistiveTechDetails']">{{ fieldErrors['assistiveTechDetails'] }}</div>
           </div>
         </div>
       </div>
@@ -558,7 +650,25 @@
               <option value="" disabled>Select {{ isSHS ? 'Grade Level' : 'Year Level' }}</option>
               <option *ngFor="let y of yearLevelOptions" [value]="y">{{ y }}</option>
             </select>
+            <div class="field-error" *ngIf="fieldErrors['yearLevel']">{{ fieldErrors['yearLevel'] }}</div>
           </div>
+
+          <!-- SHS: Strand & Learning Delivery — required for SHS students -->
+          <ng-container *ngIf="isSHS">
+            <div class="form-group">
+              <label>Strand <span class="req">*</span></label>
+              <!-- Pre-filled from the program selected in Step 1; user can still edit -->
+              <input type="text" class="form-control" [(ngModel)]="regForm.strand"
+                     placeholder="e.g. HUMSS, ABM, TVL-ICT"
+                     [class.is-invalid]="fieldErrors['strand']"
+                     (blur)="fieldErrors['strand'] = regForm.strand?.trim() ? '' : 'Strand is required.'"
+                     (input)="fieldErrors['strand'] && (fieldErrors['strand'] = regForm.strand?.trim() ? '' : 'Strand is required.')">
+              <small class="field-hint">Auto-filled from your selected program. Edit if needed.</small>
+              <div class="field-error" *ngIf="fieldErrors['strand']">{{ fieldErrors['strand'] }}</div>
+            </div>
+
+          </ng-container>
+
           <!-- Semester & AY — hidden for SHS (not applicable in PH K-12) -->
           <ng-container *ngIf="!isSHS">
             <div class="form-group">
@@ -583,23 +693,81 @@
         <div class="form-grid">
           <div class="form-group full-col">
             <label>Name of Parent/Guardian <span class="req">*</span></label>
-            <input type="text" class="form-control" [(ngModel)]="regForm.guardianName" placeholder="Full Name">
+            <input type="text" class="form-control" [(ngModel)]="regForm.guardianName" placeholder="Full Name" [class.is-invalid]="fieldErrors['guardianName']" (blur)="validateStep2Field('guardianName')" (input)="fieldErrors['guardianName'] && validateStep2Field('guardianName')">
+            <div class="field-error" *ngIf="fieldErrors['guardianName']">{{ fieldErrors['guardianName'] }}</div>
           </div>
           <div class="form-group full-col">
-            <label>Home Address of Parent/Guardian <span class="req">*</span></label>
-            <input type="text" class="form-control" [(ngModel)]="regForm.guardianAddress" placeholder="Street, Barangay, City">
+            <label>Home Address of Parent/Guardian <span class="req">*</span>
+              <button type="button" class="btn-copy-addr"
+                      *ngIf="regForm.homeAddress"
+                      (click)="copyStudentAddressToGuardian()"
+                      title="Copy my address">
+                📋 Same as my address
+              </button>
+            </label>
+
+            <!-- Summary pill shown when address is filled and collapsed -->
+            <div class="addr-summary" *ngIf="!guardianAddrExpanded && regForm.guardianAddress" (click)="guardianAddrExpanded=true">
+              <span class="addr-summary-text">{{ regForm.guardianAddress }}</span>
+              <span class="addr-edit-btn">✏️ Edit</span>
+            </div>
+
+            <!-- Toggle button shown when nothing is filled yet -->
+            <button type="button" class="btn-addr-toggle"
+                    *ngIf="!guardianAddrExpanded && !regForm.guardianAddress"
+                    (click)="guardianAddrExpanded=true">
+              📍 Enter Address
+            </button>
+
+            <!-- Error shown below toggle when validation fires and panel is closed -->
+            <div class="field-error" *ngIf="!guardianAddrExpanded && (fieldErrors['guardianAddrBarangay'] || fieldErrors['guardianAddrCity'] || fieldErrors['guardianAddrProvince'])">
+              Please complete the guardian's address.
+            </div>
+
+            <!-- Expanded breakdown -->
+            <div class="address-grid" *ngIf="guardianAddrExpanded">
+              <div class="addr-field">
+                <label class="addr-label">Street / House No. <span class="optional-tag">Optional</span></label>
+                <input type="text" class="form-control" [(ngModel)]="regForm.guardianAddrStreet" placeholder="e.g. 123 Rizal St." name="guardianAddrStreet">
+              </div>
+              <div class="addr-field">
+                <label class="addr-label">Purok <span class="optional-tag">Optional</span></label>
+                <input type="text" class="form-control" [(ngModel)]="regForm.guardianAddrPurok" placeholder="e.g. 4" name="guardianAddrPurok">
+              </div>
+              <div class="addr-field">
+                <label class="addr-label">Barangay <span class="req">*</span></label>
+                <input type="text" class="form-control" [(ngModel)]="regForm.guardianAddrBarangay" placeholder="e.g. Sta. Rita" name="guardianAddrBarangay" [class.is-invalid]="fieldErrors['guardianAddrBarangay']" (blur)="validateStep2Field('guardianAddrBarangay')" (input)="fieldErrors['guardianAddrBarangay'] && validateStep2Field('guardianAddrBarangay')">
+                <div class="field-error" *ngIf="fieldErrors['guardianAddrBarangay']">{{ fieldErrors['guardianAddrBarangay'] }}</div>
+              </div>
+              <div class="addr-field">
+                <label class="addr-label">City / Municipality <span class="req">*</span></label>
+                <input type="text" class="form-control" [(ngModel)]="regForm.guardianAddrCity" placeholder="e.g. Olongapo City" name="guardianAddrCity" [class.is-invalid]="fieldErrors['guardianAddrCity']" (blur)="validateStep2Field('guardianAddrCity')" (input)="fieldErrors['guardianAddrCity'] && validateStep2Field('guardianAddrCity')">
+                <div class="field-error" *ngIf="fieldErrors['guardianAddrCity']">{{ fieldErrors['guardianAddrCity'] }}</div>
+              </div>
+              <div class="addr-field">
+                <label class="addr-label">Province <span class="req">*</span></label>
+                <input type="text" class="form-control" [(ngModel)]="regForm.guardianAddrProvince" placeholder="e.g. Zambales" name="guardianAddrProvince" [class.is-invalid]="fieldErrors['guardianAddrProvince']" (blur)="validateStep2Field('guardianAddrProvince')" (input)="fieldErrors['guardianAddrProvince'] && validateStep2Field('guardianAddrProvince')">
+                <div class="field-error" *ngIf="fieldErrors['guardianAddrProvince']">{{ fieldErrors['guardianAddrProvince'] }}</div>
+              </div>
+              <div class="addr-field full-addr-col">
+                <button type="button" class="btn-addr-done" (click)="collapseGuardianAddress()">✓ Done</button>
+              </div>
+            </div>
+            <div class="field-error" *ngIf="fieldErrors['guardianAddress']">{{ fieldErrors['guardianAddress'] }}</div>
           </div>
           <div class="form-group">
             <label>Contact Number of Parent/Guardian <span class="req">*</span></label>
-            <input type="tel" class="form-control" [(ngModel)]="regForm.guardianContact" placeholder="09XXXXXXXXX">
+            <input type="tel" class="form-control" [(ngModel)]="regForm.guardianContact" placeholder="09XXXXXXXXX" [class.is-invalid]="fieldErrors['guardianContact']" (blur)="validateStep2Field('guardianContact')" (input)="fieldErrors['guardianContact'] && validateStep2Field('guardianContact')">
+            <div class="field-error" *ngIf="fieldErrors['guardianContact']">{{ fieldErrors['guardianContact'] }}</div>
           </div>
           <div class="form-group">
             <label>Email of Parent/Guardian <span class="req">*</span> <small style="color:#6b7280;font-weight:400">(for enrollment reports &amp; SOA)</small></label>
-            <input type="email" class="form-control" [(ngModel)]="regForm.guardianEmail" placeholder="parent@gmail.com">
+            <input type="email" class="form-control" [(ngModel)]="regForm.guardianEmail" placeholder="parent@gmail.com" [class.is-invalid]="fieldErrors['guardianEmail']" (blur)="validateStep2Field('guardianEmail')" (input)="fieldErrors['guardianEmail'] && validateStep2Field('guardianEmail')">
+            <div class="field-error" *ngIf="fieldErrors['guardianEmail']">{{ fieldErrors['guardianEmail'] }}</div>
           </div>
           <div class="form-group">
             <label>Relationship to Student <span class="req">*</span></label>
-            <select class="form-control" [(ngModel)]="regForm.guardianRelationship">
+            <select class="form-control" [(ngModel)]="regForm.guardianRelationship" (change)="validateStep2Field('guardianRelationship')">
               <option value="">— Select —</option>
               <option>Mother</option>
               <option>Father</option>
@@ -609,6 +777,7 @@
               <option>Spouse</option>
               <option>Others</option>
             </select>
+            <div class="field-error" *ngIf="fieldErrors['guardianRelationship']">{{ fieldErrors['guardianRelationship'] }}</div>
           </div>
         </div>
       </div>
@@ -684,8 +853,8 @@
           <div style="margin-top:0.75rem;" *ngIf="shsFeeResult && !isSHSFeeLoading">
             <h3 class="section-heading">💳 Payment Method</h3>
             <div class="payment-method-toggle">
-              <button class="method-btn" [class.selected]="paymentMethod==='GCash'" (click)="paymentMethod='GCash'">📱 GCash</button>
-              <button class="method-btn" [class.selected]="paymentMethod==='Cash'"  (click)="paymentMethod='Cash'">💵 Cash (walk-in)</button>
+              <button class="method-btn" [class.selected]="paymentMethod==='GCash'" (click)="paymentMethod='GCash'; saveWizardState()">📱 GCash</button>
+              <button class="method-btn" [class.selected]="paymentMethod==='Cash'"  (click)="paymentMethod='Cash'; saveWizardState()">💵 Cash (walk-in)</button>
             </div>
           </div>
         </div>
@@ -717,60 +886,44 @@
           </div>
         </div>
 
-        <!-- ₱20,000 fee section for Transferees -->
+        <!-- TVET-TRANSFEREE-FLOW-08: Fee/payment hidden at Step 3 for transferees.
+             Fee breakdown, payment plan, and payment method are revealed only
+             AFTER TOR evaluation in the tor-review step — matching College flow. -->
         <div *ngIf="isTransfereeEnrolling">
           <div class="level-fee-banner">
-            <div class="lfb-icon">💳</div>
+            <div class="lfb-icon">📋</div>
             <div class="lfb-body">
-              <div class="lfb-title">TVET Transferee — Flat Rate Fee</div>
-              <div class="lfb-sub">As a Transferee, a flat rate of <strong>₱20,000</strong> applies for the semester.</div>
+              <div class="lfb-title">TVET Transferee — TOR Evaluation Required</div>
+              <div class="lfb-sub">Upload your TOR below. The Registrar will evaluate your credits. Once evaluated, your <strong>₱20,000 flat-rate fee</strong> and payment options will be shown.</div>
             </div>
           </div>
-          <!-- Fee breakdown -->
-          <div class="fee-breakdown-card" *ngIf="tvetFeeResult && !isTVETFeeLoading && !isFullScholarship" style="margin-top:1rem;">
-            <div class="fee-breakdown-header">Fee Assessment — {{ selectedProgramName }}</div>
-            <div class="fee-breakdown-table">
-              <ng-container *ngIf="tvetFeeResult.fees.tvetFlatRate; else tvetLineItems">
-                <div class="fb-row"><span>TVET Flat Rate</span><span>₱{{ tvetFeeResult.fees.tuitionFee | number:'1.2-2' }}</span></div>
-              </ng-container>
-              <ng-template #tvetLineItems>
-                <div class="fb-row" *ngIf="tvetFeeResult.fees.miscellaneousFee > 0"><span>Miscellaneous Fee</span><span>₱{{ tvetFeeResult.fees.miscellaneousFee | number:'1.2-2' }}</span></div>
-                <div class="fb-row" *ngIf="tvetFeeResult.fees.registrationFee > 0"><span>Registration Fee</span><span>₱{{ tvetFeeResult.fees.registrationFee | number:'1.2-2' }}</span></div>
-              </ng-template>
-              <div class="fb-row" *ngFor="let ef of (tvetFeeResult.fees.extraFees || [])">
-                <span>{{ ef.fee_label }}</span><span>₱{{ ef.amount | number:'1.2-2' }}</span>
-              </div>
-              <div class="fb-row fb-discount" *ngIf="tvetFeeResult.fees.discount > 0">
-                <span>🎓 Scholarship Discount</span><span class="text-green">– ₱{{ tvetFeeResult.fees.discount | number:'1.2-2' }}</span>
-              </div>
-              <div class="fb-row fb-installment" *ngIf="paymentPlan === 'installment'">
-                <span>Installment Fee</span><span>₱{{ tvetFeeResult.fees.installmentFee | number:'1.2-2' }}</span>
-              </div>
-              <div class="fb-row fb-total">
-                <span><strong>TOTAL ASSESSMENT</strong></span>
-                <span><strong>₱{{ tvetFeeResult.fees.totalAssessment | number:'1.2-2' }}</strong></span>
-              </div>
+        </div>
+
+        <!-- FIX TVET-WIZARD-FE-05: Required TOR upload for TVET Transferees —
+             same as College transferees. Previously absent, so the Registrar
+             never received the file and the tor_evaluations row stayed blank. -->
+        <div *ngIf="isTransfereeEnrolling" class="form-section" style="margin-top:1rem;">
+          <div class="upload-item upload-item-transferee">
+            <div class="upload-label-row">
+              <span class="upload-title">
+                📄 TOR / Form 137 (Scanned Soft Copy)
+                <span class="req">*</span>
+                <span class="transferee-tag">For Registrar Evaluation</span>
+              </span>
             </div>
-          </div>
-          <div class="fee-loading" *ngIf="isTVETFeeLoading"><span>⏳ Computing fee...</span></div>
-          <!-- Payment plan -->
-          <div style="margin-top:1rem;" *ngIf="tvetFeeResult && !isTVETFeeLoading">
-            <h3 class="section-heading">📅 Payment Plan</h3>
-            <div class="plan-toggle">
-              <button class="plan-btn" [class.selected]="paymentPlan==='full'" (click)="paymentPlan='full'; loadTVETFee()">
-                <span class="plan-icon">💰</span><span class="plan-label">Full Payment</span><span class="plan-sub">Pay everything at once</span>
-              </button>
-              <button class="plan-btn" [class.selected]="paymentPlan==='installment'" (click)="paymentPlan='installment'; loadTVETFee()">
-                <span class="plan-icon">📆</span><span class="plan-label">Installment</span><span class="plan-sub">4 payments — DP + 3 terms<br><small>+₱750 installment fee</small></span>
-              </button>
-            </div>
-          </div>
-          <!-- Payment method -->
-          <div style="margin-top:0.75rem;" *ngIf="tvetFeeResult && !isTVETFeeLoading">
-            <h3 class="section-heading">💳 Payment Method</h3>
-            <div class="payment-method-toggle">
-              <button class="method-btn" [class.selected]="paymentMethod==='GCash'" (click)="paymentMethod='GCash'">📱 GCash</button>
-              <button class="method-btn" [class.selected]="paymentMethod==='Cash'"  (click)="paymentMethod='Cash'">💵 Cash (walk-in)</button>
+            <p style="color:#64748b;font-size:0.875rem;margin-bottom:0.5rem;">
+              As a TVET Transferee, your TOR must be evaluated by the Registrar before your
+              ₱20,000 payment is processed. Upload a scanned copy (PDF or image) below.
+            </p>
+            <div class="upload-box" [class.has-file]="torFile">
+              <label class="upload-label" for="torUploadTVETTransferee">
+                <span *ngIf="!torFile">📁 Click to upload TOR / Form 137 (PDF or image)</span>
+                <span *ngIf="torFile" class="file-name">✓ {{ torFileName }}
+                  <button type="button" style="margin-left:0.5rem;background:none;border:none;color:#ef4444;cursor:pointer;font-size:0.8rem;"
+                          (click)="torFile=null; torFileName=''; $event.stopPropagation()">✕ Remove</button>
+                </span>
+              </label>
+              <input type="file" id="torUploadTVETTransferee" accept=".pdf,image/*" (change)="onFileChange($event,'tor')" hidden>
             </div>
           </div>
         </div>
@@ -786,6 +939,28 @@
             <li>2×2 Picture with White Background (2 copies)</li>
           </ul>
           <div class="dnb-note">📌 Documents will be submitted and verified at the Registrar's Office upon enrollment. No need to upload online.</div>
+        </div>
+
+        <!-- Optional TOR upload for TVET Old/returning students only (2nd/3rd year with prior credits) -->
+        <!-- Hidden for New 1st Year TVET students — they have no prior credits to submit -->
+        <div *ngIf="!isTransfereeEnrolling && regForm.studentType === 'Old'" class="form-section" style="margin-top:1rem;">
+          <h3 class="section-heading">📄 Transcript of Records (Optional)</h3>
+          <p style="color:#64748b;font-size:0.875rem;margin-bottom:0.75rem;">
+            If you have prior TVET credits or completed units from another school, you may upload your TOR now
+            for Registrar evaluation. This is <strong>optional</strong> — you can also bring a physical copy to the office.
+          </p>
+          <div class="upload-item">
+            <div class="upload-box" [class.has-file]="torFile">
+              <label class="upload-label" for="torUploadTVET">
+                <span *ngIf="!torFile">📁 Click to upload TOR / Form 137 (PDF or image) — Optional</span>
+                <span *ngIf="torFile" class="file-name">✓ {{ torFileName }}
+                  <button type="button" style="margin-left:0.5rem;background:none;border:none;color:#ef4444;cursor:pointer;font-size:0.8rem;"
+                          (click)="torFile=null; torFileName=''; $event.stopPropagation()">✕ Remove</button>
+                </span>
+              </label>
+              <input type="file" id="torUploadTVET" accept=".pdf,image/*" (change)="onFileChange($event,'tor')" hidden>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -840,8 +1015,8 @@
         </div>
       </div>
 
-      <!-- Scholarship — hidden for SHS New/Old (free via voucher) -->
-                  <div class="form-section scholar-section" *ngIf="!(isSHS && !isTransfereeEnrolling)">
+      <!-- Scholarship — hidden for: SHS New/Old (free), all transferees (shown after TOR eval), TVET New (free via PRISAA) -->
+                  <div class="form-section scholar-section" *ngIf="!(isSHS && !isTransfereeEnrolling) && !isTransfereeEnrolling && !(isTVET && regForm.studentType === 'New')">
         <h3 class="section-heading">🎓 Scholarship / Discount</h3>
         <label class="toggle-label">
           <input type="checkbox" [(ngModel)]="isScholar" class="toggle-check" (change)="onScholarshipChange()" (ngModelChange)="onScholarshipChange()">
@@ -849,18 +1024,61 @@
         </label>
         <div *ngIf="isScholar" class="scholar-form">
 
-          <div class="form-grid">
-            <div class="form-group">
-              <label>Scholarship Type <span class="req">*</span></label>
-              <select [(ngModel)]="scholarType" class="form-control" (change)="onScholarshipChange()">
-                <option value="">-- Select Type --</option>
-                <option *ngFor="let t of scholarTypes" [value]="t">{{ t }}</option>
-              </select>
+          <!-- Scholarship Type Accordion Picker -->
+          <div class="form-group">
+            <label>Scholarship Type <span class="req">*</span></label>
+
+            <!-- Selected badge -->
+            <div *ngIf="scholarType" class="scholar-selected-badge">
+              <span class="scholar-badge-icon">🎓</span>
+              <span class="scholar-badge-text">{{ scholarType }}</span>
+              <button type="button" class="scholar-badge-clear" (click)="clearScholarType()" title="Change">✕ Change</button>
             </div>
-            <div class="form-group" *ngIf="!isFullScholarship">
-              <label>Grantor / District</label>
-              <input type="text" [(ngModel)]="scholarGrantor" placeholder="e.g. City of Olongapo" class="form-control">
+
+            <!-- ══ Full Scholarship — standalone shortcut (not inside any category) ══ -->
+            <div *ngIf="!scholarType" class="full-scholar-shortcut-wrap">
+              <button type="button" class="full-scholar-shortcut-btn" (click)="selectScholarType('Full Scholarship (School-Granted)')">
+                <span class="fsb-icon">🎓</span>
+                <span class="fsb-text">
+                  <strong>Full Scholarship (School-Granted)</strong>
+                  <small>Entire tuition covered — claim code required</small>
+                </span>
+                <span class="fsb-arrow">→</span>
+              </button>
             </div>
+
+            <!-- Category accordion (hidden once a type is selected) -->
+            <div *ngIf="!scholarType" class="scholar-accordion">
+              <div *ngFor="let cat of scholarCategories; let i = index" class="scholar-cat-card"
+                   [class.expanded]="expandedScholarCat === i">
+                <!-- Category header -->
+                <button type="button" class="scholar-cat-header" (click)="toggleScholarCat(i)">
+                  <span class="cat-icon">{{ getCatIcon(cat.group) }}</span>
+                  <span class="cat-label">{{ cat.group }}</span>
+                  <span class="cat-count">{{ cat.types.length }} programs</span>
+                  <span class="cat-chevron">{{ expandedScholarCat === i ? '▲' : '▼' }}</span>
+                </button>
+                <!-- Scholarship list (expands on click) -->
+                <div class="scholar-type-list" *ngIf="expandedScholarCat === i">
+                  <button type="button" class="scholar-type-btn"
+                          *ngFor="let t of cat.types"
+                          (click)="selectScholarType(t)">
+                    {{ t }}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Grantor (auto-filled for known agencies, editable for LGU/Others) -->
+          <div class="form-group" *ngIf="scholarType && !isFullScholarship">
+            <label>Grantor / Agency</label>
+            <input type="text" [(ngModel)]="scholarGrantor"
+                   [placeholder]="scholarType.startsWith('CHED') ? 'CHED' : scholarType.startsWith('TESDA') ? 'TESDA' : scholarType.startsWith('DOST') ? 'DOST' : scholarType.startsWith('LGU') || scholarType.startsWith('Local') ? 'e.g. City of Olongapo' : 'e.g. Name of grantor or agency'"
+                   class="form-control">
+            <small class="field-hint" *ngIf="scholarType.startsWith('CHED')">💡 Grantor: Commission on Higher Education (CHED)</small>
+            <small class="field-hint" *ngIf="scholarType.startsWith('TESDA')">💡 Grantor: Technical Education and Skills Development Authority (TESDA)</small>
+            <small class="field-hint" *ngIf="scholarType.startsWith('DOST')">💡 Grantor: Department of Science and Technology (DOST)</small>
           </div>
 
           <!-- Full Scholarship: claim code required -->
@@ -894,6 +1112,9 @@
                 🎉 <strong>Full Scholarship Verified</strong> — your entire tuition is covered.
                 No payment required. You will be auto-enrolled once registration is submitted.
               </div>
+
+
+
             </div>
           </ng-container>
 
@@ -1107,8 +1328,8 @@
       <div class="form-section">
         <h3 class="section-heading">💳 Payment Method</h3>
         <div class="payment-method-toggle">
-          <button class="method-btn" [class.selected]="paymentMethod==='GCash'" (click)="paymentMethod='GCash'">📱 GCash</button>
-          <button class="method-btn" [class.selected]="paymentMethod==='Cash'"  (click)="paymentMethod='Cash'">💵 Cash (walk-in)</button>
+          <button class="method-btn" [class.selected]="paymentMethod==='GCash'" (click)="paymentMethod='GCash'; saveWizardState()">📱 GCash</button>
+          <button class="method-btn" [class.selected]="paymentMethod==='Cash'"  (click)="paymentMethod='Cash'; saveWizardState()">💵 Cash (walk-in)</button>
         </div>
         <div class="method-note" *ngIf="paymentMethod==='GCash'">
           📱 After creating your account you'll be directed to submit your GCash reference number.
@@ -1126,7 +1347,10 @@
           {{ isTransfereeEnrolling ? 'Send TOR to Registrar →' : 'Next: Create Account →' }}
         </button>
         <button class="btn-next" *ngIf="isSHS"  (click)="proceedFromDocumentsSHS()">Next: Create Account →</button>
-        <button class="btn-next" *ngIf="isTVET" (click)="proceedFromDocumentsTVET()">Next: Create Account →</button>
+        <!-- FIX TVET-TRANSFEREE-FLOW-06: TVET transferees see same button as College transferees -->
+        <button class="btn-next" *ngIf="isTVET" (click)="proceedFromDocumentsTVET()">
+          {{ isTransfereeEnrolling ? 'Send TOR to Registrar →' : 'Next: Create Account →' }}
+        </button>
       </div>
     </div>
 
@@ -1143,15 +1367,18 @@
           <div class="form-grid">
             <div class="form-group full-col">
               <label>Email / Username <span class="req">*</span></label>
-              <input type="email" class="form-control" placeholder="your@email.com" [(ngModel)]="accountForm.email">
+              <input type="email" class="form-control" placeholder="your@email.com" [(ngModel)]="accountForm.email" [class.is-invalid]="accountErrors['email']" (blur)="validateStep4Field('email')" (input)="accountErrors['email'] && validateStep4Field('email')">
+              <div class="field-error" *ngIf="accountErrors['email']">{{ accountErrors['email'] }}</div>
             </div>
             <div class="form-group">
               <label>Password <span class="req">*</span></label>
-              <input type="password" class="form-control" placeholder="Min. 6 characters" [(ngModel)]="accountForm.password">
+              <input type="password" class="form-control" placeholder="Min. 6 characters" [(ngModel)]="accountForm.password" [class.is-invalid]="accountErrors['password']" (blur)="validateStep4Field('password')" (input)="accountErrors['password'] && validateStep4Field('password')">
+              <div class="field-error" *ngIf="accountErrors['password']">{{ accountErrors['password'] }}</div>
             </div>
             <div class="form-group">
               <label>Confirm Password <span class="req">*</span></label>
-              <input type="password" class="form-control" placeholder="Repeat password" [(ngModel)]="accountForm.confirmPassword">
+              <input type="password" class="form-control" placeholder="Repeat password" [(ngModel)]="accountForm.confirmPassword" [class.is-invalid]="accountErrors['confirmPassword']" (blur)="validateStep4Field('confirmPassword')" (input)="accountErrors['confirmPassword'] && validateStep4Field('confirmPassword')">
+              <div class="field-error" *ngIf="accountErrors['confirmPassword']">{{ accountErrors['confirmPassword'] }}</div>
             </div>
           </div>
           <div class="tor-review-error" *ngIf="torReviewError">⚠️ {{ torReviewError }}</div>
@@ -1300,35 +1527,60 @@
         </div>
 
         <!-- Fee breakdown (only when evaluated, not rejected) -->
+        <!-- FIX TVET-TRANSFEREE-FLOW-07: TVET transferees show flat ₱20k; College shows unit-based -->
         <div class="form-section fee-assessment-section" *ngIf="torEvalResult.fee && torReviewPhase==='done'">
         <div class="fee-loading" *ngIf="isFeePreviewLoading" style="margin-bottom:8px;">
           <span>⏳ Recalculating fees...</span>
         </div>
-          <h3 class="section-heading">💰 Fee Assessment After TOR Credit</h3>
+          <h3 class="section-heading">💰 Fee Assessment{{ isTVET ? ' — TVET Transferee Flat Rate' : ' After TOR Credit' }}</h3>
           <div class="fee-breakdown-card">
-            <div class="fee-breakdown-header">{{ selectedProgramName }} — {{ torEvalResult.approvedUnits }} units after credit</div>
+            <div class="fee-breakdown-header">
+              {{ selectedProgramName }}
+              <ng-container *ngIf="isTVET"> — Fixed Government Transferee Rate</ng-container>
+              <ng-container *ngIf="!isTVET"> — {{ torEvalResult.approvedUnits }} units after credit</ng-container>
+            </div>
             <div class="fee-breakdown-table">
-              <div class="fb-row"><span>Units (after credit)</span><span>{{ torEvalResult.fee.units }}</span></div>
-              <div class="fb-row"><span>Tuition Fee ({{ torEvalResult.fee.units }} units × ₱{{ torEvalResult.fee.units > 0 ? (torEvalResult.fee.tuitionFee / torEvalResult.fee.units | number:'1.2-2') : '650.00' }})</span><span>₱{{ torEvalResult.fee.tuitionFee | number:'1.2-2' }}</span></div>
-              <div class="fb-row"><span>Miscellaneous Fee</span><span>₱{{ torEvalResult.fee.miscellaneousFee | number:'1.2-2' }}</span></div>
-              <div class="fb-row"><span>Registration Fee</span><span>₱{{ torEvalResult.fee.registrationFee | number:'1.2-2' }}</span></div>
-              <div class="fb-row"><span>Laboratory Fee</span><span>₱{{ torEvalResult.fee.laboratoryFee | number:'1.2-2' }}</span></div>
-              <div class="fb-row"><span>Energy Fee ({{ torEvalResult.fee.units }} units × ₱{{ torEvalResult.fee.units > 0 ? (torEvalResult.fee.energyFee / torEvalResult.fee.units | number:'1.2-2') : '63.00' }})</span><span>₱{{ torEvalResult.fee.energyFee | number:'1.2-2' }}</span></div>
-              <div class="fb-row" *ngFor="let ef of (torEvalResult.fee.extraFees || [])">
-                <span>{{ ef.fee_label }}<ng-container *ngIf="ef.is_per_unit"> ({{ torEvalResult.fee.units }} units × ₱{{ ef.rate | number:'1.2-2' }})</ng-container></span>
-                <span>₱{{ ef.amount | number:'1.2-2' }}</span>
-              </div>
-              <div class="fb-row fb-subtotal"><span>Subtotal</span><span>₱{{ torEvalResult.fee.subtotal | number:'1.2-2' }}</span></div>
-              <div class="fb-row fb-discount" *ngIf="torEvalResult.fee.discount > 0">
-                <span>🎓 Scholarship Discount</span><span class="text-green">– ₱{{ torEvalResult.fee.discount | number:'1.2-2' }}</span>
-              </div>
-              <div class="fb-row fb-installment" *ngIf="paymentPlan === 'installment' && !isFeePreviewLoading">
-                <span>Installment Fee</span><span>₱{{ torEvalResult.fee.installmentFee | number:'1.2-2' }}</span>
-              </div>
-              <div class="fb-row fb-total">
-                <span><strong>TOTAL ASSESSMENT</strong></span>
-                <span><strong>₱{{ torEvalResult.fee.totalAssessment | number:'1.2-2' }}</strong></span>
-              </div>
+
+              <!-- TVET Transferee: flat ₱20,000 -->
+              <ng-container *ngIf="isTVET">
+                <div class="fb-row"><span>TVET Transferee Flat Rate</span><span>₱20,000.00</span></div>
+                <div class="fb-row fb-discount" *ngIf="torEvalResult.fee.discount > 0">
+                  <span>🎓 Scholarship Discount</span><span class="text-green">– ₱{{ torEvalResult.fee.discount | number:'1.2-2' }}</span>
+                </div>
+                <div class="fb-row fb-installment" *ngIf="paymentPlan === 'installment' && !isFeePreviewLoading">
+                  <span>Installment Fee</span><span>₱{{ torEvalResult.fee.installmentFee | number:'1.2-2' }}</span>
+                </div>
+                <div class="fb-row fb-total">
+                  <span><strong>TOTAL ASSESSMENT</strong></span>
+                  <span><strong>₱{{ torEvalResult.fee.totalAssessment | number:'1.2-2' }}</strong></span>
+                </div>
+              </ng-container>
+
+              <!-- College Transferee: unit-based -->
+              <ng-container *ngIf="!isTVET">
+                <div class="fb-row"><span>Units (after credit)</span><span>{{ torEvalResult.fee.units }}</span></div>
+                <div class="fb-row"><span>Tuition Fee ({{ torEvalResult.fee.units }} units × ₱{{ torEvalResult.fee.units > 0 ? (torEvalResult.fee.tuitionFee / torEvalResult.fee.units | number:'1.2-2') : '650.00' }})</span><span>₱{{ torEvalResult.fee.tuitionFee | number:'1.2-2' }}</span></div>
+                <div class="fb-row"><span>Miscellaneous Fee</span><span>₱{{ torEvalResult.fee.miscellaneousFee | number:'1.2-2' }}</span></div>
+                <div class="fb-row"><span>Registration Fee</span><span>₱{{ torEvalResult.fee.registrationFee | number:'1.2-2' }}</span></div>
+                <div class="fb-row"><span>Laboratory Fee</span><span>₱{{ torEvalResult.fee.laboratoryFee | number:'1.2-2' }}</span></div>
+                <div class="fb-row"><span>Energy Fee ({{ torEvalResult.fee.units }} units × ₱{{ torEvalResult.fee.units > 0 ? (torEvalResult.fee.energyFee / torEvalResult.fee.units | number:'1.2-2') : '63.00' }})</span><span>₱{{ torEvalResult.fee.energyFee | number:'1.2-2' }}</span></div>
+                <div class="fb-row" *ngFor="let ef of (torEvalResult.fee.extraFees || [])">
+                  <span>{{ ef.fee_label }}<ng-container *ngIf="ef.is_per_unit"> ({{ torEvalResult.fee.units }} units × ₱{{ ef.rate | number:'1.2-2' }})</ng-container></span>
+                  <span>₱{{ ef.amount | number:'1.2-2' }}</span>
+                </div>
+                <div class="fb-row fb-subtotal"><span>Subtotal</span><span>₱{{ torEvalResult.fee.subtotal | number:'1.2-2' }}</span></div>
+                <div class="fb-row fb-discount" *ngIf="torEvalResult.fee.discount > 0">
+                  <span>🎓 Scholarship Discount</span><span class="text-green">– ₱{{ torEvalResult.fee.discount | number:'1.2-2' }}</span>
+                </div>
+                <div class="fb-row fb-installment" *ngIf="paymentPlan === 'installment' && !isFeePreviewLoading">
+                  <span>Installment Fee</span><span>₱{{ torEvalResult.fee.installmentFee | number:'1.2-2' }}</span>
+                </div>
+                <div class="fb-row fb-total">
+                  <span><strong>TOTAL ASSESSMENT</strong></span>
+                  <span><strong>₱{{ torEvalResult.fee.totalAssessment | number:'1.2-2' }}</strong></span>
+                </div>
+              </ng-container>
+
             </div>
           </div>
 
@@ -1394,8 +1646,8 @@
           <div style="margin-top:8px">
             <h3 class="section-heading">💳 Payment Method</h3>
             <div class="payment-method-toggle">
-              <button class="method-btn" [class.selected]="paymentMethod==='GCash'" (click)="paymentMethod='GCash'">📱 GCash</button>
-              <button class="method-btn" [class.selected]="paymentMethod==='Cash'"  (click)="paymentMethod='Cash'">💵 Cash (walk-in)</button>
+              <button class="method-btn" [class.selected]="paymentMethod==='GCash'" (click)="paymentMethod='GCash'; savePaymentMethodToDB()">📱 GCash</button>
+              <button class="method-btn" [class.selected]="paymentMethod==='Cash'"  (click)="paymentMethod='Cash'; savePaymentMethodToDB()">💵 Cash (walk-in)</button>
             </div>
             <div class="method-note" *ngIf="paymentMethod==='GCash'">
               📱 You'll be directed to submit your GCash reference after logging in.
@@ -1426,15 +1678,18 @@
         <div class="form-grid">
           <div class="form-group full-col">
             <label>Email / Username <span class="req">*</span></label>
-            <input type="email" class="form-control" placeholder="your@email.com" [(ngModel)]="accountForm.email" [disabled]="isSubmitting">
+            <input type="email" class="form-control" placeholder="your@email.com" [(ngModel)]="accountForm.email" [disabled]="isSubmitting" [class.is-invalid]="accountErrors['email']" (blur)="validateStep4Field('email')" (input)="accountErrors['email'] && validateStep4Field('email')">
+            <div class="field-error" *ngIf="accountErrors['email']">{{ accountErrors['email'] }}</div>
           </div>
           <div class="form-group">
             <label>Password <span class="req">*</span></label>
-            <input type="password" class="form-control" placeholder="Min. 6 characters" [(ngModel)]="accountForm.password" [disabled]="isSubmitting">
+            <input type="password" class="form-control" placeholder="Min. 6 characters" [(ngModel)]="accountForm.password" [disabled]="isSubmitting" [class.is-invalid]="accountErrors['password']" (blur)="validateStep4Field('password')" (input)="accountErrors['password'] && validateStep4Field('password')">
+            <div class="field-error" *ngIf="accountErrors['password']">{{ accountErrors['password'] }}</div>
           </div>
           <div class="form-group">
             <label>Confirm Password <span class="req">*</span></label>
-            <input type="password" class="form-control" placeholder="Repeat password" [(ngModel)]="accountForm.confirmPassword" [disabled]="isSubmitting">
+            <input type="password" class="form-control" placeholder="Repeat password" [(ngModel)]="accountForm.confirmPassword" [disabled]="isSubmitting" [class.is-invalid]="accountErrors['confirmPassword']" (blur)="validateStep4Field('confirmPassword')" (input)="accountErrors['confirmPassword'] && validateStep4Field('confirmPassword')">
+            <div class="field-error" *ngIf="accountErrors['confirmPassword']">{{ accountErrors['confirmPassword'] }}</div>
           </div>
         </div>
       </div>
@@ -1476,11 +1731,13 @@
           <div class="summary-row"><label>Payment:</label><p>{{ paymentMethod==='GCash' ? '📱 GCash' : '💵 Cash (walk-in)' }}</p></div>
           <div class="summary-row"><label>Plan:</label><p>{{ paymentPlan === 'full' ? '💰 Full Payment' : '📆 Installment' }}</p></div>
         </ng-container>
-        <ng-container *ngIf="isTransfereeEnrolling && isCollege">
+        <!-- College AND TVET transferees: TOR review pending -->
+        <ng-container *ngIf="isTransfereeEnrolling && (isCollege || isTVET)">
           <div class="summary-row"><label>TOR Status:</label><p>⏳ Pending Registrar evaluation</p></div>
-          <div class="summary-row"><label>Fee:</label><p style="color:#92400e;">Will be computed after TOR evaluation</p></div>
+          <div class="summary-row" *ngIf="isCollege"><label>Fee:</label><p style="color:#92400e;">Will be computed after TOR evaluation</p></div>
+          <div class="summary-row" *ngIf="isTVET"><label>Fee:</label><p style="color:#92400e;">₱20,000 flat rate (after TOR evaluation)</p></div>
         </ng-container>
-        <div class="summary-row" *ngIf="isScholar"><label>Scholarship:</label><p class="text-green">🎓 {{ scholarType }}</p></div>
+        <div class="summary-row" *ngIf="isScholar"><label>Scholarship:</label><p class="text-green">🎓 {{ scholarType }}<span *ngIf="scholarGrantor"> — {{ scholarGrantor }}</span></p></div>
       </div>
 
       <div class="account-info-box" *ngIf="isCollege && !isTransfereeEnrolling && paymentMethod==='GCash'">
@@ -1498,14 +1755,16 @@
       <div class="account-info-box cash-box" *ngIf="isSHS && isTransfereeEnrolling && paymentMethod==='Cash'">
         💵 After creating your account, proceed to the <strong>Accounting Office</strong> to pay ₱20,000 in person.
       </div>
+      <!-- FIX TVET-WIZARD-FE-06: TVET non-transferees now go through the same wizard
+           steps as College (payment instructions showing ₱0, then subject selection).
+           Update the info box so students aren't surprised by the extra steps. -->
       <div class="account-info-box" style="background:#fff7ed;border-color:#fed7aa;color:#9a3412;" *ngIf="isTVET && !isTransfereeEnrolling">
-        🛠️ No payment needed! After creating your account you'll be logged in directly to the Student Portal. Your TVET program is funded by TESDA PRISAA.
+        🛠️ No payment needed! After creating your account you'll be shown your enrollment details (₱0 — TESDA PRISAA funded) and then proceed to select your subjects.
       </div>
-      <div class="account-info-box" *ngIf="isTVET && isTransfereeEnrolling && paymentMethod==='GCash'">
-        📱 After creating your account you'll be directed to submit your <strong>GCash payment of ₱20,000</strong>.
-      </div>
-      <div class="account-info-box cash-box" *ngIf="isTVET && isTransfereeEnrolling && paymentMethod==='Cash'">
-        💵 After creating your account, proceed to the <strong>Accounting Office</strong> to pay ₱20,000 in person.
+      <!-- TVET transferees: this account step is not reached (they use tor-review),
+           but keeping this notice as fallback if somehow state gets here -->
+      <div class="account-info-box transferee-box" *ngIf="isTVET && isTransfereeEnrolling">
+        📄 Your TOR is being reviewed by the Registrar. Once approved, you will be directed to pay ₱20,000.
       </div>
       <div class="account-info-box transferee-box" *ngIf="isTransfereeEnrolling && isCollege">
         📄 After creating your account, you'll be directed to a waiting screen while the <strong>Registrar evaluates your TOR</strong>. Payment and subject enrollment will follow after evaluation.

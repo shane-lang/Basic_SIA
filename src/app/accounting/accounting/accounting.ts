@@ -32,6 +32,8 @@ interface PendingPayment {
   scholarType?:    string;
   scholarGrantor?: string;
   scholarshipAmount?: number;
+  hasPendingScholarship?: boolean;  // FIX SCHOLAR-VERIFY-01
+  pendingScholarType?:    string;
   // Fee fields
   totalAssessment: number;
   totalPaid:       number;
@@ -597,57 +599,81 @@ export class Accounting implements OnInit, OnDestroy {
       ? new Date(d).toLocaleDateString('en-PH', { month: '2-digit', day: '2-digit', year: '2-digit' })
       : '';
 
+    // ── Due dates from snap (stored by accounting in sys_config) ─────────────
+    // snap.due_dates shape: { downpayment: { date_range }, prelim: {...}, ... }
+    // Falls back to empty string so cells are just blank if not configured.
+    const dueDates: Record<string, { label?: string; date_range?: string } | string> = snap.due_dates ?? {};
+    const getDueRange = (key: string): string => {
+      const entry = dueDates[key.toLowerCase()] ?? dueDates[key];
+      if (!entry) return '';
+      if (typeof entry === 'string') return entry;
+      return entry.date_range ?? '';
+    };
+
+    // ── Schedule row builder — matches student enrollment viewSOA exactly ─────
+    // Shows due date range; replaces it with "Paid: DD/MM/YY" once payment recorded.
+    const scheduleRow = (label: string, term: string, amount: number, row: typeof rows[0] | null) => {
+      const dueRange   = getDueRange(term);
+      const paidDateStr = row?.paid && row.paymentDate ? fmtDate(row.paymentDate) : '';
+      const dateCell = dueRange
+        ? `${dueRange}${paidDateStr ? `<br><span style="color:#166534;font-size:9px;">Paid: ${paidDateStr}</span>` : ''}`
+        : (paidDateStr || '');
+      const highlight = !row?.paid && term === 'Prelim' ? 'style="color:#c00;font-weight:700;"' : '';
+      return `<tr>
+        <td style="padding:3px 6px;">${label}</td>
+        <td style="padding:3px 6px;" ${highlight}>${dateCell}</td>
+        <td style="padding:3px 6px;text-align:right;">${row?.paid ? fmt(row.amountPaid) : ''}</td>
+        <td style="padding:3px 6px;text-align:center;font-size:9px;color:#1d4ed8;font-weight:700;">${row?.paid ? (row.orNo || '') : ''}</td>
+      </tr>`;
+    };
+
     // ── Schedule of payment rows ─────────────────────────────────────────────
     let schedRows = '';
     if (isInstallment) {
-      for (const p of rows) {
-        schedRows += `<tr>
-          <td style="padding:3px 6px;">${p.label}</td>
-          <td style="padding:3px 6px;">${p.paid ? `<span style="color:#166534;font-weight:600;">${fmtDate(p.paymentDate)}</span>` : '<span style="color:#9ca3af;">—</span>'}</td>
-          <td style="padding:3px 6px;text-align:right;">${p.paid ? fmt(p.amountPaid) : ''}</td>
-          <td style="padding:3px 6px;text-align:center;font-size:9px;color:#1d4ed8;font-weight:700;">${p.paid ? (p.orNo || '') : ''}</td>
-        </tr>
-        <tr><td colspan="4" style="padding:1px;"></td></tr>`;
-      }
+      const getRow = (term: string) => rows.find(r => r.term === term) ?? null;
+      schedRows = [
+        scheduleRow('Downpayment', 'Downpayment', getRow('Downpayment')?.amount ?? 0, getRow('Downpayment')),
+        '<tr><td colspan="4" style="padding:1px;"></td></tr>',
+        scheduleRow('PRELIM',      'Prelim',      getRow('Prelim')?.amount      ?? 0, getRow('Prelim')),
+        '<tr><td colspan="4" style="padding:1px;"></td></tr>',
+        scheduleRow('MIDTERM',     'Midterm',     getRow('Midterm')?.amount     ?? 0, getRow('Midterm')),
+        '<tr><td colspan="4" style="padding:1px;"></td></tr>',
+        scheduleRow('FINAL',       'Finals',      getRow('Finals')?.amount      ?? 0, getRow('Finals')),
+      ].join('');
     } else {
       const fp = snap.payments?.[0];
+      const paidDateStr = fp?.payment_date ? fmtDate(fp.payment_date) : '';
       schedRows = `<tr>
         <td style="padding:3px 6px;">Full Payment</td>
-        <td style="padding:3px 6px;">${fp ? `<span style="color:#166534;font-weight:600;">${fmtDate(fp.payment_date)}</span>` : ''}</td>
+        <td style="padding:3px 6px;">${paidDateStr ? `<span style="color:#166534;font-weight:600;">${paidDateStr}</span>` : ''}</td>
         <td style="padding:3px 6px;text-align:right;">${snap.total_paid > 0 ? fmt(snap.total_paid) : ''}</td>
         <td style="padding:3px 6px;text-align:center;">${fp?.or_ar_number || ''}</td>
       </tr>`;
     }
 
-    // ── Installment breakdown table ──────────────────────────────────────────
-    let installBlock = '';
-    if (isInstallment) {
-      const installRows = rows.map(p => `
-        <tr>
-          <td>${p.term === 'Downpayment' ? 'Downpayment :' : p.term === 'Finals' ? 'Final:' : p.term + ' :'}</td>
-          <td>${p.paid ? `<span style="color:#166534;font-weight:600;">${fmtDate(p.paymentDate)}</span>` : '<span style="color:#9ca3af;">—</span>'}</td>
-          <td style="text-align:right;${p.paid ? 'color:#16a34a;font-weight:700;' : ''}">${fmt(p.paid ? p.amountPaid : p.amount)}</td>
-        </tr>`).join('');
-      installBlock = `
-        <table class="install-table">
-          <thead><tr><th>INSTALLMENT PAYMENT</th><th>DATE PAID</th><th style="text-align:right;">AMOUNT</th></tr></thead>
-          <tbody>${installRows}</tbody>
-        </table>
-        <div style="text-align:right;font-size:11px;font-weight:700;margin-top:6px;padding-right:4px;">
-          Total amount to be paid: &nbsp;<span style="background:#add8e6;padding:2px 8px;">${fmt(snap.total_assessment)}</span>
-        </div>`;
-    }
+    // ── Extra fees rows (from subjects_json / stored fee breakdown) ───────────
+    const extraFees: any[] = snap.extra_fees ?? [];
+    const extraFeeRows = extraFees.map((ef: any) =>
+      `<tr><td>${ef.fee_label}${ef.is_per_unit ? ` (${snap.units} units &times; ${fmt(ef.rate)})` : ''}</td><td>${fmt(ef.amount)}</td></tr>`
+    ).join('');
 
-    const payStatusLabel = snap.balance <= 0 ? '✅ Fully Paid'
-      : snap.total_paid > 0 ? '🔶 Partially Paid' : '❌ Unpaid';
-    const payStatusColor = snap.balance <= 0 ? '#166534' : snap.total_paid > 0 ? '#854d0e' : '#991b1b';
-    const payStatusBg    = snap.balance <= 0 ? '#dcfce7' : snap.total_paid > 0 ? '#fef9c3' : '#fee2e2';
+    // ── Exam covered — derive from payment status (mirrors student view logic) ─
+    const examCovered = (() => {
+      if (!isInstallment) return snap.total_paid > 0 ? 'FINAL' : '—';
+      const getRow = (t: string) => rows.find(r => r.term === t);
+      if (getRow('Finals')?.paid)      return 'FINAL';
+      if (getRow('Midterm')?.paid)     return 'MIDTERM';
+      if (getRow('Prelim')?.paid)      return 'PRELIM';
+      if (getRow('Downpayment')?.paid) return 'DOWNPAYMENT';
+      return '—';
+    })();
 
     const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
-<title>SOA – ${student.name}</title>
+<title>Statement of Account — ${student.name}</title>
 <style>
   *{box-sizing:border-box;margin:0;padding:0;}
   body{font-family:Arial,sans-serif;font-size:10px;padding:18px 22px;color:#000;width:780px;}
+  /* Header */
   .top-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;}
   .logo-area{display:flex;align-items:center;gap:10px;}
   .logo-circle{width:70px;height:70px;border:2px solid #000;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;text-align:center;font-weight:900;}
@@ -657,14 +683,18 @@ export class Accounting implements OnInit, OnDestroy {
   .school-addr{font-size:8.5px;color:#444;margin-top:1px;}
   .badges-right{display:flex;gap:8px;align-items:center;}
   .badge-img{width:45px;height:45px;border:1px solid #ccc;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:7px;text-align:center;}
+  /* SOA Title */
   .soa-title{text-align:center;font-size:11px;font-weight:900;text-transform:uppercase;border-top:2px solid #000;border-bottom:1px solid #000;padding:3px;margin:6px 0;}
+  /* Student Info Bar */
   .info-bar{display:grid;grid-template-columns:1fr auto auto;gap:0;border:1px solid #000;margin-bottom:4px;}
   .info-cell{padding:3px 8px;border-right:1px solid #000;font-size:10px;}
   .info-cell:last-child{border-right:none;}
   .info-label{font-size:8.5px;color:#555;}
   .info-val{font-weight:700;font-size:11px;}
   .info-bar2{display:grid;grid-template-columns:1fr 1fr 1fr;border:1px solid #000;border-top:none;margin-bottom:8px;}
+  /* Two column layout */
   .main-grid{display:grid;grid-template-columns:300px 1fr;gap:16px;}
+  /* Assessment table */
   .assess-table{width:100%;border-collapse:collapse;font-size:10px;}
   .assess-table td{padding:2px 4px;border-bottom:1px dotted #ddd;}
   .assess-table td:last-child{text-align:right;min-width:70px;}
@@ -672,24 +702,30 @@ export class Accounting implements OnInit, OnDestroy {
   .subtotal-row td{font-weight:700;border-top:1px solid #000;padding-top:3px;}
   .total-row td{font-weight:900;font-size:11px;background:#d0d0d0;padding:3px 4px;}
   .final-row td{font-weight:900;font-size:12px;background:#4040a0;color:#fff;padding:4px;}
+  /* Schedule table */
   .sched-table{width:100%;border-collapse:collapse;font-size:10px;}
   .sched-table th{background:#4040a0;color:#fff;padding:3px 6px;text-align:left;font-size:9.5px;}
   .sched-table td{border:1px solid #ccc;padding:2px 6px;}
   .total-balance-box{border:2px solid #000;padding:5px 10px;text-align:center;margin:10px 0;}
   .total-balance-label{font-size:11px;font-weight:700;}
   .total-balance-amt{font-size:16px;font-weight:900;color:#c00;}
+  /* Installment schedule */
   .install-table{width:100%;border-collapse:collapse;font-size:10px;margin-top:8px;}
   .install-table th{background:#f0c040;color:#000;font-weight:700;padding:3px 6px;border:1px solid #999;}
   .install-table td{border:1px solid #ccc;padding:3px 6px;}
+  /* Withdrawal policies */
   .policies{font-size:8px;margin-top:10px;color:#333;}
   .policies p{margin-bottom:2px;}
+  /* Signature */
   .sig-area{display:grid;grid-template-columns:1fr 1fr;gap:30px;margin-top:16px;}
   .sig-block{text-align:center;}
   .sig-name{font-size:11px;font-weight:900;border-bottom:1.5px solid #000;padding-bottom:2px;margin-bottom:2px;}
   .sig-title{font-size:9px;}
+  .sig-date{font-size:9px;margin-top:8px;}
   @media print{body{padding:8px 12px;}@page{margin:8mm;size:A4;} .no-print{display:none!important;}}
 </style></head><body>
 
+<!-- HEADER -->
 <div class="top-header">
   <div class="logo-area">
     <div class="logo-circle">ST.<br>BENILDE</div>
@@ -708,20 +744,42 @@ export class Accounting implements OnInit, OnDestroy {
 
 <div class="soa-title">STATEMENT OF ACCOUNT &nbsp; ${snap.semester}</div>
 
+<!-- Student Info -->
 <div class="info-bar">
-  <div class="info-cell"><div class="info-label">Name:</div><div class="info-val">${student.name.toUpperCase()}</div></div>
-  <div class="info-cell"><div class="info-label">Course:</div><div class="info-val">${student.program || ''}</div></div>
-  <div class="info-cell"><div class="info-label">Department:</div><div class="info-val">ICTD</div></div>
+  <div class="info-cell">
+    <div class="info-label">Name:</div>
+    <div class="info-val">${student.name.toUpperCase()}</div>
+  </div>
+  <div class="info-cell">
+    <div class="info-label">Course:</div>
+    <div class="info-val">${student.program || ''}</div>
+  </div>
+  <div class="info-cell">
+    <div class="info-label">Department:</div>
+    <div class="info-val">ICTD</div>
+  </div>
 </div>
 <div class="info-bar2">
-  <div class="info-cell"><div class="info-label">Payment Plan:</div><div class="info-val">${(snap.payment_plan || 'full').charAt(0).toUpperCase() + (snap.payment_plan || 'full').slice(1)}</div></div>
-  <div class="info-cell"><div class="info-label">Semester:</div><div class="info-val">${snap.semester}</div></div>
-  <div class="info-cell"><div class="info-label">Student No.:</div><div class="info-val">${student.number}</div></div>
+  <div class="info-cell">
+    <div class="info-label">EXAMINATION COVERED</div>
+    <div class="info-val">${examCovered}</div>
+  </div>
+  <div class="info-cell">
+    <div class="info-label">Semester:</div>
+    <div class="info-val">${snap.semester}</div>
+  </div>
+  <div class="info-cell">
+    <div class="info-label">Student No.:</div>
+    <div class="info-val">${student.number}</div>
+  </div>
 </div>
 
+<!-- Main 2-col layout -->
 <div class="main-grid">
+
+  <!-- LEFT: Assessment -->
   <div>
-    <div class="assess-section-title">ASSESSMENT FOR ${snap.semester?.toUpperCase()}</div>
+    <div class="assess-section-title">ASSESSMENT FOR THE CURRENT SEMESTER</div>
     <table class="assess-table">
       <tr><td>No. of Units</td><td>${snap.units || ''}</td></tr>
       <tr><td>Tuition Fee</td><td>${fmt(snap.tuition_fee)}</td></tr>
@@ -729,6 +787,7 @@ export class Accounting implements OnInit, OnDestroy {
       <tr><td>Registration Fee</td><td>${fmt(snap.registration_fee)}</td></tr>
       <tr><td>NSTP Fee</td><td></td></tr>
       <tr><td>ENERGY FEE</td><td>${snap.energy_fee ? fmt(snap.energy_fee) : ''}</td></tr>
+      ${extraFeeRows}
       <tr><td>Supervision Fee</td><td></td></tr>
       <tr><td style="padding-top:4px;"># of laboratory</td><td></td></tr>
       <tr><td>Laboratory Fees:</td><td>${snap.laboratory_fee ? fmt(snap.laboratory_fee) : ''}</td></tr>
@@ -749,6 +808,7 @@ export class Accounting implements OnInit, OnDestroy {
     </table>
   </div>
 
+  <!-- RIGHT: Schedule of Payment -->
   <div>
     <table class="sched-table">
       <thead>
@@ -756,7 +816,7 @@ export class Accounting implements OnInit, OnDestroy {
           <th>SCHEDULE OF PAYMENT</th>
           <th>DATE OF PAYMENTS</th>
           <th style="text-align:right;">PAYMENTS</th>
-          <th style="text-align:center;">O.R./A.R. NO.</th>
+          <th style="text-align:center;">O.R. NUMBER</th>
         </tr>
       </thead>
       <tbody>${schedRows}</tbody>
@@ -767,10 +827,30 @@ export class Accounting implements OnInit, OnDestroy {
       <span class="total-balance-amt">${fmt(snap.balance)}</span>
     </div>
 
-    ${installBlock}
+    <!-- Installment breakdown — only for installment plan with remaining balance -->
+    ${isInstallment && snap.balance > 0 ? `
+    <table class="install-table">
+      <thead>
+        <tr>
+          <th>INSTALLMENT PAYMENT</th>
+          <th>DUE DATES</th>
+          <th style="text-align:right;">AMOUNT</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>Downpayment :</td><td>${getDueRange('downpayment') || ''}</td><td style="text-align:right;">${fmt(rows.find(r => r.term === 'Downpayment')?.amount ?? 0)}</td></tr>
+        <tr><td style="color:#c00;font-weight:700;">Prelim :</td><td style="color:#c00;font-weight:700;">${getDueRange('prelim')}</td><td style="text-align:right;">${fmt(rows.find(r => r.term === 'Prelim')?.amount ?? 0)}</td></tr>
+        <tr><td>Midterm:</td><td>${getDueRange('midterm')}</td><td style="text-align:right;">${fmt(rows.find(r => r.term === 'Midterm')?.amount ?? 0)}</td></tr>
+        <tr><td>Final:</td><td>${getDueRange('finals')}</td><td style="text-align:right;">${fmt(rows.find(r => r.term === 'Finals')?.amount ?? 0)}</td></tr>
+      </tbody>
+    </table>
+    <div style="text-align:right;font-size:11px;font-weight:700;margin-top:6px;padding-right:4px;">
+      Total amount to be paid: &nbsp; <span style="background:#add8e6;padding:2px 8px;">${fmt(snap.total_assessment)}</span>
+    </div>` : ''}
   </div>
 </div>
 
+<!-- Withdrawal Policies -->
 <div class="policies">
   <strong>Withdrawal Policies</strong>
   <p>1. In case of withdrawal of enrollment, the amount of Php7,388.00 (Registration and Miscellaneous fees) shall be retained at all times.</p>
@@ -780,21 +860,20 @@ export class Accounting implements OnInit, OnDestroy {
   <p>5. No document shall be released to any withdrawing student without complete payment of financial obligation.</p>
 </div>
 
+<!-- Signatures -->
 <div class="sig-area">
   <div class="sig-block">
     <div class="sig-name">Jhomer M. Onoya</div>
     <div class="sig-title">Account Management Officer</div>
-    <div style="font-size:9px;margin-top:8px;">DATE &nbsp;&nbsp;&nbsp;&nbsp; ${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</div>
+    <div class="sig-date">DATE &nbsp;&nbsp;&nbsp;&nbsp; ${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</div>
   </div>
   <div class="sig-block">
     <div class="sig-name">${student.name.toUpperCase()}</div>
     <div class="sig-title">Signature Over Printed Name</div>
-    <div style="margin-top:8px;font-size:9px;">Acknowledged by:</div>
+    <div style="margin-top:8px;">
+      <span style="font-size:9px;">Acknowledged by:</span>
+    </div>
   </div>
-</div>
-
-<div style="text-align:right;margin-top:10px;">
-  <span style="background:${payStatusBg};color:${payStatusColor};font-size:12px;font-weight:700;padding:4px 14px;border-radius:20px;">${payStatusLabel}</span>
 </div>
 
 <div class="no-print" style="text-align:center;margin-top:16px;">
@@ -957,8 +1036,17 @@ export class Accounting implements OnInit, OnDestroy {
     this.modalNotes = '';
     this.cashDate   = new Date().toISOString().split('T')[0];
     this.cashAmountError = '';
-    // Pre-fill cash amount: remaining balance for the term (due - already paid this term)
-    if (payment.paymentPlan === 'installment' && payment.scheduleAmounts) {
+    // FIX CASH-PREFILL-01: Pre-fill cash amount in priority order:
+    //   1. Student-submitted amount (gcashAmount from payment_logs) — most accurate;
+    //      submit_installment_payment saves the amount the student typed in the modal.
+    //   2. Scheduled balance for the term (installment due - already paid).
+    //   3. Total assessment (full-payment fallback).
+    // Previously always used totalAssessment for Cash, ignoring the student's input.
+    if (payment.gcashAmount && payment.gcashAmount > 0) {
+      // Student submitted a specific amount — pre-fill with that value.
+      // Accounting can still change it if the actual received amount differs.
+      this.cashAmount = payment.gcashAmount;
+    } else if (payment.paymentPlan === 'installment' && payment.scheduleAmounts) {
       const ep = payment.examPeriod || 'Downpayment';
       const sa = payment.scheduleAmounts;
       const tp = payment.termPaidAmounts;
@@ -1107,6 +1195,10 @@ export class Accounting implements OnInit, OnDestroy {
           this.pendingPayments = this.pendingPayments.filter(p => p.logId !== this.selectedPayment!.logId);
           this.closeModal();
           if (this.currentTab === 'history') this.loadPaymentHistory();
+        } else if (res.pending_scholarship) {
+          // FIX SCHOLAR-VERIFY-01: scholarship still pending — block verify and prompt accounting
+          this.errorMessage = '⚠️ ' + (res.message || 'Approve or reject the scholarship first.');
+          this.closeModal();
         } else if (res.locked) {
           // Period still locked — remind accounting to send notice first
           this.errorMessage = '🔒 ' + (res.message || 'Send a payment notice to unlock this period first.');
@@ -1121,20 +1213,26 @@ export class Accounting implements OnInit, OnDestroy {
     if (!this.selectedPayment) return;
     this.isProcessing = true;
     this.http.post<any>(`${this.apiUrl}?action=edit_payment`, {
-      log_id:         this.selectedPayment.logId,
-      student_id:     this.selectedPayment.studentId,
+      payment_log_id:  this.selectedPayment.logId,   // FIX: was 'log_id', backend expects 'payment_log_id'
+      student_id:      this.selectedPayment.studentId,
       gcash_reference: this.editForm.gcashReference,
-      gcash_amount:   this.editForm.gcashAmount,
-      gcash_date:     this.editForm.gcashDate,
-      semester:       this.editForm.semester,
+      amount:          this.editForm.gcashAmount,     // FIX: was 'gcash_amount', backend expects 'amount'
+      gcash_date:      this.editForm.gcashDate,
+      semester:        this.editForm.semester,
     }).subscribe({
       next: (res) => {
         this.isProcessing = false;
         if (res.success) {
-          // Update locally
+          // Update locally — patch the specific field names the list uses
           const idx = this.pendingPayments.findIndex(p => p.logId === this.selectedPayment!.logId);
           if (idx !== -1) {
-            this.pendingPayments[idx] = { ...this.pendingPayments[idx], ...this.editForm };
+            this.pendingPayments[idx] = {
+              ...this.pendingPayments[idx],
+              gcashReference: this.editForm.gcashReference,
+              gcashAmount:    this.editForm.gcashAmount,
+              gcashDate:      this.editForm.gcashDate,
+              semester:       this.editForm.semester,
+            };
           }
           this.closeModal();
         }
@@ -1745,27 +1843,91 @@ export class Accounting implements OnInit, OnDestroy {
   }
 
   // ── Service Invoice (online/browser view — NOT an official receipt) ─────────
+  // UPGRADED: Now matches the student enrollment view — includes full payment
+  // history table with per-receipt cumulative totals, highlighted current row,
+  // and a separate payment summary section below the history.
   openServiceInvoice(h: PaymentHistory): void {
-    const name = `${h.lastName || ''}, ${h.firstName || ''}`;
-    const stNum = h.studentNumber || '';
-    const amount = h.gcashAmount || 0;
-    const fmt = (n: number) => n.toLocaleString('en-PH', { minimumFractionDigits: 2 });
-    const period = h.examPeriod || '';
-    const method = h.paymentMethod || '';
-    const gcashRef = h.gcashReference || '';
-    const orNo = h.orArNumber || '';
-    const payDate = h.gcashDate || h.verifiedAt || '';
+    const name      = `${h.lastName || ''}, ${h.firstName || ''}`;
+    const stNum     = h.studentNumber || '';
+    const amount    = h.gcashAmount || 0;
+    const fmt       = (n: number) => (+n || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 });
+    const period    = h.examPeriod || '';
+    const method    = h.paymentMethod || '';
+    const gcashRef  = h.gcashReference || '';
+    const orNo      = h.orArNumber || '';
+    // Use gcashDate (actual payment date) first; fall back to verifiedAt
+    const payDate   = h.gcashDate || h.verifiedAt || '';
     const totalAssess = h.totalAssessment || 0;
-    const totalPaid = h.totalPaid || amount;
-    const balance = Math.max(0, totalAssess - totalPaid);
+
+    // ── Build the per-student receipt history from this.paymentHistory ────────
+    // Filter all payment history rows that belong to the same student AND the
+    // same semester as this invoice, then sort by payment date ascending so the
+    // cumulative running total is computed in chronological order.
+    const studentHistory = this.paymentHistory
+      .filter((r: PaymentHistory) =>
+        r.studentId === h.studentId &&
+        (r.semester || '') === (h.semester || '')
+      )
+      .sort((a: PaymentHistory, b: PaymentHistory) => {
+        const da = new Date(a.gcashDate || a.verifiedAt || 0).getTime();
+        const db = new Date(b.gcashDate || b.verifiedAt || 0).getTime();
+        return da - db;
+      });
+
+    // Find the index of THIS invoice in the sorted list
+    const receiptIndex = studentHistory.findIndex(
+      (r: PaymentHistory) => r.orArNumber === orNo
+    );
+
+    // Cumulative paid UP TO AND INCLUDING this invoice
+    let cumulativePaid = 0;
+    if (receiptIndex >= 0) {
+      for (let i = 0; i <= receiptIndex; i++) {
+        cumulativePaid += (studentHistory[i]?.gcashAmount || 0);
+      }
+    } else {
+      cumulativePaid = h.totalPaid || amount;
+    }
+    const totalPaid = cumulativePaid;
+    const balance   = Math.max(0, totalAssess - totalPaid);
 
     let statusClass = 'status-unpaid'; let statusLabel = 'UNPAID';
-    if (balance <= 0) { statusClass = 'status-paid'; statusLabel = 'FULLY PAID'; }
-    else if (totalPaid > 0) { statusClass = 'status-partial'; statusLabel = 'PARTIALLY PAID'; }
+    if (balance <= 0 && totalPaid > 0) { statusClass = 'status-paid';    statusLabel = 'FULLY PAID'; }
+    else if (totalPaid > 0)            { statusClass = 'status-partial'; statusLabel = 'PARTIALLY PAID'; }
+
+    // ── Build payment history rows HTML ──────────────────────────────────────
+    const historyRowsHtml = (() => {
+      const slice = receiptIndex >= 0
+        ? studentHistory.slice(0, receiptIndex + 1)
+        : (studentHistory.length > 0 ? studentHistory : [h]);
+
+      if (slice.length === 0) {
+        return '<tr><td colspan="6" style="padding:6px 8px;color:#888;">No history available.</td></tr>';
+      }
+
+      return slice.map((r: PaymentHistory) => {
+        const isCurrent  = r.orArNumber === orNo;
+        const rowBg      = isCurrent ? 'background:#eff6ff;font-weight:700;' : '';
+        const marker     = isCurrent ? '&#9664; This Invoice' : '&#10003; Paid';
+        const markerColor = isCurrent ? '#1a3c6e' : '#166534';
+        const rDate      = r.gcashDate || r.verifiedAt || '';
+        const rDateFmt   = rDate
+          ? new Date(rDate).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })
+          : '—';
+        return `<tr style="${rowBg}">
+          <td style="padding:4px 8px;font-size:10px;">${r.examPeriod || ''}</td>
+          <td style="padding:4px 8px;font-size:10px;">${r.orArNumber || ''}</td>
+          <td style="padding:4px 8px;font-size:10px;">${r.paymentMethod || ''}</td>
+          <td style="padding:4px 8px;font-size:10px;">${rDateFmt}</td>
+          <td style="padding:4px 8px;text-align:right;font-size:10px;">&#8369;${fmt(r.gcashAmount || 0)}</td>
+          <td style="padding:4px 8px;text-align:center;font-size:9px;color:${markerColor};font-weight:700;">${marker}</td>
+        </tr>`;
+      }).join('');
+    })();
 
     const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Service Invoice — ${orNo}</title>
+<title>Service Invoice &#8212; ${orNo}</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700&display=swap');
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
@@ -1784,7 +1946,6 @@ export class Accounting implements OnInit, OnDestroy {
   .status-paid{background:#d1e7dd;color:#0a6640;border:1px solid #a3cfbb;}
   .status-partial{background:#fff3cd;color:#856404;border:1px solid #ffc107;}
   .status-unpaid{background:#f8d7da;color:#842029;border:1px solid #f5c2c7;}
-  .not-receipt-badge{display:inline-block;background:#fff3cd;color:#856404;border:1px solid #ffc107;border-radius:4px;font-size:9px;font-weight:700;letter-spacing:1px;padding:2px 8px;text-transform:uppercase;margin-left:6px;}
   .divider{border:none;border-top:1px dashed #ccc;margin:8px 0;}
   .section-title{font-size:9px;text-transform:uppercase;letter-spacing:1px;color:#888;font-weight:600;margin-bottom:4px;}
   .info-grid{display:grid;grid-template-columns:1fr 1fr;gap:2px 16px;margin-bottom:8px;}
@@ -1809,7 +1970,7 @@ export class Accounting implements OnInit, OnDestroy {
   @media print{body{background:white;padding:0;}.page{box-shadow:none;}.no-print{display:none;}}
 </style></head><body>
 <div class="no-print" style="text-align:center;margin-bottom:12px;">
-  <button onclick="window.print()" style="background:#1a3c6e;color:white;border:none;padding:8px 20px;border-radius:4px;cursor:pointer;font-size:13px;">🖨️ Print Invoice</button>
+  <button onclick="window.print()" style="background:#1a3c6e;color:white;border:none;padding:8px 20px;border-radius:4px;cursor:pointer;font-size:13px;">&#128424; Print Invoice</button>
   <button onclick="window.close()" style="margin-left:8px;background:#eee;border:none;padding:8px 16px;border-radius:4px;cursor:pointer;font-size:13px;">Close</button>
 </div>
 <div class="page">
@@ -1826,7 +1987,6 @@ export class Accounting implements OnInit, OnDestroy {
     <div class="meta-row"><span>Date: ${payDate}</span></div>
     <div class="badge-row">
       <span class="status-badge ${statusClass}">${statusLabel}</span>
-
     </div>
   </div>
   <hr class="divider">
@@ -1835,28 +1995,49 @@ export class Accounting implements OnInit, OnDestroy {
     <div class="field"><label>Name</label><span>${name}</span></div>
     <div class="field"><label>Student No.</label><span>${stNum}</span></div>
     <div class="field"><label>Program</label><span>${h.program || ''}</span></div>
+    <div class="field"><label>Year Level</label><span>${h.yearLevel || ''}</span></div>
     <div class="field"><label>Semester</label><span>${h.semester || ''}</span></div>
+    <div class="field"><label>Payment Plan</label><span>${h.paymentPlan || ''}</span></div>
   </div>
   <hr class="divider">
-  <div class="section-title">Payment for This Period</div>
-  <div class="box">
+  <div class="section-title">This Invoice</div>
+  <div class="box" style="margin-bottom:10px;">
     <div class="amt-center">
-      <div class="amt-label">Amount — ${period}</div>
-      <div class="amt-value">₱${fmt(amount)}</div>
+      <div class="amt-label">Amount &#8212; ${period}</div>
+      <div class="amt-value">&#8369;${fmt(amount)}</div>
     </div>
     <table class="bk">
       <tr><td>Payment Method</td><td>${method}</td></tr>
-      ${gcashRef ? `<tr><td>GCash Ref</td><td>${gcashRef}</td></tr>` : ''}
-      <tr class="total-row"><td>Total Assessment</td><td>₱${fmt(totalAssess)}</td></tr>
-      <tr><td>Total Paid to Date</td><td>₱${fmt(totalPaid)}</td></tr>
-      <tr class="bal-row ${balance <= 0 ? 'paid' : ''}"><td>Remaining Balance</td><td>₱${fmt(balance)}</td></tr>
+      ${gcashRef ? `<tr><td>GCash Ref No.</td><td>${gcashRef}</td></tr>` : ''}
     </table>
   </div>
+  <hr class="divider">
+  <div class="section-title">Payment History</div>
+  <table class="bk" style="margin-bottom:10px;border:1px solid #e2e8f0;border-radius:4px;overflow:hidden;">
+    <thead>
+      <tr style="background:#1a3c6e;color:white;">
+        <th style="padding:5px 8px;text-align:left;font-size:9px;font-weight:700;">Period</th>
+        <th style="padding:5px 8px;text-align:left;font-size:9px;font-weight:700;">Ref No.</th>
+        <th style="padding:5px 8px;text-align:left;font-size:9px;font-weight:700;">Method</th>
+        <th style="padding:5px 8px;text-align:left;font-size:9px;font-weight:700;">Date</th>
+        <th style="padding:5px 8px;text-align:right;font-size:9px;font-weight:700;">Amount</th>
+        <th style="padding:5px 8px;text-align:center;font-size:9px;font-weight:700;">Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${historyRowsHtml}
+    </tbody>
+  </table>
+  <table class="bk" style="margin-bottom:10px;">
+    <tr class="total-row"><td>Total Assessment</td><td>&#8369;${fmt(totalAssess)}</td></tr>
+    <tr><td>Total Paid to Date</td><td>&#8369;${fmt(totalPaid)}</td></tr>
+    <tr class="bal-row ${balance <= 0 ? 'paid' : ''}"><td>Remaining Balance</td><td>&#8369;${fmt(balance)}</td></tr>
+  </table>
   <div class="sig-row">
     <div class="sig"><div class="line"></div><div class="sig-name">${h.verifiedByName || 'Accounting Office'}</div><div class="sig-role">Accounting Staff</div></div>
     <div class="sig"><div class="line"></div><div class="sig-name">${name}</div><div class="sig-role">Student / Representative</div></div>
   </div>
-  <div class="footer-note">SERVICE INVOICE </div>
+  <div class="footer-note">SERVICE INVOICE</div>
 </div>
 </body></html>`;
     const win = window.open('', '_blank', 'width=760,height=860');

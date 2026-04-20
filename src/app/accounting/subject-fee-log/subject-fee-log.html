@@ -109,12 +109,6 @@
                 {{ fmt(req.fee_preview?.tuitionImpact ?? 0) }}
               </span>
             </div>
-            <div class="fee-row" *ngIf="(req.fee_preview?.labImpact ?? 0) !== 0">
-              <span>Laboratory Fee Impact</span>
-              <span class="fee-val" [style.color]="impactColor(req.fee_preview?.labImpact ?? 0)">
-                {{ fmt(req.fee_preview?.labImpact ?? 0) }}
-              </span>
-            </div>
             <div class="fee-row" *ngIf="(req.fee_preview?.energyImpact ?? 0) !== 0">
               <span>Energy Fee Impact</span>
               <span class="fee-val" [style.color]="impactColor(req.fee_preview?.energyImpact ?? 0)">
@@ -212,12 +206,6 @@
           <span>Tuition Impact</span>
           <span class="fee-val" [style.color]="impactColor(reviewingReq.fee_preview.tuitionImpact)">
             {{ fmt(reviewingReq.fee_preview.tuitionImpact) }}
-          </span>
-        </div>
-        <div class="fee-row" *ngIf="reviewingReq.fee_preview.labImpact !== 0">
-          <span>Laboratory Fee Impact</span>
-          <span class="fee-val" [style.color]="impactColor(reviewingReq.fee_preview.labImpact)">
-            {{ fmt(reviewingReq.fee_preview.labImpact) }}
           </span>
         </div>
         <div class="fee-row" *ngIf="reviewingReq.fee_preview.energyImpact !== 0">

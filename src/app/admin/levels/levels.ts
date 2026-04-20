@@ -69,6 +69,17 @@ export class Levels implements OnInit {
   isLoading   = false;
   filterLevel = 'All';
 
+  // ── Programs pagination ───────────────────────────────────────────────
+  programPage     = 1;
+  programPageSize = 9;
+  get programTotalPages(): number { return Math.max(1, Math.ceil(this.filteredPrograms.length / this.programPageSize)); }
+  get pagedPrograms(): Program[] {
+    const start = (this.programPage - 1) * this.programPageSize;
+    return this.filteredPrograms.slice(start, start + this.programPageSize);
+  }
+  programPageNumbers(): number[] { return Array.from({ length: this.programTotalPages }, (_, i) => i + 1); }
+  goToProgramPage(p: number): void { this.programPage = Math.max(1, Math.min(p, this.programTotalPages)); }
+
   showModal  = false;
   isEditing  = false;
   isSaving   = false;
@@ -380,6 +391,11 @@ export class Levels implements OnInit {
   get filteredPrograms(): Program[] {
     if (this.filterLevel === 'All') return this.programs;
     return this.programs.filter(p => p.level_type === this.filterLevel);
+  }
+
+  setFilterLevel(level: string): void {
+    this.filterLevel  = level;
+    this.programPage  = 1;
   }
 
   get collegePrograms(): Program[] { return this.programs.filter(p => p.level_type === 'College'); }

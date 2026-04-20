@@ -104,7 +104,7 @@ if ($request === 'enrollments') {
     // GROUP BY e.id prevents duplicate rows when a course has multiple active sections
     if ($semester !== '') {
         $stmt = $conn->prepare(
-            "SELECT e.id, e.student_id, e.course_id, e.status, e.enrollment_date, e.semester,
+            "SELECT e.id, e.student_id, e.course_id, e.status, e.notes, e.enrollment_date, e.semester,
                     c.code AS course_code, c.name AS course_name, c.credits AS units,
                     cs.section_code AS section_name,
                     CONCAT(COALESCE(cs.day,''), ' ',
@@ -128,7 +128,7 @@ if ($request === 'enrollments') {
         $stmt->bind_param('is', $student_id, $semester);
     } else {
         $stmt = $conn->prepare(
-            "SELECT e.id, e.student_id, e.course_id, e.status, e.enrollment_date, e.semester,
+            "SELECT e.id, e.student_id, e.course_id, e.status, e.notes, e.enrollment_date, e.semester,
                     c.code AS course_code, c.name AS course_name, c.credits AS units,
                     cs.section_code AS section_name,
                     CONCAT(COALESCE(cs.day,''), ' ',

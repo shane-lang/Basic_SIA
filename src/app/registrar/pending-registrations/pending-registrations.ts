@@ -47,6 +47,8 @@ interface PendingStudent {
   scholarDiscount: number;
   // ── Guardian contact ──
   guardianEmail: string;
+  // ── Free enrollment flag (SHS/TVET) ──
+  isFreeEnrollment: boolean;
 }
 
 interface EnrolledSubject {
@@ -182,12 +184,20 @@ export class PendingRegistrationsComponent implements OnInit {
     this.http.get<any>(`${environment.api}?${qs}`).subscribe({
       next: (res) => {
         const rows: any[] = Array.isArray(res) ? res : (res.enrollments ?? []);
-        this.enrolledSubjects = rows.map((r: any) => ({
-          course_code: r.course_code ?? r.code ?? '',
-          course_name: r.course_name ?? r.name ?? '',
-          units:       Number(r.units ?? r.credits ?? 0),
-          status:      r.status ?? '',
-        }));
+        // FIX TOR-CREDIT-DISPLAY-01: TOR-credited subjects are stored as 'Dropped'
+        // with a specific notes value. Show them as 'Credited' instead of 'Dropped'
+        // so the Registrar sees the correct status before confirming enrollment.
+        this.enrolledSubjects = rows.map((r: any) => {
+          const isTorCredit = r.status === 'Dropped'
+            && typeof r.notes === 'string'
+            && r.notes.includes('Credited via TOR evaluation');
+          return {
+            course_code: r.course_code ?? r.code ?? '',
+            course_name: r.course_name ?? r.name ?? '',
+            units:       Number(r.units ?? r.credits ?? 0),
+            status:      isTorCredit ? 'Credited' : (r.status ?? ''),
+          };
+        });
         this.isLoadingSubjects = false;
         this.cdr.detectChanges();
       },
@@ -226,11 +236,22 @@ export class PendingRegistrationsComponent implements OnInit {
           this.notify('success', res.message);
           this.showModal = false;
 
-          // ── After confirm: auto-fetch the newly created COE ──────────────
+          // ── Remove the confirmed/rejected student from the list immediately ──
+          // Optimistic removal so the row disappears right away without waiting
+          // for the reload. The backend already changed enrollment_status to
+          // 'Enrolled' (confirm) or 'Rejected', so it won't appear in the next
+          // get_pending_registrations response either way.
+          this.students = this.students.filter(s => s.id !== confirmedStudentId);
+          this.total    = Math.max(0, this.total - 1);
+
           if (this.modalAction === 'confirm') {
+            // Keep selected panel alive only while COE is loading.
+            // fetchCoeAfterApproval() calls this.load() which will also
+            // clear the panel via dismissCoePanel() or the user can dismiss.
             this.fetchCoeAfterApproval(confirmedStudentId, confirmedStudentName);
           } else {
             this.selected = null;
+            this.enrolledSubjects = [];
             this.load();
           }
         } else {
@@ -262,9 +283,12 @@ export class PendingRegistrationsComponent implements OnInit {
             `✅ Enrollment confirmed! COE #${coe.control_number} auto-issued for ${studentName}.`
           );
         } else {
+          // No COE to display — clear selected panel and reload list cleanly.
+          this.selected        = null;
+          this.enrolledSubjects = [];
           this.notify('success', `✅ Enrollment confirmed for ${studentName}. COE will appear in COE Generator.`);
         }
-        // Refresh list without losing the panel
+        // Refresh list (student is already removed optimistically above)
         this.load();
         // ── Auto-send enrollment report to parent/guardian ───────────────
         // Delay 3s to allow backend autoEnrollAll() to finish inserting
@@ -273,7 +297,9 @@ export class PendingRegistrationsComponent implements OnInit {
         this.cdr.detectChanges();
       },
       error: () => {
-        this.isLoadingCoe = false;
+        this.isLoadingCoe    = false;
+        this.selected        = null;
+        this.enrolledSubjects = [];
         this.notify('success', `✅ Enrollment confirmed. Refresh COE Generator to view the certificate.`);
         this.load();
         // ── Auto-send enrollment report even if COE fetch failed ─────────
@@ -459,8 +485,11 @@ export class PendingRegistrationsComponent implements OnInit {
     return m[s] ?? 'badge-gray';
   }
 
-  paymentStatusClass(s: string): string {
-    const ps = (s ?? '').toLowerCase();
+  paymentStatusClass(s: string | PendingStudent): string {
+    // Accept both a raw string (table badge) and a full student object (detail panel)
+    const student = typeof s === 'object' ? s : null;
+    if (student?.isFreeEnrollment) return 'pay-free';
+    const ps = (typeof s === 'string' ? s : (s.paymentStatus ?? '')).toLowerCase();
     if (ps === 'paid') return 'pay-paid';
     if (ps === 'partial' || ps === 'partially paid') return 'pay-partial';
     if (ps === 'free' || ps === 'scholar') return 'pay-free';
@@ -472,6 +501,7 @@ export class PendingRegistrationsComponent implements OnInit {
   }
 
   paymentStatusLabel(s: PendingStudent): string {
+    if (s.isFreeEnrollment) return '🎓 Free Enrollment';
     const ps = (s.paymentStatus ?? '').toLowerCase();
     if (ps === 'paid') return '✓ Fully Paid';
     if (ps === 'free' || ps === 'scholar') return '🎓 Free (Scholar)';

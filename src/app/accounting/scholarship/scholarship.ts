@@ -12,8 +12,13 @@ interface ScholarshipRecord {
   scholarship_amount: number;
   semester: string;
   is_active: number;
+  // BUG-FE-SCHOLAR-04: status was missing — backend returns pending/approved/rejected/superseded
+  status: 'pending' | 'approved' | 'rejected' | 'superseded' | null;
   notes: string;
   granted_by_email: string;
+  reviewed_by_email: string | null;
+  reviewed_at: string | null;
+  reject_reason: string | null;
   revoked_at: string | null;
   revoked_by_email: string | null;
   revoke_reason: string | null;

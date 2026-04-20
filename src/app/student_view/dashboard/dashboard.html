@@ -103,7 +103,9 @@
           </span>
         </div>
         <p class="welcome-sub">
-          You have <strong>{{ enrolledCourses.length }}</strong> active course{{ enrolledCourses.length !== 1 ? 's' : '' }} this semester
+          You have <strong>{{ enrolledCourses.length }}</strong>
+          <ng-container *ngIf="!isSHS"> active course{{ enrolledCourses.length !== 1 ? 's' : '' }} this semester</ng-container>
+          <ng-container *ngIf="isSHS"> active subject{{ enrolledCourses.length !== 1 ? 's' : '' }} this school year</ng-container>
           <span *ngIf="enrollmentDate"> · Enrolled {{ fmtDate(enrollmentDate) }}</span>
         </p>
         <!-- Scholar notice bar -->
@@ -203,7 +205,7 @@
     <div class="section-header">
       <h2>🎓 Your Enrolled Courses</h2>
         <p class="section-subtitle" *ngIf="isCollege">{{ enrolledCourses.length }} courses · {{ totalCredits }} units this semester</p>
-        <p class="section-subtitle" *ngIf="isSHS">{{ enrolledCourses.length }} subjects this semester</p>
+        <p class="section-subtitle" *ngIf="isSHS">{{ enrolledCourses.length }} subjects this school year</p>
         <p class="section-subtitle" *ngIf="isTVET">{{ enrolledCourses.length }} subjects enrolled</p>
     </div>
     <div *ngIf="enrolledCourses.length === 0" class="empty-card">

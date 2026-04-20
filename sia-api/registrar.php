@@ -128,9 +128,27 @@ if (!function_exists('applyPrivacy')) {
 $action = $_GET['action'] ?? '';
 
 require_once __DIR__ . '/auth_middleware.php';
+
+/**
+ * Returns the base URL for uploaded files.
+ * Reads SIA_UPLOAD_URL from .env first (set this on Hostinger).
+ * Falls back to auto-detecting the current host with https:// on live,
+ * http:// on localhost — so TOR links always work on both environments.
+ *
+ * On Hostinger, add this line to your .env:
+ *   SIA_UPLOAD_URL=https://steelblue-marten-571548.hostingersite.com/sia-api/uploads
+ */
+function getUploadBaseUrl(): string {
+    $env = getenv('SIA_UPLOAD_URL');
+    if ($env) return rtrim($env, '/') . '/';
+    $host   = $_SERVER['HTTP_HOST'] ?? 'localhost';
+    $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+    return $scheme . '://' . $host . '/sia-api/uploads/';
+}
 // Actions called during enrollment wizard (no token yet)
 $publicActions = [
     'upload_tor_file', 'submit_tor', 'get_program_courses', 'get_tor_evaluation',
+    'upload_scholar_proof',
 ];
 $authUser = in_array($action, $publicActions) ? null : requireAuth($conn);
 
@@ -152,8 +170,9 @@ if (!is_array($data)) $data = [];
 if (!$action && isset($data['action'])) $action = $data['action'];
 
 // Handle file upload (multipart)
-if ($action === 'upload_tor_file')  { uploadTorFile($conn);    exit(); }
-if ($action === 'upload_document') { uploadDocument($conn);   exit(); }
+if ($action === 'upload_tor_file')    { uploadTorFile($conn);      exit(); }
+if ($action === 'upload_document')   { uploadDocument($conn);     exit(); }
+if ($action === 'upload_scholar_proof') { uploadScholarProof($conn); exit(); }
 
 // Read-only actions (GET)
 switch ($action) {
@@ -210,14 +229,17 @@ switch ($action) {
     // ── Class Blocks (GET) ───────────────────────────────────────────────────
     case 'get_blocks':
         require_once __DIR__ . '/blocks.php';
+        $GLOBALS['authUser'] = $authUser;
         ensureBlockTables($conn);
         getBlocks($conn); exit();
     case 'get_block_detail':
         require_once __DIR__ . '/blocks.php';
+        $GLOBALS['authUser'] = $authUser;
         ensureBlockTables($conn);
         getBlockDetail($conn); exit();
     case 'get_student_block':
         require_once __DIR__ . '/blocks.php';
+        $GLOBALS['authUser'] = $authUser;
         ensureBlockTables($conn);
         getStudentBlock($conn); exit();
 }
@@ -229,6 +251,7 @@ switch ($action) {
     case 'reject_tor':   rejectTOR($conn, $data);    exit();
     case 'confirm_registration': confirmRegistration($conn, $data); exit();
     case 'reject_registration':  rejectRegistration($conn, $data);  exit();
+    case 'update_student_info':  updateStudentInfo($conn, $data);   exit();
     case 'get_pending_registrations':  getPendingRegistrations($conn);  exit();
     case 'get_confirmed_enrollments':  getConfirmedEnrollments($conn);  exit();
     // ── Certificate of Enrollment (POST) ──────────────────────────────────
@@ -256,22 +279,27 @@ switch ($action) {
     // ── Class Blocks (POST) ──────────────────────────────────────────────────
     case 'assign_block':
         require_once __DIR__ . '/blocks.php';
+        $GLOBALS['authUser'] = $authUser;
         ensureBlockTables($conn);
         assignBlock($conn, $data); exit();
     case 'auto_assign_block':
         require_once __DIR__ . '/blocks.php';
+        $GLOBALS['authUser'] = $authUser;
         ensureBlockTables($conn);
         autoAssignBlock($conn, $data); exit();
     case 'create_block':
         require_once __DIR__ . '/blocks.php';
+        $GLOBALS['authUser'] = $authUser;
         ensureBlockTables($conn);
         createBlock($conn, $data); exit();
     case 'update_block':
         require_once __DIR__ . '/blocks.php';
+        $GLOBALS['authUser'] = $authUser;
         ensureBlockTables($conn);
         updateBlock($conn, $data); exit();
     case 'assign_block_section':
         require_once __DIR__ . '/blocks.php';
+        $GLOBALS['authUser'] = $authUser;
         ensureBlockTables($conn);
         assignBlockSection($conn, $data); exit();
 }
@@ -411,6 +439,8 @@ function getGradeStudentDetail($conn) {
     $res = $conn->query("
         SELECT e.id AS enrollment_id, e.semester, e.status,
                c.id AS course_id, c.code, c.name, c.credits,
+               c.year_level  AS course_year_level,
+               c.semester    AS course_semester,
                TRIM(CONCAT(COALESCE(f.first_name,''),' ',COALESCE(f.last_name,''))) AS instructor,
                sg_p.grade    AS prelim,
                sg_m.grade    AS midterm,
@@ -425,7 +455,7 @@ function getGradeStudentDetail($conn) {
         LEFT JOIN student_grades sg_m ON sg_m.enrollment_id = e.id AND sg_m.term = 'Midterm'
         LEFT JOIN student_grades sg_f ON sg_f.enrollment_id = e.id AND sg_f.term = 'Final'
         WHERE e.student_id = $sid AND e.status IN ('Enrolled','Pending','Completed')
-        ORDER BY c.code ASC
+        ORDER BY c.year_level, c.semester, c.code ASC
     ");
 
     $subjects = [];
@@ -437,21 +467,23 @@ function getGradeStudentDetail($conn) {
         $overall = count($vals) > 0 ? round(array_sum($vals) / count($vals), 2) : null;
         $remarks = $final !== null ? ($overall <= 3.0 ? 'Passed' : 'Failed') : 'In Progress';
         $subjects[] = [
-            'enrollmentId' => (int)$r['enrollment_id'],
-            'courseId'     => (int)$r['course_id'],
-            'code'         => cleanCode($r['code']),
-            'name'         => $r['name'],
-            'credits'      => (int)$r['credits'],
-            'instructor'   => $r['instructor'] ?? '',
-            'semester'     => $r['semester'] ?? '',
-            'prelim'       => $prelim,
-            'midterm'      => $midterm,
-            'final'        => $final,
-            'overall'      => $overall,
-            'remarks'      => $remarks,
-            'prelimAt'     => $r['prelim_at']  ?? null,
-            'midtermAt'    => $r['midterm_at'] ?? null,
-            'finalAt'      => $r['final_at']   ?? null,
+            'enrollmentId'   => (int)$r['enrollment_id'],
+            'courseId'       => (int)$r['course_id'],
+            'code'           => cleanCode($r['code']),
+            'name'           => $r['name'],
+            'credits'        => (int)$r['credits'],
+            'instructor'     => $r['instructor'] ?? '',
+            'semester'       => $r['semester'] ?? '',
+            'yearLevel'      => $r['course_year_level'] ?? '',
+            'courseSemester' => $r['course_semester']   ?? '',
+            'prelim'         => $prelim,
+            'midterm'        => $midterm,
+            'final'          => $final,
+            'overall'        => $overall,
+            'remarks'        => $remarks,
+            'prelimAt'       => $r['prelim_at']  ?? null,
+            'midtermAt'      => $r['midterm_at'] ?? null,
+            'finalAt'        => $r['final_at']   ?? null,
         ];
     }
 
@@ -494,6 +526,7 @@ function getGradeCourses($conn) {
         SELECT c.id, c.code, c.name,
                TRIM(CONCAT(COALESCE(f.first_name,''),' ',COALESCE(f.last_name,''))) AS instructor,
                c.program, c.credits,
+               c.year_level, c.semester AS course_semester,
                COUNT(DISTINCT e.student_id) AS enrolled_count,
                COUNT(DISTINCT CASE WHEN sg_p.term='Prelim'  THEN e.id END) AS prelim_done,
                COUNT(DISTINCT CASE WHEN sg_m.term='Midterm' THEN e.id END) AS midterm_done,
@@ -506,7 +539,7 @@ function getGradeCourses($conn) {
         LEFT JOIN student_grades sg_f ON sg_f.enrollment_id = e.id AND sg_f.term = 'Final'
         WHERE $whereStr
         GROUP BY c.id
-        ORDER BY c.code ASC
+        ORDER BY c.year_level, c.semester, c.code ASC
     ";
     $stmt = $conn->prepare($sql);
     if (!$stmt) {
@@ -524,16 +557,18 @@ function getGradeCourses($conn) {
     while ($r = $res->fetch_assoc()) {
         $enrolled = (int)$r['enrolled_count'];
         $courses[] = [
-            'id'           => (int)$r['id'],
-            'code'         => cleanCode($r['code']),
-            'name'         => $r['name'],
-            'instructor'   => $r['instructor'] ?? '',
-            'program'      => $r['program'],
-            'credits'      => (int)$r['credits'],
-            'enrolledCount'=> $enrolled,
-            'prelimDone'   => (int)$r['prelim_done'],
-            'midtermDone'  => (int)$r['midterm_done'],
-            'finalDone'    => (int)$r['final_done'],
+            'id'              => (int)$r['id'],
+            'code'            => cleanCode($r['code']),
+            'name'            => $r['name'],
+            'instructor'      => $r['instructor'] ?? '',
+            'program'         => $r['program'],
+            'credits'         => (int)$r['credits'],
+            'yearLevel'       => $r['year_level']      ?? '',
+            'courseSemester'  => $r['course_semester'] ?? '',
+            'enrolledCount'   => $enrolled,
+            'prelimDone'      => (int)$r['prelim_done'],
+            'midtermDone'     => (int)$r['midterm_done'],
+            'finalDone'       => (int)$r['final_done'],
             'gradeCompletion' => $enrolled > 0 ? round(((int)$r['prelim_done']+(int)$r['midterm_done']+(int)$r['final_done'])/($enrolled*3)*100) : 0,
         ];
     }
@@ -754,7 +789,7 @@ function uploadTorFile($conn) {
     $torUpdSt->close();
 
     // FIX R-04: Use configurable base URL (set SIA_UPLOAD_URL in environment or .env)
-    $baseUrl  = rtrim(getenv('SIA_UPLOAD_URL') ?: ('http://' . ($_SERVER['HTTP_HOST'] ?? 'localhost') . '/sia-api/uploads'), '/') . '/';
+    $baseUrl  = getUploadBaseUrl();
     $fileUrl  = $torUrl ? ($baseUrl . $torUrl) : '';
     while (ob_get_level() > 0) { ob_end_clean(); }
     echo json_encode([
@@ -866,7 +901,30 @@ function computeProgramUnitsLive(mysqli $conn, string $programName, string $year
     }
 
     $units = max($units1, $units2, $units3);
-    return $units > 0 ? $units : 18;
+
+    // FIX TOR-UNITS-ACCURATE-01: If all filtered sources returned 0, try once more
+    // WITHOUT year_level + semester filters. TVET/SHS programs often don't have
+    // year_level or semester set on their courses, so the filtered queries miss them.
+    // We only use this wider result to compute the TOTAL program unit count shown on
+    // the TOR card — it is NOT used to select which courses to auto-enroll.
+    if ($units === 0) {
+        $res4 = $conn->query("SELECT COALESCE(SUM(c.credits),0) AS u
+            FROM program_courses pc
+            JOIN programs p ON pc.program_id=p.id
+            JOIN courses c  ON pc.course_id=c.id
+            WHERE (p.name='$pn' OR p.code='$pn' OR p.code='$pc')");
+        $units4 = (int)(($res4 ? $res4->fetch_assoc()['u'] : 0) ?: 0);
+
+        $res5 = $conn->query("SELECT COALESCE(SUM(credits),0) AS u
+            FROM courses WHERE program='$pn' OR program='$pc'");
+        $units5 = (int)(($res5 ? $res5->fetch_assoc()['u'] : 0) ?: 0);
+
+        $units = max($units4, $units5);
+    }
+
+    // Return the real count — 0 means no courses are set up for this program yet.
+    // Callers should surface this to the registrar rather than silently using 18.
+    return $units;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -893,6 +951,7 @@ function getPendingTOR($conn) {
             s.semester,
             s.last_school_attended,
             s.student_type,
+            s.student_category,
             s.tor_eval_status,
             s.tor_file
         FROM tor_evaluations te
@@ -906,8 +965,7 @@ function getPendingTOR($conn) {
         while ($r = $result->fetch_assoc()) {
             $torFileUrl = '';
             if (!empty($r['tor_file'])) {
-                $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
-                $torFileUrl = 'http://' . $host . '/sia-api/uploads/' . $r['tor_file'];
+                $torFileUrl = getUploadBaseUrl() . $r['tor_file'];
             }
             // Compute programUnits live (total semester units, not cached stale value)
             $programUnits = computeProgramUnitsLive($conn, $r['program'], $r['year_level'], $r['semester'] ?? '');
@@ -921,6 +979,17 @@ function getPendingTOR($conn) {
                 'yearLevel'          => $r['year_level'],
                 'lastSchoolAttended' => $r['last_school_attended'],
                 'studentType'        => $r['student_type'],
+                'studentCategory'    => $r['student_category'] ?? 'College',
+                // FIX TOR-DEPT-01: Compute the correct department label for TVET/SHS
+                // so the TOR evaluation modal header shows the right department instead
+                // of the College department stored in programs.department (e.g. "ICTD").
+                'department'         => match(strtoupper(trim($r['student_category'] ?? ''))) {
+                    'TVET'  => 'Technical-Vocational Education and Training (TVET)',
+                    'SHS'   => 'Senior High School (SHS)',
+                    default => '',
+                },
+                'isTVETTransferee'   => (strtoupper(trim($r['student_category'] ?? '')) === 'TVET'
+                                         && strcasecmp(trim($r['student_type'] ?? ''), 'Transferee') === 0),
                 'status'             => $r['status'],
                 'creditedUnits'      => (int)$r['credited_units'],
                 'approvedUnits'      => (int)$r['approved_units'],
@@ -958,7 +1027,9 @@ function getEvaluatedTOR($conn) {
             s.last_name,
             s.program,
             s.year_level,
-            s.last_school_attended
+            s.last_school_attended,
+            s.student_type,
+            s.student_category
         FROM tor_evaluations te
         JOIN students s ON te.student_id = s.id
         WHERE te.status IN ('Evaluated', 'Rejected')
@@ -969,6 +1040,19 @@ function getEvaluatedTOR($conn) {
     $rows = [];
     if ($result) {
         while ($r = $result->fetch_assoc()) {
+            // FIX TOR-APPROVED-UNITS-DISPLAY-01: Recompute approvedUnits live instead
+            // of trusting the stale stored value. The stored value may have been saved
+            // before the sem_credited_units bug was fixed (e.g. TVET blank metadata
+            // caused sem_credited_units = 0 → approvedUnits never subtracted credits).
+            $creditedUnits = (int)$r['credited_units'];
+            $programUnits  = computeProgramUnitsLive($conn, $r['program'], $r['year_level'] ?? '', '');
+            $approvedUnits = max(0, $programUnits - $creditedUnits);
+            // If recomputed result looks wrong (0 program units = no courses set up),
+            // fall back to the stored value so we don’t show worse data than before.
+            if ($programUnits === 0) {
+                $approvedUnits = (int)$r['approved_units'];
+            }
+
             $rows[] = [
                 'evalId'             => (int)$r['eval_id'],
                 'studentId'          => (int)$r['student_id'],
@@ -977,9 +1061,20 @@ function getEvaluatedTOR($conn) {
                 'lastName'           => $r['last_name'],
                 'program'            => $r['program'],
                 'lastSchoolAttended' => $r['last_school_attended'],
+                'studentType'        => $r['student_type'] ?? '',
+                'studentCategory'    => $r['student_category'] ?? 'College',
+                // FIX TOR-DEPT-01: correct department label for TVET/SHS
+                'department'         => match(strtoupper(trim($r['student_category'] ?? ''))) {
+                    'TVET'  => 'Technical-Vocational Education and Training (TVET)',
+                    'SHS'   => 'Senior High School (SHS)',
+                    default => '',
+                },
+                'isTVETTransferee'   => (strtoupper(trim($r['student_category'] ?? '')) === 'TVET'
+                                         && strcasecmp(trim($r['student_type'] ?? ''), 'Transferee') === 0),
                 'status'             => $r['status'],
-                'creditedUnits'      => (int)$r['credited_units'],
-                'approvedUnits'      => (int)$r['approved_units'],
+                'creditedUnits'      => $creditedUnits,
+                'approvedUnits'      => $approvedUnits,
+                'programUnits'       => $programUnits,
                 'creditedSubjects'   => $r['credited_subjects'] ? json_decode($r['credited_subjects'], true) : [],
                 'registrarNotes'     => $r['registrar_notes'],
                 'evaluatedAt'        => $r['evaluated_at'],
@@ -1001,7 +1096,8 @@ function getTORForStudent($conn) {
 
     // FIX REG-TOR-04: was using raw interpolation "$student_id" directly in query string
     $torSt = $conn->prepare("
-        SELECT te.*, s.student_number, s.first_name, s.last_name, s.program, s.year_level, s.semester
+        SELECT te.*, s.student_number, s.first_name, s.last_name, s.program, s.year_level, s.semester,
+               s.student_category, s.student_type
         FROM tor_evaluations te
         JOIN students s ON te.student_id = s.id
         WHERE te.student_id = ? LIMIT 1
@@ -1030,9 +1126,26 @@ function getTORForStudent($conn) {
             'studentName'      => $r['first_name'] . ' ' . $r['last_name'],
             'program'          => $r['program'],
             'programUnits'     => $programUnits,
+            'studentCategory'  => $r['student_category'] ?? 'College',
+            'studentType'      => $r['student_type'] ?? '',
+            // FIX TOR-DEPT-01: Correct department label for TVET/SHS — prevents
+            // "ICTD" from appearing in the TOR evaluation modal header.
+            'department'       => match(strtoupper(trim($r['student_category'] ?? ''))) {
+                'TVET'  => 'Technical-Vocational Education and Training (TVET)',
+                'SHS'   => 'Senior High School (SHS)',
+                default => '',
+            },
+            // Lets the Angular TOR modal show "Flat Rate – ₱20,000" instead of
+            // the unit-based fee selector for TVET transferees.
+            'isTVETTransferee' => (strtoupper(trim($r['student_category'] ?? '')) === 'TVET'
+                                   && strcasecmp(trim($r['student_type'] ?? ''), 'Transferee') === 0),
             'status'           => $r['status'],
             'creditedUnits'    => (int)$r['credited_units'],
-            'approvedUnits'    => (int)$r['approved_units'],
+            // FIX TOR-APPROVED-UNITS-DISPLAY-01: Recompute live — stale stored value
+            // may be wrong for TVET (blank course metadata caused sem filter to miss).
+            'approvedUnits'    => $programUnits > 0
+                ? max(0, $programUnits - (int)$r['credited_units'])
+                : (int)$r['approved_units'],
             'creditedSubjects' => $r['credited_subjects'] ? json_decode($r['credited_subjects'], true) : [],
             'registrarNotes'   => $r['registrar_notes'],
             'evaluatedAt'      => $r['evaluated_at'],
@@ -1093,8 +1206,8 @@ function getProgramCourses($conn) {
         // FIX REG-TOR-02: use prepared statement — raw $p interpolation was SQL-injectable
         $pcSt = $conn->prepare("
             SELECT c.id, c.code, c.name, c.credits,
-                   IFNULL(NULLIF(TRIM(c.year_level),''), '1st Year') AS year_level,
-                   IFNULL(NULLIF(TRIM(c.semester),''), '1st Semester') AS semester,
+                   COALESCE(NULLIF(TRIM(c.year_level),''), '') AS year_level,
+                   COALESCE(NULLIF(TRIM(c.semester),''), '')   AS semester,
                    c.description
             FROM program_courses pc
             JOIN programs pr ON pc.program_id = pr.id
@@ -1119,20 +1232,43 @@ function getProgramCourses($conn) {
         }
     }
 
-    // Fallback ONLY when program_courses table is unavailable (should not happen in production)
+    // FIX TVET-PROGRAM-COURSES-01: Fallback via courses.program column.
+    // Previously this only ran when the program_courses TABLE was missing entirely.
+    // That was too narrow — TVET programs are often not yet wired into the junction
+    // table (admin adds courses through the Subjects page which sets courses.program
+    // directly, but may not always insert into program_courses).
+    // Now we also run the fallback whenever the junction query returned zero rows,
+    // regardless of whether the table exists. This means TVET subjects show up
+    // even when program_courses has no entries for that program.
+    //
+    // Note: We match by BOTH the full program name AND the program code so that
+    // courses stored with either value in courses.program are found correctly.
     if (empty($courses)) {
+        // Try matching by full program name first, then by code
+        $programCode = '';
+        if ($hasPTable) {
+            $codeStmt = $conn->prepare("SELECT code FROM programs WHERE name = ? OR code = ? LIMIT 1");
+            if ($codeStmt) {
+                $codeStmt->bind_param('ss', $p, $p);
+                $codeStmt->execute();
+                $codeRow = $codeStmt->get_result()->fetch_assoc();
+                $codeStmt->close();
+                $programCode = $codeRow['code'] ?? '';
+            }
+        }
+
         // FIX REG-TOR-02: prepared statement instead of raw interpolation
         $fbSt = $conn->prepare("
             SELECT id, code, name, credits,
-                   IFNULL(NULLIF(TRIM(year_level),''), '1st Year') AS year_level,
-                   IFNULL(NULLIF(TRIM(semester),''), '1st Semester') AS semester,
+                   COALESCE(NULLIF(TRIM(year_level),''), '') AS year_level,
+                   COALESCE(NULLIF(TRIM(semester),''), '')   AS semester,
                    description
             FROM courses
-            WHERE program = ?
+            WHERE program = ? OR (? != '' AND program = ?)
             ORDER BY year_level, semester, code
         ");
         if ($fbSt) {
-            $fbSt->bind_param('s', $p);
+            $fbSt->bind_param('sss', $p, $programCode, $programCode);
             $fbSt->execute();
             $res2 = $fbSt->get_result();
             $fbSt->close();
@@ -1167,8 +1303,14 @@ function getProgramCourses($conn) {
 
     $out = [];
     foreach ($courses as $r) {
-        $yr  = normalizeYear($r['year_level']);
-        $sem = normalizeSem($r['semester']);
+        // FIX TOR-UNITS-ACCURATE-01: For TVET/SHS programs, courses often have
+        // blank year_level and semester. normalizeYear/normalizeSem default these
+        // to '1st Year'/'1st Semester' — wrong for multi-year TVET diplomas.
+        // Use raw values when blank; only normalize when a value is actually set.
+        $rawYl  = trim($r['year_level'] ?? '');
+        $rawSem = trim($r['semester']   ?? '');
+        $yr  = $rawYl  !== '' ? normalizeYear($rawYl)  : '';
+        $sem = $rawSem !== '' ? normalizeSem($rawSem)   : '';
         $out[] = [
             'courseId'   => (int)$r['id'],
             'code'       => cleanCode($r['code']),
@@ -1265,6 +1407,23 @@ function evaluateTOR($conn, $data) {
     $discount = (float)($tf_row['discount']        ?? 0);
     $inst_fee = (float)($tf_row['installment_fee'] ?? 0);
 
+    // FIX INSTALLMENT-TOR-01: tuition_fees.installment_fee may be 0 if it was
+    // seeded before the student chose a payment plan, or if getFeePreview was
+    // called without has_installment=1 before the plan was saved to students.
+    // Always re-derive from students.payment_plan so the registrar's TOR
+    // evaluation never wipes out the installment surcharge the student already chose.
+    if ($inst_fee <= 0) {
+        $planStTor = $conn->prepare("SELECT payment_plan FROM students WHERE id = ? LIMIT 1");
+        $planStTor->bind_param('i', $student_id);
+        $planStTor->execute();
+        $planRowTor = $planStTor->get_result()->fetch_assoc();
+        $planStTor->close();
+        if (($planRowTor['payment_plan'] ?? 'full') === 'installment') {
+            $fcInstTor = loadFeeConfig($conn, 'College');
+            $inst_fee  = (float)($fcInstTor['installment_fee']['value'] ?? 750);
+        }
+    }
+
     // Compute program_units live — filtered by year_level + semester term only.
     // NEVER use tuition_fees.units as the base: it may be stale (wrong year/sem).
     // Strip AY suffix so courses stored under any school year are matched.
@@ -1313,19 +1472,54 @@ function evaluateTOR($conn, $data) {
     $pu2 = (int)(($fb_stmt->get_result()->fetch_assoc()['u'] ?? 0) ?: 0);
 
     $program_units = max($pu1, $pu2);
-    if ($program_units <= 0) $program_units = 18;
+
+    // FIX TOR-UNITS-ACCURATE-01: If filtered queries returned 0, widen the search
+    // (drop year_level + semester) so TVET programs with unset course metadata match.
+    if ($program_units <= 0) {
+        $wide1 = $conn->prepare("SELECT COALESCE(SUM(c.credits),0) AS u
+            FROM program_courses pc JOIN programs pr ON pc.program_id=pr.id
+            JOIN courses c ON pc.course_id=c.id WHERE (pr.name=? OR pr.code=?)");
+        $wide1->bind_param('ss', $pn, $pn);
+        $wide1->execute();
+        $wu1 = (int)(($wide1->get_result()->fetch_assoc()['u'] ?? 0) ?: 0);
+        $wide1->close();
+
+        $wide2 = $conn->prepare("SELECT COALESCE(SUM(credits),0) AS u FROM courses WHERE program=? OR program=?");
+        $wide2->bind_param('ss', $pn, $pc);
+        $wide2->execute();
+        $wu2 = (int)(($wide2->get_result()->fetch_assoc()['u'] ?? 0) ?: 0);
+        $wide2->close();
+
+        $program_units = max($wu1, $wu2);
+        // Still 0 means no courses exist at all for this program — leave as 0
+        // so the response accurately reflects missing curriculum data.
+    }
 
     // FIX: approved_units = units the student must ENROLL in (and pay for).
     // = current semester's total units MINUS credited units that belong to this semester.
     // We count credited_units that overlap with this semester's courses, not all credited.
     $sem_credited_units = 0;
-    if (!empty($course_id_ints) && $semTerm !== '') {
+    if (!empty($course_id_ints)) {
         $ids_str = implode(',', $course_id_ints);
-        $scRes = $conn->query("SELECT COALESCE(SUM(credits),0) AS u FROM courses
-            WHERE id IN ($ids_str) $semFilterPlain $ylFilterPlain");
-        if ($scRes) $sem_credited_units = (int)($scRes->fetch_assoc()['u'] ?? 0);
+        // FIX TOR-APPROVED-UNITS-01: For TVET/SHS programs, courses have blank
+        // semester and year_level — the old $semFilterPlain + $ylFilterPlain caused
+        // zero matches, so sem_credited_units stayed 0 and approved_units was never
+        // reduced by the credited amount (e.g. showed 6 instead of 3).
+        // Fix: try filtered first; if still 0 despite having credited courses,
+        // count by course ID alone (no semester/year filter). This is correct because
+        // we already know exactly which courses were credited (the IDs are explicit).
+        if ($semTerm !== '') {
+            $scRes = $conn->query("SELECT COALESCE(SUM(credits),0) AS u FROM courses
+                WHERE id IN ($ids_str) $semFilterPlain $ylFilterPlain");
+            if ($scRes) $sem_credited_units = (int)($scRes->fetch_assoc()['u'] ?? 0);
+        }
+        // If filtered count returned 0 (blank metadata on TVET courses), count by ID only
+        if ($sem_credited_units === 0) {
+            $scRes2 = $conn->query("SELECT COALESCE(SUM(credits),0) AS u FROM courses WHERE id IN ($ids_str)");
+            if ($scRes2) $sem_credited_units = (int)($scRes2->fetch_assoc()['u'] ?? 0);
+        }
     }
-    // If no semester filter (shouldn't happen), fall back to total credited_units
+    // If no semester filter at all, use full credited_units total
     if ($semTerm === '') $sem_credited_units = $credited_units;
 
     $approved_units = max(0, $program_units - $sem_credited_units);
@@ -1376,6 +1570,61 @@ function evaluateTOR($conn, $data) {
     $torEvalSt->close();
 
     // ── 3. Recompute tuition with approved_units ───────────────
+    //
+    // FIX TOR-FEE-CATEGORY-01: TVET and SHS Transferees use a FLAT RATE (₱20,000),
+    // NOT the College unit-based formula. Before this fix, evaluateTOR() always ran
+    // the College formula (units × ₱650 + misc + reg + lab + energy) regardless of
+    // student_category, overwriting the correct flat-rate tuition_fees row that
+    // getTVETFee() / getSHSFee() had previously written. Result: Accounting saw
+    // ₱28,822 in the Cash dialog instead of ₱20,000 (or ₱20,750 with installment fee).
+    //
+    // Fix: detect student_category + student_type here and route accordingly.
+    //   TVET Transferee → preserve existing tuition_fees flat-rate row (no overwrite)
+    //   SHS  Transferee → preserve existing tuition_fees flat-rate row (no overwrite)
+    //   College Transferee → run College unit-based formula as before
+
+    $catStTor = $conn->prepare("SELECT student_category, student_type FROM students WHERE id = ? LIMIT 1");
+    $catStTor->bind_param('i', $student_id);
+    $catStTor->execute();
+    $catRowTor = $catStTor->get_result()->fetch_assoc();
+    $catStTor->close();
+    $catTor   = strtoupper(trim($catRowTor['student_category'] ?? ''));
+    $stypeTor = trim($catRowTor['student_type'] ?? '');
+
+    $isTVETorSHSTransferee = (($catTor === 'TVET' || $catTor === 'SHS') && $stypeTor === 'Transferee');
+
+    if ($isTVETorSHSTransferee) {
+        // TVET/SHS Transferee: flat rate already correct in tuition_fees.
+        // DO NOT overwrite with College formula. Just ensure the row exists
+        // (getTVETFee/getSHSFee already wrote it; this is a safety check only).
+        $tfCheckTor = $conn->query("SELECT id, total_assessment FROM tuition_fees WHERE student_id = $student_id ORDER BY id DESC LIMIT 1");
+        $tfRowTor   = $tfCheckTor ? $tfCheckTor->fetch_assoc() : null;
+        if (!$tfRowTor || (float)$tfRowTor['total_assessment'] <= 0) {
+            // Flat rate row missing — write it now using TVET/SHS fee config
+            $fcTorFlat = loadFeeConfig($conn, $catTor);
+            $fcTorSHS  = loadFeeConfig($conn, 'SHS');
+            $flatRate  = (float)($fcTorFlat['transferee_flat_rate']['value']
+                         ?? $fcTorSHS['transferee_flat_rate']['value']
+                         ?? 20000);
+            $instFlat  = $inst_fee; // from tuition_fees or 0
+            $totalFlat = max(0, $flatRate - $discount + $instFlat);
+            $semEscTor = $conn->real_escape_string($sem_raw);
+            $conn->query("INSERT INTO tuition_fees
+                (student_id, units, tuition_fee, miscellaneous_fee, registration_fee,
+                 laboratory_fee, energy_fee, subtotal, discount, installment_fee,
+                 total_assessment, semester)
+                VALUES ($student_id, 0, $flatRate, 0, 0, 0, 0,
+                        $flatRate, $discount, $instFlat, $totalFlat, '$semEscTor')
+                ON DUPLICATE KEY UPDATE
+                    units=0, tuition_fee=$flatRate, miscellaneous_fee=0,
+                    registration_fee=0, laboratory_fee=0, energy_fee=0,
+                    subtotal=$flatRate, discount=$discount,
+                    installment_fee=$instFlat, total_assessment=$totalFlat,
+                    semester='$semEscTor', updated_at=NOW()");
+        }
+        // Skip the College fee block below — jump straight to enrollment sync
+    } else {
+    // College Transferee: unit-based fee formula
     $u = $approved_units > 0 ? $approved_units : max(1, $program_units - $sem_credited_units);
 
     // Load fee rates from fee_config table (managed by Accounting)
@@ -1423,6 +1672,7 @@ function evaluateTOR($conn, $data) {
         $lab_fee, $energy_fee, $subtotal,
         $discount, $inst_fee, $total);
     $upd->execute();
+    } // end College fee block
 
     // ── 4. Sync credited courses in enrollments ────────────────
     // Strategy: enrollments has UNIQUE KEY(student_id, course_id).
@@ -1498,25 +1748,36 @@ function evaluateTOR($conn, $data) {
         }
     }
 
+    // FIX TOR-PLAN-DEFAULT-01: Auto-set payment_plan='installment' + payment_method='Cash'
+    // when TOR is evaluated — only if student has not already made a payment choice.
+    // The students table DEFAULT 'full' means we must explicitly overwrite it here.
+    $psChkTor = $conn->query("SELECT id FROM payment_schedules WHERE student_id = $student_id LIMIT 1");
+    $hasPsTor = $psChkTor && $psChkTor->num_rows > 0;
+    if (!$hasPsTor) {
+        $conn->query("UPDATE students SET payment_plan = 'installment', payment_method = 'Cash' WHERE id = $student_id");
+    }
+
     while (ob_get_level() > 0) { ob_end_clean(); }
+    $uOut     = $u     ?? 0;
+    $totalOut = $total ?? 0;
     echo json_encode([
         'success'       => true,
         'message'       => 'TOR evaluated. Tuition recomputed.',
         'creditedUnits' => $credited_units,
         'approvedUnits' => $approved_units,
-        'newUnits'      => $u,
-        'newTotal'      => $total,
+        'newUnits'      => $uOut,
+        'newTotal'      => $totalOut,
         'fees' => [
-            'units'            => $u,
-            'tuitionFee'       => $tuition_fee,
-            'miscellaneousFee' => $misc_fee,
-            'registrationFee'  => $reg_fee,
-            'laboratoryFee'    => $lab_fee,
-            'energyFee'        => $energy_fee,
-            'subtotal'         => $subtotal,
+            'units'            => $uOut,
+            'tuitionFee'       => $tuition_fee       ?? 0,
+            'miscellaneousFee' => $misc_fee           ?? 0,
+            'registrationFee'  => $reg_fee            ?? 0,
+            'laboratoryFee'    => $lab_fee            ?? 0,
+            'energyFee'        => $energy_fee         ?? 0,
+            'subtotal'         => $subtotal           ?? 0,
             'discount'         => $discount,
             'installmentFee'   => $inst_fee,
-            'totalAssessment'  => $total,
+            'totalAssessment'  => $totalOut,
         ]
     ]);
 }
@@ -1796,7 +2057,7 @@ function uploadDocument($conn) {
     }
 
     // FIX R-04: configurable upload base URL
-    $baseUrl = rtrim(getenv('SIA_UPLOAD_URL') ?: ('http://' . ($_SERVER['HTTP_HOST'] ?? 'localhost') . '/sia-api/uploads'), '/') . '/';
+    $baseUrl = getUploadBaseUrl();
     while (ob_get_level() > 0) { ob_end_clean(); }
     echo json_encode([
         'success'      => true,
@@ -1806,6 +2067,76 @@ function uploadDocument($conn) {
         'document_type'=> $document_type,
     ]);
 }
+// ================================================================
+// UPLOAD SCHOLARSHIP PROOF
+// POST ?action=upload_scholar_proof  (multipart/form-data)
+// Fields: student_id, proof_file (file: PDF or image)
+// Called right after enrollment registration — stores the voucher /
+// award letter the student uploaded as proof for Accounting review.
+// ================================================================
+function uploadScholarProof(mysqli $conn): void {
+    $student_id = (int)($_POST['student_id'] ?? 0);
+    while (ob_get_level() > 0) { ob_end_clean(); }
+
+    if (!$student_id) {
+        echo json_encode(['success' => false, 'message' => 'student_id required']);
+        return;
+    }
+
+    $scriptDir = dirname($_SERVER['SCRIPT_FILENAME']);
+    $uploadDir = $scriptDir . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR;
+    if (!is_dir($uploadDir)) {
+        if (!mkdir($uploadDir, 0755, true)) {
+            echo json_encode(['success' => false, 'message' => 'Could not create uploads folder.']);
+            return;
+        }
+    }
+
+    if (empty($_FILES['proof_file']) || $_FILES['proof_file']['error'] !== UPLOAD_ERR_OK) {
+        echo json_encode(['success' => false, 'message' => 'proof_file is required.']);
+        return;
+    }
+
+    $ext     = strtolower(pathinfo($_FILES['proof_file']['name'], PATHINFO_EXTENSION));
+    $allowed = ['pdf', 'jpg', 'jpeg', 'png', 'webp'];
+    if (!in_array($ext, $allowed)) {
+        echo json_encode(['success' => false, 'message' => 'Only PDF or image files are allowed.']);
+        return;
+    }
+
+    $filename = 'scholar_proof_' . $student_id . '_' . time() . '.' . $ext;
+    $dest     = $uploadDir . $filename;
+
+    if (!move_uploaded_file($_FILES['proof_file']['tmp_name'], $dest)) {
+        echo json_encode(['success' => false, 'message' => 'File move failed. Check folder permissions.']);
+        return;
+    }
+
+    $conn->query("ALTER TABLE student_scholarships ADD COLUMN IF NOT EXISTS claim_code VARCHAR(30) DEFAULT NULL");
+    $conn->query("ALTER TABLE student_scholarships ADD COLUMN IF NOT EXISTS proof_file VARCHAR(255) DEFAULT NULL");
+
+    $upd = $conn->prepare("
+        UPDATE student_scholarships
+        SET    proof_file = ?
+        WHERE  student_id = ?
+          AND  status     = 'pending'
+        ORDER  BY id DESC
+        LIMIT  1
+    ");
+    $upd->bind_param('si', $filename, $student_id);
+    $upd->execute();
+    $upd->close();
+
+    $baseUrl = getUploadBaseUrl();
+
+    echo json_encode([
+        'success'   => true,
+        'message'   => 'Scholarship proof uploaded.',
+        'file_name' => $filename,
+        'file_url'  => $baseUrl . $filename,
+    ]);
+}
+
 // ================================================================
 // STUDENT MASTERLIST
 // ================================================================
@@ -1875,7 +2206,8 @@ function getMasterlistStudents($conn) {
                s.program, s.year_level, s.semester, s.student_type,
                s.student_category, s.enrollment_status, s.payment_status,
                s.approval_status, (SELECT COUNT(*) FROM student_scholarships ss WHERE ss.student_id = s.id AND ss.is_active=1) > 0 AS is_scholar, (SELECT ss.scholar_type FROM student_scholarships ss WHERE ss.student_id = s.id AND ss.is_active=1 LIMIT 1) AS scholar_type,
-               DATE_FORMAT(s.enrollment_date,'%Y-%m-%d') AS enrollment_date
+               DATE_FORMAT(s.enrollment_date,'%Y-%m-%d') AS enrollment_date,
+               s.tor_file, s.tor_eval_status
         FROM students s
         LEFT JOIN programs p_dept ON p_dept.name = s.program
         LEFT JOIN users u ON u.id = s.user_id
@@ -1917,7 +2249,15 @@ function getMasterlistStudents($conn) {
             'hasAssistiveTech'    => $r['has_assistive_tech'] ?? '',
             'assistiveTechDetails'=> $r['assistive_tech_details'] ?? '',
             'strand'              => $r['strand'] ?? '',
-            'department'          => $r['department'] ?? '',
+            // FIX COE-DEPT-TVET-01: TVET/SHS programs are stored under the College
+            // department in programs.department (e.g. "ICTD"). Override with the
+            // correct label so the student list and any downstream views show the
+            // right department — consistent with getProfile() and saveSoaSnapshot().
+            'department'          => match(strtoupper(trim($r['student_category'] ?? ''))) {
+                'TVET'  => 'Technical-Vocational Education and Training (TVET)',
+                'SHS'   => 'Senior High School (SHS)',
+                default => $r['department'] ?? '',
+            },
             'learningDelivery'    => $r['learning_delivery'] ?? '',
             'lastSchoolAttended'  => $r['last_school_attended'] ?? '',
             'guardianName'        => $r['guardian_name'] ?? '',
@@ -1935,6 +2275,8 @@ function getMasterlistStudents($conn) {
             'isScholar'           => (int)$r['is_scholar'],
             'scholarType'         => $r['scholar_type'] ?? '',
             'enrollmentDate'      => $r['enrollment_date'] ?? '',
+            'torEvalStatus'       => $r['tor_eval_status'] ?? '',
+            'torFile'             => $r['tor_file'] ?? null,
             'initials'            => strtoupper(substr($r['first_name'],0,1) . substr($r['last_name'],0,1)),
         ];
     }
@@ -3249,6 +3591,7 @@ function coeGetDetail(mysqli $conn): void {
                    THEN CONCAT(cr.semester, ', AY ', cr.school_year)
                    ELSE s.semester
                END AS semester,
+               s.user_id,
                s.student_category, s.student_type, s.enrollment_status,
                s.payment_status, s.payment_plan,
                s.accounting_approved_at, s.accounting_notes,
@@ -3278,7 +3621,24 @@ function coeGetDetail(mysqli $conn): void {
     while (ob_get_level() > 0) { ob_end_clean(); }
     if (!$row) { echo json_encode(['success' => false, 'message' => 'Request not found']); return; }
 
+    // FIX COE-DEPT-TVET-01: TVET and SHS programs are stored under the College
+    // department in programs.department (e.g. "ICTD"). The SQL JOIN above reads
+    // that College value. Override it here with the correct department label based
+    // on student_category — matching the same logic in getProfile() and saveSoaSnapshot().
+    $coeDetailCat = strtoupper(trim($row['student_category'] ?? ''));
+    if ($coeDetailCat === 'TVET') {
+        $row['department'] = 'Technical-Vocational Education and Training (TVET)';
+    } elseif ($coeDetailCat === 'SHS') {
+        $row['department'] = 'Senior High School (SHS)';
+    }
+    // College students: keep the programs-table value already in $row['department'].
+
+    // BUG-COE-SID-01 FIX: $sid was never assigned — every SQL query inside this
+    // function interpolated an undefined variable, sending WHERE student_id = 0
+    // to MySQL (no rows returned) and raising a PHP 8 TypeError in strict mode,
+    // which the exception handler caught and returned as a 500 Internal Server Error.
     $sid = (int)$row['student_id'];
+
     $subjects = [];
 
     // FIX COE-DETAIL-SEM-01 (subject query):
@@ -3479,6 +3839,13 @@ function coeGetDetail(mysqli $conn): void {
     // Querying with ORDER BY id DESC LIMIT 1 returns the LATEST semester's row, which
     // may be a different term than the COE being viewed.  Scope the lookup to the COE's
     // semester so units + assessment always belong to the same term as the document.
+    //
+    // FIX COE-UNDEFINED-VARS-01: $safeTermOnly and $safeCoeAY are defined inside the
+    // subjects if-block above (scoped to $coeTermOnly !== ''). This College else-block
+    // is outside that scope so PHP 8 emits notices and the query uses empty strings →
+    // always falls through to the fallback. Redefine here unconditionally.
+    $safeTermOnly  = $conn->real_escape_string($coeTermOnly);
+    $safeCoeAY     = $conn->real_escape_string($coeSchoolYear);
     $safeCoeFullSem = $conn->real_escape_string("$coeTermOnly, AY $coeSchoolYear");
     $storedFeeRes = $conn->query(
         "SELECT * FROM tuition_fees
@@ -3572,7 +3939,12 @@ function coeGetDetail(mysqli $conn): void {
 
     while (ob_get_level() > 0) { ob_end_clean(); }
     global $authUser;
-    $row = applyPrivacy($row, $authUser, 'student');
+    // FIX COE-PRIVACY-01: $isOwner=true when the student is viewing their own COE so
+    // applyPrivacy() does not redact address, date_of_birth, guardian_address,
+    // guardian_contact. Requires s.user_id in the SELECT above.
+    $isOwner = ($authUser['role'] === 'student'
+             && (int)($authUser['user_id'] ?? 0) === (int)($row['user_id'] ?? -1));
+    $row = applyPrivacy($row, $authUser, 'student', $isOwner);
     echo json_encode(['success' => true, 'coe' => $row]);
 }
 
@@ -3842,6 +4214,13 @@ function getPendingRegistrations(mysqli $conn): void {
             'scholarDiscount'      => (float)($r['scholar_discount'] ?? 0),
             // ── Guardian contact ─────────────────────────────────────────
             'guardianEmail'        => $r['guardianEmail'] ?? '',
+            // ── Free enrollment flag (SHS/TVET — no Accounting payment needed) ──
+            // Frontend uses this to show "Free Enrollment" banner instead of
+            // "Payment Verified by Accounting" for tuition-free students.
+            'isFreeEnrollment'     => in_array(
+                strtoupper(trim($r['student_category'] ?? '')),
+                ['SHS', 'TVET']
+            ),
         ];
     }
     $stmt->close();
@@ -4399,6 +4778,90 @@ function confirmRegistration(mysqli $conn, array $data = []): void {
  * Sets enrollment_status = 'Rejected'.
  * Student will see rejection reason when they log in.
  */
+
+// =============================================================================
+// POST ?action=update_student_info
+//
+// Allows the Registrar to correct student personal information directly from
+// the Student Masterlist detail panel.
+//
+// Only personal/contact fields are editable — academic fields (program,
+// year_level, student_number, semester, student_category, student_type)
+// are intentionally excluded.
+// =============================================================================
+function updateStudentInfo(mysqli $conn, array $data): void {
+    global $authUser;
+    while (ob_get_level() > 0) { ob_end_clean(); }
+
+    $sid = (int)($data['student_id'] ?? 0);
+    if (!$sid) {
+        echo json_encode(['success' => false, 'message' => 'student_id required']);
+        return;
+    }
+
+    // ── Editable fields only ─────────────────────────────────────────────────
+    $allowed = [
+        'first_name', 'last_name', 'middle_name', 'suffix',
+        'phone', 'address', 'sex', 'date_of_birth', 'lrn_no',
+        'religion', 'place_of_birth', 'citizenship', 'mother_tongue',
+        'emergency_contact', 'emergency_phone',
+        'psa_birth_cert_no', 'strand', 'last_school_attended',
+    ];
+
+    $sets   = [];
+    $params = [];
+    $types  = '';
+
+    foreach ($allowed as $col) {
+        if (array_key_exists($col, $data)) {
+            $sets[]   = "$col = ?";
+            $params[] = ($data[$col] === '' || $data[$col] === null) ? null : $data[$col];
+            $types   .= 's';
+        }
+    }
+
+    if (!$sets) {
+        echo json_encode(['success' => false, 'message' => 'No fields to update.']);
+        return;
+    }
+
+    $params[] = $sid;
+    $types   .= 'i';
+
+    $stmt = $conn->prepare('UPDATE students SET ' . implode(', ', $sets) . ' WHERE id = ?');
+    if (!$stmt) {
+        echo json_encode(['success' => false, 'message' => 'Query preparation failed.']);
+        return;
+    }
+    $stmt->bind_param($types, ...$params);
+    $stmt->execute();
+    $stmt->close();
+
+    // Re-fetch updated row so Angular refreshes without a full page reload
+    $fetch = $conn->prepare("
+        SELECT s.first_name, s.last_name, s.middle_name, s.suffix,
+               s.phone, s.address, s.sex,
+               DATE_FORMAT(s.date_of_birth,'%Y-%m-%d') AS date_of_birth,
+               s.lrn_no, s.religion, s.place_of_birth, s.citizenship,
+               s.mother_tongue, s.emergency_contact, s.emergency_phone,
+               s.psa_birth_cert_no, s.strand, s.last_school_attended
+        FROM students s WHERE s.id = ? LIMIT 1
+    ");
+    $fetch->bind_param('i', $sid);
+    $fetch->execute();
+    $updated = $fetch->get_result()->fetch_assoc();
+    $fetch->close();
+
+    logAuditShared($conn, $authUser ?? null, 'UPDATE_STUDENT_INFO', 'student', $sid,
+        "Registrar updated personal info for student ID $sid.");
+
+    echo json_encode([
+        'success' => true,
+        'message' => 'Student information updated.',
+        'updated' => $updated,
+    ]);
+}
+
 function rejectRegistration(mysqli $conn, array $data = []): void {
     global $authUser;
     // $data is passed from the router (which already consumed php://input).
@@ -4646,6 +5109,18 @@ function getEnrollmentHistory(mysqli $conn): void {
         } elseif ($enrStatus === null) {
             $enrStatus = $grade !== null ? 'Completed' : 'Enrolled';
         }
+
+        // FIX TOR-HISTORY-01: TOR-credited subjects are stored as status='Dropped'
+        // with a specific notes value so autoEnrollAll() skips them. But in the
+        // history view they should display as 'Credited' — not 'Dropped' — so the
+        // registrar and student see the correct status.
+        if ($enrStatus === 'Dropped'
+            && isset($row['notes'])
+            && str_contains((string)$row['notes'], 'Credited via TOR evaluation')
+        ) {
+            $enrStatus = 'Credited';
+        }
+
         $row['enrollment_status'] = $enrStatus;
 
         // FIX HISTORY-05: MySQL DECIMAL columns come back as strings from mysqli.

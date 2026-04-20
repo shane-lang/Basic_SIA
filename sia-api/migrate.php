@@ -449,6 +449,28 @@ runMigration($conn, 'installment_payments.semester back-fill',
      WHERE ip.semester IS NULL OR ip.semester = ''"
 );
 
+// ── FIX PERMIT-CARRY-01: Carry-over columns on payment_schedules ───────────────────────
+// These columns store the unpaid balance that was carried forward to the next term
+// when Accounting approved a permit for a student who hadn't fully paid that period.
+// recomputeSchedule() uses total paid vs total assessment to redistribute dues, so
+// the carry-over amount is automatically folded into the next term's due. These
+// columns are kept for audit/display purposes (UI shows "includes ₱X carry-over").
+runMigration($conn, 'payment_schedules.prelim_carry_over column',
+    "ALTER TABLE payment_schedules
+     ADD COLUMN IF NOT EXISTS prelim_carry_over DECIMAL(10,2) NOT NULL DEFAULT 0.00
+     COMMENT 'Unpaid Prelim balance carried forward to next term'"
+);
+runMigration($conn, 'payment_schedules.midterm_carry_over column',
+    "ALTER TABLE payment_schedules
+     ADD COLUMN IF NOT EXISTS midterm_carry_over DECIMAL(10,2) NOT NULL DEFAULT 0.00
+     COMMENT 'Unpaid Midterm balance carried forward to next term'"
+);
+runMigration($conn, 'payment_schedules.finals_carry_over column',
+    "ALTER TABLE payment_schedules
+     ADD COLUMN IF NOT EXISTS finals_carry_over DECIMAL(10,2) NOT NULL DEFAULT 0.00
+     COMMENT 'Unpaid Finals balance carried forward (for SOA audit)'"
+);
+
 $output = implode("\n", $results);
 if (PHP_SAPI === 'cli') {
     echo "SIA Migrations\n==============\n$output\n";

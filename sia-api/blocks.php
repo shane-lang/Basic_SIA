@@ -44,6 +44,12 @@
 //
 // =============================================================================
 
+// ── Only run the HTTP router when blocks.php is the entry point ──────────────
+// When registrar.php does require_once __DIR__.'/blocks.php', this block is
+// skipped so only the function definitions below are loaded — no duplicate
+// output, no double-auth, no ob_start() level clash.
+if (basename($_SERVER['SCRIPT_FILENAME']) === 'blocks.php') {
+
 ob_start();
 set_exception_handler(function (Throwable $e) {
     while (ob_get_level() > 0) { ob_end_clean(); }
@@ -65,12 +71,7 @@ $action = $_GET['action'] ?? '';
 
 // All block endpoints require at least registrar or admin role.
 // get_student_block is also accessible by students (own block only).
-$publicStudentActions = ['get_student_block'];
-if (in_array($action, $publicStudentActions)) {
-    $authUser = requireAuth($conn); // any authenticated role
-} else {
-    $authUser = requireAuth($conn); // tightened per-function below
-}
+$authUser = requireAuth($conn); // any authenticated role
 $GLOBALS['authUser'] = $authUser;
 
 // ── Ensure tables exist ───────────────────────────────────────────────────────
@@ -104,6 +105,8 @@ switch ($method) {
     default:
         echo json_encode(['success' => false, 'message' => 'Method not allowed']);
 }
+
+} // end standalone router guard
 
 // =============================================================================
 // SCHEMA HELPERS
@@ -242,6 +245,7 @@ function getBlocks(mysqli $conn): void
         FROM class_blocks b
         LEFT JOIN students s ON s.block_id = b.id
              AND s.enrollment_status NOT IN ('Graduated','Dropped','Inactive')
+             AND s.block_id IS NOT NULL
         $where
         GROUP BY b.id
         ORDER BY b.program, b.year_level, b.block_code
@@ -272,7 +276,7 @@ function getBlocks(mysqli $conn): void
     }
     $stmt->close();
 
-    ob_end_clean();
+    while (ob_get_level() > 0) { ob_end_clean(); }
     echo json_encode(['success' => true, 'blocks' => $blocks, 'count' => count($blocks)]);
 }
 
@@ -302,12 +306,15 @@ function getBlockDetail(mysqli $conn): void
     }
 
     // Students in block
+    // FIX: Changed JOIN → LEFT JOIN on users so students with a missing/
+    //      mismatched user_id still appear instead of being silently excluded.
     $sStmt = $conn->prepare("
         SELECT s.id, s.student_number, s.first_name, s.last_name,
                s.year_level, s.semester, s.enrollment_status,
-               s.approval_status, s.payment_status, u.email
+               s.approval_status, s.payment_status,
+               COALESCE(u.email, '') AS email
         FROM students s
-        JOIN users u ON u.id = s.user_id
+        LEFT JOIN users u ON u.id = s.user_id
         WHERE s.block_id = ?
           AND s.enrollment_status NOT IN ('Graduated','Dropped','Inactive')
         ORDER BY s.last_name, s.first_name
@@ -370,7 +377,7 @@ function getBlockDetail(mysqli $conn): void
     }
     $csStmt->close();
 
-    ob_end_clean();
+    while (ob_get_level() > 0) { ob_end_clean(); }
     echo json_encode([
         'success' => true,
         'block'   => [
@@ -450,7 +457,7 @@ function getStudentBlock(mysqli $conn): void
     $stmt->close();
 
     if (!$row || !$row['block_id']) {
-        ob_end_clean();
+        while (ob_get_level() > 0) { ob_end_clean(); }
         echo json_encode([
             'success'      => true,
             'block'        => null,
@@ -459,7 +466,7 @@ function getStudentBlock(mysqli $conn): void
         return;
     }
 
-    ob_end_clean();
+    while (ob_get_level() > 0) { ob_end_clean(); }
     echo json_encode([
         'success' => true,
         'block'   => [
@@ -533,10 +540,10 @@ function createBlock(mysqli $conn, array $data): void
         $newId = $conn->insert_id ?: (int)$conn->query("SELECT id FROM class_blocks WHERE block_code='$blockCode' AND program='$esc' LIMIT 1")->fetch_assoc()['id'];
         logAuditShared($conn, $authUser, 'CREATE_BLOCK', 'class_blocks', $newId,
             "Block $blockCode created for $program $yearLevel ($semester)");
-        ob_end_clean();
+        while (ob_get_level() > 0) { ob_end_clean(); }
         echo json_encode(['success' => true, 'message' => "Block $blockCode created.", 'block_id' => $newId, 'block_code' => $blockCode]);
     } else {
-        ob_end_clean();
+        while (ob_get_level() > 0) { ob_end_clean(); }
         echo json_encode(['success' => false, 'message' => 'Failed to create block: ' . $conn->error]);
     }
     $stmt->close();
@@ -601,7 +608,7 @@ function updateBlock(mysqli $conn, array $data): void
     $stmt->execute();
     $stmt->close();
 
-    ob_end_clean();
+    while (ob_get_level() > 0) { ob_end_clean(); }
     echo json_encode(['success' => true, 'message' => 'Block updated.']);
 }
 
@@ -671,7 +678,7 @@ function assignBlock(mysqli $conn, array $data): void
     logAuditShared($conn, $authUser, 'ASSIGN_BLOCK', 'students', $studentId,
         "Student $studentId assigned to block {$block['block_code']} (ID $blockId)");
 
-    ob_end_clean();
+    while (ob_get_level() > 0) { ob_end_clean(); }
     echo json_encode([
         'success'   => true,
         'message'   => "Student assigned to block {$block['block_code']}.",
@@ -721,7 +728,7 @@ function autoAssignBlock(mysqli $conn, array $data): void
         $bRes->execute();
         $bRow = $bRes->get_result()->fetch_assoc();
         $bRes->close();
-        ob_end_clean();
+        while (ob_get_level() > 0) { ob_end_clean(); }
         echo json_encode([
             'success'   => true,
             'message'   => 'Student already has a block assigned.',
@@ -817,7 +824,7 @@ function autoAssignBlock(mysqli $conn, array $data): void
     logAuditShared($conn, $authUser, 'AUTO_ASSIGN_BLOCK', 'students', $studentId,
         "Student $studentId auto-assigned to block $targetBlockCode (ID $targetBlockId)" . ($isNewBlock ? ' [new block]' : ''));
 
-    ob_end_clean();
+    while (ob_get_level() > 0) { ob_end_clean(); }
     echo json_encode([
         'success'   => true,
         'message'   => "Student assigned to block $targetBlockCode." . ($isNewBlock ? ' (New block created.)' : ''),
@@ -864,7 +871,7 @@ function assignBlockSection(mysqli $conn, array $data): void
     logAuditShared($conn, $authUser, 'ASSIGN_BLOCK_SECTION', 'class_blocks', $blockId,
         "Block $blockId — course $courseId linked to section $courseSectionId");
 
-    ob_end_clean();
+    while (ob_get_level() > 0) { ob_end_clean(); }
     echo json_encode(['success' => true, 'message' => 'Section assigned to block subject.']);
 }
 

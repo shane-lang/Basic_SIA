@@ -225,22 +225,70 @@
 
   <!-- Create Code Modal -->
   <div class="modal-overlay" *ngIf="showCreateForm" (click)="showCreateForm=false">
-    <div class="modal-box" (click)="$event.stopPropagation()">
+    <div class="modal-box modal-box-lg" (click)="$event.stopPropagation()">
       <div class="modal-header-row">
         <h3>🔑 Generate Scholarship Claim Code</h3>
         <button class="modal-x" (click)="showCreateForm=false">✕</button>
       </div>
       <p class="modal-info-note">Generates a one-time code for a full scholar. Student enters this during enrollment — auto-approved, no payment needed.</p>
+
+      <!-- Scholarship Type — fixed to Full Scholarship since claim codes are full-scholar only -->
       <div class="modal-form-row">
-        <label>Scholarship Type *</label>
-        <select [(ngModel)]="newScholarType" class="modal-input">
-          <option *ngFor="let t of scholarTypes" [value]="t">{{ t }}</option>
-        </select>
+        <label>Scholarship Type</label>
+        <div class="scholar-type-fixed-badge">
+          <span>🎓</span>
+          <span class="stfb-text">Full Scholarship (School-Granted)</span>
+          <span class="stfb-tag">Full Tuition</span>
+        </div>
+        <small class="field-hint-sm">Claim codes are exclusively for Full Scholars — no payment required upon enrollment.</small>
       </div>
+
+      <!-- Grantor — login-style: selected badge OR accordion picker -->
       <div class="modal-form-row">
-        <label>Grantor / Organization</label>
-        <input type="text" [(ngModel)]="newGrantor" class="modal-input" placeholder="e.g. City of Olongapo">
+        <label>Grantor / Organization <span class="req">*</span></label>
+
+        <!-- Selected badge -->
+        <div *ngIf="newGrantor && newGrantor !== '__custom__'" class="grantor-selected-badge">
+          <span class="gsb-text">{{ newGrantor }}</span>
+          <button type="button" class="gsb-clear" (click)="clearGrantor()">✕ Change</button>
+        </div>
+
+        <!-- Custom text input when "Other" is chosen -->
+        <div *ngIf="newGrantor === '__custom__'" class="grantor-custom-wrap">
+          <input type="text" [(ngModel)]="newGrantorCustom"
+                 class="modal-input"
+                 placeholder="Type grantor / organization name">
+          <button type="button" class="gsb-clear-sm" (click)="clearGrantor()">✕ Change</button>
+        </div>
+
+        <!-- Accordion picker (hidden once grantor is selected) -->
+        <div *ngIf="!newGrantor" class="grantor-accordion">
+          <div *ngFor="let cat of grantorCategories; let i = index" class="grantor-cat-card"
+               [class.expanded]="expandedGrantorCat === i">
+            <!-- Category header -->
+            <button type="button" class="grantor-cat-header"
+                    (click)="expandedGrantorCat = expandedGrantorCat === i ? null : i">
+              <span class="gcat-icon">{{ getGrantorCatIcon(cat.group) }}</span>
+              <span class="gcat-label">{{ cat.group }}</span>
+              <span class="gcat-count">{{ cat.grantors.length }}</span>
+              <span class="gcat-chevron">{{ expandedGrantorCat === i ? '▲' : '▼' }}</span>
+            </button>
+            <!-- Grantors list -->
+            <div class="grantor-list" *ngIf="expandedGrantorCat === i">
+              <button type="button" class="grantor-item-btn"
+                      *ngFor="let g of cat.grantors"
+                      (click)="selectGrantor(g)">
+                {{ g }}
+              </button>
+            </div>
+          </div>
+          <!-- Other / custom -->
+          <button type="button" class="grantor-other-btn" (click)="selectGrantor('__custom__')">
+            ✏️ Other — type manually
+          </button>
+        </div>
       </div>
+
       <div class="modal-form-row">
         <label>Semester</label>
         <input type="text" [(ngModel)]="newSemester" class="modal-input" placeholder="e.g. 1st Semester, AY 2025-2026">
@@ -251,7 +299,8 @@
       </div>
       <div class="modal-footer">
         <button class="btn-cancel" (click)="showCreateForm=false" [disabled]="isCreating">Cancel</button>
-        <button class="btn-confirm-approve" (click)="submitCreate()" [disabled]="isCreating">
+        <button class="btn-confirm-approve" (click)="submitCreate()"
+                [disabled]="isCreating || !resolvedGrantor">
           {{ isCreating ? '⏳ Generating...' : '✓ Generate Code' }}
         </button>
       </div>
@@ -295,8 +344,23 @@
       <div class="modal-summary">
         <div class="ms-row"><span>Type</span><strong>{{ selected.scholar_type }}</strong></div>
         <div class="ms-row"><span>Grantor</span><strong>{{ selected.grantor }}</strong></div>
+        <div class="ms-row" *ngIf="selected.claim_code">
+          <span>Claim Code</span>
+          <strong class="ms-claim-code">{{ selected.claim_code }}</strong>
+        </div>
         <div class="ms-row"><span>Total Assessment</span><strong>₱{{ fmt(selected.total_assessment) }}</strong></div>
       </div>
+
+      <!-- Scholarship proof document 
+      <div class="ms-proof-row" *ngIf="selected.proof_file">
+        <span class="ms-proof-label">📎 Scholarship Proof</span>
+        <a [href]="getProofUrl(selected.proof_file)" target="_blank" class="btn-view-proof">
+          📄 View Document
+        </a>
+      </div>-->
+      <!--<div class="ms-proof-row ms-proof-missing" *ngIf="!selected.proof_file">
+        <span>⚠️ No proof document uploaded by student.</span>
+      </div> -->
 
       <!-- Full tuition toggle -->
       <div class="full-tuition-toggle">

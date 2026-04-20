@@ -88,8 +88,7 @@
             <p class="user-role">{{ userRole() }}</p>
           </div>
         </div>
-        <button class="btn-change-pw" (click)="openCpModal()">🔑 Change Password</button>
-        <button class="btn-logout" (click)="logout()">🚪 Logout</button>
+        
       </div>
     </mat-sidenav>
 
@@ -112,7 +111,8 @@
           <p class="header-subtitle">Accounting Management</p>
         </div>
         <div class="header-actions">
-          <button class="btn-change-pw-header" (click)="openCpModal()">🔑 Password</button>
+          <button class="btn-change-pw-header" (click)="openCpModal()">🔑 Change Password</button>
+          <button class="btn-logout-header" (click)="logout()">🚪 Logout</button>
           <button mat-icon-button class="notification-btn"
                   [matBadge]="notificationCount()" matBadgeColor="warn">
             <mat-icon>notifications</mat-icon>
@@ -132,7 +132,9 @@
     </mat-sidenav-content>
   </mat-sidenav-container>
 
-<!-- ── Change Password Modal ──────────────────────────────────────────── -->
+</div><!-- /app-container -->
+
+<!-- ── Change Password Modal — outside root div so position:fixed works correctly ── -->
 <div class="cp-overlay" *ngIf="showCpModal" (click)="closeCpModal()">
   <div class="cp-modal" (click)="$event.stopPropagation()">
     <div class="cp-header">
@@ -183,5 +185,4 @@
       </button>
     </div>
   </div>
-</div>
 </div>

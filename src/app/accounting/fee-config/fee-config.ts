@@ -168,10 +168,8 @@ export class FeeConfigComponent implements OnInit {
     if (!this.newFee.fee_label.trim()) { this.showAlert('Fee name is required.', true); return; }
     if (this.newFee.value === null || this.newFee.value === undefined) { this.showAlert('Amount is required.', true); return; }
 
-    // Auto-generate key from label if blank
-    if (!this.newFee.fee_key.trim()) {
-      this.newFee.fee_key = this.newFee.fee_label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
-    }
+    // Auto-generate key from label (Internal Key field is hidden from the UI)
+    this.newFee.fee_key = this.newFee.fee_label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
 
     this.saving = true;
     const payload = {

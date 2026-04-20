@@ -474,8 +474,37 @@ if ($action === 'delete_faculty') {
 //  COURSES
 // ================================================================
 if ($action === 'get_courses') {
-    $rows = [];
-    $res  = $conn->query("
+    // ── Optional filters ──────────────────────────────────────────────────────
+    $filterDept   = trim($_GET['department'] ?? '');
+    $filterSearch = trim($_GET['q']          ?? '');
+
+    // Build WHERE + params for the main query
+    $where  = ['1=1'];
+    $params = [];
+    $types  = '';
+
+    // Department filter: match courses that belong to ANY program in that dept
+    // (handles shared courses correctly — no duplicate rows because we GROUP BY c.id)
+    if ($filterDept !== '') {
+        $where[]  = "EXISTS (
+            SELECT 1 FROM program_courses pc2
+            INNER JOIN programs p2 ON p2.id = pc2.program_id
+            WHERE pc2.course_id = c.id AND p2.department = ?
+        )";
+        $params[] = $filterDept;
+        $types   .= 's';
+    }
+
+    if ($filterSearch !== '') {
+        $sq       = "%$filterSearch%";
+        $where[]  = "(c.code LIKE ? OR c.name LIKE ? OR c.department LIKE ?)";
+        $params[] = $sq; $params[] = $sq; $params[] = $sq;
+        $types   .= 'sss';
+    }
+
+    $whereStr = implode(' AND ', $where);
+
+    $sql = "
         SELECT c.*,
                COALESCE(CONCAT(f.first_name,' ',f.last_name),'') AS instructor,
                f.faculty_id AS faculty_code,
@@ -495,10 +524,67 @@ if ($action === 'get_courses') {
         LEFT JOIN faculty f ON c.faculty_id = f.user_id
         LEFT JOIN course_prerequisites cp   ON cp.course_id = c.id
         LEFT JOIN courses              preq ON preq.id = cp.prerequisite_id
+        WHERE $whereStr
         GROUP BY c.id
-        ORDER BY c.program, c.code ASC");
-    while ($r = $res->fetch_assoc()) { $r['code'] = cleanCode($r['code']); $rows[] = $r; }
-    ob_end_clean(); echo json_encode(['success'=>true,'courses'=>$rows]); exit();
+        ORDER BY c.program, c.code ASC";
+
+    $stmt = $conn->prepare($sql);
+    if ($params) $stmt->bind_param($types, ...$params);
+    $stmt->execute();
+    $res = $stmt->get_result();
+    $stmt->close();
+
+    // ── For each course, fetch ALL programs it's linked to (for shared-course info) ──
+    // We load them in one bulk query to avoid N+1 queries.
+    $allCourseIds = [];
+    $rawRows = [];
+    while ($r = $res->fetch_assoc()) {
+        $r['code'] = cleanCode($r['code']);
+        $rawRows[] = $r;
+        $allCourseIds[] = (int)$r['id'];
+    }
+
+    // Build a map: course_id → [ {program_id, program_name, program_code, department} ]
+    $sharedProgramMap = [];
+    if (!empty($allCourseIds)) {
+        $idList = implode(',', $allCourseIds);
+        $spRes  = $conn->query("
+            SELECT pc.course_id, p.id AS program_id, p.name AS program_name,
+                   p.code AS program_code, p.department
+            FROM program_courses pc
+            INNER JOIN programs p ON p.id = pc.program_id
+            WHERE pc.course_id IN ($idList)
+            ORDER BY p.name ASC
+        ");
+        if ($spRes) {
+            while ($sp = $spRes->fetch_assoc()) {
+                $cid = (int)$sp['course_id'];
+                if (!isset($sharedProgramMap[$cid])) $sharedProgramMap[$cid] = [];
+                $sharedProgramMap[$cid][] = [
+                    'program_id'   => (int)$sp['program_id'],
+                    'program_name' => $sp['program_name'],
+                    'program_code' => $sp['program_code'],
+                    'department'   => $sp['department'],
+                ];
+            }
+        }
+    }
+
+    // Attach shared_programs + all_departments to each course row
+    $rows = [];
+    foreach ($rawRows as $r) {
+        $cid = (int)$r['id'];
+        $linked = $sharedProgramMap[$cid] ?? [];
+        $r['shared_programs']   = $linked;                                         // full list
+        $r['shared_program_ids'] = array_column($linked, 'program_id');            // id-only shortcut
+        // Deduplicated list of ALL departments this course belongs to
+        $r['all_departments'] = array_values(array_unique(array_filter(array_column($linked, 'department'))));
+        $rows[] = $r;
+    }
+
+    ob_end_clean();
+    echo json_encode(['success' => true, 'courses' => $rows]);
+    exit();
 }
 
 if ($action === 'create_course') {
@@ -528,7 +614,15 @@ if ($action === 'create_course') {
 
     if (!$code||!$name) { ob_end_clean(); echo json_encode(['success'=>false,'message'=>'Code and name required']); exit(); }
 
-    $esc = fn($s) => $s;
+    $esc = fn($s) => $conn->real_escape_string($s);
+
+    // If dept not provided, inherit from the primary program department
+    if ($dept === '' && $prog !== '') {
+        $pdRes = $conn->query("SELECT department FROM programs WHERE name='{$esc($prog)}' OR code='{$esc($prog)}' LIMIT 1");
+        if ($pdRes && $pd = $pdRes->fetch_assoc()) {
+            if (($pd['department'] ?? '') !== '') $dept = $pd['department'];
+        }
+    }
 
     // If course code already exists, reuse it — just link to the new programs (no duplicate row)
     $existing = (($_r=$conn->query("SELECT id FROM courses WHERE UPPER(code)=UPPER('{$esc($code)}') LIMIT 1")) ? $_r->fetch_assoc() : null);
@@ -609,7 +703,15 @@ if ($action === 'update_course') {
     }
     if (!$id) { ob_end_clean(); echo json_encode(['success'=>false,'message'=>'Invalid ID']); exit(); }
 
-    $esc = fn($s) => $s;
+    $esc = fn($s) => $conn->real_escape_string($s);
+
+    // If dept not provided, inherit from the primary program department
+    if ($dept === '' && $prog !== '') {
+        $pdRes = $conn->query("SELECT department FROM programs WHERE name='{$esc($prog)}' OR code='{$esc($prog)}' LIMIT 1");
+        if ($pdRes && $pd = $pdRes->fetch_assoc()) {
+            if (($pd['department'] ?? '') !== '') $dept = $pd['department'];
+        }
+    }
 
     // Duplicate check (excluding self)
     $dupCheck = $conn->query("SELECT id FROM courses WHERE (UPPER(code)=UPPER('{$esc($code)}') OR LOWER(name)=LOWER('{$esc($name)}')) AND id<>$id LIMIT 1");
@@ -730,7 +832,7 @@ if ($action === 'create_program') {
             $updProg->close();
         }
         // ── Sync courses.department for all assigned courses ──
-        $esc = fn($s) => $s;
+        $esc = fn($s) => $conn->real_escape_string($s);
         if ($dept !== '' && !empty($cids)) {
             $conn->query("UPDATE courses c
                 INNER JOIN program_courses pc ON pc.course_id = c.id
@@ -792,7 +894,7 @@ if ($action === 'update_program') {
 
         // ── Immediately sync courses.department for ALL courses in this program ──
         // Match by program name OR code so no course is left with a stale dept
-        $esc = fn($s) => $s;
+        $esc = fn($s) => $conn->real_escape_string($s);
         if ($dept !== '') {
             $conn->query("UPDATE courses SET department='{$esc($dept)}'
                 WHERE program='{$esc($name)}' OR program='{$esc($code)}'");
@@ -859,7 +961,7 @@ if ($action === 'rename_department') {
     if (!$oldName || !$newName) {
         ob_end_clean(); echo json_encode(['success'=>false,'message'=>'old_name and new_name required']); exit();
     }
-    $esc = fn($s) => $s;
+    $esc = fn($s) => $conn->real_escape_string($s);
 
     $conn->query("UPDATE programs SET department='{$esc($newName)}' WHERE department='{$esc($oldName)}'");
     $progUpdated = $conn->affected_rows;
@@ -885,7 +987,7 @@ if ($action === 'delete_department') {
     if (!$deptName) {
         ob_end_clean(); echo json_encode(['success'=>false,'message'=>'dept_name required']); exit();
     }
-    $esc = fn($s) => $s;
+    $esc = fn($s) => $conn->real_escape_string($s);
 
     $conn->query("UPDATE programs SET department='' WHERE department='{$esc($deptName)}'");
     $progUpdated = $conn->affected_rows;

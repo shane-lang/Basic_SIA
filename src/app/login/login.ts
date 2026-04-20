@@ -41,6 +41,22 @@ export class LoginComponent implements OnInit, OnDestroy {
   // ── Login ────────────────────────────────────────────────────
   email = ''; password = ''; errorMessage = ''; successMessage = ''; loading = false;
 
+  // ── Inline field errors ───────────────────────────────────────
+  loginErrors:  Record<string, string> = {};
+  loginTouched: Record<string, boolean> = {};
+  fieldErrors:  Record<string, string> = {};   // enrollment wizard per-field errors
+  accountErrors: Record<string, string> = {};  // step-4 account form errors
+  forgotErrors: Record<string, string> = {};   // forgot / reset password errors
+
+  setFieldError(bag: Record<string, string>, field: string, msg: string): void {
+    bag[field] = msg;
+    this.cdr.detectChanges();
+  }
+  clearErrors(...bags: Record<string, string>[]): void {
+    bags.forEach(b => { for (const k in b) delete b[k]; });
+    this.cdr.detectChanges();
+  }
+
   // ── OTP 2FA state (student portal) ─────────────────────────
   showOtpModal   = false;
   otpToken       = '';
@@ -85,14 +101,16 @@ export class LoginComponent implements OnInit, OnDestroy {
     studentType: 'New' as 'New' | 'Old' | 'Transferee',
     lrnNo: '', dateOfBirth: '', lastSchoolAttended: '', psaBirthCertNo: '',
     sex: '' as 'Male' | 'Female' | '', religion: '', age: '', placeOfBirth: '', citizenship: '',
-    homeAddress: '', contactNumber: '',
-    isIndigenous: '' as 'Yes' | 'No' | '',
+    homeAddress: '', addrStreet: '', addrPurok: '', addrBarangay: '', addrCity: '', addrProvince: '', contactNumber: '',
+    isIndigenous: 'No' as 'Yes' | 'No' | '',
     motherTongue: '',
-    hasSpecialNeeds: '' as 'Yes' | 'No' | '', specialNeedsDetails: '',
-    hasAssistiveTech: '' as 'Yes' | 'No' | '', assistiveTechDetails: '',
+    hasSpecialNeeds: 'No' as 'Yes' | 'No' | '', specialNeedsDetails: '',
+    hasAssistiveTech: 'No' as 'Yes' | 'No' | '', assistiveTechDetails: '',
     strand: '',
     learningDelivery: '' as 'Face to Face' | 'Online' | 'Modular' | 'Combination of Face to face and Online' | 'Blended Methods of Learning' | '',
-    guardianName: '', guardianAddress: '', guardianContact: '', guardianEmail: '', guardianRelationship: '',
+    guardianName: '', guardianAddress: '',
+    guardianAddrStreet: '', guardianAddrPurok: '', guardianAddrBarangay: '', guardianAddrCity: '', guardianAddrProvince: '',
+    guardianContact: '', guardianEmail: '', guardianRelationship: '',
     yearLevel: '1st Year',
     semesterEnroll: '' as string,
     ayYear: (() => { const now = new Date(); const m = now.getMonth()+1; const s = m>=6?now.getFullYear():now.getFullYear()-1; return `${s}-${s+1}`; })(),
@@ -105,15 +123,314 @@ export class LoginComponent implements OnInit, OnDestroy {
     'Technical - Vocational and Livelihood - Information & Communications Technology (TVL-ICT)',
     'General Academic Strand (GAS)',
   ];
+
+  religionOptions = [
+    'Roman Catholic',
+    'Islam / Muslim',
+    'Iglesia ni Cristo',
+    'Seventh-day Adventist',
+    'Born-again Christian / Evangelical',
+    'Philippine Independent Church (Aglipayan)',
+    'United Church of Christ in the Philippines (UCCP)',
+    'Jehovah\'s Witnesses',
+    'The Church of Jesus Christ of Latter-day Saints (Mormon)',
+    'Baptist',
+    'Dating Daan / Members Church of God International',
+    'El Shaddai',
+    'Christian (Non-denominational)',
+    'Buddhism',
+    'Hinduism',
+    'Other',
+    'None / Prefer not to say',
+  ];
+
+  motherTongueOptions = [
+    'Tagalog', 'Cebuano', 'Ilocano', 'Hiligaynon / Ilonggo', 'Bikol',
+    'Waray', 'Kapampangan', 'Pangasinense', 'Maranao', 'Maguindanaon',
+    'Tausug', 'Chavacano', 'Aklanon', 'Surigaonon', 'Yakan',
+    'Ibanag', 'Ivatan', 'Kinaray-a', 'Sambal', 'English', 'Other',
+  ];
+
+  get yearFromOptions(): number[] {
+    const current = new Date().getFullYear();
+    const years: number[] = [];
+    // Go back to 1980 to cover students who attended elementary in the early 1980s
+    for (let y = current; y >= 1980; y--) years.push(y);
+    return years;
+  }
+
+  yearToOptions(fromYear: string | number): number[] {
+    const current = new Date().getFullYear();
+    const from = Number(fromYear);
+    if (!from) {
+      // No from selected yet — show 1980 up to current year + 1
+      const years: number[] = [];
+      for (let y = current + 1; y >= 1980; y--) years.push(y);
+      return years;
+    }
+    // "To" starts from the selected "From" year up to current year + 1
+    const years: number[] = [];
+    for (let y = current + 1; y >= from; y--) years.push(y);
+    return years;
+  }
+
+  collapseAddress(): void {
+    const f = this.regForm;
+    // Build homeAddress string then collapse
+    const parts = [
+      f.addrStreet?.trim(),
+      f.addrPurok?.trim()    ? 'Purok ' + f.addrPurok.trim()      : '',
+      f.addrBarangay?.trim() ? 'Brgy. ' + f.addrBarangay.trim()   : '',
+      f.addrCity?.trim(),
+      f.addrProvince?.trim(),
+    ].filter(Boolean);
+    f.homeAddress = parts.join(', ');
+    this.addrExpanded = false;
+    this.cdr.detectChanges();
+  }
   deliveryOptions = ['Face to Face','Online','Modular','Combination of Face to face and Online','Blended Methods of Learning'];
 
   // ── Previous Schools (Step 2) ────────────────────────────────
-  previousSchools: { level: string; schoolName: string; schoolYear: string }[] = [
-    { level: '', schoolName: '', schoolYear: '' }
+  previousSchools: { level: string; schoolName: string; yearFrom: string; yearTo: string }[] = [
+    { level: '', schoolName: '', yearFrom: '', yearTo: '' }
   ];
 
+  addrExpanded = false;  // address breakdown toggle
+  guardianAddrExpanded = false; // guardian address breakdown toggle
+
+  collapseGuardianAddress(): void {
+    const f = this.regForm;
+    const parts = [
+      f.guardianAddrStreet?.trim(),
+      f.guardianAddrPurok?.trim()    ? 'Purok ' + f.guardianAddrPurok.trim()    : '',
+      f.guardianAddrBarangay?.trim() ? 'Brgy. ' + f.guardianAddrBarangay.trim() : '',
+      f.guardianAddrCity?.trim(),
+      f.guardianAddrProvince?.trim(),
+    ].filter(Boolean);
+    f.guardianAddress = parts.join(', ');
+    this.guardianAddrExpanded = false;
+    this.cdr.detectChanges();
+  }
+
+  copyStudentAddressToGuardian(): void {
+    const f = this.regForm;
+    f.guardianAddrStreet   = f.addrStreet   ?? '';
+    f.guardianAddrPurok    = f.addrPurok    ?? '';
+    f.guardianAddrBarangay = f.addrBarangay ?? '';
+    f.guardianAddrCity     = f.addrCity     ?? '';
+    f.guardianAddrProvince = f.addrProvince ?? '';
+    this.collapseGuardianAddress();
+  }
+
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // FIX INLINE-VALIDATION-01: Per-field real-time validators.
+  // Called on (blur) so errors appear the moment a user leaves a field,
+  // and on (input) while a field already has an error (clear-as-you-type).
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /** Validate a single Step 2 field and update fieldErrors immediately. */
+  validateStep2Field(field: string): void {
+    const f = this.regForm;
+    const phoneRe = /^09\d{9}$/;
+
+    const set   = (msg: string) => { this.fieldErrors[field] = msg; this.cdr.detectChanges(); };
+    const clear = ()            => { delete this.fieldErrors[field]; this.cdr.detectChanges(); };
+
+    switch (field) {
+      case 'lastName':
+        if (!f.lastName?.trim()) { set('Last Name is required.'); return; }
+        if (!/^[\p{L}\s'\-\.]+$/u.test(f.lastName.trim())) { set('Last name contains invalid characters.'); return; }
+        clear(); break;
+
+      case 'firstName':
+        if (!f.firstName?.trim()) { set('First Name is required.'); return; }
+        if (!/^[\p{L}\s'\-\.]+$/u.test(f.firstName.trim())) { set('First name contains invalid characters.'); return; }
+        clear(); break;
+
+      case 'lrnNo':
+        if (!f.lrnNo?.trim()) {
+          set(this.isTransfereeEnrolling && (this.isCollege || this.isTVET)
+            ? 'Previous Student No. is required.'
+            : 'LRN No. is required.');
+          return;
+        }
+        if (!this.isTransfereeEnrolling || this.isSHS) {
+          if (!/^\d{12}$/.test(f.lrnNo.trim())) { set('LRN must be exactly 12 digits.'); return; }
+        } else {
+          if (f.lrnNo.trim().length < 3 || f.lrnNo.trim().length > 30) { set('Must be 3–30 characters.'); return; }
+        }
+        clear(); break;
+
+      case 'dateOfBirth':
+        if (!f.dateOfBirth) { set('Date of Birth is required.'); return; }
+        const dob = new Date(f.dateOfBirth);
+        const today = new Date(); today.setHours(0,0,0,0);
+        if (isNaN(dob.getTime())) { set('Please enter a valid date.'); return; }
+        if (dob >= today) { set('Date of Birth must be before today.'); return; }
+        const age = (today.getTime() - dob.getTime()) / (365.25*24*3600*1000);
+        if (age < 14) { set('Student must be at least 14 years old.'); return; }
+        if (age > 80) { set('Please enter a valid Date of Birth.'); return; }
+        clear(); break;
+
+      case 'religion':
+        if (!f.religion?.trim()) { set('Religion is required.'); return; }
+        clear(); break;
+
+      case 'placeOfBirth':
+        if (!f.placeOfBirth?.trim()) { set('Place of Birth is required.'); return; }
+        clear(); break;
+
+      case 'citizenship':
+        if (!f.citizenship?.trim()) { set('Nationality is required.'); return; }
+        clear(); break;
+
+      case 'addrBarangay':
+        if (!f.addrBarangay?.trim()) { set('Barangay is required.'); return; }
+        clear(); break;
+
+      case 'addrCity':
+        if (!f.addrCity?.trim()) { set('City / Municipality is required.'); return; }
+        clear(); break;
+
+      case 'addrProvince':
+        if (!f.addrProvince?.trim()) { set('Province is required.'); return; }
+        clear(); break;
+
+      case 'contactNumber':
+        if (!f.contactNumber?.trim()) { set('Contact Number is required.'); return; }
+        const cn = f.contactNumber.replace(/\s/g,'');
+        if (/[a-zA-Z]/.test(cn)) { set('Contact Number must not contain letters.'); return; }
+        if (!phoneRe.test(cn)) { set('Enter a valid 11-digit PH mobile number (e.g. 09XXXXXXXXX).'); return; }
+        clear(); break;
+
+      case 'motherTongue':
+        if (!f.motherTongue?.trim()) { set('Mother Tongue is required.'); return; }
+        clear(); break;
+
+      case 'specialNeedsDetails':
+        if (f.hasSpecialNeeds === 'Yes' && !f.specialNeedsDetails?.trim()) { set('Please specify your special education needs.'); return; }
+        clear(); break;
+
+      case 'assistiveTechDetails':
+        if (f.hasAssistiveTech === 'Yes' && !f.assistiveTechDetails?.trim()) { set('Please specify the assistive technology used.'); return; }
+        clear(); break;
+
+      case 'guardianName':
+        if (!f.guardianName?.trim()) { set('Guardian Name is required.'); return; }
+        clear(); break;
+
+      case 'guardianAddrBarangay':
+        if (!f.guardianAddrBarangay?.trim()) { set('Barangay is required.'); return; }
+        clear(); break;
+
+      case 'guardianAddrCity':
+        if (!f.guardianAddrCity?.trim()) { set('City / Municipality is required.'); return; }
+        clear(); break;
+
+      case 'guardianAddrProvince':
+        if (!f.guardianAddrProvince?.trim()) { set('Province is required.'); return; }
+        clear(); break;
+
+      case 'guardianContact':
+        if (!f.guardianContact?.trim()) { set('Guardian Contact is required.'); return; }
+        const gc = f.guardianContact.replace(/\s/g,'');
+        if (/[a-zA-Z]/.test(gc)) { set('Guardian Contact must not contain letters.'); return; }
+        if (!phoneRe.test(gc)) { set('Enter a valid 11-digit PH mobile number (e.g. 09XXXXXXXXX).'); return; }
+        clear(); break;
+
+      case 'guardianEmail':
+        if (!f.guardianEmail?.trim()) { set('Guardian Email is required.'); return; }
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(f.guardianEmail.trim())) { set('Enter a valid email address.'); return; }
+        clear(); break;
+
+      case 'guardianRelationship':
+        if (!f.guardianRelationship?.trim()) { set('Relationship is required.'); return; }
+        clear(); break;
+
+      default:
+        clear(); break;
+    }
+  }
+
+  /** Validate a single Step 4 account field and update accountErrors immediately. */
+  validateStep4Field(field: string): void {
+    const a = this.accountForm;
+    const set   = (msg: string) => { this.accountErrors[field] = msg; this.cdr.detectChanges(); };
+    const clear = ()            => { delete this.accountErrors[field]; this.cdr.detectChanges(); };
+
+    switch (field) {
+      case 'email':
+        if (!a.email?.trim()) { set('Email is required.'); return; }
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(a.email.trim())) { set('Enter a valid email address.'); return; }
+        clear(); break;
+
+      case 'password':
+        if (!a.password) { set('Password is required.'); return; }
+        const pwErr = this.validatePassword(a.password);
+        if (pwErr) { set(pwErr); return; }
+        // Re-check confirm password live if already typed
+        if (a.confirmPassword && a.password !== a.confirmPassword) {
+          this.accountErrors['confirmPassword'] = 'Passwords do not match.';
+        } else if (a.confirmPassword && a.password === a.confirmPassword) {
+          delete this.accountErrors['confirmPassword'];
+        }
+        clear(); break;
+
+      case 'confirmPassword':
+        if (!a.confirmPassword) { set('Please confirm your password.'); return; }
+        if (a.password !== a.confirmPassword) { set('Passwords do not match.'); return; }
+        clear(); break;
+
+      default:
+        clear(); break;
+    }
+    this.cdr.detectChanges();
+  }
+
+  // FIX PREV-SCHOOL-LEVEL-01 (revised)
+  getPrevSchoolLevels(): string[] {
+    const transferee = this.isTransfereeEnrolling;
+    if (this.isSHS) {
+      return transferee
+        ? ['Junior High School', 'Senior High School']
+        : ['Junior High School'];
+    }
+    // College or TVET
+    return transferee
+      ? ['College', 'Vocational']
+      : ['Senior High School'];
+  }
+
+  sanitizePrevSchoolLevels(): void {
+    const allowed = this.getPrevSchoolLevels();
+    this.previousSchools.forEach(s => {
+      if (s.level && !allowed.includes(s.level)) s.level = '';
+    });
+    this.cdr.detectChanges();
+  }
+
+  // FIX LRN-FIELD-01
+  getIdFieldMeta(): { label: string; placeholder: string; hint: string; isLrn: boolean } {
+    const transferee = this.isTransfereeEnrolling;
+    if ((this.isCollege || this.isTVET) && transferee) {
+      return {
+        label: 'Previous Student No.',
+        placeholder: 'Student number from previous school',
+        hint: 'Enter the student number assigned by your previous school.',
+        isLrn: false,
+      };
+    }
+    return {
+      label: 'LRN No.',
+      placeholder: 'Learner Reference Number (12 digits)',
+      hint: 'Your 12-digit Learner Reference Number from DepEd.',
+      isLrn: true,
+    };
+  }
+
   addPreviousSchool(): void {
-    this.previousSchools.push({ level: '', schoolName: '', schoolYear: '' });
+    this.previousSchools.push({ level: '', schoolName: '', yearFrom: '', yearTo: '' });
   }
 
   removePreviousSchool(index: number): void {
@@ -124,8 +441,21 @@ export class LoginComponent implements OnInit, OnDestroy {
 
   get yearLevelOptions(): string[] {
     if (this.studentTypeCategory === 'SHS') return ['Grade 11', 'Grade 12'];
-    if (this.studentTypeCategory === 'TVET') return ['1st Year', '2nd Year'];
+    if (this.studentTypeCategory === 'TVET') return ['1st Year', '2nd Year', '3rd Year'];
     return ['1st Year', '2nd Year', '3rd Year', '4th Year'];
+  }
+
+  /** Auto-correct regForm.yearLevel when the category changes so the dropdown
+   *  never shows a blank selection. Called from proceedFromProgram(). */
+  private syncYearLevelToCategory(): void {
+    const opts = this.yearLevelOptions;
+    // If the current value is not in the list for this category, reset it.
+    if (!opts.includes(this.regForm.yearLevel)) {
+      // For SHS, prefer the grade picked in Step 1 (selectedGradeLevel).
+      this.regForm.yearLevel = (this.isSHS && this.selectedGradeLevel)
+        ? this.selectedGradeLevel
+        : opts[0];
+    }
   }
 
   get ayYearOptions(): string[] {
@@ -154,15 +484,83 @@ export class LoginComponent implements OnInit, OnDestroy {
 
   isScholar = false; scholarType = ''; scholarGrantor = ''; scholarshipAmount = 0;
   isFullScholarship = false; // true when Full Scholarship selected — covers entire tuition
+  expandedScholarCat: number | null = null;
   scholarClaimCode  = '';
   scholarCodeStatus: 'idle' | 'checking' | 'valid' | 'invalid' = 'idle';
   scholarCodeMsg    = '';
   scholarPreapprovalId = 0;
-  scholarTypes = ['Full Scholarship','CHED Scholarship','TESDA Scholarship','Local Government Unit (LGU) Scholarship',
-    'School-Based Scholarship','Private Scholarship / Foundation','Sibling Discount',
-    'Faculty/Staff Dependent Discount','Other'];
 
-  paymentMethod: 'GCash' | 'Cash' = 'GCash';
+  // ── Scholarship types grouped by grantor ─────────────────────────────────
+  scholarCategories: { group: string; types: string[] }[] = [
+    {
+      group: 'CHED Scholarships',
+      types: [
+        'CHED — UniFAST Free Higher Education (RA 10931)',
+        'CHED — Tertiary Education Subsidy (TES)',
+        'CHED — Student Financial Assistance Program (StuFAP)',
+        'CHED — Full Merit Scholarship',
+        'CHED — Half Merit Scholarship',
+        'CHED — Scholarship for Student with Disabilities (SSD)',
+        'CHED — Tulong Dunong Program',
+        'CHED — Graduate Education Scholarship',
+        'CHED — State Scholarship Program (SSP)',
+        'CHED — Presidential Scholarship',
+      ]
+    },
+    {
+      group: 'TESDA Scholarships',
+      types: [
+        'TESDA — Training for Work Scholarship Program (TWSP)',
+        'TESDA — Private Education Student Financial Assistance (PESFA)',
+        'TESDA — Unified Student Financial Assistance System for Tertiary Education (UniFAST)',
+        'TESDA — STEP (Special Training for Employment Program)',
+      ]
+    },
+    {
+      group: 'Government / LGU',
+      types: [
+        'Local Government Unit (LGU) Scholarship',
+        'DepEd Scholarship',
+        'DOST — Science and Technology Scholarship',
+        'DOST — PAGASA Scholarship',
+        'AFP / PNP Dependents Scholarship',
+        'PVAO (Veterans) Scholarship',
+        'PCSO Scholarship',
+        'Solo Parent Scholarship (RA 8972)',
+      ]
+    },
+    {
+      group: 'School-Based',
+      types: [
+        'School-Based Merit Scholarship',
+        'Faculty / Staff Dependent Discount',
+        'Sibling Discount',
+        'Academic Excellence Award',
+        'Athletic Scholarship',
+        'Cultural / Arts Scholarship',
+      ]
+    },
+    {
+      group: 'Private / Foundation',
+      types: [
+        'Private Scholarship / Foundation',
+        'Corporate Scholarship (Company-Sponsored)',
+        'Religious / Church Scholarship',
+        'NGO Scholarship',
+      ]
+    },
+    {
+      group: 'Other',
+      types: ['Other']
+    },
+  ];
+
+  // Flat list kept for backward compatibility with any existing references
+  get scholarTypes(): string[] {
+    return this.scholarCategories.flatMap(g => g.types);
+  }
+
+  paymentMethod: 'GCash' | 'Cash' = 'Cash'; // FIX FE-PM-NULL-01: default Cash — safer when method is unknown
   tuitionAmount = 25000;
   get discountedAmount(): number {
     return this.isScholar && this.scholarshipAmount > 0 ? Math.max(0, this.tuitionAmount - this.scholarshipAmount) : this.tuitionAmount;
@@ -249,6 +647,9 @@ export class LoginComponent implements OnInit, OnDestroy {
   confirmedNextStep      = ''; // 'payment' | 'tor' | 'free'
   confirmedAutoLoginSec  = 5;  // countdown before auto-login
   private confirmCountdown?: ReturnType<typeof setInterval>;
+  // FIX REFRESH-REGISTER-01: Prevents submitEnrollment() from firing twice
+  // when the browser is refreshed mid-Step-4 and form state is restored.
+  private enrollmentSubmitted = false;
 
   // ── SHS-specific step tracking ───────────────────────────
   // SHS: gradeLevel → track → strand → program
@@ -298,7 +699,14 @@ export class LoginComponent implements OnInit, OnDestroy {
   }
 
   // ── Wizard state persistence helpers ─────────────────────────
-  private saveWizardState(): void {
+  saveWizardState(): void { // public so template can call after inline property assignments
+    // FIX REFRESH-REGISTER-01: Never persist the 'account' step.
+    // If the browser is refreshed while on Step 4, restoring this state
+    // leaves all form data intact so the Submit button fires a second
+    // register_student call, creating a duplicate record.
+    // Drop back to 'documents' on restore — one extra Next-click is
+    // far safer than a phantom registration.
+    if (this.enrollStep === 'account') return;
     const state = {
       view: this.view, enrollStep: this.enrollStep,
       studentTypeCategory: this.studentTypeCategory,
@@ -370,12 +778,16 @@ export class LoginComponent implements OnInit, OnDestroy {
         this.shsSelectedTrack    = s.shsSelectedTrack    ?? '';
         this.tvetSelectedType    = s.tvetSelectedType    ?? '';
         if (s.regForm)                this.regForm          = { ...this.regForm, ...s.regForm };
+        if (!this.regForm.isIndigenous)    this.regForm.isIndigenous    = 'No';
+        if (!this.regForm.hasSpecialNeeds) this.regForm.hasSpecialNeeds = 'No';
+        if (!this.regForm.hasAssistiveTech) this.regForm.hasAssistiveTech = 'No';
         if (s.previousSchools?.length) this.previousSchools = s.previousSchools;
         this.isScholar           = s.isScholar           ?? false;
         this.scholarType         = s.scholarType         ?? '';
         this.scholarGrantor      = s.scholarGrantor      ?? '';
         this.scholarshipAmount   = s.scholarshipAmount   ?? 0;
-        this.paymentMethod       = s.paymentMethod       ?? 'GCash';
+        // FIX FE-PM-NULL-01: restore as-is; if empty, keep current value (class default = 'Cash')
+        this.paymentMethod       = (s.paymentMethod === 'Cash' || s.paymentMethod === 'GCash') ? s.paymentMethod : this.paymentMethod;
         this.paymentPlan         = s.paymentPlan         ?? 'full';
         this.torReviewStudentId  = s.torReviewStudentId  ?? 0;
         // Never restore a mid-flight 'sending' state — if they reloaded during submission
@@ -389,7 +801,16 @@ export class LoginComponent implements OnInit, OnDestroy {
         if (this.enrollStep === 'tor-review' && this.torReviewStudentId > 0 && this.torReviewPhase === 'waiting') {
           this.startTorPoll();
         }
+        // FIX TVET-TRANSFEREE-SUBJECTS-03: programCourses is in-memory only — it is
+        // lost on page refresh. Reload it whenever state is restored to a phase that
+        // shows the Program Subjects list (done or rejected), so the subject grid is
+        // never blank after a refresh.
+        if ((this.torReviewPhase === 'done' || this.torReviewPhase === 'rejected') && this.selectedProgramName) {
+          this.loadProgramCourses();
+        }
         if (this.studentTypeCategory) this.loadPrograms();
+        // FIX SHS-YEARLEVEL-01 (restore): re-sync yearLevel after category is known
+        this.syncYearLevelToCategory();
         this.cdr.detectChanges();
         return;
       } catch (e) {
@@ -443,8 +864,36 @@ export class LoginComponent implements OnInit, OnDestroy {
   }
 
   // ══ LOGIN ═════════════════════════════════════════════════════
+  /** Validate a single login field on blur or on input (after touched). */
+  validateLoginField(field: 'email' | 'password'): void {
+    this.loginTouched[field] = true;
+    if (field === 'email') {
+      if (!this.email?.trim())
+        this.loginErrors['email'] = 'Email is required.';
+      else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(this.email.trim()))
+        this.loginErrors['email'] = 'Enter a valid email address.';
+      else
+        this.loginErrors['email'] = '';
+    }
+    if (field === 'password') {
+      if (!this.password)
+        this.loginErrors['password'] = 'Password is required.';
+      else if (this.password.length < 6)
+        this.loginErrors['password'] = 'Password must be at least 6 characters.';
+      else
+        this.loginErrors['password'] = '';
+    }
+    this.cdr.detectChanges();
+  }
+
   login(): void {
-    if (!this.email || !this.password) { this.errorMessage = 'Please enter email and password'; return; }
+    this.loginErrors = {};
+    let loginValid = true;
+    if (!this.email?.trim()) { this.loginErrors['email'] = 'Email is required.'; loginValid = false; }
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(this.email.trim())) { this.loginErrors['email'] = 'Enter a valid email address.'; loginValid = false; }
+    if (!this.password) { this.loginErrors['password'] = 'Password is required.'; loginValid = false; }
+    else if (this.password.length < 6) { this.loginErrors['password'] = 'Password must be at least 6 characters.'; loginValid = false; }
+    if (!loginValid) { this.cdr.detectChanges(); return; }
 
     // Guard: if already logged in, redirect instead of re-authenticating
     const existingToken = this.auth.getToken();
@@ -455,7 +904,7 @@ export class LoginComponent implements OnInit, OnDestroy {
     }
 
     this.loading = true; this.errorMessage = ''; this.successMessage = '';
-    this.http.post<any>(this.authUrl, { email: this.email, password: this.password }).subscribe({
+    this.http.post<any>(`${this.authUrl}?action=login`, { email: this.email, password: this.password, portal: 'student' }).subscribe({
       next: (res) => {
         this.loading = false;
         // ── 2FA: backend returns otp_required=true, show OTP modal ──
@@ -569,20 +1018,23 @@ export class LoginComponent implements OnInit, OnDestroy {
         this.view = 'enroll'; this.enrollStep = 'program'; this.enrollError = '';
         this.saveWizardState();
     this.studentTypeCategory = ''; this.selectedProgram = ''; this.selectedProgramName = ''; this.selectedDepartment = ''; this.selectedDept = ''; this.selectedGradeLevel = ''; this.selectedTvetType = '';
-    this.regForm = { lastName:'',firstName:'',middleName:'',suffix:'',studentType:'New',lrnNo:'',dateOfBirth:'',lastSchoolAttended:'',psaBirthCertNo:'',sex:'',religion:'',age:'',placeOfBirth:'',citizenship:'',homeAddress:'',contactNumber:'',isIndigenous:'No',motherTongue:'',hasSpecialNeeds:'No',specialNeedsDetails:'',hasAssistiveTech:'No',assistiveTechDetails:'',strand:'',learningDelivery:'',guardianName:'',guardianAddress:'',guardianContact:'',guardianEmail:'',guardianRelationship:'',yearLevel:'1st Year',semesterEnroll:'',ayYear:'' };
+    this.regForm = { lastName:'',firstName:'',middleName:'',suffix:'',studentType:'New',lrnNo:'',dateOfBirth:'',lastSchoolAttended:'',psaBirthCertNo:'',sex:'',religion:'',age:'',placeOfBirth:'',citizenship:'',homeAddress:'',addrStreet:'',addrPurok:'',addrBarangay:'',addrCity:'',addrProvince:'',contactNumber:'',isIndigenous:'No',motherTongue:'',hasSpecialNeeds:'No',specialNeedsDetails:'',hasAssistiveTech:'No',assistiveTechDetails:'',strand:'',learningDelivery:'',guardianName:'',guardianAddress:'',guardianAddrStreet:'',guardianAddrPurok:'',guardianAddrBarangay:'',guardianAddrCity:'',guardianAddrProvince:'',guardianContact:'',guardianEmail:'',guardianRelationship:'',yearLevel:'1st Year',semesterEnroll:'',ayYear:'' };
     this.torFile=null; this.goodMoralFile=null; this.psaFile=null; this.form138File=null; this.picFile=null;
     this.torFileName=''; this.goodMoralFileName=''; this.psaFileName=''; this.form138FileName=''; this.picFileName='';
     this.isScholar=false; this.scholarType=''; this.scholarGrantor=''; this.scholarshipAmount=0;
     this.isFullScholarship=false; this.scholarClaimCode=''; this.scholarCodeStatus='idle';
+    this.expandedScholarCat=null;
     this.scholarCodeMsg=''; this.scholarPreapprovalId=0;
-    this.paymentMethod='GCash'; this.paymentPlan='full';
+    this.paymentMethod='Cash'; this.paymentPlan='full'; // FIX FE-PM-NULL-01: reset to Cash, not GCash
     this.regForm.yearLevel = '1st Year';
     this.applyEnrollmentPeriodToForm();
     this.feePreview=null; this.feePreviewError='';
     this.accountForm={email:'',password:'',confirmPassword:''};
     this.torReviewPhase='idle'; this.torReviewError=''; this.torReviewStudentId=0;
     this.torCreditedCodes=new Set(); this.torEvalResult=null;
-    this.previousSchools = [{ level: '', schoolName: '', schoolYear: '' }];
+    this.previousSchools = [{ level: '', schoolName: '', yearFrom: '', yearTo: '' }];
+    this.addrExpanded = false;
+    this.guardianAddrExpanded = false;
     if(this.torPollTimer){clearInterval(this.torPollTimer);this.torPollTimer=null;}
     this.loadPrograms();
     this.cdr.detectChanges();
@@ -695,87 +1147,199 @@ export class LoginComponent implements OnInit, OnDestroy {
     if (!this.selectedProgram)     { this.enrollError = 'Please select a program.';        this.cdr.detectChanges(); return; }
     // Auto-set strand for SHS from the selected program name
     if (this.isSHS) { this.regForm.strand = this.selectedProgramName; }
+
+
+
+    // FIX SHS-YEARLEVEL-01: Sync yearLevel to the selected category before
+    // entering Step 2 so the Grade Level dropdown is never blank for SHS.
+    // Default regForm.yearLevel is '1st Year' which is not a valid SHS option.
+    this.syncYearLevelToCategory();
+
     this.enrollError = ''; this.enrollStep = 'info'; this.cdr.detectChanges();
     this.saveWizardState();
   }
 
-  // Step 2 — per-field validation with console debug
-  proceedFromInfo(): void {
+  // ── Step 2 shared validator ────────────────────────────────────────────────
+  // Returns true when ALL fields are valid. Populates this.fieldErrors for
+  // every broken field so the user sees all problems at once.
+  //
+  // Options:
+  //   requireLrn   – LRN field is mandatory (SHS / TVET)
+  //   requireStrand – SHS strand + learning delivery required
+  //
+  private _validateStep2(opts: { requireLrn?: boolean; requireStrand?: boolean; isTransferee?: boolean } = {}): boolean {
+    this.clearErrors(this.fieldErrors);
+    this.enrollError = '';
     const f = this.regForm;
+    let ok = true;
 
-    // ── DEBUG: log every field value so we can see what's empty ──
-    console.group('[STEP 2] proceedFromInfo — field values');
-    console.log('lastName:',          JSON.stringify(f.lastName));
-    console.log('firstName:',         JSON.stringify(f.firstName));
-    console.log('studentType:',       JSON.stringify(f.studentType));
-    console.log('lrnNo:',             JSON.stringify(f.lrnNo));
-    console.log('dateOfBirth:',       JSON.stringify(f.dateOfBirth));
-    console.log('lastSchoolAttended:',JSON.stringify(f.lastSchoolAttended));
-    console.log('sex:',               JSON.stringify(f.sex));
-    console.log('religion:',          JSON.stringify(f.religion));
-    console.log('age:',               JSON.stringify(f.age));
-    console.log('placeOfBirth:',      JSON.stringify(f.placeOfBirth));
-    console.log('citizenship:',       JSON.stringify(f.citizenship));
-    console.log('homeAddress:',       JSON.stringify(f.homeAddress));
-    console.log('contactNumber:',     JSON.stringify(f.contactNumber));
-    console.log('motherTongue:',      JSON.stringify(f.motherTongue));
-    console.log('isIndigenous:',      JSON.stringify(f.isIndigenous));
-    console.log('hasSpecialNeeds:',   JSON.stringify(f.hasSpecialNeeds));
-    console.log('hasAssistiveTech:',  JSON.stringify(f.hasAssistiveTech));
-    console.log('guardianName:',      JSON.stringify(f.guardianName));
-    console.log('guardianAddress:',   JSON.stringify(f.guardianAddress));
-    console.log('guardianContact:',   JSON.stringify(f.guardianContact));
-    console.log('studentTypeCategory (College/SHS/TVET):', this.studentTypeCategory);
-    if (this.isSHS) {
-      console.log('strand:',          JSON.stringify(f.strand));
-      console.log('learningDelivery:',JSON.stringify(f.learningDelivery));
-    }
-    console.groupEnd();
+    const fail = (field: string, msg: string) => { this.fieldErrors[field] = msg; ok = false; };
 
-    // ── Per-field validation (tells user exactly which field is missing) ──
-    if (!f.lastName?.trim())           { this.enrollError = 'Last Name is required.';                this.cdr.detectChanges(); return; }
-    if (!f.firstName?.trim())          { this.enrollError = 'First Name is required.';               this.cdr.detectChanges(); return; }
-    if (!f.studentType)                { this.enrollError = 'Type of Student is required.';          this.cdr.detectChanges(); return; }
-    if (!f.dateOfBirth)                { this.enrollError = 'Date of Birth is required.';            this.cdr.detectChanges(); return; }
-    if (!f.lastSchoolAttended?.trim()) {
-      // Auto-populate lastSchoolAttended from previousSchools for backend submission
-      const filledSchools = this.previousSchools.filter(s => s.schoolName?.trim());
-      if (filledSchools.length === 0) {
-        this.enrollError = 'Please enter at least one Previous School Attended.';
-        this.cdr.detectChanges(); return;
+    // ── NAME ────────────────────────────────────────────────────────────────
+    if (!f.lastName?.trim())  fail('lastName',  'Last Name is required.');
+    if (!f.firstName?.trim()) fail('firstName', 'First Name is required.');
+
+    // ── STUDENT TYPE ────────────────────────────────────────────────────────
+    if (!f.studentType) fail('studentType', 'Please select student type.');
+
+    // ── LRN (required for SHS / TVET, optional for College) ─────────────────
+    if (opts.requireLrn) {
+      if (!f.lrnNo?.trim()) {
+        fail('lrnNo', opts.isTransferee ? 'Previous Student No. is required.' : 'LRN No. is required.');
+      } else if (!opts.isTransferee && !/^\d{12}$/.test(f.lrnNo.trim())) {
+        fail('lrnNo', 'LRN must be exactly 12 digits.');
+      } else if (opts.isTransferee && (f.lrnNo.trim().length < 3 || f.lrnNo.trim().length > 30)) {
+        fail('lrnNo', 'Previous Student No. must be between 3 and 30 characters.');
       }
-      f.lastSchoolAttended = filledSchools.map(s => `${s.level} - ${s.schoolName} (${s.schoolYear})`).join('; ');
-    }
-    if (!f.sex)                        { this.enrollError = 'Sex is required.';                      this.cdr.detectChanges(); return; }
-    if (!f.religion?.trim())           { this.enrollError = 'Religion is required.';                 this.cdr.detectChanges(); return; }
-    if (!f.placeOfBirth?.trim())       { this.enrollError = 'Place of Birth is required.';           this.cdr.detectChanges(); return; }
-    if (!f.citizenship?.trim())        { this.enrollError = 'Citizenship is required.';              this.cdr.detectChanges(); return; }
-    if (!f.homeAddress?.trim())        { this.enrollError = 'Home Address is required.';             this.cdr.detectChanges(); return; }
-    if (!f.contactNumber?.trim())      { this.enrollError = 'Contact Number is required.';           this.cdr.detectChanges(); return; }
-    if (!f.motherTongue?.trim())       { this.enrollError = 'Mother Tongue is required.';            this.cdr.detectChanges(); return; }
-    if (!f.isIndigenous)               { this.enrollError = 'Please answer: Are you Indigenous People / Lumad?'; this.cdr.detectChanges(); return; }
-    if (!f.hasSpecialNeeds)            { this.enrollError = 'Please answer: Do you have Special Education Needs?'; this.cdr.detectChanges(); return; }
-    if (f.hasSpecialNeeds === 'Yes' && !f.specialNeedsDetails?.trim()) { this.enrollError = 'Please specify your special education needs.'; this.cdr.detectChanges(); return; }
-    if (!f.hasAssistiveTech)           { this.enrollError = 'Please answer: Do you use Assistive Technology?'; this.cdr.detectChanges(); return; }
-    if (f.hasAssistiveTech === 'Yes' && !f.assistiveTechDetails?.trim()) { this.enrollError = 'Please specify your assistive technology.'; this.cdr.detectChanges(); return; }
-    if (!f.guardianName?.trim())       { this.enrollError = 'Parent / Guardian Name is required.';   this.cdr.detectChanges(); return; }
-    if (!f.guardianAddress?.trim())    { this.enrollError = 'Parent / Guardian Address is required.'; this.cdr.detectChanges(); return; }
-    if (!f.guardianContact?.trim())    { this.enrollError = 'Parent / Guardian Contact is required.'; this.cdr.detectChanges(); return; }
-    if (!f.guardianEmail?.trim())      { this.enrollError = 'Parent / Guardian Email is required.'; this.cdr.detectChanges(); return; }
-    if (!f.guardianRelationship?.trim()) { this.enrollError = 'Relationship to Student is required.'; this.cdr.detectChanges(); return; }
-
-    if (!f.yearLevel)            { this.enrollError = 'Year Level is required.';            this.cdr.detectChanges(); return; }
-
-    // LRN — only strictly required for SHS/TVET; for College it is optional
-    if ((this.isSHS || this.isTVET) && !f.lrnNo?.trim()) {
-      this.enrollError = 'LRN No. is required for SHS / TVET students.'; this.cdr.detectChanges(); return;
     }
 
-    // SHS-specific
-    if (this.isSHS && !f.strand)         { this.enrollError = 'Please choose your strand.';                               this.cdr.detectChanges(); return; }
-    if (this.isSHS && !f.learningDelivery) { this.enrollError = 'Please select your preferred learning delivery mode.';   this.cdr.detectChanges(); return; }
+    // ── DATE OF BIRTH ────────────────────────────────────────────────────────
+    // Must be present, a real date, strictly before today,
+    // and student must be 14–80 years old.
+    if (!f.dateOfBirth) {
+      fail('dateOfBirth', 'Date of Birth is required.');
+    } else {
+      const dob = new Date(f.dateOfBirth);
+      const todayMidnight = new Date();
+      todayMidnight.setHours(0, 0, 0, 0);
 
-    console.log('[STEP 2] All validations passed → proceeding to documents');
+      if (isNaN(dob.getTime())) {
+        fail('dateOfBirth', 'Please enter a valid date.');
+      } else if (dob >= todayMidnight) {
+        fail('dateOfBirth', 'Date of Birth must be before today.');
+      } else {
+        const ageYears = (todayMidnight.getTime() - dob.getTime()) / (365.25 * 24 * 3600 * 1000);
+        if (ageYears < 14) fail('dateOfBirth', 'Student must be at least 14 years old to enroll.');
+        if (ageYears > 80) fail('dateOfBirth', 'Please enter a valid Date of Birth (age cannot exceed 80).');
+      }
+    }
+
+    // ── PREVIOUS SCHOOLS ─────────────────────────────────────────────────────
+    // Accepts entries already stored in lastSchoolAttended (wizard resume)
+    // or builds it from the dynamic rows.
+    if (!f.lastSchoolAttended?.trim()) {
+      const filled = this.previousSchools.filter(s => s.schoolName?.trim());
+      if (filled.length === 0) {
+        fail('previousSchools', 'Please enter at least one Previous School Attended.');
+      } else {
+        f.lastSchoolAttended = filled.map(s => `${s.level} - ${s.schoolName} (${s.yearFrom}${s.yearTo ? '–' + s.yearTo : ''})`).join('; ');
+      }
+    }
+
+    // ── SEX ──────────────────────────────────────────────────────────────────
+    if (!f.sex) fail('sex', 'Please select sex.');
+
+    // ── PERSONAL DETAILS ─────────────────────────────────────────────────────
+    if (!f.religion?.trim())     fail('religion',     'Religion is required.');
+    if (!f.placeOfBirth?.trim()) fail('placeOfBirth', 'Place of Birth is required.');
+    if (!f.citizenship?.trim())  fail('citizenship',  'Nationality is required.');
+    // ── HOME ADDRESS (broken down) ────────────────────────────────────────────
+    if (!f.addrBarangay?.trim()) fail('addrBarangay', 'Barangay is required.');
+    if (!f.addrCity?.trim())     fail('addrCity',     'City / Municipality is required.');
+    if (!f.addrProvince?.trim()) fail('addrProvince', 'Province is required.');
+    // Build the combined homeAddress string for backend submission
+    if (f.addrBarangay?.trim() && f.addrCity?.trim() && f.addrProvince?.trim()) {
+      const parts = [
+        f.addrStreet?.trim(),
+        f.addrPurok?.trim() ? 'Purok ' + f.addrPurok.trim() : '',
+        f.addrBarangay?.trim() ? 'Brgy. ' + f.addrBarangay.trim() : '',
+        f.addrCity?.trim(),
+        f.addrProvince?.trim(),
+      ].filter(Boolean);
+      f.homeAddress = parts.join(', ');
+    }
+
+    // Auto-expand address breakdown if any address field failed
+    if (this.fieldErrors['addrBarangay'] || this.fieldErrors['addrCity'] || this.fieldErrors['addrProvince']) {
+      this.addrExpanded = true;
+    }
+
+    // ── CONTACT NUMBER ───────────────────────────────────────────────────────
+    // Philippine mobile only: exactly 11 digits, must start with 09.
+    const phoneRe = /^09\d{9}$/;
+    const contactRaw = (f.contactNumber?.replace(/\s/g, '') ?? '');
+    if (!contactRaw) {
+      fail('contactNumber', 'Contact Number is required.');
+    } else if (/[a-zA-Z]/.test(contactRaw)) {
+      fail('contactNumber', 'Contact Number must not contain letters.');
+    } else if (!phoneRe.test(contactRaw)) {
+      fail('contactNumber', 'Enter a valid 11-digit PH mobile number (e.g. 09XXXXXXXXX).');
+    }
+
+    // ── MOTHER TONGUE ────────────────────────────────────────────────────────
+    if (!f.motherTongue?.trim()) fail('motherTongue', 'Mother Tongue is required.');
+
+    // ── INDIGENOUS PEOPLES ───────────────────────────────────────────────────
+    if (!f.isIndigenous) fail('isIndigenous', 'Please answer this question.');
+
+    // ── SPECIAL NEEDS ────────────────────────────────────────────────────────
+    if (!f.hasSpecialNeeds) {
+      fail('hasSpecialNeeds', 'Please answer this question.');
+    } else if (f.hasSpecialNeeds === 'Yes' && !f.specialNeedsDetails?.trim()) {
+      fail('specialNeedsDetails', 'Please specify your special education needs.');
+    }
+
+    // ── ASSISTIVE TECH ───────────────────────────────────────────────────────
+    if (!f.hasAssistiveTech) {
+      fail('hasAssistiveTech', 'Please answer this question.');
+    } else if (f.hasAssistiveTech === 'Yes' && !f.assistiveTechDetails?.trim()) {
+      fail('assistiveTechDetails', 'Please specify the assistive technology used.');
+    }
+
+    // ── GUARDIAN ─────────────────────────────────────────────────────────────
+    if (!f.guardianName?.trim())         fail('guardianName',    'Guardian Name is required.');
+    // Validate using the breakdown fields; open the panel so the user can see the error
+    if (!f.guardianAddrBarangay?.trim() || !f.guardianAddrCity?.trim() || !f.guardianAddrProvince?.trim()) {
+      this.guardianAddrExpanded = true;
+      if (!f.guardianAddrBarangay?.trim()) fail('guardianAddrBarangay', 'Barangay is required.');
+      if (!f.guardianAddrCity?.trim())     fail('guardianAddrCity',     'City / Municipality is required.');
+      if (!f.guardianAddrProvince?.trim()) fail('guardianAddrProvince', 'Province is required.');
+    }
+
+    // Guardian contact — same Philippine mobile rule
+    const gContactRaw = (f.guardianContact?.replace(/\s/g, '') ?? '');
+    if (!gContactRaw) {
+      fail('guardianContact', 'Guardian Contact is required.');
+    } else if (/[a-zA-Z]/.test(gContactRaw)) {
+      fail('guardianContact', 'Guardian Contact must not contain letters.');
+    } else if (!phoneRe.test(gContactRaw)) {
+      fail('guardianContact', 'Enter a valid 11-digit PH mobile number (e.g. 09XXXXXXXXX).');
+    }
+
+    // Guardian email — basic format check
+    const gEmail = f.guardianEmail?.trim() ?? '';
+    if (!gEmail) {
+      fail('guardianEmail', 'Guardian Email is required.');
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(gEmail)) {
+      fail('guardianEmail', 'Enter a valid email address.');
+    }
+
+    if (!f.guardianRelationship?.trim()) fail('guardianRelationship', 'Relationship is required.');
+
+    // ── YEAR LEVEL ───────────────────────────────────────────────────────────
+    if (!f.yearLevel) fail('yearLevel', 'Year Level is required.');
+
+    // ── SHS-SPECIFIC ─────────────────────────────────────────────────────────
+    if (opts.requireStrand) {
+      if (!f.strand) fail('strand', 'Strand is required.');
+    }
+
+    // ── Scroll to first error ─────────────────────────────────────────────────
+    if (!ok) {
+      this.cdr.detectChanges();
+      setTimeout(() => {
+        const el = document.querySelector<HTMLElement>('.is-invalid, .field-error');
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 50);
+    }
+
+    return ok;
+  }
+
+  // ── Step 2 entry point — College ─────────────────────────────────────────
+  proceedFromInfo(): void {
+    if (!this._validateStep2({ requireLrn: true, isTransferee: this.isTransfereeEnrolling })) return;
+
     this.enrollError = ''; this.enrollStep = 'documents';
     this.saveWizardState();
     if (this.isTransfereeEnrolling) {
@@ -869,6 +1433,16 @@ export class LoginComponent implements OnInit, OnDestroy {
     this.cdr.detectChanges();
     const disc = this.isScholar && this.scholarshipAmount > 0 ? this.scholarshipAmount : 0;
     const inst = this.paymentPlan === 'installment' ? 1 : 0;
+
+    // FIX PLAN-REVERT-01: Save payment_plan to DB immediately when the user toggles it.
+    // Without this, getStudentContext (called on portal load) reads the stale DB value
+    // and reverts the plan back to 'full', overwriting what the user chose in the wizard.
+    this.http.post<any>(`${this.apiUrl}?action=update_payment_plan`, {
+      student_id:     this.torReviewStudentId,
+      payment_plan:   this.paymentPlan,
+      payment_method: this.paymentMethod,
+    }).subscribe();
+
     this.http.get<any>(
       `${this.accountingUrl}?action=get_fee_preview&program=${encodeURIComponent(this.selectedProgramName)}&student_id=${this.torReviewStudentId}&discount=${disc}&has_installment=${inst}`
     ).subscribe({
@@ -884,9 +1458,59 @@ export class LoginComponent implements OnInit, OnDestroy {
     });
   }
 
+  // Save payment method to DB immediately — called when user clicks GCash/Cash
+  // in the tor-review step so the choice persists on portal load.
+  // FIX METHOD-REVERT-01: previously only saveWizardState() was called, which
+  // stores in sessionStorage only. If sessionStorage is cleared or another tab
+  // opens the portal, payment_method defaults back to 'Cash' from DB (harmless)
+  // but payment_plan could also be stale. This ensures both are always in sync.
+  savePaymentMethodToDB(): void {
+    if (!this.torReviewStudentId) { this.saveWizardState(); return; }
+    this.saveWizardState();
+    this.http.post<any>(`${this.apiUrl}?action=update_payment_plan`, {
+      student_id:     this.torReviewStudentId,
+      payment_plan:   this.paymentPlan,
+      payment_method: this.paymentMethod,
+    }).subscribe();
+  }
+
+  // ── Scholarship accordion ────────────────────────────────────
+  toggleScholarCat(i: number): void {
+    this.expandedScholarCat = this.expandedScholarCat === i ? null : i;
+  }
+
+  selectScholarType(t: string): void {
+    this.scholarType = t;
+    this.expandedScholarCat = null;
+    this.onScholarshipChange();
+  }
+
+  clearScholarType(): void {
+    this.scholarType        = '';
+    this.scholarGrantor     = '';
+    this.scholarshipAmount  = 0;
+    this.isFullScholarship  = false;
+    this.expandedScholarCat = null;
+    this.scholarClaimCode   = '';
+    this.scholarCodeStatus  = 'idle';
+    this.scholarCodeMsg     = '';
+    this.scholarPreapprovalId = 0;
+    this.onScholarshipChange();
+  }
+
+  getCatIcon(group: string): string {
+    if (group.includes('CHED'))                          return '🏛️';
+    if (group.includes('TESDA'))                         return '🔧';
+    if (group.includes('DOST'))                          return '🔬';
+    if (group.includes('LGU') || group.includes('Government')) return '🏢';
+    return '🎓';
+  }
+  // ─────────────────────────────────────────────────────────────
+
+
   onScholarshipChange(): void {
-    // If Full Scholarship selected, auto-set amount = subtotal (before any discount)
-    if (this.scholarType === 'Full Scholarship') {
+    // If Full Scholarship (School-Granted) selected, auto-set amount = subtotal (before any discount)
+    if (this.scholarType === 'Full Scholarship (School-Granted)') {
       this.isFullScholarship = true;
       // Use subtotal (gross amount before discounts) so full coverage is guaranteed
       const fullAmount = this.feePreview?.subtotal
@@ -894,10 +1518,10 @@ export class LoginComponent implements OnInit, OnDestroy {
                       ?? this.tuitionAmount;
       this.scholarshipAmount = fullAmount > 0 ? fullAmount : this.scholarshipAmount;
     } else {
-      this.isFullScholarship = false;
-      this.scholarClaimCode    = '';
-      this.scholarCodeStatus   = 'idle';
-      this.scholarCodeMsg      = '';
+      this.isFullScholarship    = false;
+      this.scholarClaimCode     = '';
+      this.scholarCodeStatus    = 'idle';
+      this.scholarCodeMsg       = '';
       this.scholarPreapprovalId = 0;
     }
     if (this.enrollStep !== 'documents') return;
@@ -960,11 +1584,11 @@ export class LoginComponent implements OnInit, OnDestroy {
   // Step 3 — File handlers
   onFileChange(event: Event, target: 'tor'|'goodMoral'|'psa'|'form138'|'pic'): void {
     const file = (event.target as HTMLInputElement).files?.[0]; if (!file) return;
-    if (target==='tor')       { this.torFile=file;       this.torFileName=file.name; }
-    if (target==='goodMoral') { this.goodMoralFile=file; this.goodMoralFileName=file.name; }
-    if (target==='psa')       { this.psaFile=file;       this.psaFileName=file.name; }
-    if (target==='form138')   { this.form138File=file;   this.form138FileName=file.name; }
-    if (target==='pic')       { this.picFile=file;       this.picFileName=file.name; }
+    if (target==='tor')         { this.torFile=file;          this.torFileName=file.name; }
+    if (target==='goodMoral')   { this.goodMoralFile=file;    this.goodMoralFileName=file.name; }
+    if (target==='psa')         { this.psaFile=file;          this.psaFileName=file.name; }
+    if (target==='form138')     { this.form138File=file;      this.form138FileName=file.name; }
+    if (target==='pic')         { this.picFile=file;          this.picFileName=file.name; }
     this.cdr.detectChanges();
   }
 
@@ -988,7 +1612,7 @@ export class LoginComponent implements OnInit, OnDestroy {
     }
     this.enrollError = '';
     // Warn if fee is still loading
-    if (!this.isTransfereeEnrolling && this.isFeePreviewLoading) {
+   if (!this.isTransfereeEnrolling && !this.isSHS && !this.isTVET && this.isFeePreviewLoading) {
       this.enrollError = 'Fee assessment is still loading. Please wait a moment.';
       this.cdr.detectChanges(); return;
     }
@@ -1011,7 +1635,8 @@ export class LoginComponent implements OnInit, OnDestroy {
     const a = this.accountForm;
     if (!a.email || !a.password)           { this.torReviewError = 'Enter your email and password below first.'; this.cdr.detectChanges(); return; }
     if (a.password !== a.confirmPassword)  { this.torReviewError = 'Passwords do not match.';                   this.cdr.detectChanges(); return; }
-    if (a.password.length < 6)             { this.torReviewError = 'Password must be at least 6 characters.';   this.cdr.detectChanges(); return; }
+    const _pwErrTor = this.validatePassword(a.password);
+    if (_pwErrTor)                         { this.torReviewError = _pwErrTor;                                   this.cdr.detectChanges(); return; }
     this.torReviewPhase = 'sending'; this.torReviewError = ''; this.cdr.detectChanges();
 
     // STEP 1 — create user account
@@ -1024,13 +1649,18 @@ export class LoginComponent implements OnInit, OnDestroy {
           this.torReviewPhase = 'idle'; this.torReviewError = r1.message || 'Account creation failed.';
           this.cdr.detectChanges(); return;
         }
-        // STEP 2 — register student profile
-        this.http.post<any>(`${this.apiUrl}?action=register_transferee`, {
+        // FIX TVET-UNIFIED-01: Both TVET and College transferees use register_student_tvet
+        // for TVET (saves tvet_type) and register_transferee for College.
+        // Backend seeds ₱20k flat rate for TVET automatically.
+        const torAction = this.isTVET ? 'register_student_tvet' : 'register_transferee';
+        const torPayload: any = {
           user_id: r1.user_id,
           firstName: this.regForm.firstName,   lastName: this.regForm.lastName,
           middleName: this.regForm.middleName, suffix: this.regForm.suffix,
           email: a.email, phone: this.regForm.contactNumber,
           dateOfBirth: this.regForm.dateOfBirth, address: this.regForm.homeAddress,
+          guardianName: this.regForm.guardianName, guardianAddress: this.regForm.guardianAddress,
+          guardianContact: this.regForm.guardianContact,
           emergencyContact: this.regForm.guardianName, emergencyPhone: this.regForm.guardianContact,
           program: this.selectedProgramName, studentType: this.regForm.studentType,
           studentCategory: this.studentTypeCategory, paymentMethod: this.paymentMethod, paymentPlan: this.paymentPlan,
@@ -1039,7 +1669,7 @@ export class LoginComponent implements OnInit, OnDestroy {
           lrnNo: this.regForm.lrnNo, sex: this.regForm.sex, religion: this.regForm.religion,
           citizenship: this.regForm.citizenship, placeOfBirth: this.regForm.placeOfBirth,
           motherTongue: this.regForm.motherTongue, lastSchoolAttended: this.regForm.lastSchoolAttended,
-          strand: this.regForm.strand, age: this.regForm.age, guardianAddress: this.regForm.guardianAddress,
+          strand: this.regForm.strand, age: this.regForm.age,
           guardianEmail: this.regForm.guardianEmail, guardianRelationship: this.regForm.guardianRelationship,
           psaBirthCertNo: this.regForm.psaBirthCertNo, isIndigenous: this.regForm.isIndigenous,
           hasSpecialNeeds: this.regForm.hasSpecialNeeds, specialNeedsDetails: this.regForm.specialNeedsDetails,
@@ -1047,7 +1677,11 @@ export class LoginComponent implements OnInit, OnDestroy {
           learningDelivery: this.regForm.learningDelivery,
           semester: this.fullSemester,
           yearLevel: this.regForm.yearLevel,
-        }).subscribe({
+        };
+        // TVET-only extra field
+        if (this.isTVET) { torPayload['tvetType'] = this.tvetSelectedType; }
+        // STEP 2 — register student profile (action varies by category)
+        this.http.post<any>(`${this.apiUrl}?action=${torAction}`, torPayload).subscribe({
           next: (r2) => {
             if (!r2.success && !r2.student_id && !r2.student_number) {
               this.torReviewPhase = 'idle'; this.torReviewError = r2.message || 'Registration failed.';
@@ -1103,10 +1737,24 @@ export class LoginComponent implements OnInit, OnDestroy {
   proceedAfterConfirmation(): void {
     if (this.confirmCountdown) clearInterval(this.confirmCountdown);
     const a = this.accountForm;
+
+    // FIX AUTO-LOGIN: If enrollment STEP 2 already returned a token and we
+    // stored the session, skip the auth.php call entirely.
+    if (this.auth.getToken()) {
+      console.log('[ENROLL] proceedAfterConfirmation — session already stored, navigating directly');
+      this.clearWizardState();
+      // FIX PLAN-NULL-01: pass _pp/_pm so loadContext() hint works even when
+      // the update_payment_plan DB write hasn't committed yet at this instant.
+      this.router.navigate(['/student/enrollment'], {
+        queryParams: { _pp: this.paymentPlan, _pm: this.paymentMethod }
+      });
+      return;
+    }
+
     this.isSubmitting = true;
     this.cdr.detectChanges();
-    // Auto-login (with 2FA handling)
-    this.http.post<any>(this.authUrl, { email: a.email, password: a.password }).subscribe({
+    // Fallback: STEP 2 returned no token — do a normal login call
+    this.http.post<any>(`${this.authUrl}?action=login`, { email: a.email, password: a.password, portal: 'student' }).subscribe({
       next: (lr) => {
         if (lr.otp_required) {
           // 2FA triggered — show OTP modal, then continue to enrollment after verify
@@ -1122,7 +1770,10 @@ export class LoginComponent implements OnInit, OnDestroy {
         }
         if (lr.success) { this.auth.storeSession(lr.token, lr.user, 'student'); }
         this.clearWizardState();
-        this.router.navigate(['/student/enrollment']);
+        // FIX PLAN-NULL-01: pass _pp/_pm so loadContext() hint survives race window
+        this.router.navigate(['/student/enrollment'], {
+          queryParams: { _pp: this.paymentPlan, _pm: this.paymentMethod }
+        });
       },
       error: () => {
         this.isSubmitting = false;
@@ -1154,6 +1805,12 @@ export class LoginComponent implements OnInit, OnDestroy {
         const ev = res.evaluation;
         const disc = this.isScholar && this.scholarshipAmount > 0 ? this.scholarshipAmount : 0;
         const inst = this.paymentPlan === 'installment' ? 1 : 0;
+        // FIX TVET-TRANSFEREE-FLOW-03: TVET transferees have a fixed ₱20k flat fee —
+        // do NOT call the unit-based fee_preview endpoint. Build the fee object directly
+        // so the tor-review 'done' phase shows the flat rate, not a unit-based breakdown.
+        // FIX TVET-UNIFIED-01: TVET transferee uses the same College transferee flow.
+        // get_fee_preview returns ₱20k flat rate for TVET transferees (backend handles it).
+        // No separate branch needed — same API call, same result shape.
         this.http.get<any>(
           `${this.accountingUrl}?action=get_fee_preview&program=${encodeURIComponent(this.selectedProgramName)}&student_id=${sid}&discount=${disc}&has_installment=${inst}`
         ).subscribe({
@@ -1179,6 +1836,15 @@ export class LoginComponent implements OnInit, OnDestroy {
     };
     this.feePreview = fee;
     this.torReviewPhase = ev.status === 'Rejected' ? 'rejected' : 'done';
+    // FIX TVET-TRANSFEREE-SUBJECTS-02: Load program subject list when TOR evaluation
+    // result arrives so the "Program Subjects" section in the done/rejected phase
+    // shows real subjects instead of "0 total subjects · -1 remaining".
+    // programCourses is empty here because setTorResult fires from the TOR poll
+    // (checkTorEval) which runs independently of proceedFromInfoTVET — and even
+    // when proceedFromInfoTVET's fix loaded it, a page refresh clears it from memory.
+    if (!this.programCourses.length && this.selectedProgramName) {
+      this.loadProgramCourses();
+    }
     this.cdr.detectChanges();
   }
 
@@ -1238,23 +1904,50 @@ export class LoginComponent implements OnInit, OnDestroy {
    */
   computeAgeFromDOB(): void {
     const dob = this.regForm.dateOfBirth;
-    if (!dob) { this.regForm.age = ''; this.cdr.detectChanges(); return; }
-
+    if (!dob) {
+      this.regForm.age = '';
+      delete this.fieldErrors['dateOfBirth'];
+      this.cdr.detectChanges(); return;
+    }
     const birth = new Date(dob);
-    if (isNaN(birth.getTime())) { this.regForm.age = ''; this.cdr.detectChanges(); return; }
-
+    if (isNaN(birth.getTime())) {
+      this.regForm.age = '';
+      this.fieldErrors['dateOfBirth'] = 'Please enter a valid date.';
+      this.cdr.detectChanges(); return;
+    }
+    // Live check: birthday must be strictly before today
+    const todayMidnight = new Date();
+    todayMidnight.setHours(0, 0, 0, 0);
+    if (birth >= todayMidnight) {
+      this.regForm.age = '';
+      this.fieldErrors['dateOfBirth'] = 'Date of Birth must be before today. A student cannot be born today or in the future.';
+      this.cdr.detectChanges(); return;
+    }
+    // Valid — clear error and compute age
+    delete this.fieldErrors['dateOfBirth'];
     const today = new Date();
     let age = today.getFullYear() - birth.getFullYear();
     const monthDiff = today.getMonth() - birth.getMonth();
-    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) {
-      age--;
+    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) { age--; }
+    // Live age range check: 14–80
+    if (age < 14) {
+      this.fieldErrors['dateOfBirth'] = 'Student must be at least 14 years old to enroll.';
+      this.regForm.age = '';
+      this.cdr.detectChanges(); return;
     }
-    this.regForm.age = age > 0 ? String(age) : '';
+    if (age > 80) {
+      this.fieldErrors['dateOfBirth'] = 'Age cannot exceed 80 years old.';
+      this.regForm.age = '';
+      this.cdr.detectChanges(); return;
+    }
+    this.regForm.age = String(age);
     this.cdr.detectChanges();
   }
 
   finishTorReview(): void {
-    // Auto-login then navigate
+    // Sequential: wait for update_payment_plan to commit to DB, THEN login + navigate.
+    // This prevents the race condition where enrollment.ts loaded before the UPDATE finished,
+    // leaving students.payment_method as NULL and defaulting to GCash incorrectly.
     const a = this.accountForm;
     this.isSubmitting = true; this.cdr.detectChanges();
     if (isPlatformBrowser(this.platformId)) {
@@ -1262,41 +1955,73 @@ export class LoginComponent implements OnInit, OnDestroy {
       sessionStorage.setItem('pendingPaymentPlan',   this.paymentPlan);
     }
 
-    // Save payment_plan + payment_method to DB so it persists after localStorage is cleared
+    // Helper that performs the login + navigation step (extracted so we can
+    // call it both after a successful DB update and as a fallback if there is
+    // no studentId to update).
+    const doLogin = () => {
+      this.http.post<any>(`${this.authUrl}?action=login`, { email: a.email, password: a.password, portal: 'student' }).subscribe({
+        next: (lr) => {
+          if (lr.otp_required) {
+            this.isSubmitting = false;
+            this.otpToken = lr.otp_token ?? '';
+            this.otpCode  = lr.otp_code ?? '';
+            this.otpInput = ''; this.otpError = '';
+            this.otpCountdown = lr.otp_expires_in ?? 300;
+            this.showOtpModal = true;
+            this._startOtpTimer();
+            this.cdr.detectChanges();
+            return;
+          }
+          if (lr.success && isPlatformBrowser(this.platformId)) {
+            this.auth.storeSession(lr.token, lr.user, 'student');
+          }
+          this.clearWizardState();
+          // FIX RACE-NUCLEAR: Pass plan+method as query params — survives navigation
+          // regardless of DB write timing or sessionStorage read-order issues.
+          this.router.navigate(['/student/enrollment'], {
+            queryParams: {
+              _pm: this.paymentMethod,   // 'Cash' or 'GCash'
+              _pp: this.paymentPlan,     // 'installment' or 'full'
+            }
+          });
+        },
+        error: () => {
+          this.view = 'login'; this.email = a.email;
+          this.successMessage = 'Account created! Please log in.';
+          this.cdr.detectChanges();
+        }
+      });
+    };
+
+    // Save payment_plan + payment_method to DB first, then login sequentially.
     const studentId = this.torReviewStudentId;
     if (studentId > 0) {
       this.http.post<any>(`${this.apiUrl}?action=update_payment_plan`, {
         student_id:     studentId,
         payment_plan:   this.paymentPlan,
         payment_method: this.paymentMethod,
-      }).subscribe(); // fire-and-forget
+      }).subscribe({
+        next:  () => doLogin(),  // DB write confirmed — now safe to login
+        // FIX FE-PLAN-REVERT-01 (Bug 4): On error, retry the DB write once before
+        // proceeding. The old code called doLogin() immediately on error, meaning the
+        // student logged in with payment_plan still NULL in DB. Then loadContext() found
+        // NULL, returned needsPlanSelection:true, and showed the plan selector again —
+        // wiping the installment breakdown the student already saw in the wizard.
+        // Retry gives the DB write a second chance; sessionStorage + query param hints
+        // act as a safety net even if the retry also fails.
+        error: () => {
+          // Retry once
+          this.http.post<any>(`${this.apiUrl}?action=update_payment_plan`, {
+            student_id:     studentId,
+            payment_plan:   this.paymentPlan,
+            payment_method: this.paymentMethod,
+          }).subscribe({ next: () => doLogin(), error: () => doLogin() });
+        },
+      });
+    } else {
+      // No studentId — nothing to persist; go straight to login
+      doLogin();
     }
-
-    this.http.post<any>(this.authUrl, { email: a.email, password: a.password }).subscribe({
-      next: (lr) => {
-        if (lr.otp_required) {
-          this.isSubmitting = false;
-          this.otpToken = lr.otp_token ?? '';
-          this.otpCode  = lr.otp_code ?? '';
-          this.otpInput = ''; this.otpError = '';
-          this.otpCountdown = lr.otp_expires_in ?? 300;
-          this.showOtpModal = true;
-          this._startOtpTimer();
-          this.cdr.detectChanges();
-          return;
-        }
-        if (lr.success && isPlatformBrowser(this.platformId)) {
-          this.auth.storeSession(lr.token, lr.user, 'student');
-        }
-        this.clearWizardState();
-        this.router.navigate(['/student/enrollment']);
-      },
-      error: () => {
-        this.view = 'login'; this.email = a.email;
-        this.successMessage = 'Account created! Please log in.';
-        this.cdr.detectChanges();
-      }
-    });
   }
 
   // ══════════════════════════════════════════════════════════
@@ -1304,9 +2029,14 @@ export class LoginComponent implements OnInit, OnDestroy {
   // ══════════════════════════════════════════════════════════
   submitEnrollmentSHS(): void {
     const a = this.accountForm;
-    if (!a.email || !a.password)             { this.enrollError = 'Email and password are required.';        this.cdr.detectChanges(); return; }
-    if (a.password !== a.confirmPassword)    { this.enrollError = 'Passwords do not match.';                 this.cdr.detectChanges(); return; }
-    if (a.password.length < 6)              { this.enrollError = 'Password must be at least 6 characters.'; this.cdr.detectChanges(); return; }
+    this.accountErrors = {};
+    if (!a.email?.trim())                    { this.setFieldError(this.accountErrors, 'email',    'Email is required.'); return; }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(a.email.trim())) { this.setFieldError(this.accountErrors, 'email', 'Enter a valid email address.'); return; }
+    if (!a.password)                         { this.setFieldError(this.accountErrors, 'password', 'Password is required.'); return; }
+    const _pwErrSHS = this.validatePassword(a.password);
+    if (_pwErrSHS)                           { this.setFieldError(this.accountErrors, 'password', _pwErrSHS); return; }
+    if (!a.confirmPassword)                  { this.setFieldError(this.accountErrors, 'confirmPassword', 'Please confirm your password.'); return; }
+    if (a.password !== a.confirmPassword)    { this.setFieldError(this.accountErrors, 'confirmPassword', 'Passwords do not match.'); return; }
 
     this.isSubmitting = true; this.enrollError = ''; this.cdr.detectChanges();
 
@@ -1353,6 +2083,7 @@ export class LoginComponent implements OnInit, OnDestroy {
           isScholar: this.isScholar ? 1 : 0,
           scholarType: this.scholarType, scholarGrantor: this.scholarGrantor,
           scholarshipAmount: this.scholarshipAmount,
+          scholarClaimCode: this.scholarClaimCode,
           paymentMethod: this.paymentMethod, paymentPlan: this.paymentPlan,
           semester: this.fullSemester, yearLevel: this.regForm.yearLevel,
         }).subscribe({
@@ -1370,26 +2101,32 @@ export class LoginComponent implements OnInit, OnDestroy {
             const studentId = sRes.student_id || sRes.studentId;
             const doUploadsThenLogin = () => {
               const doLogin = () => {
-                this.http.post<any>(this.authUrl, { email: a.email, password: a.password }).subscribe({
+                this.http.post<any>(`${this.authUrl}?action=login`, { email: a.email, password: a.password, portal: 'student' }).subscribe({
                   next: (lr) => {
                     if (lr.success && isPlatformBrowser(this.platformId)) {
                       this.auth.storeSession(lr.token, lr.user, 'student');
                     }
                     this.clearWizardState();
-                    this.router.navigate(['/student/enrollment']);
+                    // FIX PLAN-NULL-01: pass _pp/_pm so loadContext() hint survives race window
+                    this.router.navigate(['/student/enrollment'], {
+                      queryParams: { _pp: this.paymentPlan, _pm: this.paymentMethod }
+                    });
                   },
                   error: () => { this.view = 'login'; this.email = a.email; this.successMessage = 'Account created! Please log in.'; this.cdr.detectChanges(); }
                 });
               };
-              // Upload Form 138 if present
-              if (this.form138File && studentId) {
-                const fd = new FormData();
-                fd.append('student_id', String(studentId));
-                fd.append('document_type', 'form138');
-                fd.append('file', this.form138File);
-                this.http.post<any>(environment.registrarApi + '?action=upload_document', fd)
-                  .subscribe({ next: () => doLogin(), error: () => doLogin() });
-              } else { doLogin(); }
+              // Upload Form 138 then login
+              const doAfterProof = () => {
+                if (this.form138File && studentId) {
+                  const fd = new FormData();
+                  fd.append('student_id', String(studentId));
+                  fd.append('document_type', 'form138');
+                  fd.append('file', this.form138File);
+                  this.http.post<any>(environment.registrarApi + '?action=upload_document', fd)
+                    .subscribe({ next: () => doLogin(), error: () => doLogin() });
+                } else { doLogin(); }
+              };
+              doAfterProof();
             };
             doUploadsThenLogin();
           },
@@ -1400,9 +2137,9 @@ export class LoginComponent implements OnInit, OnDestroy {
           }
         });
       },
-      error: () => {
+      error: (err: any) => {
         this.isSubmitting = false;
-        this.enrollError = 'Cannot connect to server. Check XAMPP is running.';
+        this.enrollError = err?.error?.message || err?.error?.errors?.[0] || 'Cannot connect to server. Check XAMPP is running.';
         this.cdr.detectChanges();
       }
     });
@@ -1412,11 +2149,28 @@ export class LoginComponent implements OnInit, OnDestroy {
   // TVET ENROLLMENT SUBMIT — separate function, does NOT modify College flow
   // ══════════════════════════════════════════════════════════
   submitEnrollmentTVET(): void {
-    const a = this.accountForm;
-    if (!a.email || !a.password)            { this.enrollError = 'Email and password are required.';        this.cdr.detectChanges(); return; }
-    if (a.password !== a.confirmPassword)   { this.enrollError = 'Passwords do not match.';                 this.cdr.detectChanges(); return; }
-    if (a.password.length < 6)             { this.enrollError = 'Password must be at least 6 characters.'; this.cdr.detectChanges(); return; }
+    // FIX TVET-WIZARD-FE-04: Guard against double-fire on refresh/double-click,
+    // same as submitEnrollment() uses enrollmentSubmitted.
+    if (this.enrollmentSubmitted) return;
+    // FIX TVET-TRANSFEREE-FLOW-05: TVET transferees must NOT reach this path.
+    // They are handled by sendTorNow() via the tor-review step, same as College.
+    // This guard prevents accidental double-registration if the wizard state is wrong.
+    if (this.isTransfereeEnrolling) {
+      this.enrollError = 'Please use the TOR review step to complete registration.';
+      this.cdr.detectChanges(); return;
+    }
 
+    const a = this.accountForm;
+    this.accountErrors = {};
+    if (!a.email?.trim())                   { this.setFieldError(this.accountErrors, 'email',    'Email is required.'); return; }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(a.email.trim())) { this.setFieldError(this.accountErrors, 'email', 'Enter a valid email address.'); return; }
+    if (!a.password)                        { this.setFieldError(this.accountErrors, 'password', 'Password is required.'); return; }
+    const _pwErrTVET = this.validatePassword(a.password);
+    if (_pwErrTVET)                         { this.setFieldError(this.accountErrors, 'password', _pwErrTVET); return; }
+    if (!a.confirmPassword)                 { this.setFieldError(this.accountErrors, 'confirmPassword', 'Please confirm your password.'); return; }
+    if (a.password !== a.confirmPassword)   { this.setFieldError(this.accountErrors, 'confirmPassword', 'Passwords do not match.'); return; }
+
+    this.enrollmentSubmitted = true;  // FIX TVET-WIZARD-FE-04: lock against double-fire
     this.isSubmitting = true; this.enrollError = ''; this.cdr.detectChanges();
 
     // STEP 1 — Create user account
@@ -1460,6 +2214,7 @@ export class LoginComponent implements OnInit, OnDestroy {
           isScholar: this.isScholar ? 1 : 0,
           scholarType: this.scholarType, scholarGrantor: this.scholarGrantor,
           scholarshipAmount: this.scholarshipAmount,
+          scholarClaimCode: this.scholarClaimCode,
           paymentMethod: this.paymentMethod, paymentPlan: this.paymentPlan,
           semester: this.fullSemester, yearLevel: this.regForm.yearLevel,
         }).subscribe({
@@ -1473,28 +2228,54 @@ export class LoginComponent implements OnInit, OnDestroy {
               sessionStorage.setItem('pendingPaymentMethod', this.paymentMethod);
               sessionStorage.setItem('pendingPaymentPlan', this.paymentPlan);
             }
-            // Auto-login
-            this.http.post<any>(this.authUrl, { email: a.email, password: a.password }).subscribe({
-              next: (lr) => {
-                if (lr.success && isPlatformBrowser(this.platformId)) {
-                  this.auth.storeSession(lr.token, lr.user, 'student');
-                }
-                this.clearWizardState();
-                this.router.navigate(['/student/enrollment']);
-              },
-              error: () => { this.view = 'login'; this.email = a.email; this.successMessage = 'Account created! Please log in.'; this.cdr.detectChanges(); }
-            });
+            const tvetStudentId  = sRes.student_id || sRes.studentId;
+            const isTransfereeTVET = this.regForm.studentType === 'Transferee';
+            const fullNameTVET     = `${this.regForm.firstName} ${this.regForm.lastName}`.trim();
+            // nextStep: transferee → 'tor' (wait for TOR eval); new/old → 'free' (₱0 wizard)
+            const tvetNextStep: 'payment' | 'tor' | 'free' = isTransfereeTVET ? 'tor' : 'free';
+
+            // FIX TVET-WIZARD-FE-02: Show the same confirmation screen as College/SHS.
+            // Previously skipped — navigated directly without countdown or next-step hint.
+            const doTvetLogin = () => {
+              this.showRegistrationConfirmation(
+                sRes.student_number ?? sRes.studentNumber ?? '',
+                fullNameTVET,
+                this.selectedProgramName,
+                tvetNextStep
+              );
+            };
+
+            // FIX TVET-WIZARD-FE-03: Upload TOR for TVET transferees before proceeding —
+            // identical to the College transferee flow in submitEnrollment().
+            // Without this, the Registrar never receives the TOR file and the
+            // tor_evaluations row stays empty, blocking the entire transferee workflow.
+            if (isTransfereeTVET && tvetStudentId) {
+              if (this.torFile) {
+                const fdTvet = new FormData();
+                fdTvet.append('student_id', String(tvetStudentId));
+                fdTvet.append('tor_file', this.torFile);
+                this.http.post<any>(environment.registrarApi + '?action=upload_tor_file', fdTvet)
+                  .subscribe({ next: () => doTvetLogin(), error: () => doTvetLogin() });
+              } else {
+                this.http.post<any>(environment.registrarApi + '?action=submit_tor', { student_id: tvetStudentId })
+                  .subscribe({ next: () => doTvetLogin(), error: () => doTvetLogin() });
+              }
+            } else {
+              doTvetLogin();
+            }
           },
           error: (err) => {
             this.isSubmitting = false;
+            this.enrollmentSubmitted = false;  // FIX TVET-WIZARD-FE-04: allow retry on failure
             this.enrollError = err?.error?.message || 'TVET registration failed.';
             this.cdr.detectChanges();
           }
         });
       },
-      error: () => {
+      error: (err: any) => {
         this.isSubmitting = false;
-        this.enrollError = 'Cannot connect to server. Check XAMPP is running.';
+        this.enrollmentSubmitted = false;  // FIX TVET-WIZARD-FE-04: allow retry on failure
+        this.enrollError = err?.error?.message || err?.error?.errors?.[0] || 'Cannot connect to server. Check XAMPP is running.';
         this.cdr.detectChanges();
       }
     });
@@ -1506,7 +2287,9 @@ export class LoginComponent implements OnInit, OnDestroy {
 
   sendForgotOtp(isResend = false): void {
     const email = this.fpEmail.trim();
-    if (!email) { this.fpError = 'Please enter your email address.'; return; }
+    this.forgotErrors = {};
+    if (!email) { this.forgotErrors['fpEmail'] = 'Email address is required.'; this.cdr.detectChanges(); return; }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { this.forgotErrors['fpEmail'] = 'Enter a valid email address.'; this.cdr.detectChanges(); return; }
     this.fpLoading = true; this.fpError = ''; this.fpSuccess = ''; this.cdr.detectChanges();
     this.http.post<any>(`${this.authUrl}?action=forgot_password`, { email }).subscribe({
       next: (res) => {
@@ -1529,24 +2312,13 @@ export class LoginComponent implements OnInit, OnDestroy {
   }
 
   submitResetPassword(): void {
-    // Client-side validation
-    if (!this.fpEmail || !this.fpOtp || !this.fpNewPassword || !this.fpConfirmPassword) {
-      this.fpError = 'Lahat ng fields ay kailangan.';
-      this.cdr.detectChanges();
-      return;
-    }
-
-    if (this.fpNewPassword.length < 6) {
-      this.fpError = 'Ang password ay dapat hindi bababa sa 6 na character.';
-      this.cdr.detectChanges();
-      return;
-    }
-
-    if (this.fpNewPassword !== this.fpConfirmPassword) {
-      this.fpError = 'Hindi magkatugma ang password.';
-      this.cdr.detectChanges();
-      return;
-    }
+    // Client-side per-field validation
+    this.forgotErrors = {};
+    if (!this.fpOtp.trim())           { this.forgotErrors['fpOtp'] = 'Reset code is required.';                    this.cdr.detectChanges(); return; }
+    if (!this.fpNewPassword)          { this.forgotErrors['fpNewPassword'] = 'New password is required.';          this.cdr.detectChanges(); return; }
+    if (this.fpNewPassword.length < 6){ this.forgotErrors['fpNewPassword'] = 'Password must be at least 6 characters.'; this.cdr.detectChanges(); return; }
+    if (!this.fpConfirmPassword)      { this.forgotErrors['fpConfirmPassword'] = 'Please confirm your password.';  this.cdr.detectChanges(); return; }
+    if (this.fpNewPassword !== this.fpConfirmPassword) { this.forgotErrors['fpConfirmPassword'] = 'Passwords do not match.'; this.cdr.detectChanges(); return; }
 
     this.fpLoading = true;
     this.fpError   = '';
@@ -1601,34 +2373,9 @@ export class LoginComponent implements OnInit, OnDestroy {
   // ══════════════════════════════════════════════════════════
   // VALIDATION helpers for SHS / TVET specific steps
   // ══════════════════════════════════════════════════════════
+  // ── Step 2 entry point — SHS ─────────────────────────────────────────────
   proceedFromInfoSHS(): void {
-    const f = this.regForm;
-    if (!f.lastName?.trim())        { this.enrollError = 'Last Name is required.';        this.cdr.detectChanges(); return; }
-    if (!f.firstName?.trim())       { this.enrollError = 'First Name is required.';       this.cdr.detectChanges(); return; }
-    if (!f.studentType)             { this.enrollError = 'Type of Student is required.';  this.cdr.detectChanges(); return; }
-    if (!f.lrnNo?.trim())           { this.enrollError = 'LRN No. is required for SHS.'; this.cdr.detectChanges(); return; }
-    if (!f.dateOfBirth)             { this.enrollError = 'Date of Birth is required.';    this.cdr.detectChanges(); return; }
-    if (!f.sex)                     { this.enrollError = 'Sex is required.';              this.cdr.detectChanges(); return; }
-    if (!f.religion?.trim())        { this.enrollError = 'Religion is required.';         this.cdr.detectChanges(); return; }
-    if (!f.placeOfBirth?.trim())    { this.enrollError = 'Place of Birth is required.';   this.cdr.detectChanges(); return; }
-    if (!f.citizenship?.trim())     { this.enrollError = 'Citizenship is required.';      this.cdr.detectChanges(); return; }
-    if (!f.homeAddress?.trim())     { this.enrollError = 'Home Address is required.';     this.cdr.detectChanges(); return; }
-    if (!f.contactNumber?.trim())   { this.enrollError = 'Contact Number is required.';   this.cdr.detectChanges(); return; }
-    if (!f.motherTongue?.trim())    { this.enrollError = 'Mother Tongue is required.';    this.cdr.detectChanges(); return; }
-    if (!f.isIndigenous)            { this.enrollError = 'Please answer the IP question.'; this.cdr.detectChanges(); return; }
-    if (!f.hasSpecialNeeds)         { this.enrollError = 'Please answer: Special Education Needs?'; this.cdr.detectChanges(); return; }
-    if (f.hasSpecialNeeds === 'Yes' && !f.specialNeedsDetails?.trim()) { this.enrollError = 'Please specify your special education needs.'; this.cdr.detectChanges(); return; }
-    if (!f.hasAssistiveTech)        { this.enrollError = 'Please answer: Assistive Technology?'; this.cdr.detectChanges(); return; }
-    if (!f.guardianName?.trim())    { this.enrollError = 'Parent / Guardian Name is required.'; this.cdr.detectChanges(); return; }
-    if (!f.guardianEmail?.trim())   { this.enrollError = 'Parent / Guardian Email is required.';   this.cdr.detectChanges(); return; }
-    if (!f.guardianContact?.trim()) { this.enrollError = 'Parent / Guardian Contact is required.'; this.cdr.detectChanges(); return; }
-    if (!f.guardianEmail?.trim())     { this.enrollError = 'Parent / Guardian Email is required.'; this.cdr.detectChanges(); return; }
-    if (!f.strand)                  { this.enrollError = 'Please choose your SHS strand.'; this.cdr.detectChanges(); return; }
-    if (!f.yearLevel)               { this.enrollError = 'Grade Level is required.';      this.cdr.detectChanges(); return; }
-    // Build lastSchoolAttended from previousSchools
-    const filledSchools = this.previousSchools.filter(s => s.schoolName?.trim());
-    if (filledSchools.length === 0) { this.enrollError = 'Please enter at least one previous school.'; this.cdr.detectChanges(); return; }
-    f.lastSchoolAttended = filledSchools.map(s => `${s.level} - ${s.schoolName} (${s.schoolYear})`).join('; ');
+    if (!this._validateStep2({ requireLrn: true, requireStrand: true })) return;
     this.enrollError = '';
     this.enrollStep = 'documents';
     this.saveWizardState();
@@ -1664,37 +2411,24 @@ export class LoginComponent implements OnInit, OnDestroy {
     });
   }
 
+  // ── Step 2 entry point — TVET ────────────────────────────────────────────
   proceedFromInfoTVET(): void {
-    const f = this.regForm;
-    if (!f.lastName?.trim())        { this.enrollError = 'Last Name is required.';        this.cdr.detectChanges(); return; }
-    if (!f.firstName?.trim())       { this.enrollError = 'First Name is required.';       this.cdr.detectChanges(); return; }
-    if (!f.studentType)             { this.enrollError = 'Type of Student is required.';  this.cdr.detectChanges(); return; }
-    if (!f.lrnNo?.trim())           { this.enrollError = 'LRN No. is required for TVET.'; this.cdr.detectChanges(); return; }
-    if (!f.dateOfBirth)             { this.enrollError = 'Date of Birth is required.';    this.cdr.detectChanges(); return; }
-    if (!f.sex)                     { this.enrollError = 'Sex is required.';              this.cdr.detectChanges(); return; }
-    if (!f.religion?.trim())        { this.enrollError = 'Religion is required.';         this.cdr.detectChanges(); return; }
-    if (!f.placeOfBirth?.trim())    { this.enrollError = 'Place of Birth is required.';   this.cdr.detectChanges(); return; }
-    if (!f.citizenship?.trim())     { this.enrollError = 'Citizenship is required.';      this.cdr.detectChanges(); return; }
-    if (!f.homeAddress?.trim())     { this.enrollError = 'Home Address is required.';     this.cdr.detectChanges(); return; }
-    if (!f.contactNumber?.trim())   { this.enrollError = 'Contact Number is required.';   this.cdr.detectChanges(); return; }
-    if (!f.motherTongue?.trim())    { this.enrollError = 'Mother Tongue is required.';    this.cdr.detectChanges(); return; }
-    if (!f.isIndigenous)            { this.enrollError = 'Please answer the IP question.'; this.cdr.detectChanges(); return; }
-    if (!f.hasSpecialNeeds)         { this.enrollError = 'Please answer: Special Education Needs?'; this.cdr.detectChanges(); return; }
-    if (f.hasSpecialNeeds === 'Yes' && !f.specialNeedsDetails?.trim()) { this.enrollError = 'Please specify your special education needs.'; this.cdr.detectChanges(); return; }
-    if (!f.hasAssistiveTech)        { this.enrollError = 'Please answer: Assistive Technology?'; this.cdr.detectChanges(); return; }
-    if (!f.guardianName?.trim())    { this.enrollError = 'Parent / Guardian Name is required.'; this.cdr.detectChanges(); return; }
-    if (!f.guardianEmail?.trim())   { this.enrollError = 'Parent / Guardian Email is required.';   this.cdr.detectChanges(); return; }
-    if (!f.guardianContact?.trim()) { this.enrollError = 'Parent / Guardian Contact is required.'; this.cdr.detectChanges(); return; }
-    if (!f.guardianEmail?.trim())     { this.enrollError = 'Parent / Guardian Email is required.'; this.cdr.detectChanges(); return; }
-    if (!f.yearLevel)               { this.enrollError = 'Year Level is required.';       this.cdr.detectChanges(); return; }
-    // Build lastSchoolAttended
-    const filledSchools = this.previousSchools.filter(s => s.schoolName?.trim());
-    if (filledSchools.length === 0) { this.enrollError = 'Please enter at least one previous school.'; this.cdr.detectChanges(); return; }
-    f.lastSchoolAttended = filledSchools.map(s => `${s.level} - ${s.schoolName} (${s.schoolYear})`).join('; ');
+    if (!this._validateStep2({ requireLrn: true, isTransferee: this.isTransfereeEnrolling })) return;
     this.enrollError = '';
     this.enrollStep = 'documents';
     this.saveWizardState();
-    this.loadTVETFee();
+    // TVET-TRANSFEREE-FLOW-08: For transferees, fee is revealed only after TOR
+    // evaluation in the tor-review step — skip fee load here, matching College flow.
+    if (!this.isTransfereeEnrolling) {
+      this.loadTVETFee();
+    } else {
+      // FIX TVET-TRANSFEREE-SUBJECTS-01: TVET transferees need the program subject
+      // list at Step 3 (same as College transferees) so the "No subjects found"
+      // empty state is not shown. loadProgramCourses() was only called from
+      // proceedFromInfo() (College path) — it was never called here, leaving
+      // programCourses empty for TVET transferees.
+      this.loadProgramCourses();
+    }
     this.cdr.detectChanges();
   }
 
@@ -1740,19 +2474,62 @@ export class LoginComponent implements OnInit, OnDestroy {
       this.enrollError = 'Please enter and verify your Full Scholarship claim code from Accounting.';
       this.cdr.detectChanges(); return;
     }
+    // FIX TVET-TRANSFEREE-FLOW-01: TVET transferees must go through the same
+    // tor-review step as College transferees (create account → upload TOR →
+    // wait for Registrar evaluation → see ₱20k flat fee → proceed to account/payment).
+    // Previously always went to 'account', skipping TOR evaluation entirely.
+    if (this.isTransfereeEnrolling) {
+      if (!this.torFile) {
+        this.enrollError = 'TOR / Form 137 is required for Transferee evaluation.';
+        this.cdr.detectChanges(); return;
+      }
+      this.enrollError = '';
+      this.enrollStep = 'tor-review';
+      this.torReviewPhase = 'idle';
+      this.torReviewError = '';
+      this.torEvalResult = null;
+      this.saveWizardState();
+      this.cdr.detectChanges();
+      return;
+    }
     this.enrollError = '';
     this.enrollStep = 'account';
     this.saveWizardState();
     this.cdr.detectChanges();
   }
 
+  // ── Password strength validator (mirrors auth.php rules exactly) ──────────
+  private validatePassword(password: string): string {
+    if (password.length < 8)
+      return 'Password must be at least 8 characters.';
+    if (!/[A-Z]/.test(password))
+      return 'Password must contain at least one uppercase letter.';
+    if (!/[a-z]/.test(password))
+      return 'Password must contain at least one lowercase letter.';
+    if (!/[0-9]/.test(password))
+      return 'Password must contain at least one number.';
+    if (!/[!@#$%^&*()\-_=+\[\]{};':",./<>?`~\\|]/.test(password))
+      return 'Password must contain at least one special character (e.g. !@#$%).';
+    return '';
+  }
+
   // Step 4 — Submit
   submitEnrollment(): void {
-    const a = this.accountForm;
-    if (!a.email||!a.password)              { this.enrollError='Email and password are required.';        this.cdr.detectChanges(); return; }
-    if (a.password !== a.confirmPassword)   { this.enrollError='Passwords do not match.';                 this.cdr.detectChanges(); return; }
-    if (a.password.length < 6)              { this.enrollError='Password must be at least 6 characters.'; this.cdr.detectChanges(); return; }
+    // FIX REFRESH-REGISTER-01: Bail out immediately if this call was already
+    // made in this page lifecycle. Covers both double-click and refresh-restore.
+    if (this.enrollmentSubmitted) return;
 
+    const a = this.accountForm;
+    this.accountErrors = {};
+    if (!a.email?.trim())                   { this.setFieldError(this.accountErrors, 'email',           'Email is required.');                return; }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(a.email.trim())) { this.setFieldError(this.accountErrors, 'email', 'Enter a valid email address.'); return; }
+    if (!a.password)                        { this.setFieldError(this.accountErrors, 'password',        'Password is required.');             return; }
+    const _pwErr1 = this.validatePassword(a.password);
+    if (_pwErr1)                            { this.setFieldError(this.accountErrors, 'password',        _pwErr1);                            return; }
+    if (!a.confirmPassword)                 { this.setFieldError(this.accountErrors, 'confirmPassword', 'Please confirm your password.');     return; }
+    if (a.password !== a.confirmPassword)   { this.setFieldError(this.accountErrors, 'confirmPassword', 'Passwords do not match.');           return; }
+
+    this.enrollmentSubmitted = true;  // FIX REFRESH-REGISTER-01: lock against double-fire
     this.isSubmitting = true; this.enrollError = ''; this.cdr.detectChanges();
 
     // ── STEP 1: Create user account ──────────────────────────
@@ -1797,6 +2574,7 @@ export class LoginComponent implements OnInit, OnDestroy {
           isScholar: this.isScholar ? 1 : 0,
           scholarType: this.scholarType, scholarGrantor: this.scholarGrantor,
           scholarshipAmount: this.scholarshipAmount,
+          scholarClaimCode: this.scholarClaimCode,
           lrnNo: this.regForm.lrnNo,
           sex: this.regForm.sex,
           religion: this.regForm.religion,
@@ -1823,6 +2601,7 @@ export class LoginComponent implements OnInit, OnDestroy {
 
             // FIX: Only treat as real failure if there's truly no student record
             if (!sRes.success && !sRes.student_id && !sRes.student_number) {
+              this.enrollmentSubmitted = false;  // FIX REFRESH-REGISTER-01: allow retry
               this.enrollError = sRes.message || 'Registration failed.';
               console.error('[ENROLL] STEP 2 FAILED — no student_id returned:', sRes);
               this.cdr.detectChanges();
@@ -1833,6 +2612,20 @@ export class LoginComponent implements OnInit, OnDestroy {
             if (isPlatformBrowser(this.platformId)) {
               sessionStorage.setItem('pendingPaymentMethod', this.paymentMethod);
               sessionStorage.setItem('pendingPaymentPlan', this.paymentPlan);
+            }
+
+            // FIX AUTO-LOGIN: If enrollment.php returned a token directly,
+            // store the session immediately — no need for a separate auth.php call.
+            if (sRes.token && sRes.role) {
+              console.log('[ENROLL] STEP 3 — token received from STEP 2, storing session directly');
+              const autoUser = {
+                id:         userId,
+                email:      a.email,
+                role:       'student' as const,
+                first_name: this.regForm.firstName,
+                last_name:  this.regForm.lastName,
+              };
+              this.auth.storeSession(sRes.token, autoUser, 'student');
             }
 
             // ── STEP 2b: If Transferee, auto-submit TOR for registrar evaluation ──
@@ -1853,34 +2646,39 @@ export class LoginComponent implements OnInit, OnDestroy {
               );
             };
 
-            if (isTransferee && studentId) {
-              console.log('[ENROLL] Transferee — uploading TOR file, student_id:', studentId);
-              if (this.torFile) {
-                const formData = new FormData();
-                formData.append('student_id', String(studentId));
-                formData.append('tor_file', this.torFile);
-                this.http.post<any>(
-                  `${environment.registrarApi}?action=upload_tor_file`, formData
-                ).subscribe({
-                  next: (torRes) => { console.log('[ENROLL] TOR uploaded:', torRes); doAutoLogin(); },
-                  error: () => { console.warn('[ENROLL] TOR upload failed — submitting without file'); doAutoLogin(); }
-                });
+            // Handle TOR upload / auto-login
+            const doAfterScholarProof = () => {
+              if (isTransferee && studentId) {
+                console.log('[ENROLL] Transferee — uploading TOR file, student_id:', studentId);
+                if (this.torFile) {
+                  const formData = new FormData();
+                  formData.append('student_id', String(studentId));
+                  formData.append('tor_file', this.torFile);
+                  this.http.post<any>(
+                    `${environment.registrarApi}?action=upload_tor_file`, formData
+                  ).subscribe({
+                    next: (torRes) => { console.log('[ENROLL] TOR uploaded:', torRes); doAutoLogin(); },
+                    error: () => { console.warn('[ENROLL] TOR upload failed — submitting without file'); doAutoLogin(); }
+                  });
+                } else {
+                  // No file but still create the tor_evaluation record
+                  this.http.post<any>(`${environment.registrarApi}?action=submit_tor`,
+                    { student_id: studentId }
+                  ).subscribe({
+                    next: (torRes) => { console.log('[ENROLL] TOR submitted (no file):', torRes); doAutoLogin(); },
+                    error: () => { doAutoLogin(); }
+                  });
+                }
               } else {
-                // No file but still create the tor_evaluation record
-                this.http.post<any>(`${environment.registrarApi}?action=submit_tor`,
-                  { student_id: studentId }
-                ).subscribe({
-                  next: (torRes) => { console.log('[ENROLL] TOR submitted (no file):', torRes); doAutoLogin(); },
-                  error: () => { doAutoLogin(); }
-                });
+                doAutoLogin();
               }
-            } else {
-              doAutoLogin();
-            }
+            };
+            doAfterScholarProof();
           },
           error: (err) => {
             console.error('[ENROLL] STEP 2 HTTP error:', err);
             console.error('[ENROLL] STEP 2 error body:', err?.error);
+            this.enrollmentSubmitted = false;  // FIX REFRESH-REGISTER-01: allow retry on failure
             this.isSubmitting = false;
             this.enrollError = err?.error?.message || 'Registration failed.';
             this.cdr.detectChanges();
@@ -1889,8 +2687,9 @@ export class LoginComponent implements OnInit, OnDestroy {
       },
       error: (err) => {
         console.error('[ENROLL] STEP 1 HTTP error:', err);
+        this.enrollmentSubmitted = false;  // FIX REFRESH-REGISTER-01: allow retry on failure
         this.isSubmitting = false;
-        this.enrollError = 'Cannot connect to server. Check XAMPP is running.';
+        this.enrollError = err?.error?.message || err?.error?.errors?.[0] || 'Cannot connect to server. Check XAMPP is running.';
         this.cdr.detectChanges();
       }
     });

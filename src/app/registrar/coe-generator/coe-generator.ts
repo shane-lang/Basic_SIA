@@ -111,9 +111,28 @@ export class CoeGeneratorComponent implements OnInit {
     const regName = d.reg_first && d.reg_last
       ? `${d.reg_first.toUpperCase()} ${d.reg_last.toUpperCase()}`
       : 'JONNA MAY B. TABARANZA';
+
+    // FIX COE-DEPT-DISPLAY-01: Shorten long department labels so they fit in the
+    // 36-char clipped right-column cell. Full strings like
+    // "Technical-Vocational Education and Training (TVET)" get clipped to blank.
+    const deptRaw = (d.department ?? '') as string;
+    const deptDisplay = deptRaw.includes('TVET') || deptRaw.includes('Technical-Vocational')
+      ? 'TVET'
+      : deptRaw.includes('Senior High') || deptRaw.includes('SHS')
+        ? 'SHS'
+        : deptRaw;
     const studentType = (d.student_type ?? '').toLowerCase();
-    const ayNow = new Date().getFullYear();
-    const ayStr = `${ayNow-1} - ${ayNow}`;
+    // FIX COE-AY-01: Extract AY from d.semester instead of hardcoding current calendar year.
+    // d.semester is e.g. "1st Semester, AY 2028-2029" — parse it so the header box
+    // always shows the correct academic year matching the student's enrollment.
+    const semRaw = (d.semester ?? '') as string;
+    const ayMatch = semRaw.match(/AY\s*(\d{4})-(\d{4})/i);
+    const ayStr = ayMatch ? `${ayMatch[1]} - ${ayMatch[2]}` : (() => {
+      const y = new Date().getFullYear();
+      return `${y-1} - ${y}`;
+    })();
+    // Extract just the term part (e.g. "1st Semester") for the small Semester field
+    const semTermOnly = semRaw.replace(/,?\s*AY\s*\d{4}-\d{4}/i, '').trim() || semRaw;
 
     let y = 8; // current Y (top margin)
 
@@ -129,7 +148,7 @@ export class CoeGeneratorComponent implements OnInit {
     N(); sz(6.5); tx('Academic Yr.:', bx+2, by+5);
     B(); sz(7); tx(ayStr, bx+24, by+5);
     N(); sz(6.5); tx('Semester:', bx+2, by+10);
-    B(); sz(7); tx(d.semester ?? '1st', bx+24, by+10);
+    B(); sz(7); tx(semTermOnly, bx+24, by+10);
     lw(0.3); ln(bx+22, by, bx+22, by+bh);
     const types = ['New Student','Old Student','Transferee'];
     types.forEach((t,i) => {
@@ -151,7 +170,7 @@ export class CoeGeneratorComponent implements OnInit {
     const c1w = CW*0.56, c2w = CW-c1w, rh = 7.5;
     const GRAY = [85,85,85] as any;
     const infoRows: [string,string,string,string][] = [
-      ['Course & Year:',       clip(`${d.program??''} ${d.year_level??''} - ${d.student_category??'Regular'}`,60), 'Department:',                d.department??''],
+      ['Course & Year:',       clip(`${d.program??''} ${d.year_level??''} - ${d.student_category??'Regular'}`,60), 'Department:',                deptDisplay],
       ['Name:',                sName,                                                                              'Student ID #:',              d.student_number??''],
       ['Address:',             clip(d.address??'',58),                                                             'Birth Date:',                dob],
       ['Name of Guardian:',    clip(d.guardian_name??'',45),                                                       "Student's Contact #:",       d.phone??''],
@@ -162,7 +181,7 @@ export class CoeGeneratorComponent implements OnInit {
       lw(0.4); rc(ML,y,c1w,rh); rc(ML+c1w,y,c2w,rh);
       doc.setTextColor(85,85,85); sz(5.5); N(); tx(l1, ML+1.5, y+3.5); tx(l2, ML+c1w+1.5, y+3.5);
       doc.setTextColor(0,0,0); sz(7); B();
-      tx(v1, ML+1.5, y+6.8); tx(clip(String(v2),36), ML+c1w+1.5, y+6.8);
+      tx(v1, ML+1.5, y+6.8); tx(clip(String(v2),45), ML+c1w+1.5, y+6.8);
       y += rh;
     });
     y += 2;
@@ -372,7 +391,9 @@ export class CoeGeneratorComponent implements OnInit {
     const now = new Date();
     tx(`Processing Time/Date: ${now.toLocaleTimeString('en-PH')} | ${now.toLocaleDateString('en-PH')}`, ML, H-5);
 
-    doc.save(`COE_${d.student_number??d.last_name}_${d.last_name}.pdf`);
+    // FIX COE-PDF-FILENAME-01: Previously used last_name as fallback AND as second segment
+    const pdfStudentId = d.student_number || `${d.last_name ?? 'student'}`.toUpperCase();
+    doc.save(`COE_${pdfStudentId}_${(d.last_name ?? '').toUpperCase()}.pdf`);
   }
 
 

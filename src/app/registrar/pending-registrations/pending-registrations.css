@@ -283,6 +283,7 @@
 .chip-enrolled { background: #d1fae5; color: #065f46; }
 .chip-pending  { background: #fef3c7; color: #92400e; }
 .chip-dropped  { background: #fee2e2; color: #991b1b; }
+.chip-credited { background: #d1fae5; color: #065f46; border: 1px solid #6ee7b7; }
 /* ── Guardian Email Inline Edit ─────────────────────────────────────────── */
 .guardian-email-value {
   display: inline-flex;

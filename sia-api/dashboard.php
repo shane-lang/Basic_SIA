@@ -186,8 +186,10 @@ if ($action === 'get_dashboard') {
         exit();
     }
 
-    // ── AUTO-APPROVE SHS/TVET free students ──────────────────
-    // Resolve category: column value OR infer from student_number prefix
+    // ── AUTO-APPROVE SHS + TVET non-transferee free students ─────────────────
+    // TVET non-transferee = FREE (TESDA/PESFA/STEP government scholarship)
+    // SHS  non-transferee = FREE (K-12 DepEd voucher)
+    // TVET/SHS transferee = flat rate (₱20k); College = unit-based fees
     $studentDbId = (int) $student['dbId'];
     $cat = strtoupper(trim($student['student_category'] ?? ''));
     if (empty($cat)) {
@@ -196,7 +198,7 @@ if ($action === 'get_dashboard') {
         elseif (strpos($sNum, 'TVET-') === 0) $cat = 'TVET';
     }
     $sType  = strtolower(trim($student['student_type'] ?? 'new'));
-    $isFree = ($cat === 'TVET') || ($cat === 'SHS' && $sType !== 'transferee');
+    $isFree = (($cat === 'SHS' || $cat === 'TVET') && $sType !== 'transferee');
     if ($isFree) {
         if (empty($student['student_category'])) {
             $catUpdStmt = $conn->prepare("UPDATE students SET student_category=? WHERE id=?");
@@ -315,12 +317,31 @@ if ($action === 'get_dashboard') {
         // -- 6. Fee calculation: read from tuition_fees + installment_payments --
     // SHS/TVET fee overrides are applied later in the academic/flags block.
     // Here we compute College fees; $fees may be overwritten below for SHS/TVET.
+    // FIX DASH-SEM-01: Filter by the student's current semester so that
+    // re-enrolled students (who have one tuition_fees row per semester) always
+    // get the current semester's assessment instead of the first/oldest row.
+    $safeDashSem = $conn->real_escape_string($student['semester'] ?? '');
     $tfRes = $conn->query(
         "SELECT units, tuition_fee, miscellaneous_fee, registration_fee,
                 laboratory_fee, energy_fee, subtotal, discount,
                 installment_fee, total_assessment
-         FROM tuition_fees WHERE student_id = $studentDbId LIMIT 1"
+         FROM tuition_fees
+         WHERE student_id = $studentDbId
+           AND semester = '$safeDashSem'
+         LIMIT 1"
     );
+    // Fallback: if no row matches the current semester (e.g. semester not yet set),
+    // fall back to the most recent row so the dashboard never shows blank fees.
+    if (!$tfRes || !$tfRes->num_rows) {
+        $tfRes = $conn->query(
+            "SELECT units, tuition_fee, miscellaneous_fee, registration_fee,
+                    laboratory_fee, energy_fee, subtotal, discount,
+                    installment_fee, total_assessment
+             FROM tuition_fees
+             WHERE student_id = $studentDbId
+             ORDER BY id DESC LIMIT 1"
+        );
+    }
     $tf = $tfRes ? $tfRes->fetch_assoc() : null;
 
     // FIX DASH-PAID-01: Scope to the student's CURRENT semester only.
@@ -448,8 +469,18 @@ if ($action === 'get_dashboard') {
             $displayYearLevel = 'Grade 11'; // default for SHS
         }
     } elseif ($isTVETStudent) {
-        // TVET: show the NC level if available, else the program name
-        $displayYearLevel = $student['program'] ?: 'TVET';
+        // FIX TVET-YEARLEVEL-DASH-01: Show the actual year level stored in the DB
+        // (e.g. '1st Year', '2nd Year', '3rd Year') — NOT the program/course name.
+        // The program/course is already displayed in its own field in the dashboard.
+        if (preg_match('/1st|first/i', $rawYearLevel) || $rawYearLevel === '1') {
+            $displayYearLevel = '1st Year';
+        } elseif (preg_match('/2nd|second/i', $rawYearLevel) || $rawYearLevel === '2') {
+            $displayYearLevel = '2nd Year';
+        } elseif (preg_match('/3rd|third/i', $rawYearLevel) || $rawYearLevel === '3') {
+            $displayYearLevel = '3rd Year';
+        } else {
+            $displayYearLevel = $rawYearLevel ?: '1st Year';
+        }
     } else {
         $displayYearLevel = $rawYearLevel ?: '1st Year';
     }
@@ -475,13 +506,16 @@ if ($action === 'get_dashboard') {
         $enrollmentStatusDisplay = 'Regular';
     }
 
-    // ── Override fees for SHS/TVET students ──────────────────────────────────
-    // Non-transferee SHS and all TVET (non-transferee) = FREE under K-12 / TESDA
-    // Transferee SHS/TVET = flat rate from fee_config
+    // ── Override fees for SHS + TVET non-transferee (FREE) and transferees (flat rate) ──
+    //   SHS  non-transferee  → FREE (K-12 DepEd voucher)
+    //   TVET non-transferee  → FREE (TESDA/PESFA/STEP government scholarship)
+    //   SHS  transferee      → ₱20k flat rate from fee_config
+    //   TVET transferee      → ₱20k flat rate from fee_config
+    //   College              → unit-based fees (already computed above, no override)
     $studentTypeLC = strtolower(trim($student['student_type'] ?? 'new'));
     if ($isSHSorTVET) {
         if ($studentTypeLC === 'transferee') {
-            // Transferee flat rate from fee_config
+            // SHS or TVET transferee — ₱20k flat rate from fee_config
             $flatRateKey = $isSHSStudent ? 'SHS' : 'TVET';
             $fcSHS = loadFeeConfig($conn, $flatRateKey);
             $flatRate  = (float)($fcSHS['transferee_flat_rate']['value'] ?? 20000);
@@ -519,7 +553,8 @@ if ($action === 'get_dashboard') {
                 'flatRateLabel'   => 'Government Transferee Flat Rate',
             ];
         } else {
-            // Free SHS/TVET student — zero assessment
+            // SHS non-transferee  → FREE (K-12 DepEd voucher)
+            // TVET non-transferee → FREE (TESDA/PESFA/STEP government scholarship)
             $fees = [
                 'units'           => 0,
                 'tuitionFee'      => 0,
@@ -633,7 +668,22 @@ if ($action === 'get_dashboard') {
         'academic'       => $academic,
         'courses'        => $courses,       // all enrolled courses (for schedule + course list)
         'nextClass'      => $nextClass,     // nearest upcoming class
-        'fees'           => $fees,          // financial breakdown
+        'fees'           => $fees,          // financial breakdown (full detail)
+        // ── financialSummary: compact block for the dashboard Financial Summary card ──
+        // Always present regardless of student category so the Angular component
+        // never has to null-check before rendering the card.
+        'financialSummary' => [
+            'totalAssessment' => $fees['totalAssessment'] ?? 0,
+            'amountPaid'      => $fees['amountPaid']      ?? 0,
+            'remainingBal'    => $fees['remainingBal']    ?? 0,
+            'paymentStatus'   => $fees['paymentStatus']   ?? $student['payment_status'],
+            'isFree'          => (bool)($fees['isFree']      ?? false),
+            'isFlatRate'      => (bool)($fees['isFlatRate']  ?? false),
+            'freeLabel'       => $fees['freeLabel']       ?? null,
+            'flatRateLabel'   => $fees['flatRateLabel']   ?? null,
+            'installmentFee'  => $fees['installmentFee']  ?? 0,
+            'dueDate'         => $fees['dueDate']         ?? null,
+        ],
         'paymentHistory' => $paymentHistory, // all payment records
         'block'          => $blockInfo       // class block/section (null if not yet assigned)
     ]);

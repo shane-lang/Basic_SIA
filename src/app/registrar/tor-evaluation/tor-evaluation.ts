@@ -5,6 +5,7 @@ import { HttpClient } from '@angular/common/http';
 import { Router } from '@angular/router';
 import { map, catchError } from 'rxjs/operators';
 import { of } from 'rxjs';
+import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { environment } from '../../environment';
 
 interface PendingTOR {
@@ -24,6 +25,8 @@ interface PendingTOR {
   registrarNotes:     string;
   submittedAt:        string;
   programUnits:       number;
+  semesterUnits:      number;   // FIX: units for the current semester only
+  isTVETTransferee:   boolean;  // FIX: flat ₱20k flag
   torFileUrl:         string;
 }
 
@@ -82,6 +85,7 @@ interface StudentTorEntry {
   torEvalStatus:    string;
   torFileUrl:       string | null;
   torFile:          string | null;
+  safeTorFileUrl:   SafeResourceUrl | null;  // sanitized for iframe/img [src]
 }
 
 @Component({
@@ -98,7 +102,7 @@ export class TorEvaluation implements OnInit {
   private feeRates = { tuition: 650, misc: 6688, reg: 700, labPerRoom: 1900, energy: 63, labRooms: 4 };
   private extraFeeConfig: { fee_key: string; fee_label: string; value: number; is_per_unit: number }[] = [];
 
-  constructor(private http: HttpClient, private router: Router, private cdr: ChangeDetectorRef) {}
+  constructor(private http: HttpClient, private router: Router, private cdr: ChangeDetectorRef, private sanitizer: DomSanitizer) {}
 
   pendingTors:    PendingTOR[] = [];
   evaluatedTors:  PendingTOR[] = [];
@@ -156,7 +160,15 @@ export class TorEvaluation implements OnInit {
   get totalCreditedUnits(): number { return this.selectedCourses.reduce((s, c) => s + c.credits, 0); }
   get approvedUnits(): number {
     if (!this.selectedTor) return 0;
-    return Math.max(0, (this.selectedTor.programUnits || 0) - this.totalCreditedUnits);
+    // Use totalProgramUnits (sum of all loaded curriculum courses) as the base.
+    // This reflects the actual courses shown in the modal (e.g. 6 units for 1st sem)
+    // rather than the server-side programUnits which may cover the full year (18).
+    const base = this.totalProgramUnits > 0
+      ? this.totalProgramUnits
+      : (this.selectedTor.semesterUnits > 0
+          ? this.selectedTor.semesterUnits
+          : (this.selectedTor.programUnits || 0));
+    return Math.max(0, base - this.totalCreditedUnits);
   }
   get allSelected(): boolean { return this.curriculumCourses.length > 0 && this.curriculumCourses.every(c => c.selected); }
   get totalProgramUnits(): number { return this.curriculumCourses.reduce((s, c) => s + c.credits, 0); }
@@ -258,23 +270,33 @@ export class TorEvaluation implements OnInit {
     this.safeGet(`${this.registrarApi}?action=masterlist_students&limit=200&page=1`).subscribe(res => {
       this.studentTorLoading = false;
       if (res.success) {
-        this.studentTorList = (res.students || []).map((s: any) => ({
-          id:               s.id,
-          studentNumber:    s.studentNumber,
-          firstName:        s.firstName,
-          lastName:         s.lastName,
-          program:          s.program,
-          yearLevel:        s.yearLevel,
-          semester:         s.semester,
-          studentType:      s.studentType,
-          studentCategory:  s.studentCategory,
-          enrollmentStatus: s.enrollmentStatus,
-          torEvalStatus:    s.torEvalStatus ?? '',
-          torFile:          s.torFile       ?? null,
-          torFileUrl:       s.torFile
-            ? `http://${window.location.hostname}/sia-api/uploads/${s.torFile}`
-            : null,
-        }));
+        this.studentTorList = (res.students || []).map((s: any) => {
+          const rawUrl = s.torFile
+            ? `${environment.uploadBase}/${s.torFile}`
+            : null;
+          const isPdf = s.torFile?.toLowerCase().endsWith('.pdf') ?? false;
+          const displayUrl = rawUrl
+            ? (isPdf ? `${rawUrl}#toolbar=0&navpanes=0&scrollbar=0` : rawUrl)
+            : null;
+          return {
+            id:               s.id,
+            studentNumber:    s.studentNumber,
+            firstName:        s.firstName,
+            lastName:         s.lastName,
+            program:          s.program,
+            yearLevel:        s.yearLevel,
+            semester:         s.semester,
+            studentType:      s.studentType,
+            studentCategory:  s.studentCategory,
+            enrollmentStatus: s.enrollmentStatus,
+            torEvalStatus:    s.torEvalStatus ?? '',
+            torFile:          s.torFile       ?? null,
+            torFileUrl:       rawUrl,
+            safeTorFileUrl:   displayUrl
+              ? this.sanitizer.bypassSecurityTrustResourceUrl(displayUrl)
+              : null,
+          };
+        });
       }
       this.cdr.detectChanges();
     });
@@ -285,34 +307,60 @@ export class TorEvaluation implements OnInit {
     this.selectedStudentTor      = student;
     this.studentTorDetail        = null;
     this.studentCurriculum       = null;
+    this.curriculumCourses       = [];
+    this.yearGroups              = [];
     this.studentTorActiveInner   = 'tor-file';
     this.modalMode               = 'student-tor-view';
     this.showModal               = true;
     this.studentTorDetailLoading = true;
+    this.isCoursesLoading        = true;
     this.cdr.detectChanges();
 
     // Load curriculum (has credited subjects info)
     this.safeGet(`${this.registrarApi}?action=get_student_curriculum&student_id=${student.id}`)
-      .subscribe(res => {
-        if (res.success) this.studentCurriculum = res;
-        this.rebuildCurriculumFromStudentData();
-        this.cdr.detectChanges();
+      .subscribe({
+        next: res => {
+          this.isCoursesLoading = false;
+          if (res.success) {
+            this.studentCurriculum = res;
+          } else {
+            // Set an empty object so *ngIf="!studentCurriculum" stops spinning
+            this.studentCurriculum = { success: false, courses: [], summary: {} };
+          }
+          this.rebuildCurriculumFromStudentData();
+          this.cdr.detectChanges();
+        },
+        error: () => {
+          this.isCoursesLoading  = false;
+          this.studentCurriculum = { success: false, courses: [], summary: {} };
+          this.cdr.detectChanges();
+        },
       });
 
-    // Load enrollment history
+    // Load enrollment history (controls studentTorDetailLoading)
     this.safeGet(`${this.registrarApi}?action=get_enrollment_history&student_id=${student.id}`)
-      .subscribe(res => {
-        this.studentTorDetailLoading = false;
-        if (res.success) {
-          const history = (res.history || []).map((sem: any) => ({
-            ...sem,
-            subjects: Array.isArray(sem.subjects)
-              ? sem.subjects
-              : sem.subjects ? Object.values(sem.subjects) : [],
-          }));
-          this.studentTorDetail = { ...res, history };
-        }
-        this.cdr.detectChanges();
+      .subscribe({
+        next: res => {
+          this.studentTorDetailLoading = false;
+          if (res.success) {
+            const history = (res.history || []).map((sem: any) => ({
+              ...sem,
+              subjects: Array.isArray(sem.subjects)
+                ? sem.subjects
+                : sem.subjects ? Object.values(sem.subjects) : [],
+            }));
+            this.studentTorDetail = { ...res, history };
+          } else {
+            // Mark as loaded-but-empty so the template shows the empty state
+            this.studentTorDetail = { success: false, history: [] };
+          }
+          this.cdr.detectChanges();
+        },
+        error: () => {
+          this.studentTorDetailLoading = false;
+          this.studentTorDetail = { success: false, history: [] };
+          this.cdr.detectChanges();
+        },
       });
   }
 
@@ -366,7 +414,12 @@ export class TorEvaluation implements OnInit {
   get manualCreditedUnits(): number { return this.manualSubjects.reduce((s, c) => s + (c.credits || 0), 0); }
   get manualApprovedUnits(): number {
     if (!this.selectedTor) return 0;
-    return Math.max(0, (this.selectedTor.programUnits || 0) - this.manualCreditedUnits);
+    const base = this.totalProgramUnits > 0
+      ? this.totalProgramUnits
+      : (this.selectedTor.semesterUnits > 0
+          ? this.selectedTor.semesterUnits
+          : (this.selectedTor.programUnits || 0));
+    return Math.max(0, base - this.manualCreditedUnits);
   }
 
   addManualSubject(): void {
@@ -461,7 +514,27 @@ export class TorEvaluation implements OnInit {
 
   updateFeePreview(): void {
     if (!this.selectedTor) { this.recomputedFee = null; return; }
-    const u = this.approvedUnits > 0 ? this.approvedUnits : (this.selectedTor.programUnits || 0);
+
+    // FIX BUG-2: TVET/SHS Transferee = flat ₱20,000, hindi per-unit computation
+    if (this.selectedTor.isTVETTransferee) {
+      const flatRate = 20000;
+      this.recomputedFee = {
+        units: 0,
+        tuitionFee: flatRate,
+        miscellaneousFee: 0,
+        registrationFee: 0,
+        laboratoryFee: 0,
+        energyFee: 0,
+        extraFees: [],
+        subtotal: flatRate,
+        totalAssessment: flatRate,
+        isFlatRate: true,
+        flatRateLabel: 'TVET Transferee Flat Rate',
+      };
+      return;
+    }
+
+    const u = this.approvedUnits > 0 ? this.approvedUnits : (this.totalProgramUnits || this.selectedTor.programUnits || 0);
     if (!u) { this.recomputedFee = null; return; }
     const tf     = u * this.feeRates.tuition;
     const misc   = this.feeRates.misc;
@@ -543,47 +616,98 @@ export class TorEvaluation implements OnInit {
   }
 
   // Group history by year level, sorted oldest → newest
+  // FIX TOR-SEM-SPLIT-01: Re-group subjects by course's own year_level + semester
+  // (from courses table via course_year_level / course_semester fields) instead of
+  // the enrollment semester. This fixes transferees whose subjects were all enrolled
+  // in one semester but belong to different curriculum semesters — they were all
+  // showing under one block (e.g. "2ND SEMESTER, AY 2028-2029") instead of being
+  // split into "1st Semester" and "2nd Semester" under the correct year level.
   getSortedYearGroups(history: any[]): { yearLevel: string; semesters: any[] }[] {
     if (!history?.length) return [];
 
     const YEAR_ORDER = ['1st Year','2nd Year','3rd Year','4th Year','5th Year'];
     const SEM_ORDER  = ['1st Semester','2nd Semester','Summer','Midyear'];
 
-    // Derive year level from the semester's subjects' course_year_level,
-    // or fall back to sequential numbering based on AY order
-    const yearMap = new Map<string, any[]>();
+    // Re-group every subject by (course_year_level, course_semester) — not enrollment semester
+    const yearMap = new Map<string, Map<string, any>>();
 
-    // Sort history oldest → newest by AY then by semester
-    const sorted = [...history].sort((a, b) => {
-      const ayA = this._extractAY(a.semester);
-      const ayB = this._extractAY(b.semester);
-      if (ayA !== ayB) return ayA - ayB;
-      return this._semIndex(a.semester) - this._semIndex(b.semester);
-    });
-
-    sorted.forEach(sem => {
-      // Try to get year level from first subject with course_year_level
+    for (const sem of history) {
       const subjects = this.getSubjects(sem.subjects);
-      const yl = subjects.find(s => s.course_year_level)?.course_year_level
-        || this._guessYearLevel(sem.semester, sorted);
-      if (!yearMap.has(yl)) yearMap.set(yl, []);
-      yearMap.get(yl)!.push(sem);
+      for (const subj of subjects) {
+        // Use the course's curriculum year level; fall back to guessing from enrollment AY
+        const yr = subj.course_year_level
+          ? this._normalizeYear(subj.course_year_level)
+          : this._guessYearLevel(sem.semester, history);
+
+        // Use the course's curriculum semester; fall back to enrollment semester
+        const semLabel = subj.course_semester
+          ? this._normalizeSemLabel(subj.course_semester)
+          : this.normSem(sem.semester);
+
+        if (!yearMap.has(yr)) yearMap.set(yr, new Map());
+        const yrMap = yearMap.get(yr)!;
+        if (!yrMap.has(semLabel)) {
+          yrMap.set(semLabel, {
+            semester:    semLabel,
+            subjects:    [],
+            total_units: 0,
+            passed:      0,
+            failed:      0,
+            dropped:     0,
+            gpa:         null,
+            _gradeSum:   0,
+            _gradeCnt:   0,
+          });
+        }
+        const sg = yrMap.get(semLabel)!;
+        sg.subjects.push(subj);
+        sg.total_units += (subj.units || 0);
+        if (subj.final_grade != null) {
+          if (+subj.final_grade <= 3.0) sg.passed++;
+          else                          sg.failed++;
+          sg._gradeSum += +subj.final_grade;
+          sg._gradeCnt++;
+        }
+        if (subj.enrollment_status === 'Dropped') sg.dropped++;
+      }
+    }
+
+    // Compute GPA per semester group then clean up temp fields
+    yearMap.forEach(yrMap => {
+      yrMap.forEach(sg => {
+        sg.gpa = sg._gradeCnt > 0 ? +(sg._gradeSum / sg._gradeCnt).toFixed(4) : null;
+        delete sg._gradeSum;
+        delete sg._gradeCnt;
+      });
     });
 
-    // Sort year groups
     return Array.from(yearMap.entries())
       .sort(([a], [b]) => {
-        const ia = YEAR_ORDER.indexOf(a);
-        const ib = YEAR_ORDER.indexOf(b);
-        if (ia !== -1 && ib !== -1) return ia - ib;
-        return a.localeCompare(b);
+        const ia = YEAR_ORDER.indexOf(a), ib = YEAR_ORDER.indexOf(b);
+        return ia !== -1 && ib !== -1 ? ia - ib : a.localeCompare(b);
       })
-      .map(([yearLevel, semesters]) => ({
+      .map(([yearLevel, semMap]) => ({
         yearLevel,
-        semesters: semesters.sort((a, b) =>
-          this._semIndex(a.semester) - this._semIndex(b.semester)
+        semesters: Array.from(semMap.values()).sort((a, b) =>
+          SEM_ORDER.indexOf(a.semester) - SEM_ORDER.indexOf(b.semester)
         ),
       }));
+  }
+
+  private _normalizeYear(yr: string): string {
+    const l = (yr || '').toLowerCase();
+    if (l.includes('5') || l.includes('fifth'))  return '5th Year';
+    if (l.includes('4') || l.includes('fourth')) return '4th Year';
+    if (l.includes('3') || l.includes('third'))  return '3rd Year';
+    if (l.includes('2') || l.includes('second')) return '2nd Year';
+    return '1st Year';
+  }
+
+  private _normalizeSemLabel(s: string): string {
+    const l = (s || '').toLowerCase();
+    if (l.includes('summer') || l.includes('mid')) return 'Summer';
+    if (l.includes('2nd') || l.includes('second')) return '2nd Semester';
+    return '1st Semester';
   }
 
   private _extractAY(semester: string): number {
@@ -601,7 +725,6 @@ export class TorEvaluation implements OnInit {
 
   private _guessYearLevel(semester: string, sorted: any[]): string {
     const YEARS = ['1st Year','2nd Year','3rd Year','4th Year','5th Year'];
-    // Assign year level based on position in unique AY list
     const uniqueAYs = [...new Set(sorted.map(s => this._extractAY(s.semester)))].sort();
     const ay = this._extractAY(semester);
     const idx = uniqueAYs.indexOf(ay);

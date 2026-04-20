@@ -65,6 +65,8 @@ import { CoeGeneratorComponent } from './registrar/coe-generator/coe-generator';
 import { PendingRegistrationsComponent } from './registrar/pending-registrations/pending-registrations';
 // ── NEW: Enrollment History ──────────────────────────────────────────────────
 import { EnrollmentHistoryComponent } from './registrar/enrollment-history/enrollment-history';
+// ── NEW: Block Capacity Viewer ───────────────────────────────────────────────
+import { BlockCapacityComponent } from './registrar/block-capacity/block-capacity';
 
 
 // instructor sub-components
@@ -178,6 +180,7 @@ export const routes: Routes = [
    
       // ── NEW ─────────────────────────────────────────────────────────────
       { path: 'enrollment-history',        component: EnrollmentHistoryComponent },
+      { path: 'block-capacity',            component: BlockCapacityComponent },
       { path: '', redirectTo: 'tor-evaluation', pathMatch: 'full' }
     ]
   },
@@ -196,6 +199,6 @@ export const routes: Routes = [
     ]
   },
 
-  { path: '',   redirectTo: '/student', pathMatch: 'full' },
-  { path: '**', redirectTo: '/student' }
+  { path: '',   redirectTo: '/student-login', pathMatch: 'full' },
+  { path: '**', redirectTo: '/student-login' }
 ];

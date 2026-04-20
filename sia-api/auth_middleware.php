@@ -119,6 +119,14 @@ function requireAuth(mysqli $conn, string $requiredRole = '', bool $allowPublic 
     }
 
     // ── 3. Look up session ────────────────────────────────────────────────────
+    // FIX TOKEN-ROTATION-01: Also add prev_token column support so that during
+    // the 2-minute grace window after a silent rotation, the old token still
+    // resolves to the session. This prevents the race condition where Angular
+    // hasn't yet saved the X-New-Token header value back to localStorage and
+    // a concurrent request fires with the old token → 401 → phantom logout.
+    $conn->query("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS prev_token VARCHAR(64) DEFAULT NULL");
+    $conn->query("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS prev_expires DATETIME DEFAULT NULL");
+
     $stmt = $conn->prepare("
         SELECT s.user_id, s.role, s.expires_at, s.token,
                u.email
@@ -136,6 +144,29 @@ function requireAuth(mysqli $conn, string $requiredRole = '', bool $allowPublic 
     $stmt->execute();
     $row = $stmt->get_result()->fetch_assoc();
     $stmt->close();
+
+    if (!$row) {
+        // FIX TOKEN-ROTATION-01 (continued): Primary lookup failed — try prev_token
+        // within its grace window. This handles the race where:
+        //   1. Backend rotated the token and sent X-New-Token in a response header
+        //   2. Angular received the response but hadn't saved the new token yet
+        //   3. A concurrent or immediate subsequent request fired with the old token
+        // Without this fallback, step 3 returns SESSION_NOT_FOUND → 401 → logout.
+        $stmtPrev = $conn->prepare("
+            SELECT s.user_id, s.role, s.expires_at, s.token,
+                   u.email
+            FROM   sessions s
+            JOIN   users    u ON u.id = s.user_id
+            WHERE  s.prev_token = ? AND s.prev_expires > NOW()
+            LIMIT  1
+        ");
+        if ($stmtPrev) {
+            $stmtPrev->bind_param('s', $token);
+            $stmtPrev->execute();
+            $row = $stmtPrev->get_result()->fetch_assoc();
+            $stmtPrev->close();
+        }
+    }
 
     if (!$row) {
         // The session was not found. This could mean:
@@ -169,9 +200,13 @@ function requireAuth(mysqli $conn, string $requiredRole = '', bool $allowPublic 
     if ($expiresAt - time() < REFRESH_WINDOW_MINUTES * 60) {
         $newToken  = bin2hex(random_bytes(32));
         $newExpiry = date('Y-m-d H:i:s', strtotime("+{$ttlHours} hours"));
+        // FIX TOKEN-ROTATION-01: Store the old token in prev_token with a 2-minute
+        // grace window so concurrent requests using the old token still resolve.
+        // Without this, any request in-flight during rotation hits SESSION_NOT_FOUND.
+        $prevGrace = date('Y-m-d H:i:s', time() + 120);
 
-        $upd = $conn->prepare('UPDATE sessions SET token = ?, expires_at = ? WHERE token = ?');
-        $upd->bind_param('sss', $newToken, $newExpiry, $token);
+        $upd = $conn->prepare('UPDATE sessions SET token = ?, expires_at = ?, prev_token = ?, prev_expires = ? WHERE token = ?');
+        $upd->bind_param('sssss', $newToken, $newExpiry, $token, $prevGrace, $token);
         $upd->execute();
         $upd->close();
 

@@ -2,8 +2,9 @@ import { Component, OnInit, OnDestroy, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
-import { Router } from '@angular/router';
+import { Router, ActivatedRoute } from '@angular/router';
 import { environment } from '../../environment';
+import { PasswordGateService } from '../password-gate/password-gate.service';
 
 interface StudentCourse {
   id: number; courseId: number; code: string; name: string; credits: number;
@@ -46,7 +47,40 @@ export class Enrollment implements OnInit, OnDestroy {
   private accountingApi = environment.accountingApi;
   private registrarApi  = environment.registrarApi;
   private receiptApi    = environment.receiptApi;
-  constructor(private http: HttpClient, public router: Router, private cdr: ChangeDetectorRef) {}
+  soaVerified = false;   // true once student passes the password gate on this page
+  private soaLockTimer: any = null;
+  private readonly SOA_TIMEOUT_MS = 5 * 60 * 1000;  // 5 minutes inactivity
+
+  /** Called when student clicks a locked SOA/Invoice card — re-opens the gate modal. */
+  async unlockSoa(): Promise<void> {
+    const ok = await this.gate.requirePassword('SOA & Receipts');
+    this.soaVerified = ok;
+    if (ok) this.startSoaLockTimer();
+    this.cdr.detectChanges();
+  }
+
+  private startSoaLockTimer(): void {
+    this.clearSoaLockTimer();
+    this.soaLockTimer = setTimeout(() => {
+      this.soaVerified = false;
+      sessionStorage.removeItem('pgv_ts_soa___receipts');
+      this.cdr.detectChanges();
+    }, this.SOA_TIMEOUT_MS);
+  }
+
+  private clearSoaLockTimer(): void {
+    if (this.soaLockTimer) {
+      clearTimeout(this.soaLockTimer);
+      this.soaLockTimer = null;
+    }
+  }
+
+  /** Reset the inactivity timer on any user interaction within the SOA section. */
+  resetSoaTimer(): void {
+    if (this.soaVerified) this.startSoaLockTimer();
+  }
+
+  constructor(private http: HttpClient, public router: Router, private cdr: ChangeDetectorRef, private activatedRoute: ActivatedRoute, public gate: PasswordGateService) {}
 
   workflowStep: 'payment' | 'cash-pending' | 'approval' | 'dashboard' | 'tor-pending' | 're-enroll' | 'graduated' | 'pending-approval' = 'payment';
   // Re-enrollment state
@@ -136,10 +170,20 @@ export class Enrollment implements OnInit, OnDestroy {
 
   paymentInfo = { amount: 0, discountedAmount: 0, status: 'Pending' as 'Pending' | 'Paid', dueDate: '2025-02-28', reference: '' };
   isProcessingPayment = false;
-  paymentMethod: 'GCash' | 'Cash' = 'GCash';
+  paymentMethod: 'GCash' | 'Cash' = 'Cash'; // FIX FE-PM-NULL-01: default Cash — safer than GCash when method is unknown
   gcashReference = ''; gcashAmount = 0; gcashDate = new Date().toISOString().split('T')[0]; gcashSubmitted = false;
 
   isApprovalPending = false; approvalMessage = '';
+  // FIX REJECT-NOTES-FE-01: Stores the accounting rejection reason returned by
+  // get_payment_status so the enrollment payment step can display it as a banner.
+  // Cleared when the student successfully resubmits a new payment.
+  rejectedNote: string | null = null;
+  // FIX APPROVAL-LOOP-01: Guards re-entrant approval handling.
+  // Once checkApprovalStatus() fires the "Payment approved!" toast and calls
+  // loadContext(), this flag is set so that any concurrent in-flight poll
+  // responses (HTTP is async — clearInterval does NOT cancel already-sent requests)
+  // are ignored. Reset to false only at the start of a fresh payment cycle.
+  private approvalProcessed = false;
   private pollInterval: any = null;
   private torPollInterval: any = null;
 
@@ -148,12 +192,35 @@ export class Enrollment implements OnInit, OnDestroy {
   get isSHS():        boolean { return this.studentCategory === 'SHS'; }
   get isTVET():       boolean { return this.studentCategory === 'TVET'; }
   get isCollege():    boolean { return !this.isSHS && !this.isTVET; }
-  get isTransferee(): boolean { return (this.student?.studentType ?? '') === 'Transferee'; }
-  // Free only for SHS/TVET New & Old students
+  // FIX TRANSFEREE-CASE-FE-01: Use case-insensitive comparison. Backend may store
+  // 'transferee', 'Transferee', or 'TRANSFEREE'. Strict === 'Transferee' caused
+  // lowercase-stored transferees to be treated as non-transferees, routing them
+  // directly to dashboard + auto_enroll_all without waiting for Registrar.
+  get isTransferee(): boolean { return (this.student?.studentType ?? '').toLowerCase() === 'transferee'; }
+  // Free only for SHS New & Old students (K-12 Gov voucher)
+  // TVET now pays like College — FIX TVET-COLLEGE-FLOW-01
+  // BUG-TVET-FLOW-02 FIX: TVET non-transferees are FREE (TESDA/PESFA/STEP gov scholarship),
+  // same as SHS non-transferees (K-12 DepEd). The old comment "TVET now pays like College"
+  // was leftover from a reverted experiment. The backend auto-approves TVET non-transferees
+  // with approval_status='Approved' and ₱0 fees — this getter must match so payment-gated
+  // UI elements (payment form, balance display, etc.) hide correctly for free TVET students.
   get isFreeStudent(): boolean { return (this.isSHS || this.isTVET) && !this.isTransferee; }
+  // BUG-SOA-DEPT-OVERFLOW-01 FIX: Department values stored in the programs table
+  // use the full name format: "Business Management Department (BMD)".
+  // The SOA header's 1fr grid cell is too narrow for the full string — it overflows
+  // silently and appears blank. Extract the parenthetical abbreviation when present
+  // (e.g. "BMD"), otherwise return the full string (TVET/SHS overrides are already
+  // short: "Technical-Vocational Education..." falls back to the full string with CSS
+  // word-wrap as the safety net).
+  get departmentShort(): string {
+    const dept = this.student?.department ?? '';
+    const match = dept.match(/\(([^)]+)\)\s*$/);
+    return match ? match[1] : dept;
+  }
   enrolledCourses: StudentCourse[] = [];
   isAutoEnrolling = false;
   ngOnDestroy(): void {
+    this.clearSoaLockTimer();  // stop JS timer only; lock state preserved across tabs
     if (this.pollInterval)    clearInterval(this.pollInterval);
     if (this.torPollInterval) clearInterval(this.torPollInterval);
   }
@@ -174,6 +241,16 @@ export class Enrollment implements OnInit, OnDestroy {
   // INIT — restore state first, then sync with DB
   // ═══════════════════════════════════════════════════════════════
   ngOnInit(): void {
+    // ── SOA Password gate: restore verified state from cache if still valid ───
+    // soaVerified starts false (card shows locked). But if the student verified
+    // within the last 5 minutes on this page, restore it so they don't have to
+    // click and re-enter their password again just because they navigated away.
+    const pgvTs = Number(sessionStorage.getItem('pgv_ts_soa___receipts') ?? 0);
+    if (pgvTs > 0 && (Date.now() - pgvTs) < 5 * 60 * 1000) {
+      this.soaVerified = true;
+      this.startSoaLockTimer();
+    }
+
     const storedUser = sessionStorage.getItem('currentUser');
     if (!storedUser) { this.router.navigate(['/login']); return; }
     this.userId = JSON.parse(storedUser).id;
@@ -185,12 +262,24 @@ export class Enrollment implements OnInit, OnDestroy {
       this.isGraduated = true;
     }
     const savedStep = sessionStorage.getItem('enrollmentStep') as typeof this.workflowStep | null;
-    if (savedStep) {
+
+    // FIX TRANSFEREE-ROUTE-02: Never restore 'dashboard' from sessionStorage as the
+    // initial step. 'dashboard' is only valid AFTER loadContext() confirms the student
+    // is Approved+Enrolled+Paid. If a transferee's TOR was just evaluated, their
+    // sessionStorage may still hold 'dashboard' from a previous session/routing path,
+    // causing the payment step to be skipped entirely on every subsequent page load.
+    // loadContext() is authoritative — it always corrects the step from DB truth.
+    const safeToRestore = savedStep && savedStep !== 'dashboard';
+    if (safeToRestore) {
       this.workflowStep = savedStep;
     }
 
     // ── Restore approval polling if student was mid-wait when they reloaded ──
     // Without this, approved students who reload during polling never get redirected.
+    // FIX APPROVAL-LOOP-01: Only restart polling when savedStep is 'approval' or
+    // 'cash-pending'. If enrollmentStep was cleared by checkApprovalStatus() (the fix),
+    // savedStep will be null and this block is skipped — preventing the loop where
+    // an already-approved student restarts polling on every page load.
     if (savedStep === 'approval' || savedStep === 'cash-pending') {
       this.isApprovalPending = true;
       this.startApprovalPolling();
@@ -236,7 +325,17 @@ export class Enrollment implements OnInit, OnDestroy {
 
   loadContext(): void {
     this.isFeeLoading = true;
-    this.http.get<any>(`${this.apiUrl}?action=get_student_context&user_id=${this.userId}`).subscribe({
+    // FIX RACE-NUCLEAR: Read _pm/_pp query params injected by finishTorReview() navigation.
+    // These are the highest-priority source — set at the moment the user clicked the button,
+    // survive Angular routing, and are independent of DB write timing or sessionStorage order.
+    const _qp        = this.activatedRoute.snapshot.queryParams;
+    const _qpMethod  = _qp['_pm'];   // 'Cash' | 'GCash' | undefined
+    const _qpPlan    = _qp['_pp'];   // 'installment' | 'full' | undefined
+    // Also read sessionStorage as secondary fallback (set by finishTorReview before navigate)
+    const _hintPlan   = _qpPlan   || sessionStorage.getItem('pendingPaymentPlan')   || '';
+    const _hintMethod = _qpMethod || sessionStorage.getItem('pendingPaymentMethod') || '';
+    const _hintQs = _hintPlan ? `&hint_payment_plan=${encodeURIComponent(_hintPlan)}` : '';
+    this.http.get<any>(`${this.apiUrl}?action=get_student_context&user_id=${this.userId}${_hintQs}`).subscribe({
       next: (res) => {
         this.isFeeLoading = false;
         if (!res.success) { this.router.navigate(['/login']); return; }
@@ -252,11 +351,73 @@ export class Enrollment implements OnInit, OnDestroy {
           else if (sNum.startsWith('TVET-')) this.studentCategory = 'TVET';
         }
         sessionStorage.setItem('studentCategory', this.studentCategory);
-        this.paymentMethod      = res.student.paymentMethod === 'Cash' ? 'Cash' : 'GCash';
+        // Persist studentType so student-layout can compute isFreeStudent
+        // without having to re-fetch student data (layout reads sessionStorage only).
+        sessionStorage.setItem('studentType', res.student.studentType ?? '');
+        // FIX FE-PM-NULL-01: Resolve payment method using a strict priority chain.
+        // Priority:
+        //   1. Query param _pm (set by finishTorReview navigate — most reliable)
+        //   2. sessionStorage pendingPaymentMethod (written by finishTorReview before navigate)
+        //   3. DB value from res.student.paymentMethod — only if it is a known valid value
+        //   4. 'Cash' as last-resort default — safer than 'GCash':
+        //      Cash students who go to the cashier are never blocked by the system,
+        //      but showing GCash UI to a Cash student causes a dead-end (no reference to enter).
+        // NEVER default an unknown/empty method to 'GCash'.
+        if (_hintMethod === 'Cash' || _hintMethod === 'GCash') {
+          this.paymentMethod = _hintMethod;
+          sessionStorage.removeItem('pendingPaymentMethod');
+        } else if (res.student.paymentMethod === 'Cash' || res.student.paymentMethod === 'GCash') {
+          this.paymentMethod = res.student.paymentMethod;
+        } else {
+          // Unknown/empty — default to Cash (safer: Cash students walk in, never blocked)
+          this.paymentMethod = 'Cash';
+        }
+
+        // BUG-FE-SCHOLAR-02: Restore scholar declaration state from DB so that
+        // page reload does not wipe out the pending scholarship notice.
+        // students.is_scholar=1 means the student declared (or was granted) a scholarship.
+        // scholarPending=true when is_active=0 (declared but not yet approved by accounting).
+        if (res.student.isScholar) {
+          this.isScholar         = true;
+          this.scholarType       = res.student.scholarType       ?? this.scholarType;
+          this.scholarGrantor    = res.student.scholarGrantor    ?? this.scholarGrantor;
+          this.scholarshipAmount = res.student.scholarshipAmount ?? this.scholarshipAmount;
+          // scholarPending = declared but no active approved scholarship yet
+          this.scholarPending    = !res.student.scholarshipApproved;
+          this.scholarApproved   = !!res.student.scholarshipApproved;
+        }
         // FIX FE-PLAN-01: payment_plan is NULL after re-enroll — backend sends
         // needsPlanSelection:true so we show the plan selector instead of jumping to GCash.
         this.needsPlanSelection = res.needsPlanSelection === true;
-        this.paymentPlan        = (res.paymentPlan ?? res.student?.paymentPlan) === 'installment' ? 'installment' : 'full';
+        // FIX RACE-01 / FE-PLAN-REVERT-01: Resolve payment plan with a 4-level priority chain.
+        // The old 2-level chain (hint → DB → default 'full') lost the plan whenever:
+        //   • checkApprovalStatus() wiped sessionStorage before calling loadContext()
+        //   • query params were already cleared from URL on re-entry
+        //   • DB write hadn't committed yet (race window)
+        // New priority: hint → DB → current component value → default 'full'
+        // This means once the student picks installment, this.paymentPlan='installment'
+        // acts as a memory barrier and is NEVER overwritten by a stale DB 'full' response.
+        const _pendingPlan = _hintPlan;
+        const _dbPlan = (res.paymentPlan ?? res.student?.paymentPlan);
+        if (_pendingPlan === 'installment' || _pendingPlan === 'full') {
+          // Level 1: sessionStorage / query param hint — most authoritative during race window
+          this.paymentPlan = _pendingPlan;
+          sessionStorage.removeItem('pendingPaymentPlan');
+        } else if (_dbPlan === 'installment' || _dbPlan === 'full') {
+          // Level 2: DB value — authoritative once the write has committed
+          this.paymentPlan = _dbPlan;
+        } else if (this.paymentPlan === 'installment') {
+          // Level 3: keep existing component value — student already confirmed installment
+          // this session; don't downgrade to 'full' just because DB returned null/empty
+          // (DB write still in-flight or needsPlanSelection=true re-enroll path)
+        } else {
+          // Level 4: true unknown — show plan selector (needsPlanSelection handles this)
+          this.paymentPlan = 'full';
+        }
+        // Suppress needsPlanSelection if we already know the plan from levels 1-3
+        if (this.needsPlanSelection && this.paymentPlan === 'installment') {
+          this.needsPlanSelection = false;
+        }
         this.soaPaymentPlan     = this.paymentPlan; // init SOA plan = current semester
         this.fees               = res.fees ?? null;
         this.termBreakdown      = res.termBreakdown ?? [];
@@ -279,7 +440,10 @@ export class Enrollment implements OnInit, OnDestroy {
         }
 
         sessionStorage.setItem('studentDbId', String(this.studentDbId));
-        sessionStorage.setItem('studentDbId', String(this.studentDbId));
+        // Clean up _pm/_pp query params from URL — they've been read, no need to show them
+        if (_qpMethod || _qpPlan) {
+          this.router.navigate([], { queryParams: {}, replaceUrl: true });
+        }
 
         // ── Stop any pending approval poll — DB is now the source of truth ──
         if (this.pollInterval) { clearInterval(this.pollInterval); this.pollInterval = null; }
@@ -298,55 +462,150 @@ export class Enrollment implements OnInit, OnDestroy {
 
         // FIX FE-PLAN-02: After re-enroll, needsPlanSelection=true means student
         // must pick full/installment before paying. Route to payment so plan selector shows.
-        if (this.needsPlanSelection) {
+        // FIX PLAN-STUCK-01: Do NOT show plan selector if student is already Approved+Paid.
+        // When payment_plan is NULL in DB (reEnroll() reset it but updatePaymentPlan() not yet
+        // called), backend returns needsPlanSelection=true even for students who already paid.
+        // This caused the routing logic below (approved → dashboard) to never be reached.
+        const _alreadyApproved = (res.student?.approvalStatus === 'Approved');
+        const _alreadyPaid     = (res.student?.paymentStatus  === 'Paid');
+        if (this.needsPlanSelection && !_alreadyApproved && !_alreadyPaid) {
           sessionStorage.removeItem('enrollmentStep');
           this.route('payment');
           this.cdr.detectChanges();
           return;
         }
+        if (this.needsPlanSelection && (_alreadyApproved || _alreadyPaid)) {
+          // Suppress — student is already done; proceed to routing logic below.
+          this.needsPlanSelection = false;
+        }
 
         // ── ROUTING ─────────────────────────────────────────────
         const s        = res.student;
-        const cat      = (s.studentCategory ?? '').toUpperCase();
-        const isFree   = (cat === 'SHS' || cat === 'TVET');
+        // FIX CTX-CATEGORY-FE-01: Use students.student_category directly from the DB row
+        // for routing decisions. res.student.studentCategory was previously set from
+        // programs.level_type (via ctxLevelType in PHP), which could mislabel a College
+        // student as 'TVET' if their program had the wrong level_type — causing isFree=true
+        // and the TVET branch to fire, routing them to the payment step forever after approval.
+        // this.studentCategory (set at line ~293 from the same field) is the source of truth.
+        // Fall back to s.studentCategory for safety if this.studentCategory is blank.
+        const cat      = (this.studentCategory || (s.studentCategory ?? '')).toUpperCase();
+        // isTransferee declared first — isFree references it below.
+        // SHS and TVET non-transferees are free (gov subsidy — K-12 / TESDA/PESFA/STEP).
+        // Transferees must pay flat rate — follow normal payment flow regardless of category.
+        // FIX TRANSFEREE-CASE-FE-01: Use case-insensitive comparison — see isTransferee getter above.
+        const isTransferee = (s.studentType ?? '').toLowerCase() === 'transferee';
+        // BUG-TVET-FLOW-02 FIX: TVET non-transferees are auto-approved as FREE by the
+        // backend (TESDA/PESFA/STEP gov scholarship). Including only SHS here caused TVET
+        // non-transferees to fall through to the generic `else if (approved)` branch below,
+        // bypassing the isFree-specific session cleanup and routing. Both branches happen
+        // to do the same cleanup today, but keeping isFree accurate prevents future drift
+        // and makes the routing intent explicit. Must match backend: (SHS || TVET) && !transferee.
+        const isFree      = (cat === 'SHS' || cat === 'TVET') && !isTransferee;
         const approved    = s.approvalStatus === 'Approved';
-        const torPending  = s.torEvalStatus  === 'Pending';
+        // FIX TOR-NULL-PENDING-01: null torEvalStatus for transferees = no TOR record yet = treat as Pending
+        const torPending  = s.torEvalStatus === 'Pending' || (isTransferee && !s.torEvalStatus);
         const torDone     = s.torEvalStatus  === 'Evaluated';
         const torRejected = s.torEvalStatus  === 'Rejected';
         const paid        = s.paymentStatus  === 'Paid';
+        // FIX TRANSFEREE-PARTIAL-01: Installment transferees who paid their Downpayment
+        // have paymentStatus='Partial' (not 'Paid') and approvalStatus='Approved'.
+        // The old `!paid` guard treated Partial as unpaid → re-routed to cash-pending forever.
+        // A transferee should be considered "paid enough to proceed" when:
+        //   • paymentStatus is 'Paid' (full payment), OR
+        //   • paymentStatus is 'Partial' AND approvalStatus is 'Approved' (installment DP done)
+        const paidOrApprovedPartial = paid || (s.paymentStatus === 'Partial' && approved);
         const isCash      = this.paymentMethod === 'Cash';
 
-        // SHS/TVET New/Old are free — go straight to dashboard if approved
-        // Transferees must pay ₱20,000 — follow normal payment flow
-        const isTransferee = (s.studentType ?? '') === 'Transferee';
-        if (isFree && !isTransferee && approved) {
-          sessionStorage.removeItem('pendingPaymentMethod');
-          sessionStorage.removeItem('pendingPaymentPlan');
-          this.isApprovalPending = false;
-          this.route('dashboard');
-          this.ensureEnrolledThenLoad();
-
-        } else if (approved) {
-          sessionStorage.removeItem('pendingPaymentMethod');
-          sessionStorage.removeItem('pendingPaymentPlan');
-          this.isApprovalPending = false;
-          this.route('dashboard');
-          this.ensureEnrolledThenLoad();
-
-        } else if (torPending) {
-          this.route('tor-pending');
-          this.startTorPolling();
-
-        } else if (torDone) {
+        // FIX TRANSFEREE-ROUTE-01: Check transferee TOR state BEFORE the generic
+        // `approved` guard. When the Registrar evaluates a TOR, approval_status may
+        // already be 'Approved' (set by an earlier code path), which caused the
+        // student to land directly on the dashboard instead of the payment step.
+        // Transferees with a freshly-evaluated TOR who have NOT yet paid must always
+        // be routed to payment — regardless of approval_status.
+        if (isTransferee && torDone && !paidOrApprovedPartial) {
           if (!sessionStorage.getItem('torHardCopyDismissed_' + this.studentDbId)) {
             this.showTorHardCopyNotice = true;
           }
-          // Transferee TOR done — proceed to payment step
+          // Transferee TOR evaluated — route to cash-pending (installment+Cash set by backend)
           this.route(isCash ? 'cash-pending' : 'payment');
           if (isCash) { this.isApprovalPending = true; this.startApprovalPolling(); }
 
-        } else if (torRejected) {
+        } else if (isTransferee && paidOrApprovedPartial && s.enrollmentStatus === 'Enrolled') {
+          // FIX TRANSFEREE-REGISTRAR-WAIT-01 (paid + Registrar confirmed):
+          // Registrar has set enrollment_status='Enrolled' — subjects are auto-enrolled.
+          // Go straight to dashboard and load enrolled subjects.
+          sessionStorage.removeItem('pendingPaymentMethod');
+          sessionStorage.removeItem('pendingPaymentPlan');
+          this.isApprovalPending = false;
+          this.route('dashboard');
+          this.ensureEnrolledThenLoad();
+
+        } else if (isTransferee && paidOrApprovedPartial) {
+          // FIX TRANSFEREE-REGISTRAR-WAIT-01 (paid + awaiting Registrar):
+          // Accounting verified payment (approvalStatus='Approved', paymentStatus='Partial'/'Paid')
+          // BUT enrollment_status is still 'Confirmed' — Registrar has NOT yet confirmed.
+          // Transferees MUST wait for Registrar approval before subjects are enrolled.
+          // Previously this fell through to `else if (approved)` → route('dashboard') +
+          // ensureEnrolledThenLoad(), which showed the dashboard prematurely and called
+          // auto_enroll_all (blocked server-side, but UI already showed whatever
+          // enrollment rows existed from earlier bugs or manual entries).
+          this.isApprovalPending = true;
+          this.route('approval');
+          this.startApprovalPolling();
+
+        } else if (isTransferee && torPending) {
+          this.route('tor-pending');
+          this.startTorPolling();
+
+        } else if (isTransferee && torRejected) {
           this.route('payment');
+
+        } else if (isFree && !isTransferee && approved) {
+          // FIX TVET-WIZARD-FE-01: SHS non-transferees go straight to dashboard (no payment
+          // step needed — ₱0, no subject enlistment wizard). TVET non-transferees follow the
+          // same wizard as College: show the payment step (which displays ₱0 / Free label)
+          // so the student sees payment instructions, then subjects load via ensureEnrolledThenLoad.
+          // The distinction: SHS has no add/drop and no curriculum enlistment; TVET does.
+          sessionStorage.removeItem('pendingPaymentMethod');
+          sessionStorage.removeItem('pendingPaymentPlan');
+          this.isApprovalPending = false;
+          if (cat === 'SHS') {
+            // SHS: skip straight to dashboard — no subject enlistment wizard
+            this.route('dashboard');
+            this.ensureEnrolledThenLoad();
+          } else {
+            // TVET: show payment step so student sees ₱0 fee info, then subjects load
+            // Only skip to dashboard if subjects are already enrolled (wizard already done)
+            const hasEnrollments = (res.courses?.length ?? 0) > 0 ||
+                                   (res.enrollments?.length ?? 0) > 0;
+            if (hasEnrollments) {
+              this.route('dashboard');
+              this.ensureEnrolledThenLoad();
+            } else {
+              // First time through wizard — show payment instructions (₱0) then subjects
+              this.route('payment');
+            }
+          }
+
+        } else if (approved) {
+          // Non-transferee, non-SHS/TVET College student who is Approved by Accounting.
+          // POLICY: Must still wait for Registrar confirmation (enrollmentStatus='Enrolled')
+          // before subjects are enrolled and the dashboard is shown.
+          // If enrollmentStatus is still 'Confirmed' (Accounting approved, Registrar pending),
+          // stay on the waiting/approval screen and poll for Registrar confirmation.
+          sessionStorage.removeItem('pendingPaymentMethod');
+          sessionStorage.removeItem('pendingPaymentPlan');
+          if (s.enrollmentStatus === 'Enrolled') {
+            // Registrar already confirmed — go to dashboard
+            this.isApprovalPending = false;
+            this.route('dashboard');
+            this.ensureEnrolledThenLoad();
+          } else {
+            // Accounting approved but Registrar has not yet confirmed
+            this.isApprovalPending = true;
+            this.route('approval');
+            this.startApprovalPolling();
+          }
 
         } else if (paid && !isCash) {
           // Paid via GCash — waiting for Registrar to approve enrollment
@@ -372,6 +631,12 @@ export class Enrollment implements OnInit, OnDestroy {
           // • GCash → show payment form so student can enter their GCash reference number.
           //           Card only appears in Accounting AFTER they submit the reference here.
           // • Cash  → show pending-approval (they walk in to Accounting directly)
+          // FIX REJECT-NOTES-FE-01: Also restore the rejection note from context so
+          // that the banner shows immediately on page reload after a payment rejection,
+          // without having to wait for the next poll cycle.
+          if ((res.student as any)?.rejectionReason) {
+            this.rejectedNote = (res.student as any).rejectionReason;
+          }
           if (isCash) {
             this.route('pending-approval');
             this.isApprovalPending = true;
@@ -461,6 +726,12 @@ export class Enrollment implements OnInit, OnDestroy {
   selectPaymentPlan(plan: 'full' | 'installment', method: 'GCash' | 'Cash'): void {
     this.paymentPlan   = plan;
     this.paymentMethod = method;
+    // FIX FE-PLAN-REVERT-01 (Bug 2): Write plan to sessionStorage immediately so
+    // any subsequent loadContext() call — including those triggered by approval
+    // polling — will always find the hint even after query params are gone.
+    // This is the same mechanism finishTorReview() uses (pendingPaymentPlan).
+    sessionStorage.setItem('pendingPaymentPlan',   plan);
+    sessionStorage.setItem('pendingPaymentMethod', method);
     this.http.post<any>(`${this.apiUrl}?action=update_payment_plan`, {
       student_id: this.studentDbId,
       payment_plan: plan,
@@ -469,13 +740,12 @@ export class Enrollment implements OnInit, OnDestroy {
       next: (res) => {
         if (res.success) {
           this.needsPlanSelection = false;
-          // Recompute GCash amount now that we know the plan
-          if (this.fees) {
-            this.gcashAmount        = plan === 'installment' ? this.dpAmount : this.fees.totalAssessment;
-            this.paymentInfo.amount = this.gcashAmount;
-          }
-          this.addNotification('success', `Payment plan set to ${plan}.`);
-          this.cdr.detectChanges();
+          // FIX FE-PLAN-REFRESH-01: After saving the plan, the backend has recomputed
+          // tuition_fees and soa_snapshots with the correct installment_fee and
+          // total_assessment. We MUST reload context to pick up the updated fees —
+          // otherwise this.fees still holds the pre-plan values (e.g. installmentFee=0,
+          // totalAssessment=20000) and the cash-pending screen shows the wrong total.
+          this.loadContext();
         } else {
           this.addNotification('error', res.message || 'Could not save payment plan.');
         }
@@ -505,13 +775,27 @@ export class Enrollment implements OnInit, OnDestroy {
     // Passing currentSemester lets the backend resolve the scoped key directly;
     // fallback to student_id lookup happens inside loadDueDates() when no semester.
     this.loadDueDates(this.currentSemester || undefined);
-    this.http.get<any>(`${this.apiUrl}?action=get_student_context&user_id=${this.userId}`).subscribe({
+    // FIX BUG-INST-RACE-01 (loadDashboard): Pass current plan as hint so backend
+    // _buildFees() never uses 'full' fallback during the race window where
+    // students.payment_plan may not be committed yet. Without the hint, _buildFees
+    // writes installment_fee=0, wiping the charge for the rest of the session.
+    const _dashHint = this.paymentPlan === 'installment' ? '&hint_payment_plan=installment' : '';
+    this.http.get<any>(`${this.apiUrl}?action=get_student_context&user_id=${this.userId}${_dashHint}`).subscribe({
       next: (res) => {
         if (res.success) {
           this.fees            = res.fees ?? null;
           this.termBreakdown   = res.termBreakdown ?? [];
           this.paymentReceipts = res.payments ?? [];
-          this.paymentPlan     = (res.paymentPlan ?? res.student?.paymentPlan) === 'installment' ? 'installment' : 'full';
+          // FIX BUG-INST-RACE-01 (loadDashboard): Never let a stale DB 'full'
+          // response overwrite a confirmed 'installment' already set by loadContext().
+          // Accept 'installment' unconditionally; only accept 'full' when we are not
+          // already locked in to installment.
+          const _dbPlan1 = (res.paymentPlan ?? res.student?.paymentPlan);
+          if (_dbPlan1 === 'installment') {
+            this.paymentPlan = 'installment';
+          } else if (_dbPlan1 === 'full' && this.paymentPlan !== 'installment') {
+            this.paymentPlan = 'full';
+          }
           // Keep soaPaymentPlan in sync when viewing the current semester
           if (!this.selectedSoaSemester || this.selectedSoaSemester === this.soaSemesters[0]) {
             this.soaPaymentPlan = this.paymentPlan;
@@ -569,12 +853,24 @@ export class Enrollment implements OnInit, OnDestroy {
       this.loadDueDates(sem);
       // BUG-SOA-DUES-01 FIX: clear stored dues so installmentAmounts recalculates live
       this.storedInstDues = null;
-      this.http.get<any>(`${this.apiUrl}?action=get_student_context&user_id=${this.userId}`).subscribe({
+      // FIX PLAN-NULL-02: Pass hint so getStudentContext resolves NULL payment_plan
+      // correctly. Without the hint, a NULL DB value returns paymentPlan:'full'
+      // which then clobbers a correctly-set 'installment' in this component.
+      const _soaHint = this.paymentPlan === 'installment' ? '&hint_payment_plan=installment' : '';
+      this.http.get<any>(`${this.apiUrl}?action=get_student_context&user_id=${this.userId}${_soaHint}`).subscribe({
         next: (res) => {
           this.isSoaHistoryLoading = false;
           if (res.success) {
             this.fees            = res.fees ?? null;
-            this.paymentPlan     = (res.paymentPlan ?? res.student?.paymentPlan) === 'installment' ? 'installment' : 'full';
+            // FIX PLAN-NULL-02: Never let a 'full' response (which may be the NULL
+            // fallback from the backend) overwrite a confirmed 'installment' plan.
+            // Only accept 'full' when the current plan is not already installment.
+            const _dbPlan2 = (res.paymentPlan ?? res.student?.paymentPlan);
+            if (_dbPlan2 === 'installment') {
+              this.paymentPlan = 'installment';
+            } else if (_dbPlan2 === 'full' && this.paymentPlan !== 'installment') {
+              this.paymentPlan = 'full';
+            }
             this.soaPaymentPlan  = this.paymentPlan; // sync SOA plan to current semester
             this.termBreakdown   = res.termBreakdown ?? [];
             this.paymentReceipts = res.payments ?? [];
@@ -623,6 +919,7 @@ export class Enrollment implements OnInit, OnDestroy {
             totalPaid:        snap.total_paid        ?? 0,
             balance:          snap.balance           ?? 0,
             paymentStatus:    snap.payment_status    ?? 'Unpaid',
+            extraFees:        snap.extra_fees        ?? [],
           };
 
           // ── Restore frozen payment records → termBreakdown + paymentReceipts ──
@@ -713,6 +1010,7 @@ export class Enrollment implements OnInit, OnDestroy {
                   totalAssessment: sf.totalAssessment ?? 0,
                   totalPaid: sf.totalPaid ?? 0, balance: sf.balance ?? 0,
                   paymentStatus: sf.paymentStatus ?? 'Unpaid',
+                  extraFees: sf.extraFees ?? [],
                 };
                 if (resolvedPlan === 'installment' && sf.dpDue != null) {
                   this.storedInstDues = { dpDue: sf.dpDue ?? 0, prelimDue: sf.prelimDue ?? 0, midtermDue: sf.midtermDue ?? 0, finalsDue: sf.finalsDue ?? 0 };
@@ -760,19 +1058,18 @@ export class Enrollment implements OnInit, OnDestroy {
       student_id: this.studentDbId, gcash_reference: this.gcashReference.trim(),
       gcash_amount: this.gcashAmount, gcash_date: this.gcashDate,
       transaction_id: txnId, semester: this.currentSemester,
-      // ── Scholarship declaration ────────────────────────────────────────
-      is_scholar:        this.isScholar ? 1 : 0,
-      scholar_type:      this.scholarType,
-      scholar_grantor:   this.scholarGrantor,
-      scholarship_amount: this.scholarFullTuition ? 0 : this.scholarshipAmount,
-      scholar_full_tuition: this.scholarFullTuition ? 1 : 0,
+      // BUG-FE-SCHOLAR-03: Scholar declaration is now handled separately via
+      // declareFullTuitionScholarship() or declare_scholarship — not bundled
+      // with submit_gcash. Removed to prevent accidental double-declaration.
     }).subscribe({
       next: (res) => {
         this.isProcessingPayment = false;
         if (res.success) {
           this.gcashSubmitted = true; this.paymentInfo.reference = txnId;
+          this.rejectedNote = null; // FIX REJECT-NOTES-FE-01: clear stale rejection banner
           this.route('approval'); this.isApprovalPending = true;
           this.addNotification('success', '✅ Payment submitted! Awaiting Accounting verification.');
+          this.approvalProcessed = false; // FIX APPROVAL-LOOP-01: fresh payment cycle
           this.startApprovalPolling();
         } else if (res.locked) {
           // Period not yet unlocked by Accounting — show a clear notice
@@ -787,6 +1084,45 @@ export class Enrollment implements OnInit, OnDestroy {
     });
   }
 
+  // BUG-FE-SCHOLAR-01: Dedicated method for full-tuition scholarship declaration.
+  // When scholarFullTuition=true all payment buttons are hidden, so students had
+  // no way to submit their scholarship to the backend. This method calls
+  // declare_scholarship directly and routes to the approval waiting screen.
+  declareFullTuitionScholarship(): void {
+    if (!this.scholarType.trim() || !this.scholarGrantor.trim()) {
+      this.addNotification('error', 'Please fill in Scholarship Type and Grantor/Source.');
+      return;
+    }
+    this.isProcessingPayment = true;
+    this.http.post<any>(`${this.apiUrl}?action=declare_scholarship`, {
+      student_id:         this.studentDbId,
+      scholar_type:       this.scholarType,
+      grantor:            this.scholarGrantor,
+      scholarship_amount: 0,   // full tuition — amount resolved by accounting
+    }).subscribe({
+      next: (res) => {
+        this.isProcessingPayment = false;
+        if (res.success) {
+          this.scholarPending = true;
+          this.addNotification('success', '🎓 Full scholarship application submitted! Awaiting Accounting approval.');
+          // Route to approval screen so student isn't left on payment step
+          this.route('pending-approval');
+          this.isApprovalPending = true;
+          this.approvalProcessed = false; // FIX APPROVAL-LOOP-01: fresh payment cycle
+          this.startApprovalPolling();
+        } else {
+          this.addNotification('error', res.message || 'Could not submit scholarship application.');
+        }
+        this.cdr.detectChanges();
+      },
+      error: () => {
+        this.isProcessingPayment = false;
+        this.addNotification('error', 'Cannot connect. Please try again.');
+        this.cdr.detectChanges();
+      }
+    });
+  }
+
   /** FIX FE-CASH-01: Cash payment path — notifies backend then routes to cash-pending. */
   private _processCashPayment(): void {
     this.isProcessingPayment = true;
@@ -798,8 +1134,10 @@ export class Enrollment implements OnInit, OnDestroy {
         this.isProcessingPayment = false;
         if (res.success) {
           this.route('cash-pending');
+          this.rejectedNote = null; // FIX REJECT-NOTES-FE-01: clear stale rejection banner
           this.isApprovalPending = true;
           this.addNotification('success', '💵 Please proceed to the Accounting Office to pay.');
+          this.approvalProcessed = false; // FIX APPROVAL-LOOP-01: fresh payment cycle
           this.startApprovalPolling();
         } else {
           this.addNotification('error', res.message || 'Could not register cash payment.');
@@ -813,6 +1151,19 @@ export class Enrollment implements OnInit, OnDestroy {
   startApprovalPolling(): void {
     // Clear any existing interval first to prevent duplicates
     if (this.pollInterval) { clearInterval(this.pollInterval); this.pollInterval = null; }
+    // FIX APPROVAL-LOOP-01: Do NOT reset approvalProcessed here.
+    // startApprovalPolling() is called by loadContext() routing branches AND by
+    // ngOnInit restore — if approvalProcessed is already true (approval was handled
+    // this session), resetting it here would allow checkApprovalStatus() to fire
+    // another toast + loadContext() chain, restarting the loop.
+    // approvalProcessed is only reset in submitCashPayment(), submitGCashPayment(),
+    // and submitScholarship() — i.e. genuine new payment submissions.
+    if (this.approvalProcessed) {
+      // Already approved this session — clear stale sessionStorage so page reloads
+      // don't restore 'approval'/'cash-pending' and restart the loop again.
+      sessionStorage.removeItem('enrollmentStep');
+      return;
+    }
     // Check immediately on start (covers the reload-and-already-approved case)
     this.checkApprovalStatus();
     this.pollInterval = setInterval(() => {
@@ -823,28 +1174,91 @@ export class Enrollment implements OnInit, OnDestroy {
 
   checkApprovalStatus(): void {
     if (!this.userId) return;
+    // FIX APPROVAL-LOOP-01: Bail immediately if approval was already processed,
+    // OR if we're already on the dashboard (approval is complete by definition).
+    // Without these guards, concurrent in-flight HTTP responses each see
+    // approvalStatus=Approved and each fire addNotification() + loadContext(),
+    // producing N "Payment approved!" toasts — the visible loop.
+    if (this.approvalProcessed || this.workflowStep === 'dashboard') return;
     this.http.get<any>(`${this.apiUrl}?action=get_payment_status&user_id=${this.userId}`).subscribe({
       next: (res) => {
         if (res.success && res.approvalStatus === 'Approved') {
+          // FIX APPROVAL-LOOP-01: Set the guard FIRST, before any async side-effects,
+          // so any concurrent response that lands while loadContext() is in-flight
+          // is dropped immediately on the guard above.
+          if (this.approvalProcessed) return;
+          this.approvalProcessed = true;
           // Stop polling immediately
           if (this.pollInterval) { clearInterval(this.pollInterval); this.pollInterval = null; }
+          // FIX APPROVAL-LOOP-01: Clear enrollmentStep so a page reload of an
+          // already-approved student does NOT restore 'approval'/'cash-pending'
+          // and call startApprovalPolling() → checkApprovalStatus() → toast again.
+          sessionStorage.removeItem('enrollmentStep');
           sessionStorage.removeItem('pendingPaymentMethod');
-          sessionStorage.removeItem('pendingPaymentPlan');
+          // sessionStorage.removeItem('pendingPaymentPlan'); ← intentionally NOT removed here
+          // Keep pendingPaymentPlan so loadContext() can pass it as hint_payment_plan.
+          // FIX FE-PLAN-REVERT-01 (Bug 1): Removing it before loadContext() would
+          // cause the backend to return 'full' if students.payment_plan isn't committed
+          // yet, wiping the installment breakdown. Cleared naturally by loadContext().
           this.isApprovalPending = false;
           this.approvalMessage = this.paymentMethod === 'Cash'
             ? '💵 Cash payment confirmed by Accounting!'
             : '📱 GCash payment verified by Accounting!';
-          this.addNotification('success', 'Payment approved! Loading your dashboard...');
-          // Pre-set step to dashboard so loadContext doesn't flash 'approval'
-          this.route('dashboard');
-          // Reload full context to get enrolled courses and updated fees
-          this.loadContext();
-        } else if (res.success && this.workflowStep === 'pending-approval') {
-          // Student is on the pending-approval screen — check if payment status changed
-          // so we can redirect them to payment screen when Accounting sets them up
-          if (res.paymentStatus === 'Paid') {
-            // Fully approved — reload context to get proper routing
+
+          // POLICY: ALL students must wait for Registrar confirmation before
+          // subjects are enrolled. Accounting approval only sets enrollmentStatus
+          // = 'Confirmed'. Subjects are enrolled only when Registrar sets it to
+          // 'Enrolled' via confirm_registration.
+          // Previously only transferees were held here — non-transferees were
+          // routed directly to dashboard + ensureEnrolledThenLoad() which fired
+          // auto_enroll_all immediately after Accounting approved, bypassing the
+          // Registrar step for all regular (non-transferee) College students.
+          if (res.enrollmentStatus !== 'Enrolled') {
+            this.addNotification('success', '✅ Payment confirmed! Waiting for Registrar to finalize your enrollment.');
+            this.isApprovalPending = true;
+            this.route('approval');
+            // Continue polling every 10s until Registrar sets enrollmentStatus = 'Enrolled'
+            if (this.pollInterval) { clearInterval(this.pollInterval); this.pollInterval = null; }
+            this.pollInterval = setInterval(() => {
+              this.http.get<any>(`${this.apiUrl}?action=get_payment_status&user_id=${this.userId}`).subscribe({
+                next: (poll) => {
+                  if (poll.enrollmentStatus === 'Enrolled') {
+                    clearInterval(this.pollInterval!); this.pollInterval = null;
+                    this.isApprovalPending = false;
+                    sessionStorage.removeItem('enrollmentStep');
+                    this.addNotification('success', '🎉 Registrar confirmed! Loading your enrolled subjects...');
+                    this.route('dashboard');
+                    this.loadContext();
+                  }
+                }
+              });
+            }, 10000);
+          } else {
+            // enrollmentStatus is already 'Enrolled' (e.g. Registrar confirmed
+            // before this poll fired, or re-enrollment path)
+            this.addNotification('success', 'Payment approved! Loading your dashboard...');
+            this.route('dashboard');
             this.loadContext();
+          }
+        } else if (res.success && (this.workflowStep === 'pending-approval' || this.workflowStep === 'cash-pending')) {
+          // FIX CASH-POLL-01: Include cash-pending in the fallback branch so that a Cash
+          // student whose payment was just verified by Accounting gets rescued here too.
+          // Previously only 'pending-approval' was checked, leaving cash-pending students
+          // stuck on the waiting screen even after Accounting approved their payment.
+          if (res.paymentStatus === 'Paid' || res.approvalStatus === 'Approved') {
+            // Status changed — reload context to get proper routing
+            this.loadContext();
+          }
+          // FIX REJECT-NOTES-FE-01: Detect payment rejection while student is on the
+          // approval/cash-pending waiting screen and route them back to the payment step
+          // with the accounting note displayed so they know exactly what to fix.
+          if (res.paymentStatus === 'Pending' && res.approvalStatus === 'Pending' && res.rejectedNote) {
+            this.rejectedNote = res.rejectedNote;
+            if (this.pollInterval) { clearInterval(this.pollInterval); this.pollInterval = null; }
+            this.isApprovalPending = false;
+            this.route('payment');
+            this.addNotification('error', '❌ Payment rejected by Accounting. Please check the reason below and resubmit.');
+            this.cdr.detectChanges();
           }
         }
       }
@@ -1169,231 +1583,14 @@ export class Enrollment implements OnInit, OnDestroy {
     return result;
   }
 
-  // ── Print OR (Official Receipt) — for Full Payment ───────────────────────
-  viewOR(receipt: any): void {
-    this.openServiceInvoice(receipt);
-  }
+  // ── OR/AR — all use Service Invoice format ──────────────────────────────────
+  viewOR(receipt: any): void   { this.openServiceInvoice(receipt); }
+  printOR(receipt: any): void  { this.openServiceInvoice(receipt); }
+  viewAR(receipt: any): void   { this.openServiceInvoice(receipt); }
+  printAR(receipt: any): void  { this.openServiceInvoice(receipt); }
 
-  printOR(receipt: any): void {
-    const name = `${receipt.lastName || receipt.last_name || ''}, ${receipt.firstName || receipt.first_name || ''}`;
-    const amount = receipt.amount || 0;
-    const amtWords = this.amountToWords(amount);
-    const fmt = (n: number) => n.toLocaleString('en-PH', { minimumFractionDigits: 2 });
-    const period = receipt.period || 'Full';
-    const isCashPay = receipt.method === 'Cash';
-    const payDate = receipt.paymentDate || '';
-
-    const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
-<title>Official Receipt ${receipt.orArNumber || ''}</title>
-<style>
-  *{box-sizing:border-box;margin:0;padding:0;}
-  body{font-family:Arial,sans-serif;font-size:10.5px;padding:14px 18px;color:#000;background:#fff;width:720px;}
-  .outer{display:grid;grid-template-columns:220px 1fr;gap:0;border:1.5px solid #000;}
-  .left-panel{border-right:1.5px solid #000;display:flex;flex-direction:column;}
-  .part-header{background:#000;color:#fff;text-align:center;font-size:9px;font-weight:700;padding:3px;}
-  .part-table{width:100%;border-collapse:collapse;font-size:9.5px;}
-  .part-table td{border:1px solid #000;padding:2px 4px;height:18px;}
-  .part-table td:last-child{width:70px;text-align:right;}
-  .part-table .total-row td{font-weight:700;background:#f5f5f5;}
-  .subj-area{border-top:1.5px solid #000;padding:4px;font-size:9px;}
-  .subj-row{display:grid;grid-template-columns:55px 1fr 25px;border-bottom:1px solid #ddd;padding:1px 0;}
-  .right-panel{display:flex;flex-direction:column;}
-  .school-header{display:flex;align-items:flex-start;gap:8px;padding:6px 8px;border-bottom:1.5px solid #000;}
-  .logo-circle{width:52px;height:52px;border:2px solid #000;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:7.5px;text-align:center;flex-shrink:0;font-weight:700;}
-  .school-info{flex:1;}
-  .school-name{font-size:13px;font-weight:900;text-transform:uppercase;letter-spacing:0.5px;}
-  .school-sub{font-size:8px;color:#333;margin-top:1px;}
-  .deped-badge{font-size:8px;border:1px solid #999;padding:2px 5px;border-radius:3px;margin-left:auto;white-space:nowrap;align-self:flex-start;}
-  .receipt-bar{text-align:center;background:#fff;border-bottom:1.5px solid #000;padding:4px;}
-  .receipt-bar-title{font-size:13px;font-weight:900;letter-spacing:1.5px;}
-  .body-pad{padding:6px 10px;}
-  .field-row{display:flex;align-items:flex-end;gap:5px;margin-bottom:4px;}
-  .flabel{font-size:9px;white-space:nowrap;}
-  .fval{border-bottom:1px solid #000;flex:1;font-weight:700;font-size:10px;padding-bottom:1px;min-width:40px;}
-  .sum-words{font-style:italic;}
-  .pay-method{display:flex;align-items:center;gap:6px;margin-top:5px;flex-wrap:wrap;}
-  .cb{display:inline-flex;align-items:center;gap:3px;font-size:9px;}
-  .cb-sq{width:11px;height:11px;border:1px solid #000;display:inline-flex;align-items:center;justify-content:center;font-size:9px;}
-  .receipt-no-bar{display:flex;justify-content:flex-end;padding:4px 10px;border-top:1px solid #ccc;}
-  .receipt-no{font-size:16px;font-weight:900;color:#c00;}
-  .sig-row{display:flex;justify-content:space-between;align-items:flex-end;padding:6px 10px 4px;border-top:1px solid #ccc;}
-  .sig-block{text-align:center;}
-  .sig-line{border-top:1px solid #000;padding-top:3px;font-size:8.5px;margin-top:20px;}
-  .footer{font-size:7.5px;color:#444;padding:4px 8px;border-top:1px dashed #aaa;}
-  @media print{body{padding:6px 10px;}@page{margin:6mm;size:A4 landscape;}.no-print{display:none!important;}}
-</style></head><body>
-<div class="outer">
-  <div class="left-panel">
-    <div class="part-header">In settlement of the following:</div>
-    <table class="part-table">
-      <tr><td>Particulars</td><td><strong>Amount</strong></td></tr>
-      <tr><td>Downpayment</td><td>${period==='Downpayment' ? fmt(amount) : ''}</td></tr>
-      <tr><td>1st Payment</td><td>${period==='Prelim' ? fmt(amount) : ''}</td></tr>
-      <tr><td>2nd Payment</td><td>${period==='Midterm' ? fmt(amount) : ''}</td></tr>
-      <tr><td>3rd Payment</td><td>${period==='Finals' ? fmt(amount) : ''}</td></tr>
-      <tr><td>4th Payment</td><td></td></tr>
-      <tr><td>5th Payment</td><td></td></tr>
-      <tr><td>6th Payment</td><td></td></tr>
-      <tr><td>Others</td><td></td></tr>
-      <tr class="total-row"><td>Total Due</td><td>${fmt(amount)}</td></tr>
-      <tr><td>Less: Withholding Tax</td><td></td></tr>
-      <tr class="total-row"><td>Payment Due</td><td>${fmt(amount)}</td></tr>
-    </table>
-    <div class="subj-area">
-      <div class="subj-row" style="font-weight:700;font-size:9px;border-bottom:1px solid #000;"><span>Code</span><span>Subject</span><span>Units</span></div>
-      <div class="subj-row"><span>${receipt.program || ''}</span><span>${receipt.semester || ''}</span><span></span></div>
-      <div class="subj-row"><span></span><span></span><span></span></div>
-      <div class="subj-row"><span></span><span></span><span></span></div>
-    </div>
-  </div>
-  <div class="right-panel">
-    <div class="school-header">
-      <div class="logo-circle">ST.<br>BENILDE</div>
-      <div class="school-info">
-        <div class="school-name">ST. BENILDE</div>
-        <div class="school-sub">CENTER FOR GLOBAL COMPETENCE, INC.</div>
-        <div class="school-sub">Email: stbenilde_olongapo@yahoo.com &nbsp;|&nbsp; Telefax: (047) 223-3031</div>
-        <div class="school-sub">Olongapo City, Zambales, Philippines</div>
-        <div class="school-sub">NON-VAT Reg. TIN: 006-722-355-00000</div>
-      </div>
-      <div class="deped-badge">Registered with:<br>CHED · TESDA · DepEd</div>
-    </div>
-    <div class="receipt-bar"><div class="receipt-bar-title">OFFICIAL RECEIPT (EXEMPT)</div></div>
-    <div class="body-pad">
-      <div class="field-row"><span class="flabel">RECEIVED from</span><span class="fval">${name}</span><span class="flabel">with TIN</span><span class="fval" style="max-width:90px;"></span></div>
-      <div class="field-row"><span class="flabel">business style of</span><span class="fval"></span><span class="flabel">and address at</span><span class="fval">Olongapo City</span></div>
-      <div class="field-row"><span class="flabel">in partial/full payment for</span><span class="fval">${receipt.program || ''} — ${receipt.semester || ''}</span></div>
-      <div class="field-row"><span class="flabel">the sum of</span><span class="fval sum-words">( P ${fmt(amount)} ) &nbsp; ${amtWords}</span><span class="flabel">pesos</span></div>
-      <div class="pay-method">
-        <span class="flabel">Form of Payment:</span>
-        <span class="cb"><span class="cb-sq">${isCashPay ? '✓' : ''}</span> Cash</span>
-        <span class="cb"><span class="cb-sq">${!isCashPay ? '✓' : ''}</span> Check</span>
-        <span class="flabel" style="margin-left:8px;">Bank</span>
-        <span class="fval" style="max-width:90px;">${!isCashPay ? (receipt.gcashReference || '') : ''}</span>
-        <span class="flabel">Check No.</span><span class="fval" style="max-width:70px;"></span>
-        <span class="flabel">Date</span><span class="fval" style="max-width:80px;">${payDate}</span>
-      </div>
-    </div>
-    <div class="receipt-no-bar"><span style="font-size:9px;margin-right:8px;">No.</span><span class="receipt-no">${receipt.orArNumber || '—'}</span></div>
-    <div class="sig-row">
-      <div><div style="font-size:8px;color:#555;"><em>THIS DOCUMENT IS NOT VALID FOR CLAIM OF INPUT TAXES</em></div></div>
-      <div class="sig-block"><div style="height:24px;font-size:10px;"></div><div class="sig-line">Cashier/Authorized Representative</div></div>
-    </div>
-    <div class="footer">
-      200-Elitre 1503 42501-52500 &nbsp;|&nbsp; BIR Authority to Print No.: OCN: 018AU20220000004994<br>
-      Printer's Accreditation No.: 018MP2019000000000001 &nbsp;|&nbsp; Date Issued: 01-09-2019<br>
-      Dinamika Printing Intl. Corp. &nbsp;|&nbsp; 75m St. Tapinac, Olongapo City &nbsp;|&nbsp; TIN: 215-213-220-00000 - VAT
-    </div>
-  </div>
-</div>
-<div class="no-print" style="text-align:center;margin-top:14px;">
-  <button onclick="window.print()" style="background:#1d4ed8;color:white;border:none;padding:10px 32px;font-size:14px;font-weight:700;border-radius:7px;cursor:pointer;margin-right:10px;">🖨️ Print</button>
-  <button onclick="window.close()" style="background:#64748b;color:white;border:none;padding:10px 24px;font-size:14px;font-weight:700;border-radius:7px;cursor:pointer;">✕ Close</button>
-</div>
-</body></html>`;
-    const win = window.open('', '_blank', 'width=800,height=700');
-    if (!win) return;
-    win.document.write(html); win.document.close();
-  }
-
-  viewAR(receipt: any): void {
-    this.openServiceInvoice(receipt);
-  }
-
-  printAR(receipt: any): void {
-    const s = this.student;
-    const name = `${s.lastName || s.last_name || ''}, ${s.firstName || s.first_name || ''}`;
-    const amount = receipt.amount || 0;
-    const fmt = (n: number) => n.toLocaleString('en-PH', { minimumFractionDigits: 2 });
-    const courses = (this.enrolledCourses || []);
-    const subjectRows = courses.length > 0
-      ? courses.map((c: any) => `<tr><td style="font-size:10px;">${c.code}</td><td style="font-size:10px;">${c.name}</td><td style="text-align:center;">${c.credits || ''}</td><td style="text-align:center;">&nbsp;</td></tr>`).join('')
-      : '<tr><td colspan="4">&nbsp;</td></tr><tr><td colspan="4">&nbsp;</td></tr>';
-    const periodLabel: any = { 'Downpayment':'Downpayment / Enrollment','Prelim':'1st Term (Prelim) Installment','Midterm':'2nd Term (Midterm) Installment','Finals':'3rd Term (Finals) Installment' };
-    const period = receipt.period || 'Downpayment';
-
-    const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
-<title>Acknowledgement Receipt ${receipt.orArNumber}</title>
-<style>
-  *{box-sizing:border-box;margin:0;padding:0;}
-  body{font-family:Arial,sans-serif;font-size:11px;padding:20px 24px;color:#000;}
-  .header{text-align:center;border-bottom:2px solid #000;padding-bottom:8px;margin-bottom:8px;}
-  .school-name{font-size:16px;font-weight:900;text-transform:uppercase;letter-spacing:1px;}
-  .school-addr{font-size:9px;margin-top:3px;}
-  .form-label{font-size:9px;color:#555;margin-top:2px;}
-  .receipt-title{text-align:center;font-size:14px;font-weight:900;letter-spacing:1px;border:2px solid #000;padding:5px;margin:6px 0;}
-  .receipt-no-row{display:flex;justify-content:space-between;margin-bottom:6px;}
-  .receipt-no{font-size:12px;font-weight:900;color:#c00;}
-  .receipt-date{font-size:11px;}
-  .body-section{border:1px solid #000;padding:8px 10px;margin:6px 0;}
-  .field-line{display:flex;align-items:flex-end;gap:6px;margin-bottom:5px;}
-  .field-label{white-space:nowrap;font-size:10px;}
-  .field-val{border-bottom:1px solid #000;flex:1;font-weight:700;padding-bottom:1px;}
-  .checkbox-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;margin:8px 0 4px 0;font-size:10px;}
-  .cb-item{display:flex;align-items:center;gap:5px;}
-  .cb-box{width:13px;height:13px;border:1px solid #000;display:inline-block;text-align:center;font-size:10px;line-height:13px;}
-  .other-line{display:flex;align-items:flex-end;gap:6px;margin-top:4px;font-size:10px;}
-  .info-row{display:flex;gap:12px;margin-top:8px;font-size:10px;}
-  .info-field{display:flex;align-items:flex-end;gap:4px;}
-  .info-val{border-bottom:1px solid #000;min-width:80px;font-weight:700;padding-bottom:1px;}
-  .subjects-table{width:100%;border-collapse:collapse;margin-top:8px;font-size:10px;}
-  .subjects-table th,.subjects-table td{border:1px solid #000;padding:3px 5px;}
-  .subjects-table th{background:#eee;text-align:center;}
-  .sig-area{display:flex;justify-content:flex-end;margin-top:20px;}
-  .sig-block{text-align:center;min-width:140px;}
-  .sig-line{border-top:1.5px solid #000;padding-top:3px;font-size:9px;font-weight:700;}
-  @media print{body{padding:10px 14px;}@page{margin:8mm;}.no-print{display:none!important;}}
-</style></head><body>
-<div class="header">
-  <div class="school-name">St. Benilde Center for Global Competence, Inc.</div>
-  <div class="school-addr">2647 Rizal Avenue, West Bajac-Bajac, Olongapo City</div>
-  <div class="form-label">ADMIN FORM 09</div>
-</div>
-<div class="receipt-title">ACKNOWLEDGEMENT RECEIPT</div>
-<div class="receipt-no-row">
-  <span class="receipt-no">No. &nbsp; ${receipt.orArNumber}</span>
-  <span class="receipt-date">DATE: &nbsp; ${receipt.paymentDate || new Date().toLocaleDateString('en-PH')}</span>
-</div>
-<div class="body-section">
-  <div class="field-line"><span class="field-label">This is to acknowledge the receipt of payment from</span><span class="field-val">${name}</span></div>
-  <div class="field-line"><span class="field-label">amounting to,</span><span class="field-val">( P &nbsp;${fmt(amount)} )</span></div>
-  <div style="margin-top:8px;font-size:10px;font-weight:700;">As partial/Full payment for:</div>
-  <div class="checkbox-grid">
-    <div class="cb-item"><span class="cb-box">&nbsp;</span> School Uniform</div>
-    <div class="cb-item"><span class="cb-box">&nbsp;</span> Graduation</div>
-    <div class="cb-item"><span class="cb-box">&nbsp;</span> ID Lace</div>
-    <div class="cb-item"><span class="cb-box">&nbsp;</span> Sports Fest</div>
-    <div class="cb-item"><span class="cb-box">&nbsp;</span> P.E. Uniform</div>
-    <div class="cb-item"><span class="cb-box">☑</span> <strong>Tuition / ${periodLabel[period] || period}</strong></div>
-    <div class="cb-item"><span class="cb-box">&nbsp;</span> Books/Workbooks</div>
-  </div>
-  <div class="other-line"><span>Other student trainings &amp; activities (please specify):</span><span class="field-val"></span></div>
-  <div class="info-row">
-    <div class="info-field"><span>Course:</span><span class="info-val">${s.program || ''}</span></div>
-    <div class="info-field"><span>Semester:</span><span class="info-val">${s.semester || ''}</span></div>
-    <div class="info-field"><span>Academic Year:</span><span class="info-val">${(()=>{ const m=(s.semester||'').match(/(\d{4})-(\d{4})/); if(m) return m[0]; const y=new Date().getFullYear(); return y+'-'+(y+1); })()}</span></div>
-  </div>
-</div>
-<table class="subjects-table">
-  <thead><tr><th style="width:12%;">Code</th><th>Subject / Description</th><th style="width:8%;">Units</th><th style="width:10%;">Grade</th></tr></thead>
-  <tbody>${subjectRows}</tbody>
-</table>
-<div class="sig-area">
-  <div class="sig-block"><div style="height:32px;"></div><div class="sig-line">CASHIER</div></div>
-</div>
-<div class="no-print" style="text-align:center;margin-top:16px;padding:12px;background:#f8fafc;border-top:1px solid #e2e8f0;">
-  <button onclick="window.print()" style="background:#7c3aed;color:white;border:none;padding:10px 32px;font-size:14px;font-weight:700;border-radius:7px;cursor:pointer;margin-right:10px;">🖨️ Print</button>
-  <button onclick="window.close()" style="background:#64748b;color:white;border:none;padding:10px 24px;font-size:14px;font-weight:700;border-radius:7px;cursor:pointer;">✕ Close</button>
-</div>
-</body></html>`;
-    const win = window.open('', '_blank', 'width=760,height=860');
-    if (!win) return;
-    win.document.write(html);
-    win.document.close();
-  }
-
-  // ── Service Invoice (online/browser view — NOT an official receipt) ─────────
-  openServiceInvoice(receipt: any): void {
+    // ── Service Invoice (online/browser view — NOT an official receipt) ─────────
+  async openServiceInvoice(receipt: any): Promise<void> {
     const s = this.student;
     const name = `${s.lastName || s.last_name || ''}, ${s.firstName || s.first_name || ''}`;
     const stNum = s.studentNumber || s.student_number || '';
@@ -1404,12 +1601,29 @@ export class Enrollment implements OnInit, OnDestroy {
     const gcashRef = receipt.gcashReference || '';
     const orNo = receipt.orArNumber || receipt.or_ar_number || '';
     const payDate = receipt.paymentDate || receipt.payment_date || '';
-    const totalAssess = receipt.totalAssessment || receipt.total_assessment || 0;
-    const totalPaid = receipt.totalPaid || receipt.total_paid || amount;
+    // totalAssessment from component fees (always accurate for current/past sem)
+    const totalAssess = (this.fees?.totalAssessment ?? 0) || receipt.totalAssessment || receipt.total_assessment || 0;
+
+    // Compute cumulative paid UP TO AND INCLUDING this specific receipt
+    // so each invoice shows a different "Total Paid to Date" that reflects
+    // exactly how much had been paid when this invoice was issued.
+    const receiptIndex = this.paymentReceipts.findIndex(
+      (r: any) => r.orArNumber === orNo
+    );
+    let cumulativePaid = 0;
+    if (receiptIndex >= 0) {
+      for (let i = 0; i <= receiptIndex; i++) {
+        cumulativePaid += (this.paymentReceipts[i]?.amount || 0);
+      }
+    } else {
+      // Fallback: use component total if receipt not found in array
+      cumulativePaid = (this.fees?.totalPaid ?? 0) || amount;
+    }
+    const totalPaid = cumulativePaid;
     const balance = Math.max(0, totalAssess - totalPaid);
 
     let statusClass = 'status-unpaid'; let statusLabel = 'UNPAID';
-    if (balance <= 0) { statusClass = 'status-paid'; statusLabel = 'FULLY PAID'; }
+    if (balance <= 0 && totalPaid > 0) { statusClass = 'status-paid'; statusLabel = 'FULLY PAID'; }
     else if (totalPaid > 0) { statusClass = 'status-partial'; statusLabel = 'PARTIALLY PAID'; }
 
     const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
@@ -1488,20 +1702,55 @@ export class Enrollment implements OnInit, OnDestroy {
     <div class="field"><label>Payment Plan</label><span>${s.paymentPlan || s.payment_plan || ''}</span></div>
   </div>
   <hr class="divider">
-  <div class="section-title">Payment for This Period</div>
-  <div class="box">
+  <div class="section-title">This Invoice</div>
+  <div class="box" style="margin-bottom:10px;">
     <div class="amt-center">
       <div class="amt-label">Amount — ${period}</div>
       <div class="amt-value">₱${fmt(amount)}</div>
     </div>
     <table class="bk">
       <tr><td>Payment Method</td><td>${method}</td></tr>
-      ${gcashRef ? `<tr><td>GCash Ref</td><td>${gcashRef}</td></tr>` : ''}
-      <tr class="total-row"><td>Total Assessment</td><td>₱${fmt(totalAssess)}</td></tr>
-      <tr><td>Total Paid to Date</td><td>₱${fmt(totalPaid)}</td></tr>
-      <tr class="bal-row ${balance <= 0 ? 'paid' : ''}"><td>Remaining Balance</td><td>₱${fmt(balance)}</td></tr>
+      ${gcashRef ? `<tr><td>GCash Ref No.</td><td>${gcashRef}</td></tr>` : ''}
     </table>
   </div>
+  <hr class="divider">
+  <div class="section-title">Payment History</div>
+  <table class="bk" style="margin-bottom:10px;border:1px solid #e2e8f0;border-radius:4px;overflow:hidden;">
+    <thead>
+      <tr style="background:#1a3c6e;color:white;">
+        <th style="padding:5px 8px;text-align:left;font-size:9px;font-weight:700;">Period</th>
+        <th style="padding:5px 8px;text-align:left;font-size:9px;font-weight:700;">Ref No.</th>
+        <th style="padding:5px 8px;text-align:left;font-size:9px;font-weight:700;">Method</th>
+        <th style="padding:5px 8px;text-align:left;font-size:9px;font-weight:700;">Date</th>
+        <th style="padding:5px 8px;text-align:right;font-size:9px;font-weight:700;">Amount</th>
+        <th style="padding:5px 8px;text-align:center;font-size:9px;font-weight:700;">Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${(() => {
+        if (receiptIndex < 0) return '<tr><td colspan="6" style="padding:6px 8px;color:#888;">No history available.</td></tr>';
+        return this.paymentReceipts.slice(0, receiptIndex + 1).map((r: any, i: number) => {
+          const isCurrent = r.orArNumber === orNo;
+          const rowBg = isCurrent ? 'background:#eff6ff;font-weight:700;' : '';
+          const marker = isCurrent ? ' ◀ This Invoice' : '✓ Paid';
+          const markerColor = isCurrent ? '#1a3c6e' : '#166534';
+          return `<tr style="${rowBg}">
+            <td style="padding:4px 8px;font-size:10px;">${r.period || ''}</td>
+            <td style="padding:4px 8px;font-size:10px;">${r.orArNumber || ''}</td>
+            <td style="padding:4px 8px;font-size:10px;">${r.method || ''}</td>
+            <td style="padding:4px 8px;font-size:10px;">${r.paymentDate ? new Date(r.paymentDate).toLocaleDateString('en-PH',{month:'short',day:'numeric',year:'numeric'}) : ''}</td>
+            <td style="padding:4px 8px;text-align:right;font-size:10px;">₱${(r.amount||0).toLocaleString('en-PH',{minimumFractionDigits:2})}</td>
+            <td style="padding:4px 8px;text-align:center;font-size:9px;color:${markerColor};font-weight:700;">${marker}</td>
+          </tr>`;
+        }).join('');
+      })()}
+    </tbody>
+  </table>
+  <table class="bk" style="margin-bottom:10px;">
+    <tr class="total-row"><td>Total Assessment</td><td>₱${fmt(totalAssess)}</td></tr>
+    <tr><td>Total Paid to Date</td><td>₱${fmt(totalPaid)}</td></tr>
+    <tr class="bal-row ${balance <= 0 ? 'paid' : ''}"><td>Remaining Balance</td><td>₱${fmt(balance)}</td></tr>
+  </table>
   <div class="sig-row">
     <div class="sig"><div class="line"></div><div class="sig-name">Accounting Office</div><div class="sig-role">Accounting Staff</div></div>
     <div class="sig"><div class="line"></div><div class="sig-name">${name}</div><div class="sig-role">Student / Representative</div></div>
@@ -1516,7 +1765,7 @@ export class Enrollment implements OnInit, OnDestroy {
   }
 
   // ── View Statement of Account ─────────────────────────────────────────────
-  viewSOA(): void {
+  async viewSOA(): Promise<void> {
     const s    = this.student;
     const f    = this.fees;
     if (!f) return;
@@ -1653,7 +1902,7 @@ export class Enrollment implements OnInit, OnDestroy {
   </div>
   <div class="info-cell">
     <div class="info-label">Department:</div>
-    <div class="info-val">${s.department || 'ICTD'}</div>
+    <div class="info-val">${(s.department?.match(/\(([^)]+)\)\s*$/) ?? [])[1] || s.department || ''}</div>
   </div>
 </div>
 <div class="info-bar2">

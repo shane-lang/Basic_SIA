@@ -57,7 +57,7 @@
           </td>
           <td><small>{{ s.program }}</small></td>
           <td>
-            <span class="pay-badge" [class]="paymentStatusClass(s.paymentStatus)">
+            <span class="pay-badge" [class]="paymentStatusClass(s)">
               {{ paymentStatusLabel(s) }}
             </span>
           </td>
@@ -103,10 +103,14 @@
       <div class="pb-body">
         <div class="pb-title">
           <ng-container *ngIf="isPaymentCleared(selected)">
-            <ng-container *ngIf="selected.paymentPlan === 'installment' && selected.totalPaid > 0 && selected.paymentStatus.toLowerCase() !== 'paid'">
+            <!-- SHS/TVET: tuition-free — no Accounting verification involved -->
+            <ng-container *ngIf="selected.isFreeEnrollment">
+              🎓 Free Enrollment — No Payment Required
+            </ng-container>
+            <ng-container *ngIf="!selected.isFreeEnrollment && selected.paymentPlan === 'installment' && selected.totalPaid > 0 && selected.paymentStatus.toLowerCase() !== 'paid'">
               Downpayment Verified — Installment Plan
             </ng-container>
-            <ng-container *ngIf="selected.paymentPlan !== 'installment' || selected.paymentStatus.toLowerCase() === 'paid'">
+            <ng-container *ngIf="!selected.isFreeEnrollment && (selected.paymentPlan !== 'installment' || selected.paymentStatus.toLowerCase() === 'paid')">
               Payment Verified by Accounting
             </ng-container>
           </ng-container>
@@ -117,14 +121,17 @@
         <div class="pb-sub" *ngIf="!isPaymentCleared(selected)">
           Student must complete payment before registration can be confirmed.
         </div>
-        <div class="pb-sub" *ngIf="isPaymentCleared(selected) && selected.paymentPlan === 'installment' && selected.paymentStatus.toLowerCase() !== 'paid'">
+        <div class="pb-sub" *ngIf="isPaymentCleared(selected) && selected.isFreeEnrollment">
+          SHS/TVET new students are tuition-free — no payment required.
+        </div>
+        <div class="pb-sub" *ngIf="isPaymentCleared(selected) && !selected.isFreeEnrollment && selected.paymentPlan === 'installment' && selected.paymentStatus.toLowerCase() !== 'paid'">
           Downpayment of ₱{{ fmt(selected.totalPaid) }} received. Remaining balance of ₱{{ fmt(selected.balance) }} payable in installments at Accounting.
         </div>
-        <div class="pb-sub" *ngIf="isPaymentCleared(selected) && selected.isScholar">
+        <div class="pb-sub" *ngIf="isPaymentCleared(selected) && !selected.isFreeEnrollment && selected.isScholar">
           Scholarship discount applied — {{ coveragePct(selected) === 100 ? 'full coverage, no payment required' : 'partial discount applied' }}.
         </div>
       </div>
-      <span class="pb-status-badge" [class]="paymentStatusClass(selected.paymentStatus)">
+      <span class="pb-status-badge" [class]="paymentStatusClass(selected)">
         {{ paymentStatusLabel(selected) }}
       </span>
     </div>
@@ -217,7 +224,7 @@
 
     <!-- ── Enrolled Subjects ──────────────────────────────────── -->
     <div class="subjects-box">
-      <h4 class="section-label">📚 Enrolled Subjects</h4>
+      <h4 class="section-label">📚 Subjects</h4>
 
       <div class="subjects-loading" *ngIf="isLoadingSubjects">⏳ Loading subjects…</div>
 
@@ -239,7 +246,8 @@
               <span class="subj-status-chip"
                     [class.chip-enrolled]="subj.status === 'Enrolled'"
                     [class.chip-pending]="subj.status === 'Pending'"
-                    [class.chip-dropped]="subj.status === 'Dropped'">
+                    [class.chip-dropped]="subj.status === 'Dropped'"
+                    [class.chip-credited]="subj.status === 'Credited'">
                 {{ subj.status || '—' }}
               </span>
             </td>
@@ -316,7 +324,6 @@
 
     <div class="detail-actions" *ngIf="selected.registrarConfirmed === 'Pending'">
       <button class="btn-confirm" (click)="openAction('confirm')">✓ Confirm Registration</button>
-      <button class="btn-reject"  (click)="openAction('reject')">✕ Reject</button>
     </div>
     <div class="already-actioned" *ngIf="selected.registrarConfirmed !== 'Pending'">
       Registration already {{ selected.registrarConfirmed | lowercase }}.
@@ -334,7 +341,7 @@
   <div class="modal-overlay" *ngIf="showModal" (click)="closeModal()">
     <div class="modal-box" (click)="$event.stopPropagation()">
       <h3 *ngIf="modalAction === 'confirm'">✓ Confirm Registration</h3>
-      <h3 *ngIf="modalAction === 'reject'">✕ Reject Registration</h3>
+      <!--<h3 *ngIf="modalAction === 'reject'">✕ Reject Registration</h3>-->
 
       <!-- Payment summary in confirm modal -->
       <div class="modal-pay-summary" *ngIf="modalAction === 'confirm' && selected">
@@ -344,7 +351,7 @@
         </div>
         <div class="mps-row">
           <span>Payment Status</span>
-          <span class="pay-badge" [class]="paymentStatusClass(selected.paymentStatus)">{{ paymentStatusLabel(selected) }}</span>
+          <span class="pay-badge" [class]="paymentStatusClass(selected)">{{ paymentStatusLabel(selected) }}</span>
         </div>
         <div class="mps-row" *ngIf="selected.totalAssessment > 0">
           <span>Assessment</span>

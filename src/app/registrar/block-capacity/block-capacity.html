@@ -1,0 +1,213 @@
+<div class="bc-container">
+
+  <!-- ── Summary cards ──────────────────────────────────────────────────── -->
+  <div class="bc-summary-row">
+    <div class="bc-stat-card">
+      <div class="bc-stat-label">Total Blocks</div>
+      <div class="bc-stat-val">{{ totalBlocks }}</div>
+    </div>
+    <!--<div class="bc-stat-card">
+      <div class="bc-stat-label">Total Enrolled</div>
+      <div class="bc-stat-val">{{ totalEnrolled }}</div>
+    </div>
+    <div class="bc-stat-card">
+      <div class="bc-stat-label">Total Capacity</div>
+      <div class="bc-stat-val">{{ totalCapacity }}</div>
+    </div>
+    <div class="bc-stat-card">
+      <div class="bc-stat-label">Seats Available</div>
+      <div class="bc-stat-val bc-val-green">{{ totalAvailable }}</div>
+    </div>-->
+    <div class="bc-stat-card">
+      <div class="bc-stat-label">Full Blocks</div>
+      <div class="bc-stat-val bc-val-red">{{ fullBlocks }}</div>
+    </div>
+  </div>
+
+  <!-- ── Filters ────────────────────────────────────────────────────────── -->
+  <div class="bc-filters">
+    <div class="bc-filter-group">
+      <label class="bc-filter-label">Program</label>
+      <select class="bc-select" [(ngModel)]="filterProgram" (ngModelChange)="onFilterChange()">
+        <option value="">All programs</option>
+        <option *ngFor="let p of programs" [value]="p">{{ p }}</option>
+      </select>
+    </div>
+    <div class="bc-filter-group">
+      <label class="bc-filter-label">Year level</label>
+      <select class="bc-select" [(ngModel)]="filterYearLevel" (ngModelChange)="onFilterChange()">
+        <option value="">All years</option>
+        <option *ngFor="let y of yearLevels" [value]="y">{{ y }}</option>
+      </select>
+    </div>
+    <div class="bc-filter-group">
+      <label class="bc-filter-label">Semester</label>
+      <select class="bc-select" [(ngModel)]="filterSemester" (ngModelChange)="onFilterChange()">
+        <option value="">All semesters</option>
+        <option *ngFor="let s of semesters" [value]="s">{{ s }}</option>
+      </select>
+    </div>
+    <div class="bc-filter-group">
+      <label class="bc-filter-label">Search block</label>
+      <input class="bc-input" type="text" placeholder="e.g. BSIT-1A"
+             [(ngModel)]="searchQuery" (ngModelChange)="onFilterChange()" />
+    </div>
+    <button class="bc-btn-refresh" (click)="loadBlocks()" title="Refresh">
+      🔄 Refresh
+    </button>
+  </div>
+
+  <!-- ── Loading / Error ────────────────────────────────────────────────── -->
+  <div class="bc-loading" *ngIf="isLoading">
+    <div class="bc-spin"></div>
+    <span>Loading blocks...</span>
+  </div>
+
+  <div class="bc-error" *ngIf="errorMsg && !isLoading">
+    ⚠️ {{ errorMsg }}
+  </div>
+
+  <!-- ── Block cards grid ───────────────────────────────────────────────── -->
+  <div class="bc-grid" *ngIf="!isLoading && !errorMsg">
+
+    <div class="bc-empty" *ngIf="filteredBlocks.length === 0">
+      No blocks match the selected filters.
+    </div>
+
+    <div class="bc-card"
+         *ngFor="let block of filteredBlocks"
+         [class.bc-card-selected]="isSelected(block)"
+         (click)="selectBlock(block)">
+
+      <div class="bc-card-code">{{ block.blockCode }}</div>
+      <div class="bc-card-meta">{{ block.program }}</div>
+      <div class="bc-card-meta">{{ block.yearLevel }} &bull; {{ block.semester }}</div>
+
+      <div class="bc-track">
+        <div class="bc-fill"
+             [style.width.%]="fillPct(block)"
+             [style.background]="fillColor(fillPct(block))">
+        </div>
+      </div>
+      <div class="bc-cap-row">
+        <span>{{ block.enrolledCount }} / {{ block.maxCapacity }} enrolled</span>
+        <span class="bc-pct" [style.color]="fillColor(fillPct(block))">
+          {{ fillPct(block) }}%
+        </span>
+      </div>
+
+      <div>
+        <span class="bc-badge" [ngClass]="badgeClass(block)">
+          {{ badgeLabel(block) }} &bull; {{ block.availableSeats }} seat{{ block.availableSeats !== 1 ? 's' : '' }} left
+        </span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Detail panel ───────────────────────────────────────────────────── -->
+  <div class="bc-detail" *ngIf="selectedBlock">
+
+    <div class="bc-detail-header">
+      <div>
+        <div class="bc-detail-title">{{ selectedBlock.blockCode }} — Student List</div>
+        <div class="bc-detail-sub">
+          {{ selectedBlock.program }} &bull;
+          {{ selectedBlock.yearLevel }} &bull;
+          {{ selectedBlock.semester }}
+        </div>
+      </div>
+      <button class="bc-close-btn" (click)="closeDetail()">✕ Close</button>
+    </div>
+
+    <!-- Detail summary metrics -->
+    <div class="bc-detail-stats">
+      <div class="bc-stat-card">
+        <div class="bc-stat-label">Enrolled</div>
+        <div class="bc-stat-val">{{ selectedBlock.enrolledCount }}</div>
+      </div>
+      <div class="bc-stat-card">
+        <div class="bc-stat-label">Capacity</div>
+        <div class="bc-stat-val">{{ selectedBlock.maxCapacity }}</div>
+      </div>
+      <div class="bc-stat-card">
+        <div class="bc-stat-label">Available</div>
+        <div class="bc-stat-val bc-val-green">{{ selectedBlock.availableSeats }}</div>
+      </div>
+      <div class="bc-stat-card">
+        <div class="bc-stat-label">Fill rate</div>
+        <div class="bc-stat-val"
+             [style.color]="fillColor(fillPct(selectedBlock))">
+          {{ fillPct(selectedBlock) }}%
+        </div>
+      </div>
+    </div>
+
+    <!-- Fill bar for detail -->
+    <div class="bc-track bc-detail-bar">
+      <div class="bc-fill"
+           [style.width.%]="fillPct(selectedBlock)"
+           [style.background]="fillColor(fillPct(selectedBlock))">
+      </div>
+    </div>
+
+    <!-- Loading state for students -->
+    <div class="bc-loading" *ngIf="detailLoading">
+      <div class="bc-spin"></div>
+      <span>Loading students...</span>
+    </div>
+
+    <div class="bc-error" *ngIf="detailError">⚠️ {{ detailError }}</div>
+
+    <!-- Student table -->
+    <ng-container *ngIf="!detailLoading && !detailError">
+      <div class="bc-section-label">
+        Enrolled students ({{ selectedStudents.length }})
+      </div>
+
+      <div class="bc-table-wrap">
+        <table class="bc-table">
+          <thead>
+            <tr>
+              <th>Student</th>
+              <th>Email</th>
+              <th>Enrollment</th>
+              <th>Payment</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr *ngFor="let s of selectedStudents">
+              <td>
+                <div class="bc-name-cell">
+                  <div class="bc-avatar">{{ initials(s) }}</div>
+                  <div>
+                    <div class="bc-student-name">{{ s.firstName }} {{ s.lastName }}</div>
+                    <div class="bc-student-num">{{ s.studentNumber }}</div>
+                  </div>
+                </div>
+              </td>
+              <td class="bc-email">{{ s.email || '—' }}</td>
+              <td>
+                <span class="bc-pill" [ngClass]="statusPillClass(s.enrollmentStatus)">
+                  {{ s.enrollmentStatus }}
+                </span>
+              </td>
+              <td>
+                <span class="bc-pill"
+                      [ngClass]="s.paymentStatus === 'Paid' ? 'pill-enrolled'
+                               : s.paymentStatus === 'Partial' ? 'pill-pending'
+                               : 'pill-other'">
+                  {{ s.paymentStatus || '—' }}
+                </span>
+              </td>
+            </tr>
+            <tr *ngIf="selectedStudents.length === 0">
+              <td colspan="4" class="bc-empty-row">No students enrolled in this block yet.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </ng-container>
+
+  </div>
+
+</div>

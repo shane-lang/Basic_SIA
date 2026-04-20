@@ -1,4 +1,4 @@
-<div class="coe-page">
+<div class="coe-page" (mousemove)="resetLockTimer()" (click)="resetLockTimer()">
 
   <!-- Notification -->
   <div *ngIf="notification" class="notif" [class]="'notif-' + notification.type">
@@ -145,6 +145,46 @@
                   <span class="coe-value">{{ coeData?.student_email }}</span>
                 </div>
               </div>
+              <div class="coe-info-row">
+                <div class="coe-info-cell">
+                  <span class="coe-label">Address</span>
+                  <span class="coe-value">{{ coeData?.address || '—' }}</span>
+                </div>
+                <div class="coe-info-cell">
+                  <span class="coe-label">Date of Birth</span>
+                  <span class="coe-value">{{ coeData?.date_of_birth ? formatDate(coeData.date_of_birth) : '—' }}</span>
+                </div>
+              </div>
+              <div class="coe-info-row">
+                <div class="coe-info-cell">
+                  <span class="coe-label">Contact Number</span>
+                  <span class="coe-value">{{ coeData?.phone || '—' }}</span>
+                </div>
+                <div class="coe-info-cell">
+                  <span class="coe-label">LRN</span>
+                  <span class="coe-value">{{ coeData?.lrn_no || '—' }}</span>
+                </div>
+              </div>
+              <div class="coe-info-row">
+                <div class="coe-info-cell">
+                  <span class="coe-label">Name of Guardian</span>
+                  <span class="coe-value">{{ coeData?.guardian_name || '—' }}</span>
+                </div>
+                <div class="coe-info-cell">
+                  <span class="coe-label">Guardian's Contact #</span>
+                  <span class="coe-value">{{ coeData?.guardian_contact || '—' }}</span>
+                </div>
+              </div>
+              <div class="coe-info-row">
+                <div class="coe-info-cell">
+                  <span class="coe-label">Address of Guardian</span>
+                  <span class="coe-value">{{ coeData?.guardian_address || '—' }}</span>
+                </div>
+                <div class="coe-info-cell">
+                  <span class="coe-label">Last School Attended</span>
+                  <span class="coe-value">{{ coeData?.last_school_attended || '—' }}</span>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -158,16 +198,16 @@
               <div class="coe-th-row">
                 <span class="col-code">Code</span>
                 <span class="col-desc">Subject</span>
-                <span class="col-sched">Schedule</span>
-                <span class="col-room">Room</span>
+                <span class="col-sched"></span>
+                <span class="col-room"></span>
                 <span class="col-instr">Instructor</span>
                 <span class="col-units">Units</span>
               </div>
               <div class="coe-td-row" *ngFor="let s of subjects">
                 <span class="col-code fw">{{ s.code }}</span>
                 <span class="col-desc">{{ s.name }}</span>
-                <span class="col-sched">{{ s.day }}<br><small>{{ s.time }}</small></span>
-                <span class="col-room">{{ s.room || '—' }}</span>
+                <span class="col-sched"></span>
+                <span class="col-room"></span>
                 <span class="col-instr">{{ s.instructor || '—' }}</span>
                 <span class="col-units tc">{{ s.credits || 0 }}</span>
               </div>

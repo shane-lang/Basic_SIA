@@ -6,39 +6,7 @@
   <base href="/">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="icon" type="image/x-icon" href="favicon.ico">
-  <script>
-    (function () {
-      try {
-        // App uses hash routing (#/student-login) so check location.hash
-        var hash = window.location.hash; // e.g. "#/student-login" or "#/" or ""
-        var hashPath = hash.replace(/^#\/?/, ''); // strip leading #/ or #
-        console.log('[SIA] index.html script running. hash:', hash, '| hashPath:', hashPath);
-
-        var token     = localStorage.getItem('sia_student_token');
-        var expiresAt = Number(localStorage.getItem('sia_student_expiry') || 0);
-        var userRaw   = localStorage.getItem('sia_student_user');
-
-        console.log('[SIA] localStorage token:', token ? token.substring(0,10)+'...' : 'NONE');
-        console.log('[SIA] localStorage valid:', token && Date.now() < expiresAt);
-
-        // Redirect only when on the login page or root
-        var isLoginPage = hashPath === '' || hashPath === 'student-login' || hashPath.indexOf('student-login') === 0;
-        console.log('[SIA] isLoginPage:', isLoginPage);
-
-        if (!isLoginPage) { console.log('[SIA] Not login page — skipping'); return; }
-
-        if (token && expiresAt && Date.now() < expiresAt && userRaw) {
-          var user = JSON.parse(userRaw);
-          if (user && user.role === 'student') {
-            console.log('[SIA] Active session found — redirecting to dashboard');
-            window.location.replace('/#/student/dashboard');
-          }
-        } else {
-          console.log('[SIA] No valid session — showing login');
-        }
-      } catch (e) { console.error('[SIA] script error:', e); }
-    })();
-  </script>
+ 
 </head>
 <body>
   <app-root></app-root>

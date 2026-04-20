@@ -28,6 +28,8 @@ interface ScholarshipApplication {
   reviewed_at: string | null;
   reject_reason: string | null;
   created_at: string;
+  claim_code: string | null;
+  proof_file: string | null;
 }
 
 interface PreApproval {
@@ -87,6 +89,7 @@ export class PendingScholarshipsComponent implements OnInit {
   isCreating     = false;
   newScholarType = 'Full Scholarship';
   newGrantor     = '';
+  newGrantorCustom = '';
   newNotes       = '';
   newSemester    = '';
   createdCode    = '';
@@ -95,12 +98,112 @@ export class PendingScholarshipsComponent implements OnInit {
   revokeReason     = '';
   isRevoking       = false;
 
+  // ── Grantor accordion state (Generate Code modal) ─────────
+  expandedGrantorCat: number | null = null;
+
+  getGrantorCatIcon(group: string): string {
+    if (group.includes('CHED'))    return '🏛️';
+    if (group.includes('TESDA'))   return '🔧';
+    if (group.includes('DOST') || group.includes('Government') || group.includes('LGU')) return '🏢';
+    if (group.includes('School'))  return '🏫';
+    if (group.includes('Private')) return '🤝';
+    return '🎓';
+  }
+
+  selectGrantor(g: string): void {
+    this.newGrantor       = g;
+    this.newGrantorCustom = '';
+    this.expandedGrantorCat = null;
+    this.cdr.detectChanges();
+  }
+
+  clearGrantor(): void {
+    this.newGrantor       = '';
+    this.newGrantorCustom = '';
+    this.expandedGrantorCat = null;
+    this.cdr.detectChanges();
+  }
+
+  get resolvedGrantor(): string {
+    if (this.newGrantor === '__custom__') return this.newGrantorCustom.trim();
+    return this.newGrantor;
+  }
+
   scholarTypes = [
     'Full Scholarship', 'CHED Scholarship', 'TESDA Scholarship',
     'Local Government Unit (LGU) Scholarship', 'School-Based Scholarship',
     'Private Scholarship / Foundation', 'Sibling Discount',
     'Faculty/Staff Dependent Discount', 'Other',
   ];
+
+  // Grantor options — mirrors the student login scholarship list
+  grantorCategories: { group: string; grantors: string[] }[] = [
+    {
+      group: 'CHED Scholarships',
+      grantors: [
+        'CHED — UniFAST Free Higher Education (RA 10931)',
+        'CHED — Tertiary Education Subsidy (TES)',
+        'CHED — Student Financial Assistance Program (StuFAP)',
+        'CHED — Full Merit Scholarship',
+        'CHED — Half Merit Scholarship',
+        'CHED — Scholarship for Student with Disabilities (SSD)',
+        'CHED — Tulong Dunong Program',
+        'CHED — Graduate Education Scholarship',
+        'CHED — State Scholarship Program (SSP)',
+        'CHED — Presidential Scholarship',
+      ]
+    },
+    {
+      group: 'TESDA Scholarships',
+      grantors: [
+        'TESDA — Training for Work Scholarship Program (TWSP)',
+        'TESDA — Private Education Student Financial Assistance (PESFA)',
+        'TESDA — Unified Student Financial Assistance System for Tertiary Education (UniFAST)',
+        'TESDA — STEP (Special Training for Employment Program)',
+      ]
+    },
+    {
+      group: 'Government / LGU',
+      grantors: [
+        'Local Government Unit (LGU) Scholarship',
+        'DepEd Scholarship',
+        'DOST — Science and Technology Scholarship',
+        'DOST — PAGASA Scholarship',
+        'AFP / PNP Dependents Scholarship',
+        'PVAO (Veterans) Scholarship',
+        'PCSO Scholarship',
+        'Solo Parent Scholarship (RA 8972)',
+      ]
+    },
+    {
+      group: 'School-Based',
+      grantors: [
+        'School-Based Merit Scholarship',
+        'Faculty / Staff Dependent Discount',
+        'Sibling Discount',
+        'Academic Excellence Award',
+        'Athletic Scholarship',
+        'Cultural / Arts Scholarship',
+      ]
+    },
+    {
+      group: 'Private / Foundation',
+      grantors: [
+        'Private Scholarship / Foundation',
+        'Corporate Scholarship (Company-Sponsored)',
+        'Religious / Church Scholarship',
+        'NGO Scholarship',
+      ]
+    },
+    {
+      group: 'Other',
+      grantors: ['Other']
+    },
+  ];
+
+  get allGrantors(): string[] {
+    return this.grantorCategories.flatMap(g => g.grantors);
+  }
 
   constructor(private http: HttpClient, private cdr: ChangeDetectorRef) {}
 
@@ -275,17 +378,22 @@ export class PendingScholarshipsComponent implements OnInit {
   }
 
   openCreate(): void {
-    this.showCreateForm = true;
-    this.newScholarType = 'Full Scholarship';
-    this.newGrantor = this.newNotes = this.newSemester = this.createdCode = '';
+    this.showCreateForm     = true;
+    this.newScholarType     = 'Full Scholarship (School-Granted)';
+    this.newGrantor         = '';
+    this.newGrantorCustom   = '';
+    this.newNotes           = '';
+    this.newSemester        = '';
+    this.createdCode        = '';
+    this.expandedGrantorCat = null;
     this.cdr.detectChanges();
   }
 
   submitCreate(): void {
-    if (!this.newScholarType) return;
+    if (!this.newScholarType || !this.resolvedGrantor) return;
     this.isCreating = true;
     this.http.post<any>(`${this.apiUrl}?action=create_scholarship_preapproval`, {
-      scholar_type: this.newScholarType, grantor: this.newGrantor,
+      scholar_type: this.newScholarType, grantor: this.resolvedGrantor,
       notes: this.newNotes, semester: this.newSemester,
     }).subscribe({
       next: (res) => {
@@ -327,5 +435,8 @@ export class PendingScholarshipsComponent implements OnInit {
     navigator.clipboard.writeText(code).then(() => { this.successMsg = 'Copied: ' + code; this.cdr.detectChanges(); });
   }
 
+  getProofUrl(filename: string): string {
+    return `${environment.uploadBase}/${filename}`;
+  }
 
 }

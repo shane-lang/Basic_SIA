@@ -335,6 +335,7 @@
 
 <!-- ══ GCASH PAYMENT ══ -->
 <div class="enrollment-container" *ngIf="workflowStep === 'payment'">
+
   <div class="enrollment-header">
     <div class="header-content">
       <h1 *ngIf="!needsPlanSelection && paymentMethod === 'GCash'">📱 GCash Payment</h1>
@@ -345,6 +346,42 @@
       <p class="subtitle" *ngIf="needsPlanSelection">{{ student.firstName }}, please choose how you will pay your tuition for {{ currentSemester }}</p>
     </div>
   </div>
+
+  <!-- ══ FIX TVET-WIZARD-FE-08: Free student (TVET non-transferee) — show ₱0 enrollment
+       info and a single "Proceed to Subject Selection" button instead of payment inputs.
+       TVET non-transferees are auto-approved with ₱0 fee (TESDA/PESFA/STEP scholarship).
+       They still land on 'payment' step so the wizard feels the same as College, but they
+       skip the payment form entirely. ══ -->
+  <div class="payment-container" *ngIf="isFreeStudent && !isTransferee">
+    <div class="payment-card" style="text-align:center;padding:2rem;">
+      <div style="font-size:3rem;margin-bottom:1rem;">🛠️</div>
+      <h2 style="color:#166534;margin-bottom:0.5rem;">No Payment Required</h2>
+      <p style="color:#4b5563;margin-bottom:1.5rem;">
+        Your <strong>{{ isTVET ? 'TVET' : 'SHS' }}</strong> program is fully funded by the government
+        {{ isTVET ? '(TESDA / PESFA / STEP scholarship)' : '(K-12 SHS Voucher Program)' }}.
+        Your enrollment is <strong>free of charge</strong> this semester.
+      </p>
+      <div class="fee-preview-card" style="text-align:left;margin-bottom:1.5rem;">
+        <div class="fee-preview-title">📋 Assessment for {{ currentSemester }}</div>
+        <div class="fee-preview-rows">
+          <div class="fp-row"><span>Program</span><span>{{ student.program }}</span></div>
+          <div class="fp-row"><span>Year Level</span><span>{{ student.yearLevel }}</span></div>
+          <div class="fp-row"><span>Student Type</span><span>{{ student.studentType }}</span></div>
+          <div class="fp-row fp-total"><span><strong>TOTAL ASSESSMENT</strong></span><span style="color:#166534;"><strong>₱0.00 — FREE</strong></span></div>
+        </div>
+      </div>
+      <button class="btn-pay" style="background:#166534;padding:0.875rem 2rem;font-size:1rem;"
+              (click)="proceedToDashboard()" [disabled]="isAutoEnrolling">
+        {{ isAutoEnrolling ? '⏳ Loading your subjects...' : '📚 Proceed to Subject Selection →' }}
+      </button>
+      <p style="font-size:0.8rem;color:#6b7280;margin-top:0.75rem;">
+        Your subjects will be loaded from your program curriculum automatically.
+      </p>
+    </div>
+  </div>
+
+  <!-- Remaining payment steps — only for paying students (College / transferees) -->
+  <ng-container *ngIf="!isFreeStudent || isTransferee">
 
   <!-- ══ PAYMENT PLAN SELECTOR — shown after re-enroll until student picks a plan ══ -->
   <div class="payment-container" *ngIf="needsPlanSelection">
@@ -401,16 +438,19 @@
         <div class="plan-card plan-installment" (click)="selectPaymentPlan('installment', 'GCash')">
           <div class="plan-icon">📆</div>
           <div class="plan-name">Installment</div>
+          <!-- FIX FE-PLAN-HARDCODE-01: Use installmentFee from backend instead of hardcoded +750.
+               The old template did feePreview.totalAssessment + 750 which broke for TVET
+               if the fee config ever changes, and showed wrong totals on the plan selector. -->
           <div class="plan-amount" *ngIf="feePreview">
-            ₱{{ (feePreview.totalAssessment + 750) | number:'1.2-2' }}
-            <small style="font-size:11px;font-weight:400;"> (+₱750 installment fee)</small>
+            ₱{{ (feePreview.totalAssessment + (feePreview.installmentFee || 750)) | number:'1.2-2' }}
+            <small style="font-size:11px;font-weight:400;"> (+₱{{ (feePreview.installmentFee || 750) | number:'1.0-0' }} installment fee)</small>
           </div>
-          <div class="plan-desc">Pay in 4 terms: Downpayment → Prelim → Midterm → Finals. ₱750 surcharge applies.</div>
+          <div class="plan-desc">Pay in 4 terms: Downpayment → Prelim → Midterm → Finals. Installment fee applies.</div>
           <div class="plan-schedule" *ngIf="feePreview">
-            <div class="ps-row"><span>⬇️ Downpayment</span><span>≈ ₱{{ (feePreview.totalAssessment + 750) / 4 | number:'1.0-0' }}</span></div>
-            <div class="ps-row"><span>📝 Prelim</span><span>≈ ₱{{ ((feePreview.totalAssessment + 750) * 3/4) / 3 | number:'1.0-0' }}</span></div>
-            <div class="ps-row"><span>📝 Midterm</span><span>≈ ₱{{ ((feePreview.totalAssessment + 750) * 3/4) / 3 | number:'1.0-0' }}</span></div>
-            <div class="ps-row"><span>📝 Finals</span><span>≈ ₱{{ ((feePreview.totalAssessment + 750) * 3/4) / 3 | number:'1.0-0' }}</span></div>
+            <div class="ps-row"><span>⬇️ Downpayment</span><span>≈ ₱{{ (feePreview.totalAssessment + (feePreview.installmentFee || 750)) / 4 | number:'1.0-0' }}</span></div>
+            <div class="ps-row"><span>📝 Prelim</span><span>≈ ₱{{ ((feePreview.totalAssessment + (feePreview.installmentFee || 750)) * 3/4) / 3 | number:'1.0-0' }}</span></div>
+            <div class="ps-row"><span>📝 Midterm</span><span>≈ ₱{{ ((feePreview.totalAssessment + (feePreview.installmentFee || 750)) * 3/4) / 3 | number:'1.0-0' }}</span></div>
+            <div class="ps-row"><span>📝 Finals</span><span>≈ ₱{{ ((feePreview.totalAssessment + (feePreview.installmentFee || 750)) * 3/4) / 3 | number:'1.0-0' }}</span></div>
           </div>
           <div class="plan-method-row">
             <button class="plan-btn plan-btn-gcash" (click)="$event.stopPropagation(); selectPaymentPlan('installment', 'GCash')">
@@ -472,8 +512,10 @@
         <div class="fee-preview-rows">
 
           <!-- SHS / TVET Transferee — flat rate only -->
-          <ng-container *ngIf="isSHS || isTVET; else collegeFeeRows">
-            <div class="fp-row"><span>{{ isSHS ? 'SHS' : 'TVET' }} Flat Rate</span><span>₱{{ feePreview.tuitionFee | number:'1.2-2' }}</span></div>
+          <!-- FIX TVET-COLLEGE-FLOW-01: Only SHS (+ TVET transferee) uses flat rate; TVET non-transferee uses College breakdown -->
+          <ng-container *ngIf="isSHS || (isTVET && isTransferee); else collegeFeeRows">
+            <!-- FIX TVET-FLAT-DISPLAY-01: TVET uses subtotal for flat rate (tuitionFee is always 0 for TVET) -->
+            <div class="fp-row"><span>{{ isSHS ? 'SHS' : 'TVET' }} Flat Rate</span><span>₱{{ feePreview.subtotal | number:'1.2-2' }}</span></div>
             <div class="fp-row" *ngFor="let ef of (feePreview.extraFees || [])">
               <span>{{ ef.fee_label }}</span><span>₱{{ ef.amount | number:'1.2-2' }}</span>
             </div>
@@ -508,7 +550,8 @@
         </div>
       </div>
 
-      <!-- ── SCHOLARSHIP DECLARATION ─────────────────────────────────────── -->
+      <!-- ── SCHOLARSHIP DECLARATION — temporarily hidden, re-enable by changing false to true ── -->
+      <ng-container *ngIf="false">
       <div class="scholarship-declare-section">
         <div class="schd-header" (click)="isScholar = !isScholar">
           <div class="schd-toggle">
@@ -559,10 +602,54 @@
             confirmed with <strong>no payment required</strong>.
             Until then, no payment will be collected.
           </div>
+
+          <!-- BUG-FE-SCHOLAR-01: Submit button for full-tuition scholars.
+               Previously all payment buttons were hidden when scholarFullTuition=true,
+               leaving the student with no way to submit their scholarship to the backend. -->
+          <div class="payment-actions" *ngIf="scholarFullTuition && isScholar">
+            <button class="btn-pay" style="background:#166534;"
+              (click)="declareFullTuitionScholarship()"
+              [disabled]="isProcessingPayment || !scholarType.trim() || !scholarGrantor.trim()">
+              {{ isProcessingPayment ? '⏳ Submitting...' : '🎓 Submit Full Scholarship Application' }}
+            </button>
+            <p style="font-size:12px;color:#6b7280;margin-top:8px;">
+              Your application will be reviewed by Accounting. You will be notified once approved.
+            </p>
+          </div>
+        </div>
+      </div>
+      </ng-container>
+
+      <!-- FIX REJECT-NOTES-FE-01: Rejection banner inside the payment card —
+           shown when accounting rejected the previous payment submission.
+           Placed here (above the GCash/Cash form) so it sits inside the white card,
+           not floating above the purple header. -->
+      <div class="rejection-banner" *ngIf="rejectedNote" style="
+        background:#fee2e2;
+        border:1.5px solid #f87171;
+        border-left:5px solid #dc2626;
+        border-radius:8px;
+        padding:1rem 1.25rem;
+        margin:1.25rem 0 0.5rem;
+        display:flex;
+        align-items:flex-start;
+        gap:0.75rem;
+      ">
+        <span style="font-size:1.4rem;flex-shrink:0;">❌</span>
+        <div>
+          <div style="font-weight:700;color:#991b1b;font-size:0.95rem;margin-bottom:0.25rem;">
+            Payment Rejected by Accounting
+          </div>
+          <div style="color:#7f1d1d;font-size:0.875rem;">
+            <strong>Reason:</strong> {{ rejectedNote }}
+          </div>
+          <div style="color:#b91c1c;font-size:0.8rem;margin-top:0.4rem;">
+            Please correct the issue and resubmit your payment details below.
+          </div>
         </div>
       </div>
 
-      <div class="gcash-form-section" *ngIf="paymentMethod === 'GCash'">
+      <div class="gcash-form-section" *ngIf="paymentMethod === 'GCash' && !scholarFullTuition">
         <h3>Enter GCash Payment Details</h3>
         <!-- Installment: remind student to pay DP only -->
         <div class="installment-dp-notice" *ngIf="paymentPlan === 'installment' && feePreview">
@@ -592,7 +679,7 @@
         </div>
       </div>
       <!-- Cash payment instructions (shown only for Cash method) -->
-      <div class="gcash-form-section" *ngIf="paymentMethod !== 'GCash'">
+      <div class="gcash-form-section" *ngIf="paymentMethod !== 'GCash' && !scholarFullTuition">
         <h3>💵 Cash Payment Instructions</h3>
         <div class="installment-dp-notice" *ngIf="paymentPlan === 'installment' && feePreview">
           <span class="dp-badge">📆 Installment — Downpayment Only</span>
@@ -610,7 +697,7 @@
         </ol>
       </div>
 
-      <div class="payment-actions">
+      <div class="payment-actions" *ngIf="!scholarFullTuition">
         <!-- GCash submit button -->
         <button class="btn-pay" *ngIf="paymentMethod === 'GCash'"
           (click)="processPayment()" [disabled]="isProcessingPayment || !gcashReference.trim()">
@@ -623,7 +710,7 @@
           {{ isProcessingPayment ? '⏳ Processing...' : '💵 Proceed to Cash Payment' }}
         </button>
       </div>
-      <div class="info-box">
+      <div class="info-box" *ngIf="!scholarFullTuition">
         <p *ngIf="paymentMethod === 'GCash'">⏳ GCash payment will be verified by <strong>Accounting</strong>. Scholar discounts will be validated by the Registrar.</p>
         <p *ngIf="paymentMethod !== 'GCash'">⏳ Cash payment will be confirmed by <strong>Accounting</strong> once you pay at their office. Scholar discounts will be validated by the Registrar.</p>
       </div>
@@ -632,7 +719,9 @@
 
 
   </ng-container>
-  <!-- /Payment form -->
+  <!-- /Payment form (College / transferees only) -->
+  </ng-container>
+  <!-- /isFreeStudent guard -->
 </div><!-- ══ /GCASH PAYMENT ══ -->
 
 <!-- ══ CASH PENDING ══ -->
@@ -672,8 +761,10 @@
         <div class="fee-preview-rows">
 
           <!-- SHS / TVET Transferee — flat rate only -->
-          <ng-container *ngIf="isSHS || isTVET; else collegeFeeRowsCash">
-            <div class="fp-row"><span>{{ isSHS ? 'SHS' : 'TVET' }} Flat Rate</span><span>₱{{ feePreview.tuitionFee | number:'1.2-2' }}</span></div>
+          <!-- FIX TVET-COLLEGE-FLOW-01: Only SHS (+ TVET transferee) uses flat rate on cash-pending -->
+          <ng-container *ngIf="isSHS || (isTVET && isTransferee); else collegeFeeRowsCash">
+            <!-- FIX TVET-FLAT-DISPLAY-01: TVET uses subtotal for flat rate (tuitionFee is always 0 for TVET) -->
+            <div class="fp-row"><span>{{ isSHS ? 'SHS' : 'TVET' }} Flat Rate</span><span>₱{{ feePreview.subtotal | number:'1.2-2' }}</span></div>
             <div class="fp-row" *ngFor="let ef of (feePreview.extraFees || [])">
               <span>{{ ef.fee_label }}</span><span>₱{{ ef.amount | number:'1.2-2' }}</span>
             </div>
@@ -772,7 +863,9 @@
         <p *ngIf="student.isScholar" class="scholar-note">🎓 Your scholarship will also be validated by the Registrar.</p>
 
         <!-- Scholarship pending notice -->
-        <div class="scholar-pending-box" *ngIf="isScholar && scholarType">
+        <!-- BUG-FE-SCHOLAR-02: Also show when scholarPending=true (restored from DB on reload)
+             so the notice survives page refresh. -->
+        <div class="scholar-pending-box" *ngIf="(isScholar && scholarType) || scholarPending">
           <div class="spb-icon">🎓</div>
           <div class="spb-body">
             <div class="spb-title">Scholarship Application Submitted</div>
@@ -887,7 +980,7 @@
             <span class="sh-value">{{ enrollmentSummary.semester }}</span>
           </div>
           <div class="summary-header-item">
-            <span class="sh-label">🎓 Program / Strand</span>
+            <span class="sh-label">🎓 Course</span>
             <span class="sh-value">{{ enrollmentSummary.program }}</span>
           </div>
           <div class="summary-header-item">
@@ -922,7 +1015,7 @@
               <span class="stat-num">{{ enrollmentSummary.totalCourses }}</span>
               <span class="stat-label">Subjects</span>
             </div>
-            <div class="stat-pill stat-pill-accent" *ngIf="isCollege">
+            <div class="stat-pill stat-pill-accent" *ngIf="isCollege || isTVET">
               <span class="stat-num">{{ enrollmentSummary.totalCredits }}</span>
               <span class="stat-label">Units</span>
             </div>
@@ -958,7 +1051,7 @@
             <span class="sgt-col sgt-status"><span class="enrolled-dot">✓ Enrolled</span></span>
           </div>
           <!-- Total Row (College only) -->
-          <div class="sgt-total" *ngIf="isCollege">
+          <div class="sgt-total" *ngIf="isCollege || isTVET">
             <span class="sgt-col sgt-num"></span>
             <span class="sgt-col sgt-code"></span>
             <span class="sgt-col sgt-name" style="text-align:right; font-weight:700; color:#6b7280;">Total Units:</span>
@@ -971,7 +1064,7 @@
       </div>
 
       <!-- Statement of Account — SOA Layout -->
-      <div class="fees-section soa-section" *ngIf="feeBreakdown && (isCollege || isTransferee)">
+      <div class="fees-section soa-section" *ngIf="soaVerified && feeBreakdown && (isCollege || isTVET || isTransferee)" (mousemove)="resetSoaTimer()" (click)="resetSoaTimer()">
         <!-- SOA Header -->
         <div class="soa-header-bar">
           <div class="soa-school-logo">ST.<br>BENILDE</div>
@@ -1000,7 +1093,13 @@
           </div>
           <div class="soa-info-cell">
             <div class="soa-info-label">Department:</div>
-            <div class="soa-info-val">ICTD</div>
+            <!-- BUG-SOA-DEPT-FE-01 FIX: Was hardcoded "ICTD".
+                 BUG-SOA-DEPT-OVERFLOW-01 FIX: Long values like
+                 "Business Management Department (BMD)" overflow the 1fr cell
+                 silently. departmentShort getter extracts the parenthetical
+                 abbreviation when present (→ "BMD"), otherwise returns the
+                 full string. CSS word-wrap added as safety net. -->
+            <div class="soa-info-val soa-dept-val">{{ departmentShort }}</div>
           </div>
         </div>
         <div class="soa-info-bar soa-info-bar2">
@@ -1164,8 +1263,19 @@
         </div>
       </div>
 
+      <!-- PASSWORD GATE: single combined locked card for SOA + Invoices -->
+      <div class="soa-locked-card soa-locked-combined"
+           *ngIf="!soaVerified && (isCollege || isTVET || isTransferee)"
+           (click)="unlockSoa()">
+        <div class="soa-lock-overlay">
+          <div class="soa-lock-icon">🔒</div>
+          <div class="soa-lock-title">Statement of Account &amp; Service Invoices</div>
+          <div class="soa-lock-sub">Click to enter your password to view your financial records</div>
+        </div>
+      </div>
+
       <!-- Service Invoice History -->
-      <div class="term-payments-section" *ngIf="(soaSemesters.length > 0 || paymentReceipts.length > 0) && (isCollege || isTransferee)">
+      <div class="term-payments-section" *ngIf="soaVerified && (soaSemesters.length > 0 || paymentReceipts.length > 0) && (isCollege || isTVET || isTransferee)" (mousemove)="resetSoaTimer()" (click)="resetSoaTimer()">
         <div style="margin-bottom:14px;" *ngIf="fees">
       </div>
 
@@ -1212,23 +1322,21 @@
                 <th>Period</th>
                 <th>Method</th>
                 <th style="text-align:right;">Amount</th>
-                <th style="text-align:center;">Print</th>
+                <th style="text-align:center;">Action</th>
               </tr>
             </thead>
             <tbody>
               <tr *ngFor="let r of paymentReceipts; let i = index">
                 <td>{{ i + 1 }}</td>
                 <td><strong>{{ r.orArNumber }}</strong></td>
-                <td><span class="or-badge" [class.or-type-or]="r.orArType==='OR'" [class.or-type-ar]="r.orArType==='AR'">{{ r.orArType }}</span></td>
+                <td><span class="or-badge or-type-si">SI</span></td>
                 <td>{{ r.paymentDate | date:'MMM d, yyyy' }}</td>
                 <td><span class="period-badge">{{ r.period }}</span></td>
                 <td>{{ r.method }}</td>
                 <td style="text-align:right;font-weight:700;color:#1d4ed8;">₱{{ r.amount | number:'1.2-2' }}</td>
                 <td style="text-align:center;">
-                  <button *ngIf="r.orArType==='OR'" class="btn-print-receipt" (click)="viewOR(r)" title="View Service Invoice">👁️ View</button>
-                  <button *ngIf="r.orArType==='OR'" class="btn-print-receipt btn-print-or" (click)="printOR(r)" title="Print Service Invoice">🖨️ Print</button>
-                  <button *ngIf="r.orArType==='AR'" class="btn-print-receipt btn-print-ar" (click)="viewAR(r)" title="View Service Invoice">👁️ View</button>
-                  <button *ngIf="r.orArType==='AR'" class="btn-print-receipt btn-print-ar" (click)="printAR(r)" title="Print Service Invoice">🖨️ Print</button>
+                  <button class="btn-print-receipt" (click)="openServiceInvoice(r)" title="View Service Invoice">👁️ View</button>
+                  <!-- <button class="btn-print-receipt btn-print-or" (click)="openServiceInvoice(r)" title="Print Service Invoice">🖨️ Print</button> -->
                 </td>
               </tr>
             </tbody>
@@ -1236,7 +1344,7 @@
         </div>
       </div>
 
-      <div class="term-payments-section" *ngIf="paymentReceipts.length === 0 && !isFeeLoading && (isCollege || isTransferee)">
+      <div class="term-payments-section" *ngIf="paymentReceipts.length === 0 && !isFeeLoading && (isCollege || isTVET || isTransferee)">
         <div class="no-data"><p>Service invoices will appear once Accounting records your payment.</p></div>
       </div>
 
@@ -1249,14 +1357,7 @@
         </div>
       </div>
 
-      <!-- TVET — free tuition notice -->
-      <div class="term-payments-section" *ngIf="isTVET && !isTransferee">
-        <div style="text-align:center;padding:2rem;background:linear-gradient(135deg,#fff7ed,#ffedd5);border:1.5px solid #fed7aa;border-radius:12px;">
-          <div style="font-size:2.5rem;margin-bottom:0.5rem">🛠️</div>
-          <h3 style="color:#9a3412;margin:0 0 0.5rem">No Tuition Fee Required</h3>
-          <p style="color:#c2410c;margin:0">Your TVET program is fully funded by <strong>TESDA PRISAA</strong>. No payment required.</p>
-        </div>
-      </div>
+      <!-- FIX TVET-COLLEGE-FLOW-01: TVET free-tuition notice removed — TVET now pays like College -->
 
     </div>
   </div>
@@ -1357,6 +1458,7 @@
 .inst-initial-note { margin-bottom:4px; }
 .fp-installment { color:#1d4ed8; }
 .receipt-fullpaid-card { display:flex; align-items:center; gap:1rem; background:#f0fdf4; border:1.5px solid #86efac; border-radius:10px; padding:1rem 1.2rem; margin-bottom:1rem; }
+.or-type-si { background:#e0f2fe; color:#0369a1; border:1px solid #7dd3fc; font-weight:700; }
 .btn-print-receipt { background:#0d9488; color:white; border:none; border-radius:5px; padding:5px 12px; font-size:12px; cursor:pointer; font-weight:600; border-radius:6px; }
 .btn-print-receipt:hover { background:#0f766e; }
 .btn-print-or { background:#1d4ed8; }
@@ -1384,6 +1486,11 @@
 .soa-info-cell:last-child { border-right:none; }
 .soa-info-label { font-size:9px; color:#888; text-transform:uppercase; }
 .soa-info-val { font-size:12px; font-weight:700; color:#1a1a6e; }
+/* BUG-SOA-DEPT-OVERFLOW-01 FIX: Department cell uses word-wrap so long
+   values ("Business Management Department (BMD)") don't overflow the 1fr
+   grid cell and vanish silently. The departmentShort getter in the .ts
+   extracts the abbreviation first so this fallback rarely triggers. */
+.soa-dept-val { word-break: break-word; white-space: normal; }
 .soa-body { display:grid; grid-template-columns:280px 1fr; gap:0; border-bottom:1px solid #ddd; }
 .soa-left { border-right:1px solid #ddd; padding:10px 12px; }
 .soa-assess-title { text-align:center; font-size:9.5px; font-weight:700; background:#e8e8e8; border:1px solid #ccc; padding:3px; margin-bottom:4px; }

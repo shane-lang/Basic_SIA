@@ -515,3 +515,90 @@
 .col-units { text-align: center; font-weight: 700; }
 .fw  { font-weight: 700; color: #1e293b !important; }
 .tc  { text-align: center; font-weight: 700; color: #1e293b !important; }
+/* ── Group-by-program header rows ─────────────────────────────────────────── */
+.group-header-row td { padding: 0; border-bottom: none; }
+.group-header-cell {
+  background: #f8f6f6;
+  color: #0b0c0c;
+  font-size: .76rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  padding: 7px 14px !important;
+  border-top: 2px solid #334155;
+  border-bottom: 1px solid #334155 !important;
+}
+.group-header-row:first-child .group-header-cell { border-top: none; }
+.group-count {
+  margin-left: 8px;
+  font-size: .7rem;
+  font-weight: 500;
+  color: #94a3b8;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* ── Accordion updates ─────────────────────────────────────────────────────── */
+.group-header-row { cursor: pointer; user-select: none; }
+.group-header-row:hover .group-header-cell { background: #334155; }
+.group-chevron {
+  display: inline-block;
+  width: 14px;
+  font-size: .8rem;
+  margin-right: 6px;
+  transition: transform .15s;
+}
+/* ── Edit info mode ─────────────────────────────────────────────────────────── */
+.edit-field { display: flex; flex-direction: column; gap: 4px; }
+.edit-field label { font-size: .72rem; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: .04em; }
+.edit-input {
+  padding: 7px 10px;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: .875rem;
+  color: #1e293b;
+  background: #f8fafc;
+  outline: none;
+  transition: border-color .15s;
+  width: 100%;
+  box-sizing: border-box;
+}
+.edit-input:focus { border-color: #6366f1; background: #fff; }
+select.edit-input { cursor: pointer; }
+.btn-edit-info {
+  padding: 6px 14px;
+  background: #f1f5f9;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: .82rem;
+  font-weight: 600;
+  color: #475569;
+  cursor: pointer;
+  transition: background .15s, border-color .15s;
+}
+.btn-edit-info:hover { background: #e2e8f0; border-color: #94a3b8; }
+.btn-save-edit {
+  padding: 8px 20px;
+  background: #4f46e5;
+  color: #fff;
+  border: none;
+  border-radius: 7px;
+  font-size: .875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .15s;
+}
+.btn-save-edit:hover:not(:disabled) { background: #4338ca; }
+.btn-save-edit:disabled { opacity: .6; cursor: not-allowed; }
+.btn-cancel-edit {
+  padding: 8px 18px;
+  background: #fff;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 7px;
+  font-size: .875rem;
+  font-weight: 600;
+  color: #64748b;
+  cursor: pointer;
+  transition: background .15s;
+}
+.btn-cancel-edit:hover:not(:disabled) { background: #f1f5f9; }

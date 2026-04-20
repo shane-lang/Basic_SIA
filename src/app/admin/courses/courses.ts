@@ -4,6 +4,13 @@ import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { environment } from '../../environment';
 
+interface SharedProgram {
+  program_id:   number;
+  program_name: string;
+  program_code: string;
+  department:   string;
+}
+
 interface Course {
   id: number;
   code: string;
@@ -27,6 +34,10 @@ interface Course {
   prerequisite_id?:   number | null;
   prerequisite_code?: string;
   prerequisite_name?: string;
+  // Shared-program fields returned by get_courses
+  shared_programs?:    SharedProgram[];
+  shared_program_ids?: number[];
+  all_departments?:    string[];
 }
 
 interface DeptEntry {
@@ -60,6 +71,17 @@ export class Courses implements OnInit {
   courseList:   Course[] = [];
   filteredList: Course[] = [];
   isLoading   = false;
+
+  // ── Subjects pagination ───────────────────────────────────────────────
+  coursePage     = 1;
+  coursePageSize = 12;
+  get courseTotalPages(): number { return Math.max(1, Math.ceil(this.filteredList.length / this.coursePageSize)); }
+  get pagedList(): Course[] {
+    const start = (this.coursePage - 1) * this.coursePageSize;
+    return this.filteredList.slice(start, start + this.coursePageSize);
+  }
+  coursePageNumbers(): number[] { return Array.from({ length: this.courseTotalPages }, (_, i) => i + 1); }
+  goToCoursePage(p: number): void { this.coursePage = Math.max(1, Math.min(p, this.courseTotalPages)); }
   searchQuery = '';
   filterLevel = 'All';   // 'All' | 'College' | 'SHS' | 'TVET'
   filterDept  = 'All';
@@ -78,6 +100,16 @@ export class Courses implements OnInit {
 
   toast: { show: boolean; type: 'success' | 'error'; message: string } =
     { show: false, type: 'success', message: '' };
+
+  // Tracks which course cards have their shared-program list expanded
+  expandedSharedIds = new Set<number>();
+  toggleSharedExpand(id: number, event: Event): void {
+    event.stopPropagation();
+    if (this.expandedSharedIds.has(id)) this.expandedSharedIds.delete(id);
+    else this.expandedSharedIds.add(id);
+    this.cdr.detectChanges();
+  }
+  isSharedExpanded(id: number): boolean { return this.expandedSharedIds.has(id); }
 
   deptEntries: DeptEntry[] = [];
   allPrograms: Program[]   = [];
@@ -226,18 +258,27 @@ export class Courses implements OnInit {
     let list = [...this.courseList];
     if (this.filterLevel !== 'All')
       list = list.filter(c => this.getLevelType(c) === this.filterLevel);
-    if (this.filterDept !== 'All')
-      list = list.filter(c => (c.department ?? '').trim() === this.filterDept);
+    if (this.filterDept !== 'All') {
+      // Use all_departments (from backend) so shared courses appear
+      // under every department they belong to — no duplicates in the list
+      list = list.filter(c => {
+        const allDepts = c.all_departments ?? [(c.department ?? '').trim()];
+        return allDepts.includes(this.filterDept);
+      });
+    }
     if (this.searchQuery.trim()) {
       const q = this.searchQuery.toLowerCase();
       list = list.filter(c =>
         c.code.toLowerCase().includes(q) ||
         c.name.toLowerCase().includes(q) ||
         (c.description ?? '').toLowerCase().includes(q) ||
-        (c.department ?? '').toLowerCase().includes(q)
+        (c.department ?? '').toLowerCase().includes(q) ||
+        (c.all_departments ?? []).some(d => d.toLowerCase().includes(q))
       );
     }
     this.filteredList = list;
+    this.coursePage = 1;
+    this.expandedSharedIds.clear();
   }
 
   onLevelFilterChange(level: string): void {
@@ -250,7 +291,15 @@ export class Courses implements OnInit {
     const list = this.filterLevel === 'All'
       ? this.courseList
       : this.courseList.filter(c => this.getLevelType(c) === this.filterLevel);
-    return [...new Set(list.map(c => (c.department ?? '').trim()).filter(Boolean))].sort();
+    // Collect from all_departments so shared courses contribute every dept they belong to
+    const depts: string[] = [];
+    for (const c of list) {
+      const sources = (c.all_departments && c.all_departments.length)
+        ? c.all_departments
+        : [(c.department ?? '').trim()];
+      for (const d of sources) { if (d && !depts.includes(d)) depts.push(d); }
+    }
+    return depts.sort();
   }
 
   get countAll():     number { return this.courseList.length; }
@@ -316,13 +365,13 @@ export class Courses implements OnInit {
       _levelType: levelType,
       prerequisite_id: c.prerequisite_id ?? null,
     };
-    this.sharedProgramIds = this.allPrograms
-      .filter(p => (p.course_ids ?? []).includes(Number(c.id)))
-      .map(p => Number(p.id))
-      .filter(pid => {
-        const primary = this.allPrograms.find(p => p.name === this.form.program);
-        return !primary || pid !== Number(primary.id);
-      });
+    // Use shared_program_ids from the course (populated by backend) so edit form
+    // shows the correct pre-checked programs without relying on programs.course_ids
+    const primaryProg = this.allPrograms.find(p => p.name === c.program);
+    const primaryId   = primaryProg ? Number(primaryProg.id) : 0;
+    this.sharedProgramIds = (c.shared_program_ids ?? [])
+      .map(id => Number(id))
+      .filter(id => id !== primaryId);
     this.isEditing = true;
     this.showModal = true;
     this.cdr.detectChanges();

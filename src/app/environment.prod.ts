@@ -1,6 +1,6 @@
 export const environment = {
   production: true,
-  apiBase: 'https://yourdomain.com/sia-api',  // ← palitan ng actual live URL mo
+  apiBase: 'https://steelblue-marten-571548.hostingersite.com/sia-api',  
 
   get api()          { return `${this.apiBase}/api.php`; },
   get authApi()      { return `${this.apiBase}/auth.php`; },
@@ -12,4 +12,7 @@ export const environment = {
   get dashboardApi() { return `${this.apiBase}/dashboard.php`; },
   get facultyApi()   { return `${this.apiBase}/faculty.php`; },
   get receiptApi()   { return `${this.apiBase}/receipt.php`; },
+  get retentionApi() { return `${this.apiBase}/retention.php`; },
+  get notifyApi()    { return `${this.apiBase}/notify.php`; },
+  get uploadBase()   { return `${this.apiBase}/uploads`; },
 };

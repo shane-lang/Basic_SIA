@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { environment } from '../../environment';
+import { PasswordGateService } from '../password-gate/password-gate.service';
 
 interface Schedule {
   payment_type: string;
@@ -12,6 +13,10 @@ interface Schedule {
   prelim_status: string; midterm_status: string; finals_status: string;
   downpayment_paid: number;
   total_paid?: number;  // server-side sum of all installment_payments — always accurate
+  // FIX DISPLAY-CARRY-01: approved permits map — period key → permit info.
+  // When a period has an approved permit, the student must NOT be shown a Pay
+  // button or a remaining balance — the period is cleared regardless of partial pay.
+  approved_permits?: Record<string, { permit_identifier: string; approved_at: string }>;
 }
 
 interface Notice {
@@ -64,12 +69,38 @@ export class PaymentSchedule implements OnInit, OnDestroy {
   notices: Record<string, Notice> = {};
   permits: Permit[] = [];
   isLoading    = true;
+  // ── Password gate inactivity lock (5 min) ─────────────────────────────────
+  _locked          = true;
+  private _lockTimer: any = null;
+  private readonly _LOCK_MS = 300000;  // 5 minutes
+
+  _startLockTimer(): void {
+    this._clearLockTimer();
+    this._lockTimer = setTimeout(() => {
+      this._locked = true;
+      // Clear the password-gate cache so re-navigating here after inactivity
+      // requires the student to re-enter their password.
+      sessionStorage.removeItem('pgv_ts_soa___receipts');
+      this.cdr.detectChanges();
+    }, this._LOCK_MS);
+  }
+
+  _clearLockTimer(): void {
+    if (this._lockTimer) { clearTimeout(this._lockTimer); this._lockTimer = null; }
+  }
+
+  resetLockTimer(): void {
+    if (!this._locked) this._startLockTimer();
+  }
+
+
   studentCategory = '';   // 'SHS' | 'TVET' | '' (College)
   studentType     = '';   // 'New' | 'Old' | 'Transferee'
   // Free only when SHS/TVET AND not a Transferee (Transferees pay ₱20k)
+  // FIX TRANSFEREE-CASE-FE-01: Case-insensitive — DB may store 'transferee' (lowercase).
   get isFreeStudent(): boolean {
     const isSHSTVET = this.studentCategory === 'SHS' || this.studentCategory === 'TVET';
-    return isSHSTVET && this.studentType !== 'Transferee';
+    return isSHSTVET && this.studentType.toLowerCase() !== 'transferee';
   }
   isRequesting = false;
   msg = ''; msgType: 'ok'|'err' = 'ok';
@@ -151,9 +182,21 @@ export class PaymentSchedule implements OnInit, OnDestroy {
   showPermitViewer  = false;
   viewingPermit: Permit | null = null;
   isLoadingPermit   = false;
-  constructor(private http: HttpClient, private cdr: ChangeDetectorRef) {}
+  constructor(private http: HttpClient, private cdr: ChangeDetectorRef, private gate: PasswordGateService) {}
 
-  ngOnInit(): void {
+  async ngOnInit(): Promise<void> {
+    // ── Password gate ─────────────────────────────────────────────────────────
+    // NOTE: Do NOT clear pgv_ts_soa___receipts here — if already verified within
+    // the last 5 minutes, skip the modal. Cache is cleared only on inactivity lock.
+    const verified = await this.gate.requirePassword('SOA & Receipts');
+    if (!verified) {
+      this.isLoading = false;
+      this.cdr.detectChanges();
+      return;
+    }
+    this._locked = false;
+    this._startLockTimer();
+
     const s = sessionStorage.getItem('currentUser');
     if (s) { const u = JSON.parse(s); this.studentId = parseInt(String(u.id), 10) || 0; this.studentInfo = u; }
 
@@ -245,6 +288,7 @@ export class PaymentSchedule implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this._clearLockTimer();  // stop JS timer only; lock state preserved across tabs
     if (this.pollTimer) clearInterval(this.pollTimer);
   }
 
@@ -347,6 +391,10 @@ export class PaymentSchedule implements OnInit, OnDestroy {
   }
 
   getStatus(period: string): string {
+    // FIX DISPLAY-CARRY-01: Approved permit = period is PAID regardless of partial payment.
+    // Show 'paid' badge and hide Pay button for this period.
+    if (period !== 'Full' && this.isPermitCleared(period)) return 'paid';
+
     if (period === 'Full') {
       if (this.isFullScholar) {
         return ['Prelim','Midterm','Finals'].some(p => this.getNotice(p)) ? 'paid' : 'locked';
@@ -407,6 +455,9 @@ export class PaymentSchedule implements OnInit, OnDestroy {
   }
 
   getBalance(period: string): number {
+    // FIX DISPLAY-CARRY-01: Approved permit = period is cleared, balance is always ₱0.
+    // Do NOT show remaining balance even if paid < original due — shortfall was carried forward.
+    if (this.isPermitCleared(period)) return 0;
     return Math.max(0, this.getDue(period) - this.getPaid(period));
   }
 
@@ -427,6 +478,15 @@ export class PaymentSchedule implements OnInit, OnDestroy {
   }
 
   getNotice(period: string): Notice | null { return this.notices[period] || null; }
+
+  // FIX DISPLAY-CARRY-01: Returns true if the period has an approved exam permit.
+  // Uses this.permits (loaded via loadPermits()) — works even without new Accounting.php.
+  isPermitCleared(period: string): boolean {
+    // Primary: check permits array — loaded independently, always up to date
+    if (this.permits.some(p => p.exam_period === period && p.status === 'approved')) return true;
+    // Fallback: schedule.approved_permits from updated backend
+    return !!(this.schedule?.approved_permits?.[period]);
+  }
 
   // BUG-FULLPAY-01 FIX: For the 'Full' card, find any permit across all three periods.
   // Prefer approved > pending > any, so the card shows the most meaningful status.
@@ -519,7 +579,12 @@ export class PaymentSchedule implements OnInit, OnDestroy {
   }
 
   submitPayment(): void {
-    if (!this.payAmount || this.payAmount <= 0) {
+    // Cash: auto-set amount to term balance — cashier records actual amount at the office
+    if (this.payMethod === 'Cash') {
+      this.payAmount = this.getBalance(this.payPeriod) || 0;
+    }
+
+    if (this.payMethod === 'GCash' && (!this.payAmount || this.payAmount <= 0)) {
       this.payMsg = 'Please enter a valid amount.'; this.payMsgType = 'err';
       this.cdr.detectChanges(); return;
     }
@@ -547,15 +612,17 @@ export class PaymentSchedule implements OnInit, OnDestroy {
           this.paySubmitted  = true;
           this.payOrArNumber = res.orArNumber || '';
           this.payMsg        = '';
-          // Persist state so reload doesn't clear "awaiting approval" screen
-          const pendingKey = `paySchedulePending_${this.studentId}`;
-          sessionStorage.setItem(pendingKey, JSON.stringify({
-            period:      this.payPeriod,
-            orArNumber:  this.payOrArNumber,
-            amount:      this.payAmount,
-          }));
-          // Start polling for accounting approval
-          this.startApprovalPolling();
+          if (this.payMethod === 'GCash') {
+            // Persist state so reload doesn't clear "awaiting approval" screen
+            const pendingKey = `paySchedulePending_${this.studentId}`;
+            sessionStorage.setItem(pendingKey, JSON.stringify({
+              period:      this.payPeriod,
+              orArNumber:  this.payOrArNumber,
+              amount:      this.payAmount,
+            }));
+            // Only poll for GCash — Cash is recorded by the cashier directly
+            this.startApprovalPolling();
+          }
         } else {
           this.payMsg     = res.message || 'Failed to submit payment.';
           this.payMsgType = 'err';

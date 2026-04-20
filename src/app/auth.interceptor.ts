@@ -43,6 +43,13 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
       },
       error: (err) => {
         if (err.status === 401) {
+          // FIX: Do NOT trigger logout/navigation if the 401 came from the
+          // login endpoint itself. Login errors (wrong password, etc.) must be
+          // handled by the login component — not the interceptor.
+          // Only trigger logout for 401s on authenticated API calls.
+          const isLoginEndpoint = req.url.includes(environment.authApi) && !req.url.includes('action=');
+          if (isLoginEndpoint) return;
+
           // Store a reason so the login page can show a descriptive message
           const code = err.error?.code ?? '';
           const msg  = err.error?.message ?? '';

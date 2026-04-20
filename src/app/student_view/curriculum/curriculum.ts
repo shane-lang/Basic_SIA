@@ -60,7 +60,8 @@ export class Curriculum implements OnInit {
   get progressPct()    { return this.totalUnits > 0 ? Math.round((this.completedUnits / this.totalUnits) * 100) : 0; }
 
   get totalSubjects()     { return this.yearGroups.flatMap(y => y.semesters.flatMap(s => s.courses)).length; }
-  get completedSubjects() { return this.yearGroups.flatMap(y => y.semesters.flatMap(s => s.courses)).filter(c => c.status === 'completed').length; }
+  // FIX CURRICULUM-CREDITED-01: Count 'credited' subjects as completed in the progress summary
+  get completedSubjects() { return this.yearGroups.flatMap(y => y.semesters.flatMap(s => s.courses)).filter(c => c.status === 'completed' || c.status === 'credited').length; }
   constructor(private http: HttpClient, private cdr: ChangeDetectorRef) {}
 
   ngOnInit(): void {

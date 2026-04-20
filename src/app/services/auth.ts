@@ -102,6 +102,16 @@ export class AuthService {
     console.log('[SIA] storeSession called. role:', user?.role, '| portal:', portal, '| isStudent:', isStudent);
 
     if (isStudent) {
+      // FIX: Clear all staff portal tokens so a previous staff session never
+      // leaks into the student portal when getToken() rehydrates from localStorage.
+      const staffPortals: Portal[] = ['faculty', 'admin', 'registrar', 'accounting'];
+      staffPortals.forEach(p => {
+        try {
+          localStorage.removeItem(LS_STAFF_TOKEN_KEY(p));
+          localStorage.removeItem(LS_STAFF_USER_KEY(p));
+          localStorage.removeItem(LS_STAFF_EXPIRY_KEY(p));
+        } catch { /* ignore */ }
+      });
       try {
         localStorage.setItem(LS_TOKEN_KEY,  token);
         localStorage.setItem(LS_USER_KEY,   JSON.stringify(user));
@@ -115,6 +125,13 @@ export class AuthService {
       sessionStorage.setItem('portal',         'student');
       sessionStorage.setItem('tokenExpiresAt', String(expiresAt));
     } else {
+      // FIX: Clear student localStorage so a previous student session never causes
+      // getToken() to return a student token for a staff user on route rehydration.
+      try {
+        localStorage.removeItem(LS_TOKEN_KEY);
+        localStorage.removeItem(LS_USER_KEY);
+        localStorage.removeItem(LS_EXPIRY_KEY);
+      } catch { /* ignore */ }
       // Staff portals: save to BOTH localStorage (survives refresh) and sessionStorage (fast path)
       const p = portal as string;
       try {
@@ -188,7 +205,14 @@ export class AuthService {
     });
 
     // ── 5. Redirect to the correct login page ─────────────────────────────────
-    const loginRoute = portal ? PORTAL_LOGIN[portal] : '/student-login';
+    // FIX: If no portal was passed to logout(), read it from sessionStorage
+    // instead of hardcoding 'student'. This prevents the bug where calling
+    // auth.logout() without arguments always redirects to /student-login
+    // regardless of which portal the user was on.
+    const resolvedPortal: Portal = portal
+      ?? (sessionStorage.getItem('portal') as Portal | null)
+      ?? 'student';
+    const loginRoute = PORTAL_LOGIN[resolvedPortal] ?? PORTAL_LOGIN['student'];
     this.router.navigate([loginRoute]);
   }
 
@@ -230,9 +254,11 @@ export class AuthService {
     }
 
     // Student routes: read from localStorage
+    // FIX: Only rehydrate student token on explicitly student routes.
+    // DO NOT rehydrate on '/' (root) because staff portals also pass through '/'
+    // and this caused admins/faculty to get a stale student token redirected to /student.
     const isStudentRoute = currentPath.startsWith('/student')
-      || currentPath === '/student-login'
-      || currentPath === '/';
+      || currentPath === '/student-login';
     if (!isStudentRoute) return '';
 
     try {

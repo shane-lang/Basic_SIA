@@ -37,10 +37,7 @@
         <div class="pstat"><span class="pstat-val">{{ totalSubjects }}</span><span class="pstat-label">Total Subjects</span></div>
         <div class="pstat"><span class="pstat-val">{{ totalUnitsAllSems }}</span><span class="pstat-label">Total Units</span></div>
         <div class="pstat">
-          <span class="pstat-val" [style.color]="overallGPA !== null ? gradeColor(overallGPA) : '#6b7280'">
-            {{ overallGPA !== null ? (overallGPA | number:'1.2-2') : '—' }}
-          </span>
-          <span class="pstat-label">Overall GPA</span>
+         
         </div>
       </div>
     </div>

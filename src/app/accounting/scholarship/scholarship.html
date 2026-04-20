@@ -146,10 +146,26 @@
             <td><strong class="amount">₱{{ fmt(h.scholarship_amount) }}</strong></td>
             <td>{{ h.semester || '—' }}</td>
             <td>
-              <span class="badge" [class.badge-active]="h.is_active" [class.badge-revoked]="!h.is_active">
-                {{ h.is_active ? '✅ Active' : '✕ Revoked' }}
+              <!-- BUG-FE-SCHOLAR-04: Show proper status (pending/approved/rejected/superseded)
+                   instead of binary Active/Revoked which hid pending and rejected states. -->
+              <span class="badge"
+                [class.badge-active]="h.status === 'approved' && h.is_active"
+                [class.badge-pending]="h.status === 'pending'"
+                [class.badge-rejected]="h.status === 'rejected'"
+                [class.badge-revoked]="h.status === 'superseded' || (!h.is_active && h.status !== 'pending' && h.status !== 'rejected')">
+                <ng-container [ngSwitch]="h.status">
+                  <ng-container *ngSwitchCase="'approved'">{{ h.is_active ? '✅ Active' : '✕ Revoked' }}</ng-container>
+                  <ng-container *ngSwitchCase="'pending'">⏳ Pending</ng-container>
+                  <ng-container *ngSwitchCase="'rejected'">❌ Rejected</ng-container>
+                  <ng-container *ngSwitchCase="'superseded'">↩ Superseded</ng-container>
+                  <ng-container *ngSwitchDefault>{{ h.is_active ? '✅ Active' : '✕ Revoked' }}</ng-container>
+                </ng-container>
               </span>
             </td>
+            <td class="small-text" *ngIf="h.status === 'rejected'">
+              <span style="color:#dc2626;">{{ h.reject_reason || '—' }}</span>
+            </td>
+            <td class="small-text" *ngIf="h.status !== 'rejected'"></td>
             <td class="small-text">{{ h.granted_by_email || '—' }}</td>
             <td class="small-text">{{ fmtDate(h.created_at) }}</td>
             <td class="small-text">{{ h.revoked_by_email || '—' }}</td>

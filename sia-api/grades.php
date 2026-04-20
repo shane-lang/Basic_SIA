@@ -229,8 +229,20 @@ case 'save_grade':
         echo json_encode(['success'=>false,'message'=>'Grade must be 1.00–5.00']); break;
     }
 
-    $semRow   = (($_r=$conn->query("SELECT semester FROM enrollments WHERE id=$eid LIMIT 1")) ? $_r->fetch_assoc() : null);
-    $semester = $semRow['semester'] ?? '';
+    // FIX GRADE-LOCK-01: Block edits only when grade has been released to the student.
+    // Submitted-to-registrar (grade_submitted=1) is still editable so faculty can
+    // correct errors before the registrar officially releases grades.
+    $lockRow = $conn->query("SELECT semester, grade_released, grade_submitted FROM enrollments WHERE id=$eid LIMIT 1")->fetch_assoc();
+    if ($lockRow && (int)$lockRow['grade_released'] === 1) {
+        while (ob_get_level() > 0) { ob_end_clean(); }
+        echo json_encode(['success'=>false,'message'=>'Grade has already been released to the student and can no longer be edited.','code'=>'GRADE_RELEASED']); break;
+    }
+
+    $semester = $lockRow['semester'] ?? '';
+    if (!$semester) {
+        $semRow   = (($_r=$conn->query("SELECT semester FROM enrollments WHERE id=$eid LIMIT 1")) ? $_r->fetch_assoc() : null);
+        $semester = $semRow['semester'] ?? '';
+    }
 
     if ($gradeVal !== null) {
         $stmt = $conn->prepare("
@@ -455,7 +467,8 @@ case 'admin_get_course_students':
                MAX(CASE WHEN sg.term='Prelim'  THEN sg.grade END) AS prelim,
                MAX(CASE WHEN sg.term='Midterm' THEN sg.grade END) AS midterm,
                MAX(CASE WHEN sg.term='Final'   THEN sg.grade END) AS final,
-               COALESCE(e.grade_released, 0) AS grade_released
+               COALESCE(e.grade_released,  0) AS grade_released,
+               COALESCE(e.grade_submitted, 0) AS grade_submitted
         FROM enrollments e
         JOIN students s ON s.id = e.student_id
         LEFT JOIN programs p ON p.id = s.program_id
@@ -487,7 +500,8 @@ case 'admin_get_course_students':
             'final'            => $final,
             'overall'          => $overall,
             'remarks'          => $remarks,
-            'gradeReleased'    => (int)$r['grade_released'] === 1,
+            'gradeReleased'    => (int)$r['grade_released']  === 1,
+            'gradeSubmitted'   => (int)$r['grade_submitted'] === 1,
         ];
     }
     $students = applyPrivacyList($students, $authUser, 'student');
@@ -512,8 +526,18 @@ case 'admin_save_grade':
         echo json_encode(['success'=>false,'message'=>'Grade must be between 1.00 and 5.00']); break;
     }
 
-    $semRow   = (($_r=$conn->query("SELECT semester FROM enrollments WHERE id=$eid LIMIT 1")) ? $_r->fetch_assoc() : null);
-    $semester = $semRow['semester'] ?? '';
+    // FIX GRADE-LOCK-01: Same lock as save_grade — block only when released.
+    $lockRow2 = $conn->query("SELECT semester, grade_released FROM enrollments WHERE id=$eid LIMIT 1")->fetch_assoc();
+    if ($lockRow2 && (int)$lockRow2['grade_released'] === 1) {
+        while (ob_get_level() > 0) { ob_end_clean(); }
+        echo json_encode(['success'=>false,'message'=>'Grade has already been released to the student and can no longer be edited.','code'=>'GRADE_RELEASED']); break;
+    }
+
+    $semester = $lockRow2['semester'] ?? '';
+    if (!$semester) {
+        $semRow   = (($_r=$conn->query("SELECT semester FROM enrollments WHERE id=$eid LIMIT 1")) ? $_r->fetch_assoc() : null);
+        $semester = $semRow['semester'] ?? '';
+    }
 
     if ($gradeVal !== null) {
         $stmt = $conn->prepare("
@@ -571,19 +595,68 @@ case 'admin_submit_to_registrar':
     ]);
     break;
 
+// FIX GRADE-LOCK-01: Faculty can recall a course submission from the registrar's
+// queue as long as none of the grades in that course have been released yet.
+// This lets them correct errors that were caught after submission.
+case 'faculty_recall_from_registrar':
+    if ($authUser['role'] !== 'faculty' && $authUser['role'] !== 'admin') {
+        while (ob_get_level() > 0) { ob_end_clean(); }
+        echo json_encode(['success'=>false,'message'=>'Only faculty or admin can recall a submission.']); break;
+    }
+
+    $cid = (int)($data['course_id'] ?? 0);
+    while (ob_get_level() > 0) { ob_end_clean(); }
+    if (!$cid) { echo json_encode(['success'=>false,'message'=>'course_id required']); break; }
+
+    // Safety: refuse if ANY grade in this course is already released
+    $releasedRow = $conn->query("
+        SELECT COUNT(*) AS c FROM enrollments
+        WHERE course_id = $cid AND grade_released = 1
+    ")->fetch_assoc();
+    if ((int)($releasedRow['c'] ?? 0) > 0) {
+        while (ob_get_level() > 0) { ob_end_clean(); }
+        echo json_encode([
+            'success' => false,
+            'message' => 'Cannot recall — one or more grades in this course have already been released to students.',
+            'code'    => 'PARTIAL_RELEASE',
+        ]); break;
+    }
+
+    $upd = $conn->prepare("
+        UPDATE enrollments
+        SET grade_submitted = 0, grade_submitted_at = NULL
+        WHERE course_id = ? AND grade_submitted = 1 AND grade_released = 0
+    ");
+    $upd->bind_param('i', $cid);
+    $upd->execute();
+    $affected = $upd->affected_rows;
+    $upd->close();
+
+    while (ob_get_level() > 0) { ob_end_clean(); }
+    echo json_encode([
+        'success'  => true,
+        'message'  => "Submission recalled. $affected enrollment(s) moved back to draft. You may now edit grades and re-submit.",
+        'affected' => $affected,
+    ]);
+    break;
+
 case 'registrar_pending_grades':
     $res = $conn->query("
         SELECT c.id AS course_id, c.code, c.name,
                CONCAT(f.first_name,' ',f.last_name) AS faculty_name,
                c.semester, c.department,
+               COALESCE(p.name, c.program) AS program,
                COUNT(e.id) AS submitted_count,
                SUM(CASE WHEN e.grade_released=1 THEN 1 ELSE 0 END) AS released_count
         FROM enrollments e
         JOIN courses c ON c.id = e.course_id
         LEFT JOIN faculty f ON f.user_id = c.faculty_id
+        LEFT JOIN programs p ON p.id = (
+            SELECT pc.program_id FROM program_courses pc WHERE pc.course_id = c.id LIMIT 1
+        )
         WHERE e.grade_submitted = 1
         GROUP BY c.id
-        ORDER BY c.code ASC
+        ORDER BY c.department ASC, program ASC, c.code ASC
     ");
     $courses = [];
     while ($r = $res->fetch_assoc()) {
@@ -594,6 +667,7 @@ case 'registrar_pending_grades':
             'facultyName'    => $r['faculty_name'] ?? 'N/A',
             'semester'       => $r['semester'] ?? '',
             'department'     => $r['department'] ?? '',
+            'program'        => $r['program'] ?? '',
             'submittedCount' => (int)$r['submitted_count'],
             'releasedCount'  => (int)$r['released_count'],
             'pendingRelease' => (int)$r['submitted_count'] - (int)$r['released_count'],

@@ -24,6 +24,9 @@
           <h1>{{ fullName }}</h1>
           <p class="student-id">🪪 {{ student.id }}</p>
           <p class="student-program">{{ student.program }}</p>
+          <p class="student-program" *ngIf="isSHS && student.studentCategory" style="font-size:0.85rem;color:#6b7280;margin-top:0.15rem">
+            {{ displayYearLevel }} · SHS
+          </p>
           <div class="badge-row">
             <span class="status-badge" [ngClass]="'status-' + student.enrollmentStatus.toLowerCase()">
               {{ student.enrollmentStatus }}
@@ -55,14 +58,36 @@
         <!-- Academic -->
         <div class="card">
           <h2>🎓 Academic Information</h2>
-          <div class="info-group"><label>Program</label><p>{{ student.program || '—' }}</p></div>
-          <div class="info-group"><label>Level / Category</label><p>{{ student.studentCategory }} — {{ displayYearLevel }}</p></div>
-          <div class="info-group" *ngIf="student.strand"><label>Strand</label><p>{{ student.strand }}</p></div>
+
+          <!-- Program label: SHS uses "Strand", College uses "Program" -->
+          <div class="info-group">
+            <label>{{ isSHS ? 'Strand' : 'Course' }}</label>
+            <p>{{ student.program || '—' }}</p>
+          </div>
+
+          <!-- Grade Level / Year Level -->
+          <div class="info-group">
+            <label>{{ isSHS ? 'Grade Level' : 'Year Level' }}</label>
+            <p>{{ displayYearLevel }}</p>
+          </div>
+
+          <!-- Category: only show for non-SHS; SHS students already know they're SHS -->
+          <div class="info-group" *ngIf="!isSHS">
+            <label>Student Category</label>
+            <p>{{ student.studentCategory || '—' }}</p>
+          </div>
+
+          <!-- SHS Track (derived from strand field) -->
+          <div class="info-group" *ngIf="isSHS && student.strand">
+            <label>Track</label>
+            <p>{{ getTrackFromStrand(student.strand) }}</p>
+          </div>
+
           <div class="info-group" *ngIf="student.lastSchoolAttended"><label>Last School Attended</label><p>{{ student.lastSchoolAttended }}</p></div>
           <div class="info-group"><label>Student Type</label><p>{{ student.studentType }}</p></div>
           <div class="info-group"><label>Enrollment Status</label><p>{{ student.enrollmentStatus }}</p></div>
           <div class="info-group"><label>Enrollment Date</label><p>{{ student.enrollmentDate ? (student.enrollmentDate | date:'MMM dd, yyyy') : '—' }}</p></div>
-         
+
         </div>
 
         <!-- Payment & Scholarship -->
@@ -137,7 +162,9 @@
 
   </ng-container>
 
-<!-- ── Change Password Modal ──────────────────────────────────────────── -->
+</div><!-- /profile-container -->
+
+<!-- ── Change Password Modal — OUTSIDE .profile-container to avoid transform:translateY breaking position:fixed ──────────── -->
 <div class="cp-overlay" *ngIf="showCpModal" (click)="closeCpModal()">
   <div class="cp-modal" (click)="$event.stopPropagation()">
     <div class="cp-header">
@@ -188,5 +215,4 @@
       </button>
     </div>
   </div>
-</div>
 </div>

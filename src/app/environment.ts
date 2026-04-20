@@ -1,8 +1,7 @@
 export const environment = {
-  production: false,
+  production: true,
   apiBase: 'http://localhost/sia-api',
 
-  // ── Per-file API endpoints (derived from apiBase) ─────────────────────────
   get api()          { return `${this.apiBase}/api.php`; },
   get authApi()      { return `${this.apiBase}/auth.php`; },
   get adminApi()     { return `${this.apiBase}/admin.php`; },
@@ -13,7 +12,7 @@ export const environment = {
   get dashboardApi() { return `${this.apiBase}/dashboard.php`; },
   get facultyApi()   { return `${this.apiBase}/faculty.php`; },
   get receiptApi()   { return `${this.apiBase}/receipt.php`; },
-  // ── NEW: Retention & Notification APIs ────────────────────────────────────
   get retentionApi() { return `${this.apiBase}/retention.php`; },
   get notifyApi()    { return `${this.apiBase}/notify.php`; },
+  get uploadBase()   { return `${this.apiBase}/uploads`; },
 };

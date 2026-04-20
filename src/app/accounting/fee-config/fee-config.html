@@ -65,7 +65,6 @@
           <ng-container *ngIf="!row.editing">
             <td>
               <span class="fee-label">{{ row.fee_label }}</span>
-              <span class="fee-key">{{ row.fee_key }}</span>
             </td>
             <td>
               <span class="badge" [class.per-unit]="row.is_per_unit" [class.per-lab]="row.fee_key === 'lab_fee_per_room'" [class.flat-rate]="row.fee_key === 'transferee_flat_rate'">
@@ -143,12 +142,6 @@
           <div class="add-field">
             <label>Fee Name *</label>
             <input class="fc-input" [(ngModel)]="newFee.fee_label" placeholder="e.g. Library Fee" />
-          </div>
-
-          <div class="add-field">
-            <label>Internal Key *</label>
-            <input class="fc-input" [(ngModel)]="newFee.fee_key" placeholder="e.g. library_fee" />
-            <small>Lowercase + underscores only. Auto-generated if left blank.</small>
           </div>
 
           <div class="add-field">

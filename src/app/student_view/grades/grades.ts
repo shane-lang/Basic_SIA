@@ -1,8 +1,9 @@
-import { Component, OnInit, ChangeDetectorRef } from '@angular/core';
+import { Component, OnInit, OnDestroy, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { environment } from '../../environment';
+import { PasswordGateService } from '../password-gate/password-gate.service';
 
 interface GradeEntry {
   enrollmentId: number;
@@ -23,26 +24,76 @@ interface SemesterGWA { semester: string; gwa: number|null; credits: number; }
   templateUrl: './grades.html',
   styleUrls: ['./grades.css']
 })
-export class Grades implements OnInit {
+export class Grades implements OnInit, OnDestroy {
   private apiUrl = environment.gradesApi;
   private param  = '';
-  constructor(private http: HttpClient, private cdr: ChangeDetectorRef) {}
+  constructor(private http: HttpClient, private cdr: ChangeDetectorRef, private gate: PasswordGateService) {}
 
   isLoading = true; error = '';
+  // ── Password gate inactivity lock (5 min) ─────────────────────────────────
+  _locked          = true;
+  private _lockTimer: any = null;
+  private readonly _LOCK_MS = 300000;  // 5 minutes
+
+  _startLockTimer(): void {
+    this._clearLockTimer();
+    this._lockTimer = setTimeout(() => {
+      this._locked = true;
+      // Clear the password-gate cache so re-navigating here after inactivity
+      // requires the student to re-enter their password.
+      sessionStorage.removeItem('pgv_ts_grades');
+      this.cdr.detectChanges();
+    }, this._LOCK_MS);
+  }
+
+  _clearLockTimer(): void {
+    if (this._lockTimer) { clearTimeout(this._lockTimer); this._lockTimer = null; }
+  }
+
+  resetLockTimer(): void {
+    if (!this._locked) this._startLockTimer();
+  }
+
+
   grades: GradeEntry[] = []; semesters: string[] = [];
   semesterGWA: SemesterGWA[] = [];
   selectedSemester = '';
   currentGWA: number|null = null; overallGWA: number|null = null;
   academicStatus = 'No grades yet'; totalCredits = 0;
 
-  ngOnInit(): void {
+  // SHS students use school-year terms, not college semesters.
+  // Sourced from sessionStorage (set by enrollment.ts after student context loads).
+  get isSHS(): boolean {
+    return (sessionStorage.getItem('studentCategory') ?? '').toUpperCase() === 'SHS';
+  }
+
+  async ngOnInit(): Promise<void> {
     const stored = sessionStorage.getItem('currentUser');
     if (!stored) { this.error = 'Not logged in.'; this.isLoading = false; return; }
+
+    // ── Password gate: student must confirm identity before grades are shown ──
+    // NOTE: Do NOT clear pgv_ts_grades here — if the student already verified
+    // within the last 5 minutes (inactivity window), they should not be asked again.
+    // The cache is only cleared when the inactivity timer fires (_startLockTimer).
+    const verified = await this.gate.requirePassword('Grades');
+    if (!verified) {
+      this.error = 'Password verification is required to view your grades.';
+      this.isLoading = false;
+      this.cdr.detectChanges();
+      return;
+    }
+    this._locked = false;
+    this._startLockTimer();
+
     const dbId = sessionStorage.getItem('studentDbId');
     const user = JSON.parse(stored);
     this.param = dbId ? `student_id=${dbId}` : `user_id=${user.id}`;
     this.loadSemesters();
     this.loadSummary();
+  }
+
+  ngOnDestroy(): void {
+    this._clearLockTimer();  // stop JS timer; lock state intentionally preserved across tabs
   }
 
   loadSemesters(): void {

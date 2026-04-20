@@ -44,35 +44,48 @@
     <div class="empty-state" *ngIf="subjects.length === 0">
       <div class="es-icon">📚</div><p>No enrolled subjects found.</p>
     </div>
-    <div class="table-wrap" *ngIf="subjects.length > 0">
-      <table class="grade-table">
-        <thead>
-          <tr>
-            <th>Code</th><th>Subject</th><th class="tc">Units</th>
-            <th class="tc">Prelim</th><th class="tc">Midterm</th><th class="tc">Final</th>
-            <th class="tc">Overall</th><th class="tc">Remarks</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr *ngFor="let s of subjects" [class.row-pass]="s.remarks==='Passed'" [class.row-fail]="s.remarks==='Failed'">
-            <td class="td-code">{{ s.code }}</td>
-            <td class="td-name">
-              <div class="sname">{{ s.name }}</div>
-              <div class="sinstr" *ngIf="s.instructor">👨‍🏫 {{ s.instructor }}</div>
-            </td>
-            <td class="tc">{{ s.credits }}<span class="units-breakdown" *ngIf="s.lecUnits">Lec {{ s.lecUnits }}<ng-container *ngIf="(s.labUnits || 0) > 0"> / Lab {{ s.labUnits }}</ng-container></span></td>
-            <td class="tc"><span class="gpill" [ngClass]="gradeClass(s.prelim)">{{ fmtGrade(s.prelim) }}</span></td>
-            <td class="tc"><span class="gpill" [ngClass]="gradeClass(s.midterm)">{{ fmtGrade(s.midterm) }}</span></td>
-            <td class="tc"><span class="gpill" [ngClass]="gradeClass(s.final)">{{ fmtGrade(s.final) }}</span></td>
-            <td class="tc"><span class="gpill" [ngClass]="gradeClass(s.overall)">{{ fmtGrade(s.overall) }}</span></td>
-            <td class="tc">
-              <span class="rtag" [class.rtag-pass]="s.remarks==='Passed'"
-                [class.rtag-fail]="s.remarks==='Failed'" [class.rtag-prog]="s.remarks==='In Progress'">{{ s.remarks }}</span>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+
+    <!-- Grouped by Year Level → Semester -->
+    <ng-container *ngFor="let yg of groupedSubjects">
+      <div class="group-year-header">
+        <span class="gyr-label">{{ yg.yearLevel }}</span>
+      </div>
+      <div class="group-sem-block" *ngFor="let sg of yg.semesters">
+        <div class="gsem-header">
+          <span class="gsem-label">{{ sg.semester }}</span>
+          <span class="gsem-units">{{ sg.totalUnits }} units</span>
+        </div>
+        <div class="table-wrap">
+          <table class="grade-table">
+            <thead>
+              <tr>
+                <th>Code</th><th>Subject</th><th class="tc">Units</th>
+                <th class="tc">Prelim</th><th class="tc">Midterm</th><th class="tc">Final</th>
+                <th class="tc">Overall</th><th class="tc">Remarks</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr *ngFor="let s of sg.subjects" [class.row-pass]="s.remarks==='Passed'" [class.row-fail]="s.remarks==='Failed'">
+                <td class="td-code">{{ s.code }}</td>
+                <td class="td-name">
+                  <div class="sname">{{ s.name }}</div>
+                  <div class="sinstr" *ngIf="s.instructor">👨‍🏫 {{ s.instructor }}</div>
+                </td>
+                <td class="tc">{{ s.credits }}<span class="units-breakdown" *ngIf="s.lecUnits">Lec {{ s.lecUnits }}<ng-container *ngIf="(s.labUnits || 0) > 0"> / Lab {{ s.labUnits }}</ng-container></span></td>
+                <td class="tc"><span class="gpill" [ngClass]="gradeClass(s.prelim)">{{ fmtGrade(s.prelim) }}</span></td>
+                <td class="tc"><span class="gpill" [ngClass]="gradeClass(s.midterm)">{{ fmtGrade(s.midterm) }}</span></td>
+                <td class="tc"><span class="gpill" [ngClass]="gradeClass(s.final)">{{ fmtGrade(s.final) }}</span></td>
+                <td class="tc"><span class="gpill" [ngClass]="gradeClass(s.overall)">{{ fmtGrade(s.overall) }}</span></td>
+                <td class="tc">
+                  <span class="rtag" [class.rtag-pass]="s.remarks==='Passed'"
+                    [class.rtag-fail]="s.remarks==='Failed'" [class.rtag-prog]="s.remarks==='In Progress'">{{ s.remarks }}</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </ng-container>
   </ng-container>
 
   <!-- BY COURSE -->
@@ -155,58 +168,87 @@
       <p>No pending grade submissions. All grades have been released.</p>
     </div>
 
-    <div class="pending-grid" *ngIf="!isLoadingPending && pendingCourses.length > 0">
-      <div class="pending-card" *ngFor="let c of pendingCourses"
-        [class.pc-all-released]="c.pendingRelease===0">
-        <div class="pc-head">
-          <span class="pc-code">{{ c.code }}</span>
-          <span class="pc-dept">{{ c.department }}</span>
-        </div>
-        <div class="pc-name">{{ c.name }}</div>
-        <div class="pc-faculty">👨‍🏫 {{ c.facultyName }}</div>
-        <div class="pc-sem" *ngIf="c.semester">📅 {{ c.semester }}</div>
+    <div class="pending-grid-wrapper" *ngIf="!isLoadingPending && pendingCourses.length > 0">
+      <ng-container *ngFor="let dg of groupedPendingCourses">
 
-        <div class="pc-stats">
-          <div class="pc-stat">
-            <span class="pcs-val">{{ c.submittedCount }}</span>
-            <span class="pcs-lbl">Submitted</span>
-          </div>
-          <div class="pc-stat pcs-released">
-            <span class="pcs-val">{{ c.releasedCount }}</span>
-            <span class="pcs-lbl">Released</span>
-          </div>
-          <div class="pc-stat pcs-pending">
-            <span class="pcs-val">{{ c.pendingRelease }}</span>
-            <span class="pcs-lbl">Pending</span>
-          </div>
+        <!-- Level 1: Department header -->
+        <div class="group-year-header group-collapsible" (click)="togglePending(dg.dept)">
+          <span class="gyr-label">🏫 {{ dg.dept }}</span>
+          <span class="gyr-right">
+            <span class="gyr-count">{{ dg.programs.length }} program{{ dg.programs.length !== 1 ? 's' : '' }}</span>
+            <span class="gyr-chevron" [class.gyr-chevron-open]="!isPendingCollapsed(dg.dept)">▶</span>
+          </span>
         </div>
 
-        <!-- Release progress bar -->
-        <div class="pc-progress">
-          <div class="pcp-bar">
-            <div class="pcp-fill"
-              [style.width.%]="c.submittedCount > 0 ? (c.releasedCount / c.submittedCount * 100) : 0">
+        <ng-container *ngIf="!isPendingCollapsed(dg.dept)">
+          <ng-container *ngFor="let pg of dg.programs">
+
+            <!-- Level 2: Program sub-header -->
+            <div class="group-prog-header group-collapsible" (click)="togglePendingProgram(dg.dept, pg.program)">
+              <span class="gpr-label">🎓 {{ pg.program }}</span>
+              <span class="gyr-right">
+                <span class="gyr-count">{{ pg.courses.length }} course{{ pg.courses.length !== 1 ? 's' : '' }}</span>
+                <span class="gyr-chevron" [class.gyr-chevron-open]="!isPendingProgramCollapsed(dg.dept, pg.program)">▶</span>
+              </span>
             </div>
-          </div>
-          <span class="pcp-pct">
-            {{ c.submittedCount > 0 ? (c.releasedCount / c.submittedCount * 100 | number:'1.0-0') : 0 }}% released
-          </span>
-        </div>
 
-        <div class="pc-btn-row">
-        <button class="btn-view-grades" (click)="viewCourse(c)">
-          👁 View Grades
-        </button>
-        <button class="btn-release" [disabled]="c.pendingRelease===0 || c.isReleasing"
-          (click)="releaseCourse(c)">
-          <span *ngIf="!c.isReleasing && c.pendingRelease > 0">
-            🔓 Release {{ c.pendingRelease }} Grade{{ c.pendingRelease !== 1 ? 's' : '' }} to Students
-          </span>
-          <span *ngIf="c.isReleasing">Releasing…</span>
-          <span *ngIf="!c.isReleasing && c.pendingRelease === 0">✅ All Released</span>
-        </button>
-        </div>
-      </div>
+            <!-- Level 3: Course cards -->
+            <div class="pending-grid" *ngIf="!isPendingProgramCollapsed(dg.dept, pg.program)">
+              <div class="pending-card" *ngFor="let c of pg.courses"
+                [class.pc-all-released]="c.pendingRelease===0">
+                <div class="pc-head">
+                  <span class="pc-code">{{ c.code }}</span>
+                  <span class="pc-dept">{{ c.semester }}</span>
+                </div>
+                <div class="pc-name">{{ c.name }}</div>
+                <div class="pc-faculty">👨‍🏫 {{ c.facultyName }}</div>
+
+                <div class="pc-stats">
+                  <div class="pc-stat">
+                    <span class="pcs-val">{{ c.submittedCount }}</span>
+                    <span class="pcs-lbl">Submitted</span>
+                  </div>
+                  <div class="pc-stat pcs-released">
+                    <span class="pcs-val">{{ c.releasedCount }}</span>
+                    <span class="pcs-lbl">Released</span>
+                  </div>
+                  <div class="pc-stat pcs-pending">
+                    <span class="pcs-val">{{ c.pendingRelease }}</span>
+                    <span class="pcs-lbl">Pending</span>
+                  </div>
+                </div>
+
+                <div class="pc-progress">
+                  <div class="pcp-bar">
+                    <div class="pcp-fill"
+                      [style.width.%]="c.submittedCount > 0 ? (c.releasedCount / c.submittedCount * 100) : 0">
+                    </div>
+                  </div>
+                  <span class="pcp-pct">
+                    {{ c.submittedCount > 0 ? (c.releasedCount / c.submittedCount * 100 | number:'1.0-0') : 0 }}% released
+                  </span>
+                </div>
+
+                <div class="pc-btn-row">
+                  <button class="btn-view-grades" (click)="viewCourse(c)">
+                    👁 View Grades
+                  </button>
+                  <button class="btn-release" [disabled]="c.pendingRelease===0 || c.isReleasing"
+                    (click)="releaseCourse(c)">
+                    <span *ngIf="!c.isReleasing && c.pendingRelease > 0">
+                      🔓 Release {{ c.pendingRelease }} Grade{{ c.pendingRelease !== 1 ? 's' : '' }} to Students
+                    </span>
+                    <span *ngIf="c.isReleasing">Releasing…</span>
+                    <span *ngIf="!c.isReleasing && c.pendingRelease === 0">✅ All Released</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+          </ng-container>
+        </ng-container>
+
+      </ng-container>
     </div>
   </ng-container>
 
@@ -255,66 +297,88 @@
     </div>
 
     <!-- Thumbnail -->
-    <div class="thumbnail-grid" *ngIf="!isLoadingStudents && students.length > 0 && viewMode==='thumbnail'">
-      <div class="student-card" *ngFor="let s of students" (click)="selectStudent(s)">
-        <div class="sc-avatar">{{ s.initials }}</div>
-        <div class="sc-name">{{ s.lastName }}, {{ s.firstName }}</div>
-        <div class="sc-num">{{ s.studentNumber }}</div>
-        <div class="sc-prog">{{ s.program }}</div>
-        <div class="sc-yl">{{ s.yearLevel }}</div>
-        <div class="sc-progress">
-          <div class="scp-bar">
-            <div class="scp-fill" [ngClass]="completionClass(s.gradeCompletion)" [style.width.%]="s.gradeCompletion"></div>
+    <ng-container *ngIf="!isLoadingStudents && students.length > 0 && viewMode==='thumbnail'">
+      <ng-container *ngFor="let pg of groupedStudents">
+        <div class="group-year-header group-collapsible" (click)="toggleStudentProgram(pg.program)">
+          <span class="gyr-label">🎓 {{ pg.program }}</span>
+          <span class="gyr-right">
+            <span class="gyr-count">{{ pg.students.length }} student{{ pg.students.length !== 1 ? 's' : '' }}</span>
+            <span class="gyr-chevron" [class.gyr-chevron-open]="!isStudentProgramCollapsed(pg.program)">▶</span>
+          </span>
+        </div>
+        <div class="thumbnail-grid" *ngIf="!isStudentProgramCollapsed(pg.program)">
+          <div class="student-card" *ngFor="let s of pg.students" (click)="selectStudent(s)">
+            <div class="sc-avatar">{{ s.initials }}</div>
+            <div class="sc-name">{{ s.lastName }}, {{ s.firstName }}</div>
+            <div class="sc-num">{{ s.studentNumber }}</div>
+            <div class="sc-prog">{{ s.program }}</div>
+            <div class="sc-yl">{{ s.yearLevel }}</div>
+            <div class="sc-progress">
+              <div class="scp-bar">
+                <div class="scp-fill" [ngClass]="completionClass(s.gradeCompletion)" [style.width.%]="s.gradeCompletion"></div>
+              </div>
+              <span class="scp-pct">{{ s.gradeCompletion }}%</span>
+            </div>
+            <div class="sc-terms">
+              <span class="term-badge" [class.tb-done]="s.prelimDone > 0">P {{ s.prelimDone }}/{{ s.totalSubjects }}</span>
+              <span class="term-badge" [class.tb-done]="s.midtermDone > 0">M {{ s.midtermDone }}/{{ s.totalSubjects }}</span>
+              <span class="term-badge" [class.tb-done]="s.finalDone > 0">F {{ s.finalDone }}/{{ s.totalSubjects }}</span>
+            </div>
+            <div class="sc-action">View Grades →</div>
           </div>
-          <span class="scp-pct">{{ s.gradeCompletion }}%</span>
         </div>
-        <div class="sc-terms">
-          <span class="term-badge" [class.tb-done]="s.prelimDone > 0">P {{ s.prelimDone }}/{{ s.totalSubjects }}</span>
-          <span class="term-badge" [class.tb-done]="s.midtermDone > 0">M {{ s.midtermDone }}/{{ s.totalSubjects }}</span>
-          <span class="term-badge" [class.tb-done]="s.finalDone > 0">F {{ s.finalDone }}/{{ s.totalSubjects }}</span>
-        </div>
-        <div class="sc-action">View Grades →</div>
-      </div>
-    </div>
+      </ng-container>
+    </ng-container>
 
     <!-- List -->
-    <div class="table-container" *ngIf="!isLoadingStudents && students.length > 0 && viewMode==='list'">
-      <table class="students-table">
-        <thead>
-          <tr>
-            <th>Student</th><th>No.</th><th>Program</th><th>Year</th>
-            <th class="tc">Subjects</th><th>Grade Progress</th>
-            <th class="tc">P</th><th class="tc">M</th><th class="tc">F</th><th class="tc">Action</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr *ngFor="let s of students">
-            <td>
-              <div class="student-cell">
-                <div class="avatar">{{ s.initials }}</div>
-                <span class="s-fullname">{{ s.lastName }}, {{ s.firstName }}</span>
-              </div>
-            </td>
-            <td class="mono">{{ s.studentNumber }}</td>
-            <td>{{ s.program }}</td>
-            <td>{{ s.yearLevel }}</td>
-            <td class="tc">{{ s.totalSubjects }}</td>
-            <td>
-              <div class="progress-cell">
-                <div class="pc-bar">
-                  <div class="pc-fill" [ngClass]="completionClass(s.gradeCompletion)" [style.width.%]="s.gradeCompletion"></div>
-                </div>
-                <span class="pc-pct">{{ s.gradeCompletion }}%</span>
-              </div>
-            </td>
-            <td class="tc"><span class="mini-badge" [class.mb-done]="s.prelimDone === s.totalSubjects && s.totalSubjects > 0">{{ s.prelimDone }}/{{ s.totalSubjects }}</span></td>
-            <td class="tc"><span class="mini-badge" [class.mb-done]="s.midtermDone === s.totalSubjects && s.totalSubjects > 0">{{ s.midtermDone }}/{{ s.totalSubjects }}</span></td>
-            <td class="tc"><span class="mini-badge" [class.mb-done]="s.finalDone === s.totalSubjects && s.totalSubjects > 0">{{ s.finalDone }}/{{ s.totalSubjects }}</span></td>
-            <td class="tc"><button class="btn-grade" (click)="selectStudent(s)">Grades</button></td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+    <ng-container *ngIf="!isLoadingStudents && students.length > 0 && viewMode==='list'">
+      <ng-container *ngFor="let pg of groupedStudents">
+        <div class="group-year-header group-collapsible" (click)="toggleStudentProgram(pg.program)">
+          <span class="gyr-label">🎓 {{ pg.program }}</span>
+          <span class="gyr-right">
+            <span class="gyr-count">{{ pg.students.length }} student{{ pg.students.length !== 1 ? 's' : '' }}</span>
+            <span class="gyr-chevron" [class.gyr-chevron-open]="!isStudentProgramCollapsed(pg.program)">▶</span>
+          </span>
+        </div>
+        <div class="table-container" *ngIf="!isStudentProgramCollapsed(pg.program)">
+          <table class="students-table">
+            <thead>
+              <tr>
+                <th>Student</th><th>No.</th><th>Program</th><th>Year</th>
+                <th class="tc">Subjects</th><th>Grade Progress</th>
+                <th class="tc">P</th><th class="tc">M</th><th class="tc">F</th><th class="tc">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr *ngFor="let s of pg.students">
+                <td>
+                  <div class="student-cell">
+                    <div class="avatar">{{ s.initials }}</div>
+                    <span class="s-fullname">{{ s.lastName }}, {{ s.firstName }}</span>
+                  </div>
+                </td>
+                <td class="mono">{{ s.studentNumber }}</td>
+                <td>{{ s.program }}</td>
+                <td>{{ s.yearLevel }}</td>
+                <td class="tc">{{ s.totalSubjects }}</td>
+                <td>
+                  <div class="progress-cell">
+                    <div class="pc-bar">
+                      <div class="pc-fill" [ngClass]="completionClass(s.gradeCompletion)" [style.width.%]="s.gradeCompletion"></div>
+                    </div>
+                    <span class="pc-pct">{{ s.gradeCompletion }}%</span>
+                  </div>
+                </td>
+                <td class="tc"><span class="mini-badge" [class.mb-done]="s.prelimDone === s.totalSubjects && s.totalSubjects > 0">{{ s.prelimDone }}/{{ s.totalSubjects }}</span></td>
+                <td class="tc"><span class="mini-badge" [class.mb-done]="s.midtermDone === s.totalSubjects && s.totalSubjects > 0">{{ s.midtermDone }}/{{ s.totalSubjects }}</span></td>
+                <td class="tc"><span class="mini-badge" [class.mb-done]="s.finalDone === s.totalSubjects && s.totalSubjects > 0">{{ s.finalDone }}/{{ s.totalSubjects }}</span></td>
+                <td class="tc"><button class="btn-grade" (click)="selectStudent(s)">Grades</button></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </ng-container>
+    </ng-container>
 
     <div class="pagination" *ngIf="totalPages > 1 && !isLoadingStudents">
       <button class="pg-btn" [disabled]="currentPage===1" (click)="prevPage()">‹</button>
@@ -335,28 +399,45 @@
     <div class="loading-state" *ngIf="isLoadingCourses">
       <div class="spinner"></div><p>Loading courses…</p>
     </div>
-    <div class="course-grid" *ngIf="!isLoadingCourses && courses.length > 0">
-      <div class="course-card" *ngFor="let c of courses" (click)="selectCourse(c)">
-        <div class="cc-header">
-          <span class="cc-code">{{ c.code }}</span>
-          <span class="cc-enrolled">{{ c.enrolledCount }} students</span>
+
+    <!-- Grouped by Program -->
+    <ng-container *ngIf="!isLoadingCourses && courses.length > 0">
+      <ng-container *ngFor="let pg of groupedCourses">
+        <div class="group-year-header group-collapsible" (click)="toggleProgram(pg.program)">
+          <span class="gyr-label">🎓 {{ pg.program }}</span>
+          <span class="gyr-right">
+            <span class="gyr-count">{{ pg.courses.length }} course{{ pg.courses.length !== 1 ? 's' : '' }}</span>
+            <span class="gyr-chevron" [class.gyr-chevron-open]="!isProgramCollapsed(pg.program)">▶</span>
+          </span>
         </div>
-        <div class="cc-name">{{ c.name }}</div>
-        <div class="cc-instr" *ngIf="c.instructor">👨‍🏫 {{ c.instructor }}</div>
-        <div class="cc-prog">{{ c.program }}</div>
-        <div class="cc-progress">
-          <div class="ccp-bar">
-            <div class="ccp-fill" [ngClass]="completionClass(c.gradeCompletion)" [style.width.%]="c.gradeCompletion"></div>
+        <div class="course-grid" *ngIf="!isProgramCollapsed(pg.program)">
+          <div class="course-card" *ngFor="let c of pg.courses" (click)="selectCourse(c)">
+            <div class="cc-header">
+              <span class="cc-code">{{ c.code }}</span>
+              <span class="cc-enrolled">{{ c.enrolledCount }} students</span>
+            </div>
+            <div class="cc-name">{{ c.name }}</div>
+            <div class="cc-instr" *ngIf="c.instructor">👨‍🏫 {{ c.instructor }}</div>
+            <div class="cc-meta">
+              <span *ngIf="c.yearLevel" class="cc-yl">{{ c.yearLevel }}</span>
+              <span *ngIf="c.courseSemester" class="cc-sem">{{ c.courseSemester }}</span>
+            </div>
+            <div class="cc-progress">
+              <div class="ccp-bar">
+                <div class="ccp-fill" [ngClass]="completionClass(c.gradeCompletion)" [style.width.%]="c.gradeCompletion"></div>
+              </div>
+              <span class="ccp-pct">{{ c.gradeCompletion }}% graded</span>
+            </div>
+            <div class="cc-terms">
+              <span class="term-pill" [class.tp-done]="c.prelimDone===c.enrolledCount && c.enrolledCount>0">P: {{ c.prelimDone }}/{{ c.enrolledCount }}</span>
+              <span class="term-pill" [class.tp-done]="c.midtermDone===c.enrolledCount && c.enrolledCount>0">M: {{ c.midtermDone }}/{{ c.enrolledCount }}</span>
+              <span class="term-pill" [class.tp-done]="c.finalDone===c.enrolledCount && c.enrolledCount>0">F: {{ c.finalDone }}/{{ c.enrolledCount }}</span>
+            </div>
           </div>
-          <span class="ccp-pct">{{ c.gradeCompletion }}% graded</span>
         </div>
-        <div class="cc-terms">
-          <span class="term-pill" [class.tp-done]="c.prelimDone===c.enrolledCount && c.enrolledCount>0">P: {{ c.prelimDone }}/{{ c.enrolledCount }}</span>
-          <span class="term-pill" [class.tp-done]="c.midtermDone===c.enrolledCount && c.enrolledCount>0">M: {{ c.midtermDone }}/{{ c.enrolledCount }}</span>
-          <span class="term-pill" [class.tp-done]="c.finalDone===c.enrolledCount && c.enrolledCount>0">F: {{ c.finalDone }}/{{ c.enrolledCount }}</span>
-        </div>
-      </div>
-    </div>
+      </ng-container>
+    </ng-container>
+
     <div class="empty-state" *ngIf="!isLoadingCourses && courses.length === 0">
       <div class="es-icon">📖</div><p>No courses with enrolled students found.</p>
     </div>

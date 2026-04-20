@@ -1,7 +1,8 @@
-import { Component, OnInit, ChangeDetectorRef } from '@angular/core';
+import { Component, OnInit, OnDestroy, ChangeDetectorRef } from '@angular/core';
 import { CommonModule, DecimalPipe, UpperCasePipe } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
 import { environment } from '../../environment';
+import { PasswordGateService } from '../password-gate/password-gate.service';
 
 interface CoeRequest {
   id: number;
@@ -28,7 +29,7 @@ interface SemesterEntry {
   templateUrl: './coe-student.html',
   styleUrl: './coe-student.css',
 })
-export class CoeComponent implements OnInit {
+export class CoeComponent implements OnInit, OnDestroy {
   private apiUrl = environment.registrarApi;
 
   userId = (() => {
@@ -38,6 +39,31 @@ export class CoeComponent implements OnInit {
 
   // ── Loading / UI state ────────────────────────────────────────────────────
   isLoading        = true;
+  // ── Password gate inactivity lock (5 min) ─────────────────────────────────
+  _locked          = true;
+  private _lockTimer: any = null;
+  private readonly _LOCK_MS = 300000;  // 5 minutes
+
+  _startLockTimer(): void {
+    this._clearLockTimer();
+    this._lockTimer = setTimeout(() => {
+      this._locked = true;
+      // Clear the password-gate cache so re-navigating here after inactivity
+      // requires the student to re-enter their password.
+      sessionStorage.removeItem('pgv_ts_coe');
+      this.cdr.detectChanges();
+    }, this._LOCK_MS);
+  }
+
+  _clearLockTimer(): void {
+    if (this._lockTimer) { clearTimeout(this._lockTimer); this._lockTimer = null; }
+  }
+
+  resetLockTimer(): void {
+    if (!this._locked) this._startLockTimer();
+  }
+
+
   isTermLoading    = false;   // spinner only on the COE panel when switching terms
   isPrinting       = false;
   notification: { type: 'success' | 'error' | 'info'; message: string } | null = null;
@@ -78,9 +104,26 @@ export class CoeComponent implements OnInit {
   get isSHSFree():    boolean { return this.isSHS  && !this.isTransferee; }
   get isTVETFree():   boolean { return this.isTVET && !this.isTransferee; }
 
-  constructor(private http: HttpClient, private cdr: ChangeDetectorRef) {}
+  constructor(private http: HttpClient, private cdr: ChangeDetectorRef, private gate: PasswordGateService) {}
 
-  ngOnInit(): void { this.loadAll(); }
+  async ngOnInit(): Promise<void> {
+    // ── Password gate ─────────────────────────────────────────────────────────
+    // NOTE: Do NOT clear pgv_ts_coe here — cache is only cleared on inactivity lock.
+    const verified = await this.gate.requirePassword('COE');
+    if (!verified) {
+      this.isLoading = false;
+      this.notification = { type: 'error', message: 'Password verification is required to view your COE.' };
+      this.cdr.detectChanges();
+      return;
+    }
+    this._locked = false;
+    this._startLockTimer();
+    this.loadAll();
+  }
+
+  ngOnDestroy(): void {
+    this._clearLockTimer();  // stop JS timer only; lock state preserved across tabs
+  }
 
   // ── Step 1: eligibility → Step 2: semester list → Step 3: load default term
   loadAll(): void {
@@ -240,10 +283,30 @@ export class CoeComponent implements OnInit {
   }
 
   // ── PDF download ──────────────────────────────────────────────────────────
+  // FIX COE-PDF-REUSE-01: Reuse already-loaded coeData instead of making a
+  // second API call. Eliminates double round-trip and the race condition where
+  // session expiry between page-load and download caused a 401 error.
   printCOE(req: CoeRequest): void {
     if (req.status !== 'Approved' || this.isPrinting) return;
     this.isPrinting = true;
     this.notify('info', 'Preparing your COE PDF...');
+
+    if (this.coeData) {
+      this.loadJsPDF()
+        .then(jsPDF => {
+          this.isPrinting = false;
+          this.buildCoeFormPDF(jsPDF, this.coeData);
+          this.cdr.detectChanges();
+        })
+        .catch(() => {
+          this.isPrinting = false;
+          this.notify('error', 'PDF generation failed.');
+          this.cdr.detectChanges();
+        });
+      return;
+    }
+
+    // Fallback: fetch fresh only if coeData was somehow cleared
     this.http.get<any>(`${this.apiUrl}?action=coe_get_detail&id=${req.id}`)
       .subscribe({
         next: async res => {
@@ -312,8 +375,13 @@ export class CoeComponent implements OnInit {
     const sName = `${(d.last_name??'').toUpperCase()}, ${(d.first_name??'').toUpperCase()}${d.middle_name ? ', '+d.middle_name.toUpperCase() : ''}`;
     const regName = d.reg_first && d.reg_last ? `${d.reg_first.toUpperCase()} ${d.reg_last.toUpperCase()}` : 'JONNA MAY B. TABARANZA';
     const studentType = (d.student_type ?? '').toLowerCase();
-    const ayNow = new Date().getFullYear();
-    const ayStr = `${ayNow-1} - ${ayNow}`;
+    // FIX COE-PDF-AY-01: Use the COE's own school_year, not the current calendar year.
+    // Using new Date().getFullYear() caused past-term COEs to show the wrong AY in
+    // the PDF header (e.g. a 2025-2026 COE viewed in 2026 would show "2025 - 2026"
+    // but next year would silently become "2026 - 2027").
+    const ayStr = d.school_year
+      ? d.school_year.replace('-', ' - ')
+      : (() => { const y = new Date().getFullYear(); return `${y-1} - ${y}`; })();
     let y = 8;
     B(); sz(17); tx('ST. BENILDE', ML+28, y+7);
     B(); sz(7.5); tx('CENTER FOR GLOBAL COMPETENCE, INC.', ML+28, y+11.5);
@@ -411,6 +479,9 @@ export class CoeComponent implements OnInit {
     doc.setDrawColor(0,85,0); lw(2); rc(stX,stY+1,54,14); doc.setTextColor(0,85,0); B(); sz(15); txC('OFFICIALLY',stX+27,stY+11); txC('ENROLLED',stX+27,stY+5);
     doc.setTextColor(0,0,0); doc.setDrawColor(0,0,0); B(); sz(8); txC(approvedDate,stX+27,stY-2);
     N(); sz(5.8); const now=new Date(); tx(`Processing Time/Date: ${now.toLocaleTimeString('en-PH')} | ${now.toLocaleDateString('en-PH')}`,ML,H-5);
-    doc.save(`COE_${d.student_number??d.last_name}_${d.last_name}.pdf`);
+    // FIX COE-PDF-FILENAME-01: Previously used last_name as fallback for student_number
+    // AND as the second segment, producing "COE_Nodado_Nodado.pdf" when no student_number.
+    const pdfStudentId = d.student_number || `${d.last_name ?? 'student'}`.toUpperCase();
+    doc.save(`COE_${pdfStudentId}_${(d.last_name ?? '').toUpperCase()}.pdf`);
   }
 }

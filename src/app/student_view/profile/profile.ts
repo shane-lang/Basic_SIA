@@ -166,6 +166,24 @@ export class Profile implements OnInit, OnDestroy {
     });
   }
 
+  /**
+   * Derive the K-12 track from a strand name.
+   * Matches the tracks defined in the programs table (sia_db.sql).
+   */
+  getTrackFromStrand(strand: string): string {
+    const s = (strand ?? '').toLowerCase();
+    if (s.includes('abm') || s.includes('humss') || s.includes('gas') || s.includes('stem')) {
+      return 'Academic Track';
+    }
+    if (s.includes('tvl') || s.includes('ict') || s.includes('home economics') ||
+        s.includes('he') || s.includes('agri') || s.includes('industrial arts')) {
+      return 'Technical-Vocational Livelihood Track (TVL)';
+    }
+    if (s.includes('sports')) return 'Sports Track';
+    if (s.includes('arts') || s.includes('design')) return 'Arts and Design Track';
+    return '';  // unknown — don't guess
+  }
+
   get fullName(): string {
     const parts = [this.student.firstName, this.student.middleName, this.student.lastName, this.student.suffix];
     return parts.filter(p => p).join(' ');
@@ -231,4 +249,4 @@ export class Profile implements OnInit, OnDestroy {
       }
     });
   }
-}
+} 

@@ -71,6 +71,9 @@ export class Students implements OnInit {
   totalPages   = 1;
   totalStudents = 0;
   pageSize     = 25;
+  readonly pageSizeOptions = [10, 25, 50, 100];
+
+  onPageSizeChange(): void { this.loadStudents(1); }
 
   // Programs list for filter dropdown
   programs: string[] = [];
@@ -171,6 +174,9 @@ export class Students implements OnInit {
 
   prevPage(): void { if (this.currentPage > 1) this.loadStudents(this.currentPage - 1); }
   nextPage(): void { if (this.currentPage < this.totalPages) this.loadStudents(this.currentPage + 1); }
+
+  get showingFrom(): number { return this.totalStudents === 0 ? 0 : (this.currentPage - 1) * this.pageSize + 1; }
+  get showingTo():   number { return Math.min(this.currentPage * this.pageSize, this.totalStudents); }
 
   getPages(): number[] {
     const pages: number[] = [];

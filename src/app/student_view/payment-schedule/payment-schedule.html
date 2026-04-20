@@ -1,4 +1,4 @@
-<div class="ps-wrap">
+<div class="ps-wrap" (mousemove)="resetLockTimer()" (click)="resetLockTimer()">
 
   <div class="pg-header">
     <div class="pg-icon">💳</div>
@@ -17,11 +17,11 @@
             (click)="switchTab('schedule')">
       📋 Payment Schedule
     </button>
-    <button class="tab-btn"
+    <!--<button class="tab-btn"
             [class.tab-active]="activeTab === 'history'"
             (click)="switchTab('history')">
       🧾 Payment History
-    </button>
+    </button> -->
   </div>
 
 
@@ -261,7 +261,14 @@
               <div class="amt-row"><span>Amount Paid</span><strong class="paid">₱{{ fmt(getPaid(period)) }}</strong></div>
               <div class="amt-row balance-row">
                 <span>Balance</span>
-                <strong class="balance">₱{{ fmt(getBalance(period)) }}</strong>
+                <!-- Partial: balance carried to next term — show orange "Carried" label -->
+                <strong *ngIf="getStatus(period)==='partial'" style="color:#b45309;">
+                  ₱{{ fmt(getBalance(period)) }} — Carried to next term ➡️
+                </strong>
+                <!-- Paid: no balance -->
+                <strong *ngIf="getStatus(period)==='paid'" class="paid">₱0.00 ✅</strong>
+                <!-- Unpaid: show red balance -->
+                <strong *ngIf="getStatus(period)==='unpaid'" class="balance">₱{{ fmt(getBalance(period)) }}</strong>
               </div>
             </ng-container>
           </div>
@@ -286,16 +293,17 @@
               </button>
             </ng-container>
 
-            <!-- Pay button: only for installment students (not full-payment 'Full' card) -->
+            <!-- Pay button: only show when UNPAID (no payment yet for this period)  -->
+            <!-- Partial = may bayad na, balance carried to next term — no more Pay button -->
             <button class="btn-pay"
-              *ngIf="paymentPlan !== 'full' && (getStatus(period)==='unpaid' || getStatus(period)==='partial')"
+              *ngIf="paymentPlan !== 'full' && getStatus(period)==='unpaid'"
               [disabled]="hasPendingPayment(period)"
               [style.opacity]="hasPendingPayment(period) ? '0.5' : '1'"
               [title]="hasPendingPayment(period) ? 'Payment submitted — waiting for Accounting approval' : ''"
               (click)="openPayModal(period)">
               <span *ngIf="hasPendingPayment(period)">⏳ Awaiting Approval</span>
               <span *ngIf="!hasPendingPayment(period)">
-                💳 Pay {{ payPeriod === period ? '' : period }}
+                💳 Pay {{ period }}
                 <span *ngIf="getBalance(period) > 0"> · ₱{{ fmt(getBalance(period)) }} remaining</span>
               </span>
             </button>
@@ -400,11 +408,21 @@
         <button class="modal-close" (click)="closePayModal()" [disabled]="isSubmitting">✕</button>
       </div>
 
-      <!-- ── Submitted: waiting for accounting approval ── -->
-      <div *ngIf="paySubmitted" class="approval-waiting">
+      <!-- ── Submitted: Cash — go to cashier ── -->
+      <div *ngIf="paySubmitted && payMethod==='Cash'" class="approval-waiting">
+        <div class="approval-icon">💵</div>
+        <h3>Please Proceed to the Accounting Office</h3>
+        <p>Inform the cashier that you are paying your <strong>{{ payPeriod }}</strong> installment.</p>
+        <p>The cashier will record your payment and issue your official receipt.</p>
+        <p class="approval-note">You may close this window.</p>
+        <button class="btn-close-wait" (click)="closePayModal()">Close</button>
+      </div>
+
+      <!-- ── Submitted: GCash — waiting for accounting approval ── -->
+      <div *ngIf="paySubmitted && payMethod==='GCash'" class="approval-waiting">
         <div class="approval-icon">⏳</div>
         <h3>Payment Submitted!</h3>
-        <p>Your payment is being reviewed by Accounting.</p>
+        <p>Your GCash payment is being reviewed by Accounting.</p>
         <p *ngIf="payOrArNumber" class="ar-no">Reference: <strong>{{ payOrArNumber }}</strong></p>
         <div class="approval-pulse">
           <div class="pulse-dot"></div>
@@ -423,6 +441,15 @@
         <div class="modal-body">
 
           <div class="field-group">
+            <label>Payment Method</label>
+            <div class="method-toggle">
+              <button [class.active]="payMethod==='Cash'" (click)="payMethod='Cash'" [disabled]="isSubmitting">💵 Cash</button>
+              <button [class.active]="payMethod==='GCash'" (click)="payMethod='GCash'" [disabled]="isSubmitting">📱 GCash</button>
+            </div>
+          </div>
+
+          <!-- Amount: only shown for GCash (student enters exact amount sent) -->
+          <div class="field-group" *ngIf="payMethod==='GCash'">
             <label>Amount (₱)</label>
             <input type="number" [(ngModel)]="payAmount" min="1"
                    placeholder="Enter amount to pay" [disabled]="isSubmitting" />
@@ -434,17 +461,10 @@
             </span>
           </div>
 
-          <div class="field-group">
-            <label>Payment Date</label>
-            <input type="date" [(ngModel)]="payDate" [disabled]="isSubmitting" />
-          </div>
-
-          <div class="field-group">
-            <label>Payment Method</label>
-            <div class="method-toggle">
-              <button [class.active]="payMethod==='Cash'" (click)="payMethod='Cash'" [disabled]="isSubmitting">💵 Cash</button>
-              <button [class.active]="payMethod==='GCash'" (click)="payMethod='GCash'" [disabled]="isSubmitting">📱 GCash</button>
-            </div>
+          <!-- Cash: no amount field — cashier records amount at the office -->
+          <div class="info-banner" *ngIf="payMethod==='Cash'">
+            <span>💵</span>
+            <span>Please proceed to the <strong>Accounting Office</strong> to pay in cash. The cashier will record your payment amount.</span>
           </div>
 
           <div class="field-group" *ngIf="payMethod==='GCash'">
@@ -452,7 +472,12 @@
             <input type="text" [(ngModel)]="payGcashRef" placeholder="e.g. 1234567890" [disabled]="isSubmitting" />
           </div>
 
-          <div class="info-banner">
+          <div class="field-group">
+            <label>Payment Date</label>
+            <input type="date" [(ngModel)]="payDate" [disabled]="isSubmitting" />
+          </div>
+
+          <div class="info-banner" *ngIf="payMethod==='GCash'">
             <span>ℹ️</span>
             <span>Your payment will be verified and approved by Accounting before it takes effect.</span>
           </div>
@@ -468,7 +493,7 @@
           <button class="btn-cancel" (click)="closePayModal()" [disabled]="isSubmitting">Cancel</button>
           <button class="btn-submit" (click)="submitPayment()" [disabled]="isSubmitting">
             <span *ngIf="isSubmitting" class="spin-sm"></span>
-            {{ isSubmitting ? 'Submitting...' : 'Submit Payment' }}
+            {{ isSubmitting ? 'Please wait...' : (payMethod === 'Cash' ? 'Proceed to Cash Payment' : 'Submit Payment') }}
           </button>
         </div>
       </ng-container>

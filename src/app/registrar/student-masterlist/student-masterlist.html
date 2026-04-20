@@ -40,6 +40,10 @@
             [disabled]="isSendingEnrollReport[selectedStudent.id]">
       {{ isSendingEnrollReport[selectedStudent.id] ? '📧 Sending…' : '📧 Send Enrollment Report' }}
     </button>
+    <!-- ── Edit Info button ── -->
+    <button *ngIf="!editMode" class="btn-edit-info" style="margin-left:8px;" (click)="startEdit()">
+      ✏️ Edit Info
+    </button>
     <div class="info-badges">
       <span class="cat-badge" [ngClass]="categoryClass(selectedStudent.studentCategory)">
         {{ selectedStudent.studentCategory }}
@@ -79,8 +83,13 @@
 
       <!-- Personal Data -->
       <div class="info-section">
-        <div class="section-title">👤 Personal Information</div>
-        <div class="info-grid">
+        <div class="section-title" style="display:flex;align-items:center;justify-content:space-between;">
+          <span>👤 Personal Information</span>
+          <span *ngIf="editMode" style="font-size:0.8rem;color:#6b7280;font-weight:400;">Edit mode — academic fields are locked</span>
+        </div>
+
+        <!-- ── VIEW MODE ── -->
+        <div class="info-grid" *ngIf="!editMode">
           <div class="info-row"><span class="lbl">Last Name</span><span class="val">{{ selectedStudent.lastName }}</span></div>
           <div class="info-row"><span class="lbl">First Name</span><span class="val">{{ selectedStudent.firstName }}</span></div>
           <div class="info-row"><span class="lbl">Middle Name</span><span class="val">{{ selectedStudent.middleName || '—' }}</span></div>
@@ -102,6 +111,40 @@
           <div class="info-row"><span class="lbl">Assistive Tech</span><span class="val">{{ selectedStudent.hasAssistiveTech || '—' }}{{ selectedStudent.assistiveTechDetails ? ' — ' + selectedStudent.assistiveTechDetails : '' }}</span></div>
           <div class="info-row" *ngIf="selectedStudent.strand"><span class="lbl">Strand</span><span class="val">{{ selectedStudent.strand }}</span></div>
           <div class="info-row" *ngIf="selectedStudent.learningDelivery"><span class="lbl">Learning Delivery</span><span class="val">{{ selectedStudent.learningDelivery }}</span></div>
+        </div>
+
+        <!-- ── EDIT MODE ── -->
+        <div class="edit-grid" *ngIf="editMode" style="display:grid;grid-template-columns:1fr 1fr;gap:12px 20px;padding:12px 0;">
+          <div class="edit-field"><label>Last Name</label><input class="edit-input" [(ngModel)]="editForm.last_name"></div>
+          <div class="edit-field"><label>First Name</label><input class="edit-input" [(ngModel)]="editForm.first_name"></div>
+          <div class="edit-field"><label>Middle Name</label><input class="edit-input" [(ngModel)]="editForm.middle_name"></div>
+          <div class="edit-field"><label>Suffix</label><input class="edit-input" [(ngModel)]="editForm.suffix" placeholder="Jr., Sr., III…"></div>
+          <div class="edit-field"><label>Date of Birth</label><input class="edit-input" type="date" [(ngModel)]="editForm.date_of_birth"></div>
+          <div class="edit-field">
+            <label>Sex</label>
+            <select class="edit-input" [(ngModel)]="editForm.sex">
+              <option value="">— select —</option>
+              <option value="Male">Male</option>
+              <option value="Female">Female</option>
+            </select>
+          </div>
+          <div class="edit-field"><label>Religion</label><input class="edit-input" [(ngModel)]="editForm.religion"></div>
+          <div class="edit-field"><label>Place of Birth</label><input class="edit-input" [(ngModel)]="editForm.place_of_birth"></div>
+          <div class="edit-field"><label>Citizenship</label><input class="edit-input" [(ngModel)]="editForm.citizenship"></div>
+          <div class="edit-field"><label>Mother Tongue</label><input class="edit-input" [(ngModel)]="editForm.mother_tongue"></div>
+          <div class="edit-field" style="grid-column:1/-1"><label>Home Address</label><input class="edit-input" [(ngModel)]="editForm.address"></div>
+          <div class="edit-field"><label>Contact No.</label><input class="edit-input" [(ngModel)]="editForm.phone"></div>
+          <div class="edit-field"><label>LRN No.</label><input class="edit-input" [(ngModel)]="editForm.lrn_no"></div>
+          <div class="edit-field"><label>PSA Birth Cert No.</label><input class="edit-input" [(ngModel)]="editForm.psa_birth_cert_no"></div>
+          <div class="edit-field" *ngIf="selectedStudent.strand"><label>Strand</label><input class="edit-input" [(ngModel)]="editForm.strand"></div>
+          <div class="edit-field" style="grid-column:1/-1"><label>Last School Attended</label><input class="edit-input" [(ngModel)]="editForm.last_school_attended"></div>
+          <!-- Save / Cancel -->
+          <div style="grid-column:1/-1;display:flex;gap:10px;margin-top:8px;">
+            <button class="btn-save-edit" (click)="saveEdit()" [disabled]="isSavingEdit">
+              {{ isSavingEdit ? '⏳ Saving…' : '💾 Save Changes' }}
+            </button>
+            <button class="btn-cancel-edit" (click)="cancelEdit()" [disabled]="isSavingEdit">Cancel</button>
+          </div>
         </div>
       </div>
 
@@ -216,35 +259,48 @@
         </tr>
       </thead>
       <tbody>
-        <tr *ngFor="let s of students; let i = index">
-          <td class="mono light">{{ (currentPage - 1) * 20 + i + 1 }}</td>
-          <td class="mono">{{ s.studentNumber }}</td>
-          <td>
-            <div class="student-cell">
-              <div class="avatar">{{ s.initials }}</div>
-              <div>
-                <div class="s-name">{{ s.lastName }}, {{ s.firstName }}</div>
-                <div class="s-email">{{ s.email | maskEmail }}</div>
-              </div>
-            </div>
-          </td>
-          <td><span class="cat-pill" [ngClass]="categoryClass(s.studentCategory)">{{ s.studentCategory }}</span></td>
-          <td class="prog-cell">{{ s.program }}</td>
-          <td>{{ s.yearLevel }}</td>
-          <td><span class="type-pill">{{ s.studentType }}</span></td>
-          <td><span class="status-pill" [ngClass]="statusClass(s.enrollmentStatus)">{{ s.enrollmentStatus }}</span></td>
-          <td>
-            <span class="scholar-chip" *ngIf="s.isScholar">🎓 {{ s.scholarType || 'Scholar' }}</span>
-            <span class="no-scholar" *ngIf="!s.isScholar">—</span>
-          </td>
-          <td class="mono light">{{ s.enrollmentDate || '—' }}</td>
-          <td class="tc">
-            <button class="btn-view"    (click)="viewStudentInfo(s)">👁 View</button>
-            <button class="btn-history" (click)="viewEnrollmentHistory(s)" title="View Enrollment History">📅 History</button>
-            <!-- ── NEW: COE shortcut from list row ── -->
-            <button class="btn-coe-sm"  (click)="viewCoeHistory(s)" title="COE History">📜 COE</button>
-          </td>
-        </tr>
+        <ng-container *ngFor="let group of studentsGrouped">
+          <!-- Accordion header row — click to expand/collapse -->
+          <tr class="group-header-row" (click)="toggleGroup(group.program)">
+            <td colspan="11" class="group-header-cell">
+              <span class="group-chevron">{{ isGroupExpanded(group.program) ? '▾' : '▸' }}</span>
+              {{ group.program }}
+              <span class="group-count">{{ group.students.length }} student{{ group.students.length !== 1 ? 's' : '' }}</span>
+            </td>
+          </tr>
+          <!-- Students — visible only when group is expanded -->
+          <ng-container *ngIf="isGroupExpanded(group.program)">
+            <tr *ngFor="let s of group.students; let i = index">
+              <td class="mono light">{{ (currentPage - 1) * 20 + i + 1 }}</td>
+              <td class="mono">{{ s.studentNumber }}</td>
+              <td>
+                <div class="student-cell">
+                  <div class="avatar">{{ s.initials }}</div>
+                  <div>
+                    <div class="s-name">{{ s.lastName }}, {{ s.firstName }}</div>
+                    <div class="s-email">{{ s.email | maskEmail }}</div>
+                  </div>
+                </div>
+              </td>
+              <td><span class="cat-pill" [ngClass]="categoryClass(s.studentCategory)">{{ s.studentCategory }}</span></td>
+              <td class="prog-cell">{{ s.program }}</td>
+              <td>{{ s.yearLevel }}</td>
+              <td><span class="type-pill">{{ s.studentType }}</span></td>
+              <td><span class="status-pill" [ngClass]="statusClass(s.enrollmentStatus)">{{ s.enrollmentStatus }}</span></td>
+              <td>
+                <span class="scholar-chip" *ngIf="s.isScholar">🎓 {{ s.scholarType || 'Scholar' }}</span>
+                <span class="no-scholar" *ngIf="!s.isScholar">—</span>
+              </td>
+              <td class="mono light">{{ s.enrollmentDate || '—' }}</td>
+              <td class="tc">
+                <button class="btn-view"    (click)="viewStudentInfo(s)">👁 View</button>
+                <button class="btn-history" (click)="viewEnrollmentHistory(s)" title="View Enrollment History">📅 History</button>
+                <!-- ── NEW: COE shortcut from list row ── -->
+                <button class="btn-coe-sm"  (click)="viewCoeHistory(s)" title="COE History">📜 COE</button>
+              </td>
+            </tr>
+          </ng-container>
+        </ng-container>
       </tbody>
     </table>
   </div>
@@ -467,6 +523,36 @@
             <span class="coe-prev-val">{{ coeDetail.phone || '—' }}</span>
           </div>
         </div>
+        <div class="coe-prev-info-row">
+          <div class="coe-prev-cell">
+            <span class="coe-prev-lbl">Date of Birth</span>
+            <span class="coe-prev-val">{{ coeDetail.date_of_birth ? formatDate(coeDetail.date_of_birth) : '—' }}</span>
+          </div>
+          <div class="coe-prev-cell">
+            <span class="coe-prev-lbl">LRN</span>
+            <span class="coe-prev-val">{{ coeDetail.lrn_no || '—' }}</span>
+          </div>
+        </div>
+        <div class="coe-prev-info-row">
+          <div class="coe-prev-cell">
+            <span class="coe-prev-lbl">Name of Guardian</span>
+            <span class="coe-prev-val">{{ coeDetail.guardian_name || '—' }}</span>
+          </div>
+          <div class="coe-prev-cell">
+            <span class="coe-prev-lbl">Guardian's Contact #</span>
+            <span class="coe-prev-val">{{ coeDetail.guardian_contact || '—' }}</span>
+          </div>
+        </div>
+        <div class="coe-prev-info-row">
+          <div class="coe-prev-cell">
+            <span class="coe-prev-lbl">Address of Guardian</span>
+            <span class="coe-prev-val">{{ coeDetail.guardian_address || '—' }}</span>
+          </div>
+          <div class="coe-prev-cell">
+            <span class="coe-prev-lbl">Last School Attended</span>
+            <span class="coe-prev-val">{{ coeDetail.last_school_attended || '—' }}</span>
+          </div>
+        </div>
       </div>
 
       <!-- Enrolled Subjects -->
@@ -570,13 +656,6 @@
           <tr>
             <th>#</th>
             <th>Control No.</th>
-            <th>Purpose</th>
-            <th class="tc">Copies</th>
-            <th>Status</th>
-            <th>Requested</th>
-            <th>Date Issued</th>
-            <th>Issued By</th>
-            <th>Notes</th>
             <th class="tc">Action</th>
           </tr>
         </thead>
@@ -589,19 +668,6 @@
             <td class="mono coe-ctrl-cell">
               <span *ngIf="coe.control_number" class="coe-ctrl-num">{{ coe.control_number }}</span>
               <span *ngIf="!coe.control_number" class="light">—</span>
-            </td>
-            <td>{{ coe.purpose || 'General Purpose' }}</td>
-            <td class="tc">{{ coe.copies }}</td>
-            <td>
-              <span class="coe-status-pill" [ngClass]="coeStatusClass(coe.status)">
-                {{ coe.status === 'Approved' ? '✅ Approved' : coe.status === 'Rejected' ? '✕ Rejected' : '⏳ Pending' }}
-              </span>
-            </td>
-            <td class="mono light">{{ formatDate(coe.requested_at) }}</td>
-            <td class="mono light">{{ coe.approved_at ? formatDate(coe.approved_at) : '—' }}</td>
-            <td class="light">{{ coe.approved_by_name || '—' }}</td>
-            <td class="light" style="max-width:160px; white-space:normal; font-size:.8rem;">
-              {{ coe.registrar_notes || '—' }}
             </td>
             <td class="tc">
               <button class="btn-dl-coe"

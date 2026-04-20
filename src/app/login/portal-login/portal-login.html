@@ -67,24 +67,42 @@
 <div class="login-page" *ngIf="!showSelector && config && !showWelcome && !showOtp && !showForgot" [style.background]="config.bg">
 
   <div class="login-card" [style.--accent]="config.accent">
-    <button class="back-btn" routerLink="/login">← All Portals</button>
+    <!--<button class="back-btn" routerLink="/login">← All Portals</button>-->
     <div class="login-header">
       <div class="portal-icon">{{ config.icon }}</div>
       <h1>{{ config.label }}</h1>
     </div>
     <div class="logout-banner" *ngIf="logoutBanner">⚠️ {{ logoutBanner }}</div>
-    <div class="error-box" *ngIf="errorMessage">⚠️ {{ errorMessage }}</div>
+    <div class="error-box" *ngIf="errorMessage && !fieldErrors.email && !fieldErrors.password">⚠️ {{ errorMessage }}</div>
     <form (ngSubmit)="onSubmit()" novalidate>
-      <div class="field">
+      <div class="field" [class.field--error]="fieldErrors.email">
         <label>Email Address</label>
-        <input type="email" [(ngModel)]="email" name="email" placeholder="Enter your email" autocomplete="email" />
+        <input
+          type="email"
+          [(ngModel)]="email"
+          name="email"
+          placeholder="Enter your email"
+          autocomplete="email"
+          [class.input--error]="fieldErrors.email"
+          (input)="clearFieldError('email')"
+        />
+        <span class="field-error-msg" *ngIf="fieldErrors.email">⚠ {{ fieldErrors.email }}</span>
       </div>
-      <div class="field">
+      <div class="field" [class.field--error]="fieldErrors.password">
         <label>Password</label>
         <div class="pw-wrap">
-          <input [type]="showPw ? 'text' : 'password'" [(ngModel)]="password" name="password" placeholder="Enter your password" autocomplete="current-password" />
+          <input
+            [type]="showPw ? 'text' : 'password'"
+            [(ngModel)]="password"
+            name="password"
+            placeholder="Enter your password"
+            autocomplete="current-password"
+            [class.input--error]="fieldErrors.password"
+            (input)="clearFieldError('password')"
+          />
           <button type="button" class="pw-toggle" (click)="togglePw()">{{ showPw ? '🙈' : '👁️' }}</button>
         </div>
+        <span class="field-error-msg" *ngIf="fieldErrors.password">⚠ {{ fieldErrors.password }}</span>
       </div>
      <div class="forgot-pw-row">
   <a href="#" class="forgot-pw-link" (click)="showForgot='email'; $event.preventDefault()">
@@ -101,7 +119,7 @@
       <button class="btn-enroll" (click)="goEnroll()">🎓 Enroll Now</button>
     </div>
     <div class="login-footer">
-      <small>St. Benilde SIA — Student Information & Administration</small>
+      <small>St. Benilde SIA </small>
     </div>
   </div>
 </div>

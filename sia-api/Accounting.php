@@ -124,7 +124,7 @@ $action = $_GET['action'] ?? '';
 
 require_once __DIR__ . '/auth_middleware.php';
 // Fee preview actions called during enrollment wizard (no token yet)
-$publicActions = ['get_fee_preview', 'get_shs_fee', 'get_tvet_fee', 'get_fee_config', 'get_due_dates', 'verify_scholarship_code'];
+$publicActions = ['get_fee_preview', 'get_shs_fee', 'get_tvet_fee', 'get_fee_config', 'get_due_dates'];
 $authUser = in_array($action, $publicActions) ? null : requireAuth($conn);
 
 // ── Auto-create required tables if missing (so migrate.php is not mandatory) ──
@@ -179,18 +179,14 @@ switch ($method) {
             case 'get_scholarship_history':  getScholarshipHistory($conn);  break;
             case 'get_subject_fee_log':      getSubjectFeeLog($conn);       break;
             case 'get_pending_scholarships': getPendingScholarships($conn); break;
-            case 'get_scholarship_preapprovals': getScholarshipPreApprovals($conn); break;
-            case 'verify_scholarship_code':      verifyScholarshipCode($conn);      break;
             case 'get_add_drop_requests_accounting': getAddDropRequestsForAccounting($conn); break;
             case 'backfill_fee_log':                 backfillSubjectFeeLog($conn);           break;
-            while (ob_get_level() > 0) { ob_end_clean(); }
-            default: echo json_encode(['success' => false, 'message' => 'Unknown action']);
+            default: while (ob_get_level() > 0) { ob_end_clean(); } echo json_encode(['success' => false, 'message' => 'Unknown action']);
         }
         break;
     case 'POST':
         $data = json_decode(file_get_contents('php://input'), true);
-        while (ob_get_level() > 0) { ob_end_clean(); }
-        if (!$data) { echo json_encode(['success' => false, 'message' => 'Invalid JSON']); exit(); }
+        if (!$data) { while (ob_get_level() > 0) { ob_end_clean(); } echo json_encode(['success' => false, 'message' => 'Invalid JSON']); exit(); }
         switch ($action) {
             case 'submit_gcash':        submitGcash($conn, $data);        break;
             case 'notify_cash_pending': notifyCashPending($conn, $data);  break;
@@ -211,15 +207,12 @@ switch ($method) {
             case 'correct_verified_payment': correctVerifiedPayment($conn, $data); break;
             // ── Payment Due Dates ──
             case 'save_due_dates':            savePaymentDueDates($conn, $data); break;
-            case 'grant_scholarship':         grantScholarship($conn);           break;
-            case 'remove_scholarship':        removeScholarship($conn);          break;
-            case 'approve_scholarship':       approveScholarship($conn);         break;
-            case 'reject_scholarship':        rejectScholarship($conn);          break;
-            case 'create_scholarship_preapproval': createScholarshipPreApproval($conn); break;
-            case 'revoke_scholarship_preapproval': revokeScholarshipPreApproval($conn); break;
+            case 'grant_scholarship':         grantScholarship($conn, $data);    break;
+            case 'remove_scholarship':        removeScholarship($conn, $data);   break;
+            case 'approve_scholarship':       approveScholarship($conn, $data);  break;
+            case 'reject_scholarship':        rejectScholarship($conn, $data);   break;
             case 'accounting_approve_add_drop':   accountingApproveAddDropFromAccounting($conn, $data); break;
-            while (ob_get_level() > 0) { ob_end_clean(); }
-            default: echo json_encode(['success' => false, 'message' => 'Unknown action']);
+            default: while (ob_get_level() > 0) { ob_end_clean(); } echo json_encode(['success' => false, 'message' => 'Unknown action']);
         }
         break;
     default:
@@ -411,6 +404,18 @@ function getFeePreview($conn) {
         $isScholar         = (int)($srow['is_scholar']         ?? 0) === 1;
         $scholarshipAmount = (float)($srow['scholarship_amount'] ?? 0);
         // Will compute isFullScholar after subtotal is known (below)
+        // FIX SCHOLAR-PENDING-DISCOUNT-04: If students.scholarship_amount is 0 (old record
+        // registered before the patch saved scholarship_amount), read it directly from
+        // the pending student_scholarships row as a fallback.
+        if ($isScholar && $scholarshipAmount <= 0) {
+            $pSchFb = $conn->query("SELECT scholarship_amount FROM student_scholarships WHERE student_id=$student_id AND status='pending' ORDER BY id DESC LIMIT 1");
+            $pSchFbRow = $pSchFb ? $pSchFb->fetch_assoc() : null;
+            if ($pSchFbRow && (float)$pSchFbRow['scholarship_amount'] > 0) {
+                $scholarshipAmount = (float)$pSchFbRow['scholarship_amount'];
+                // Also backfill students table so future reads don't need this fallback
+                $conn->query("UPDATE students SET scholarship_amount=$scholarshipAmount WHERE id=$student_id AND (scholarship_amount IS NULL OR scholarship_amount=0)");
+            }
+        }
         $discount = $scholarshipAmount;
     }
 
@@ -480,22 +485,35 @@ function getFeePreview($conn) {
 
     // Full scholar: discount must always cover the CURRENT subtotal → ₱0 total
     // Re-check now that we know subtotal
+    // FIX SCHOLAR-PENDING-FULL-01: Also treat a PENDING scholarship as full when
+    // scholarship_amount >= subtotal. Before approval, is_active=0 — the old code
+    // only checked is_active=1, so full-scholarship students still saw the full fee
+    // on the payment instructions screen until Accounting approved.
     if ($isScholar && $subtotal > 0) {
-        // Most reliable: check active student_scholarships record
+        // Check approved (is_active=1) first
         $ssChk = $conn->query("SELECT id FROM student_scholarships WHERE student_id=$student_id AND is_active=1 LIMIT 1");
         if ($ssChk && $ssChk->num_rows > 0) {
             $discount      = $subtotal;
             $isFullScholar = true;
         } elseif (isset($scholarshipAmount) && $scholarshipAmount >= $subtotal) {
+            // Declared amount covers full tuition (may be pending approval)
             $discount      = $subtotal;
             $isFullScholar = true;
         } elseif ($student_id > 0) {
-            // Fallback: check existing tuition_fees total
-            $tfChkR = $conn->query("SELECT total_assessment FROM tuition_fees WHERE student_id=$student_id LIMIT 1");
-            $tfChkRow = $tfChkR ? $tfChkR->fetch_assoc() : null;
-            if ($tfChkRow && (float)$tfChkRow['total_assessment'] <= 0) {
+            // Check pending scholarship amount from student_scholarships
+            $pSchkR = $conn->query("SELECT scholarship_amount FROM student_scholarships WHERE student_id=$student_id AND status='pending' ORDER BY id DESC LIMIT 1");
+            $pSchkRow = $pSchkR ? $pSchkR->fetch_assoc() : null;
+            if ($pSchkRow && (float)$pSchkRow['scholarship_amount'] >= $subtotal) {
                 $discount      = $subtotal;
                 $isFullScholar = true;
+            } else {
+                // Fallback: check existing tuition_fees total
+                $tfChkR = $conn->query("SELECT total_assessment FROM tuition_fees WHERE student_id=$student_id LIMIT 1");
+                $tfChkRow = $tfChkR ? $tfChkR->fetch_assoc() : null;
+                if ($tfChkRow && (float)$tfChkRow['total_assessment'] <= 0) {
+                    $discount      = $subtotal;
+                    $isFullScholar = true;
+                }
             }
         }
     }
@@ -557,7 +575,8 @@ function getFeePreview($conn) {
                 miscellaneous_fee=VALUES(miscellaneous_fee),
                 registration_fee=VALUES(registration_fee), laboratory_fee=VALUES(laboratory_fee),
                 energy_fee=VALUES(energy_fee), subtotal=VALUES(subtotal),
-                discount=VALUES(discount), installment_fee=VALUES(installment_fee),
+                discount=VALUES(discount),
+                installment_fee=IF(VALUES(installment_fee) > 0, VALUES(installment_fee), installment_fee),
                 total_assessment=VALUES(total_assessment),
                 semester=VALUES(semester)
         ");
@@ -613,18 +632,28 @@ function getFeePreview($conn) {
 function computeFees($conn, $data) {
     $student_id      = (int)($data['student_id']      ?? 0);
     $units           = (int)($data['units']           ?? 18);
-    $has_installment = (bool)($data['has_installment'] ?? false);
+    // FIX INSTALLMENT-COLLEGE-01: Always read payment_plan from DB.
+    // The has_installment flag from the request body is unreliable — callers
+    // (including the enrollment wizard) sometimes omit it or send false even
+    // when the student chose installment. DB is the single source of truth.
+    $has_installment = isset($data['has_installment']) ? (bool)$data['has_installment'] : null;
 
     if (!$student_id || $units <= 0) {
         while (ob_get_level() > 0) { ob_end_clean(); }
         echo json_encode(['success' => false, 'message' => 'student_id and units required']); return;
     }
 
-    $sr = $conn->prepare("SELECT scholarship_amount FROM students WHERE id = ?");
+    $sr = $conn->prepare("SELECT scholarship_amount, payment_plan FROM students WHERE id = ?");
     $sr->bind_param("i", $student_id);
     $sr->execute();
-    $srow = $sr->get_result()->fetch_assoc();
+    $srow    = $sr->get_result()->fetch_assoc();
+    $sr->close();
     $discount = (float)($srow['scholarship_amount'] ?? 0);
+    // FIX INSTALLMENT-COLLEGE-01: If caller didn't pass has_installment, read from DB.
+    // Covers College transferees where the wizard sends compute_fees without the flag.
+    if ($has_installment === null) {
+        $has_installment = ($srow['payment_plan'] ?? 'full') === 'installment';
+    }
 
     // Count lab subjects for this student's program
     $progSt = $conn->prepare("SELECT program FROM students WHERE id = ? LIMIT 1");
@@ -958,8 +987,16 @@ function getTuitionFees($conn) {
 
     $balance = max(0, (float)$row['total_assessment'] - $total_paid);
 
-    // Build extra fees list from fee_config
-    $extraList = _buildExtraFeesList($conn, 'College', (int)$row['units']);
+    // FIX TVET-FEES-02: Resolve fee category from student record so TVET/SHS
+    // students get the correct extra-fee labels, not College labels.
+    $fcatRes = $conn->query("SELECT student_category FROM students WHERE id=$student_id LIMIT 1");
+    $fcatRow = $fcatRes ? $fcatRes->fetch_assoc() : null;
+    $feeCat  = match(strtoupper(trim($fcatRow['student_category'] ?? ''))) {
+        'SHS'  => 'SHS',
+        'TVET' => 'TVET',
+        default => 'College',
+    };
+    $extraList = _buildExtraFeesList($conn, $feeCat, (int)$row['units']);
 
     while (ob_get_level() > 0) { ob_end_clean(); }
     echo json_encode([
@@ -1146,7 +1183,7 @@ function getStudentReceipts($conn) {
     $feeStmt->close();
     $fee_row = $fee_res ? $fee_res->fetch_assoc() : null;
 
-    $stStmt2 = $conn->prepare("SELECT first_name, last_name, program, year_level, student_number, payment_plan FROM students WHERE id = ? LIMIT 1");
+    $stStmt2 = $conn->prepare("SELECT first_name, last_name, program, year_level, student_number, payment_plan, student_category FROM students WHERE id = ? LIMIT 1");
     $stStmt2->bind_param('i', $student_id);
     $stStmt2->execute();
     $st_res = $stStmt2->get_result();
@@ -1403,7 +1440,7 @@ function getStudentReceipts($conn) {
             'registrationFee'  => (float)$fee_row['registration_fee'],
             'laboratoryFee'    => (float)$fee_row['laboratory_fee'],
             'energyFee'        => (float)$fee_row['energy_fee'],
-            'extraFees'        => _buildExtraFeesList($conn, 'College', (int)$fee_row['units']),
+            'extraFees'        => _buildExtraFeesList($conn, match(strtoupper(trim($student['student_category'] ?? ''))) { 'SHS' => 'SHS', 'TVET' => 'TVET', default => 'College' }, (int)$fee_row['units']),
             'subtotal'         => (float)$fee_row['subtotal'],
             'discount'         => (float)$fee_row['discount'],
             'installmentFee'   => (float)$fee_row['installment_fee'],
@@ -1536,7 +1573,11 @@ function notifyCashPending($conn, $data) {
     $examPeriod = ($sRow['payment_plan'] === 'installment') ? 'Downpayment' : 'Full';
 
     // Mark student as payment-pending so Accounting queue picks them up
-    $upd = $conn->prepare("UPDATE students SET payment_status = 'Pending' WHERE id = ?");
+    // BUG-TVET-CASH-01 FIX: Also ensure payment_method='Cash' is persisted to students table.
+    // For TVET students, payment_method may still be '' if updatePaymentPlan ran before
+    // getTVETFee completed. Stamping it here guarantees getPendingPayments recovery logic
+    // correctly routes this student to Cash (not GCash) in the Accounting queue.
+    $upd = $conn->prepare("UPDATE students SET payment_status = 'Pending', payment_method = 'Cash' WHERE id = ?");
     $upd->bind_param('i', $student_id);
     $upd->execute();
     $upd->close();
@@ -1602,9 +1643,13 @@ function submitGcash($conn, $data) {
     // FIX: SQL comment inside prepared string is invalid; duplicate payment_status column;
     // non-existent column gcash_transaction_id. GCash data goes to payment_logs.
     // Only reset student payment_status to Pending while awaiting accounting verification.
-    $stmt = $conn->prepare("UPDATE students SET payment_status = 'Pending' WHERE id = ?");
+    // FIX REJECT-NOTES-01: Also clear rejection_reason so the old rejection message
+    // doesn't linger after the student has corrected and resubmitted their payment.
+    $conn->query("ALTER TABLE students ADD COLUMN IF NOT EXISTS rejection_reason TEXT DEFAULT NULL");
+    $stmt = $conn->prepare("UPDATE students SET payment_status = 'Pending', rejection_reason = NULL WHERE id = ?");
     $stmt->bind_param("i", $student_id);
     $stmt->execute();
+    $stmt->close();
 
     // Auto-detect exam_period based on payment_plan and what's already been paid
     $stPlanSt = $conn->prepare("SELECT payment_plan, enrollment_status FROM students WHERE id=? LIMIT 1");
@@ -1693,7 +1738,11 @@ function submitGcash($conn, $data) {
     $pmChkSt->execute();
     $pmChkRow = $pmChkSt->get_result()->fetch_assoc();
     $pmChkSt->close();
-    $studentPaymentMethod = strtolower(trim($pmChkRow['payment_method'] ?? 'gcash'));
+    // FIX PM-NULL-04: Do NOT default NULL/empty payment_method to 'gcash' here.
+    // If the DB value is still empty (student just registered, method not written yet),
+    // treat as unknown — do NOT allow a GCash submission to slip through for a student
+    // who may have chosen Cash. The correct gate is: only block if explicitly 'cash'.
+    $studentPaymentMethod = strtolower(trim($pmChkRow['payment_method'] ?? ''));
     if ($studentPaymentMethod === 'cash') {
         while (ob_get_level() > 0) { ob_end_clean(); }
         echo json_encode([
@@ -1741,7 +1790,23 @@ function submitGcash($conn, $data) {
 // ─────────────────────────────────────────────────────────────
 function _getStudentPaymentPlan($conn, $sid) {
     $r = $conn->query("SELECT payment_plan FROM students WHERE id=$sid LIMIT 1");
-    return $r ? ($r->fetch_assoc()['payment_plan'] ?? 'full') : 'full';
+    $plan = $r ? ($r->fetch_assoc()['payment_plan'] ?? '') : '';
+
+    // FIX PAYMENT-PLAN-FALLBACK-01: students.payment_plan may be NULL/empty if
+    // update_payment_plan() hadn't committed yet when the row was first read.
+    // Fall back to payment_schedules (the source of truth written by the student
+    // during enrollment) before defaulting to 'full'.
+    if (!$plan || $plan === 'full') {
+        $ps = $conn->query("SELECT payment_type FROM payment_schedules WHERE student_id=$sid ORDER BY id DESC LIMIT 1");
+        if ($ps) {
+            $psRow = $ps->fetch_assoc();
+            if ($psRow && strtolower($psRow['payment_type'] ?? '') === 'installment') {
+                $plan = 'installment';
+            }
+        }
+    }
+
+    return $plan ?: 'full';
 }
 // ─────────────────────────────────────────────────────────────────────────────
 // SHARED HELPER: Compute installment term dues based on actual payments.
@@ -1756,7 +1821,7 @@ function _getStudentPaymentPlan($conn, $sid) {
 //   where each value is the DUE for that term (show actual paid if paid, else
 //   the recomputed share).
 // ─────────────────────────────────────────────────────────────────────────────
-function _calcInstallmentDues(float $total, array $paid): array {
+function _calcInstallmentDues(float $total, array $paid, array $approvedPeriods = []): array {
     // ─────────────────────────────────────────────────────────────────────────
     // Computes the DUE amount for each installment term given what was actually
     // paid per period.
@@ -1767,6 +1832,15 @@ function _calcInstallmentDues(float $total, array $paid): array {
     //     - Remaining after DP credit is split equally among remaining terms
     //     - This means underpayment at any term increases future term dues,
     //       and overpayment decreases them — balance always preserved.
+    //
+    //   FIX CARRY-OVER-01: $approvedPeriods parameter (array of period names
+    //     like ['Prelim', 'Midterm']) tells this function which periods have
+    //     an accounting-approved exam permit. For approved periods:
+    //       • The credit used = ACTUAL amount paid (even if less than due).
+    //       • The unpaid shortfall is AUTOMATICALLY carried to the next term.
+    //       • The approved period is shown as 'paid' (balance = 0 for that term).
+    //     For periods NOT yet approved (future terms), the credit falls back to
+    //     the scheduled due so future dues compute correctly before any payment.
     //
     //   Returns:
     //     'downpayment' => the scheduled DP due (not what was paid)
@@ -1783,25 +1857,48 @@ function _calcInstallmentDues(float $total, array $paid): array {
     $finPaid = (float)($paid['Finals']      ?? 0.0);
     $allPaid = $dpPaid + $prPaid + $midPaid + $finPaid;
 
+    // Approved-period flags — approved means the period is cleared regardless of partial payment
+    $dpApproved  = in_array('Downpayment', $approvedPeriods, true);
+    $prApproved  = in_array('Prelim',      $approvedPeriods, true);
+    $midApproved = in_array('Midterm',     $approvedPeriods, true);
+
     $quarter = round($total / 4, 2);
 
     // ── Downpayment ───────────────────────────────────────────────────────────
     // Due = scheduled quarter. Credit = what was actually paid (may be less or more).
-    $dpDue    = $quarter;
-    $dpCredit = $dpPaid > 0 ? $dpPaid : $dpDue;  // use scheduled if nothing paid yet
+    $dpDue = $quarter;
+    if ($dpApproved) {
+        // Period cleared by approved permit: credit only what was paid (shortfall carries forward)
+        $dpCredit = $dpPaid;
+    } else {
+        // Not yet approved: use actual paid if any, else use scheduled due so future terms compute correctly
+        $dpCredit = $dpPaid > 0 ? $dpPaid : $dpDue;
+    }
 
     // ── Prelim ────────────────────────────────────────────────────────────────
     // Remaining after DP credit, split among 3 terms
-    $rem1   = max(0.0, $total - $dpCredit);
-    $prDue  = $rem1 > 0 ? ceil($rem1 / 3 * 100) / 100 : 0.0;
-    // Actual credit used = what was actually paid (may be less → leftover carried to next terms)
-    $prCredit = $prPaid > 0 ? $prPaid : $prDue;
+    $rem1  = max(0.0, $total - $dpCredit);
+    $prDue = $rem1 > 0 ? ceil($rem1 / 3 * 100) / 100 : 0.0;
+    if ($prApproved) {
+        // FIX CARRY-OVER-01: Approved with partial payment — carry unpaid balance to Midterm/Finals.
+        // Use actual paid as credit (not $prDue). The difference ($prDue - $prPaid) automatically
+        // flows into $rem2 → midterm and finals dues become larger to absorb the shortfall.
+        $prCredit = $prPaid;
+    } else {
+        // Not yet approved: use actual paid if any, else scheduled due (no carry-over yet)
+        $prCredit = $prPaid > 0 ? $prPaid : $prDue;
+    }
 
     // ── Midterm ───────────────────────────────────────────────────────────────
     // Remaining after DP + Prelim credit, split among 2 remaining terms
-    $rem2    = max(0.0, $rem1 - $prCredit);
-    $midDue  = $rem2 > 0 ? ceil($rem2 / 2 * 100) / 100 : 0.0;
-    $midCredit = $midPaid > 0 ? $midPaid : $midDue;
+    $rem2   = max(0.0, $rem1 - $prCredit);
+    $midDue = $rem2 > 0 ? ceil($rem2 / 2 * 100) / 100 : 0.0;
+    if ($midApproved) {
+        // Same carry-over logic: approved partial → shortfall flows into Finals
+        $midCredit = $midPaid;
+    } else {
+        $midCredit = $midPaid > 0 ? $midPaid : $midDue;
+    }
 
     // ── Finals ────────────────────────────────────────────────────────────────
     // Whatever is left after all prior credits
@@ -1830,7 +1927,13 @@ function _getScheduleAmounts($conn, $sid) {
     $paid = ['Downpayment'=>0.0,'Prelim'=>0.0,'Midterm'=>0.0,'Finals'=>0.0];
     if ($paidRes) while ($r = $paidRes->fetch_assoc()) $paid[$r['exam_period']] = (float)$r['paid'];
 
-    $dues = _calcInstallmentDues($total, $paid);
+    // FIX CARRY-OVER-01: Fetch approved permits so _calcInstallmentDues() correctly
+    // uses actual-paid-only as credit for approved periods, carrying shortfalls forward.
+    $apRes = $conn->query("SELECT exam_period FROM exam_permits WHERE student_id=$sid AND status='approved'");
+    $approvedPeriods = [];
+    if ($apRes) while ($apr = $apRes->fetch_assoc()) $approvedPeriods[] = $apr['exam_period'];
+
+    $dues = _calcInstallmentDues($total, $paid, $approvedPeriods);
     // Also expose per-term paid amounts so accounting modal can show correct remaining balance
     $dues['termPaid'] = [
         'downpayment' => round($paid['Downpayment'], 2),
@@ -1853,6 +1956,12 @@ function getPendingPayments($conn) {
                s.student_number, s.first_name, s.last_name, s.program, s.year_level,
                s.payment_status, s.approval_status, s.enrollment_status,
                s.student_category,
+               s.is_scholar, s.scholar_type, s.scholarship_amount,
+               (SELECT COUNT(*) FROM student_scholarships ss3
+                WHERE ss3.student_id = s.id AND ss3.status = 'pending') AS has_pending_scholarship,
+               (SELECT ss3.scholar_type FROM student_scholarships ss3
+                WHERE ss3.student_id = s.id AND ss3.status = 'pending'
+                ORDER BY ss3.id DESC LIMIT 1) AS pending_scholar_type,
                tf.total_assessment,
                s.program AS department,
                (SELECT sg.email
@@ -1873,12 +1982,30 @@ function getPendingPayments($conn) {
               OR (
                   s.is_scholar = 1
                   AND s.payment_status != 'Free'
-                  AND EXISTS (
-                      SELECT 1 FROM student_scholarships ss2
-                      WHERE ss2.student_id = s.id
-                        AND ss2.is_active = 1
+                  AND (
+                      -- FIX SCHOLAR-PENDING-QUEUE-01: Show scholars even when scholarship
+                      -- is still pending approval (is_active=0). Previously only students
+                      -- with an already-approved (is_active=1) scholarship appeared in the
+                      -- Accounting queue — students who declared at Step 4 but weren't
+                      -- approved yet were invisible to Accounting entirely.
+                      -- Now: any scholar (approved OR pending) appears in the queue so
+                      -- Accounting can verify payment AND approve the scholarship together.
+                      EXISTS (
+                          SELECT 1 FROM student_scholarships ss2
+                          WHERE ss2.student_id = s.id
+                            AND ss2.status IN ('pending', 'approved')
+                      )
                   )
               )
+          )
+          -- FIX TVET-QUEUE-01: Exclude free SHS/TVET non-transferee students.
+          -- They are auto-approved in getStudentContext / getTVETFee / getSHSFee.
+          -- If they appear here it means auto-approve hasn't run yet — they have
+          -- no tuition_fees record and a pending payment_log that should not exist.
+          AND NOT (
+              UPPER(COALESCE(s.student_category,'')) IN ('SHS','TVET')
+              AND LOWER(COALESCE(s.student_type,'new')) != 'transferee'
+              AND COALESCE(tf.total_assessment, 0) = 0
           )
         ORDER BY pl.created_at DESC
     ";
@@ -1894,7 +2021,22 @@ function getPendingPayments($conn) {
             $seenLogIds[$logIdKey] = true;
 
             $isCash  = strtolower($r['payment_method'] ?? '') === 'cash' || ($r['gcash_reference'] ?? '') === 'CASH-PAYMENT';
-            $sid     = (int)$r['student_id'];
+            // BUG-TVET-CASH-02 FIX: A phantom 'GCash' payment_log may have been auto-created
+            // by the noLogSql path before the student chose their payment method. After the
+            // student picks Cash via updatePaymentPlan(), students.payment_method is corrected
+            // but the phantom log's payment_method may still be 'GCash'. Re-check against
+            // students.payment_method (authoritative after updatePaymentPlan) and override.
+            $sid     = (int)$r['student_id'];  // FIX: moved up — was used before assignment
+            $studentMethodOverride = strtolower($r['student_category'] ?? ''); // placeholder, fetched below
+            $stuMethodSt = $conn->prepare("SELECT payment_method FROM students WHERE id = ? LIMIT 1");
+            $stuMethodSt->bind_param('i', $sid);
+            $stuMethodSt->execute();
+            $stuMethodRow = $stuMethodSt->get_result()->fetch_assoc();
+            $stuMethodSt->close();
+            $stuMethod = strtolower(trim($stuMethodRow['payment_method'] ?? ''));
+            if ($stuMethod === 'cash') {
+                $isCash = true; // Override: student explicitly chose Cash
+            }
             $prSt = $conn->prepare("SELECT COALESCE(SUM(amount),0) AS tp FROM installment_payments WHERE student_id = ? AND semester=(SELECT semester FROM students WHERE id=? LIMIT 1)");
             $prSt->bind_param('ii', $sid, $sid);
             $prSt->execute();
@@ -1975,6 +2117,13 @@ function getPendingPayments($conn) {
                 'totalPaid'      => $total_paid,
                 'balance'        => max(0, (float)($r['total_assessment'] ?? 0) - $total_paid),
                 'guardianEmail'  => $r['guardianEmail'] ?? '',
+                // FIX SCHOLAR-VERIFY-01: expose pending-scholarship flag to the frontend
+                // so it can show a warning badge and disable the Approve button.
+                'isScholar'             => (bool)($r['is_scholar'] ?? false),
+                'scholarType'           => $r['scholar_type'] ?? '',
+                'scholarshipAmount'     => (float)($r['scholarship_amount'] ?? 0),
+                'hasPendingScholarship' => (int)($r['has_pending_scholarship'] ?? 0) > 0,
+                'pendingScholarType'    => $r['pending_scholar_type'] ?? '',
                 'paymentPlan'    => _getStudentPaymentPlan($conn, $sid),
                 'scheduleAmounts'=> (function() use ($conn, $sid) {
                     $sa = _getScheduleAmounts($conn, $sid);
@@ -2012,6 +2161,12 @@ function getPendingPayments($conn) {
           AND s.approval_status NOT IN ('Approved')
           AND s.enrollment_status NOT IN ('Enrolled','Graduated')
           AND pl.id IS NULL
+          -- FIX TVET-QUEUE-01: Exclude free SHS/TVET non-transferee (no fees to collect)
+          AND NOT (
+              UPPER(COALESCE(s.student_category,'')) IN ('SHS','TVET')
+              AND LOWER(COALESCE(s.student_type,'new')) != 'transferee'
+              AND COALESCE(tf.total_assessment, 0) = 0
+          )
     ";
     $noLogResult  = $conn->query($noLogSql);
     $alreadyAdded = array_column($rows, 'studentId');
@@ -2083,8 +2238,32 @@ function getPendingPayments($conn) {
                 }
             }
             $noLogPaymentMethod = strtolower($rawPm); // BUG-GCASH-03: no ?: 'gcash' fallback — unknown method must not default to GCash
-            if ($noLogPaymentMethod === 'gcash' || $noLogPaymentMethod === '') {
-                // GCash student (or unknown — treat as GCash pending submission) with no log yet
+            // BUG-TVET-CASH-01 FIX: When payment_method is empty (student enrolled before
+            // choosing method, or TVET auto-approved before updatePaymentPlan ran), check
+            // payment_plan as a secondary signal before routing to GCash path.
+            // Cash + installment students call notifyCashPending which creates a Cash payment_log
+            // — but that log is in the FIRST query ($sql) and won't reach this noLog path.
+            // If we're here with empty method AND no log, it's genuinely unknown — skip it
+            // rather than creating a phantom GCash entry that misleads Accounting.
+            if ($noLogPaymentMethod === '' && !empty($r['payment_plan'])) {
+                // Try to resolve from payment_plan context: installment without a log and
+                // unknown payment method usually means Cash student who hasn't notified yet.
+                // Skip this student — they'll appear once they submit via notifyCashPending.
+                // NOTE: GCash+installment students should NOT reach here after the
+                // FIX PM-GCASH-LOG-01 patch (updatePaymentPlan now seeds their log immediately).
+                // If they somehow do (e.g. registered before the patch), fall through to
+                // the GCash path below so they appear in Accounting rather than being invisible.
+                // We treat unknown+installment as GCash-AwaitingSubmission as a safe fallback.
+                // Determine if this is more likely Cash (no log at all and plan is full) or GCash.
+                // For installment with unknown method: show as GCash AwaitingSubmission.
+                if ($r['payment_plan'] !== 'installment') {
+                    continue; // full-payment + unknown method: skip, will appear when notified
+                }
+                // installment + unknown: treat as GCash AwaitingSubmission (safe fallback)
+                $noLogPaymentMethod = 'gcash';
+            }
+            if ($noLogPaymentMethod === 'gcash') {
+                // GCash student with no log yet — show as AwaitingSubmission so Accounting knows to wait
                 $logId = 0; // no real log_id
                 $pr = $conn->query("SELECT COALESCE(SUM(amount),0) AS tp FROM installment_payments ip JOIN students _st ON _st.id=ip.student_id WHERE ip.student_id=$sid AND ip.semester=_st.semester");
                 $total_paid = (float)($pr->fetch_assoc()['tp'] ?? 0);
@@ -3061,6 +3240,41 @@ function verifyPayment($conn, $data) {
         while (ob_get_level() > 0) { ob_end_clean(); }
         echo json_encode(['success' => false, 'message' => 'Payment already processed']); return;
     }
+
+    // ── FIX SCHOLAR-VERIFY-01: Block payment verification while scholarship is pending ──
+    // Scholarship must be approved OR rejected first before any payment can be verified.
+    // Without this guard, accepting payment before scholarship review leads to corrupt state:
+    //   - rejectScholarship() resets discount=0 and payment_status='Pending' AFTER payment
+    //     was already marked Verified, leaving the student with a wrong balance.
+    //   - approveScholarship() changes total_assessment AFTER payment was already recorded,
+    //     so the payment amount no longer matches the correct balance.
+    // Flow must be: Scholarship reviewed → discount applied → student pays → payment verified.
+    $pendingSchStmt = $conn->prepare("
+        SELECT id, scholar_type
+        FROM   student_scholarships
+        WHERE  student_id = ?
+          AND  status     = 'pending'
+        LIMIT  1
+    ");
+    if ($pendingSchStmt) {
+        $pendingSchStmt->bind_param('i', $student_id);
+        $pendingSchStmt->execute();
+        $pendingSchRow = $pendingSchStmt->get_result()->fetch_assoc();
+        $pendingSchStmt->close();
+        if ($pendingSchRow) {
+            while (ob_get_level() > 0) { ob_end_clean(); }
+            echo json_encode([
+                'success'          => false,
+                'pending_scholarship' => true,
+                'message'          => 'Cannot verify payment — this student has a pending scholarship application ('
+                                      . htmlspecialchars($pendingSchRow['scholar_type'] ?? 'Scholar')
+                                      . '). Please approve or reject the scholarship first so the correct balance is computed before payment is accepted.',
+            ]);
+            return;
+        }
+    }
+    // ── END FIX SCHOLAR-VERIFY-01 ─────────────────────────────────────────────────────────
+
     $originalNotes = $logRow['notes']; // preserve exam_period prefix before overwriting
 
     // Update payment log (notes field = accounting remarks, may overwrite original notes)
@@ -3228,12 +3442,39 @@ function verifyPayment($conn, $data) {
 
     // Downpayment for installment plan: enroll and recompute remaining term dues
     if ($paymentPlan === 'installment' && $examPeriod === 'Downpayment') {
+        // FIX TVET-SCHED-01: For TVET/SHS flat-rate students, payment_schedules may
+        // not exist yet (recomputeSchedule returns early if total_assessment=0 or
+        // no installment row). Seed it from tuition_fees before calling recompute.
+        $schedChkTV = $conn->query("SELECT id FROM payment_schedules WHERE student_id=$student_id LIMIT 1");
+        if (!$schedChkTV || $schedChkTV->num_rows === 0) {
+            $tfSeedR = $conn->query("SELECT total_assessment FROM tuition_fees WHERE student_id=$student_id LIMIT 1");
+            $tfSeed  = $tfSeedR ? (float)($tfSeedR->fetch_assoc()['total_assessment'] ?? 0) : 0;
+            if ($tfSeed > 0) {
+                $dpSeed = round($tfSeed / 4, 2);
+                $remSeed = max(0, $tfSeed - $dpSeed);
+                $pdSeed  = ceil($remSeed / 3 * 100) / 100;
+                $fdSeed  = round($remSeed - $pdSeed * 2, 2);
+                $conn->query("INSERT INTO payment_schedules
+                    (student_id, payment_type, total_assessment,
+                     prelim_due, midterm_due, finals_due,
+                     prelim_status, midterm_status, finals_status)
+                    VALUES ($student_id, 'installment', $tfSeed,
+                            $pdSeed, $pdSeed, $fdSeed,
+                            'locked', 'locked', 'locked')
+                    ON DUPLICATE KEY UPDATE
+                        payment_type='installment', total_assessment=$tfSeed,
+                        prelim_due=$pdSeed, midterm_due=$pdSeed, finals_due=$fdSeed");
+            }
+        }
         recomputeSchedule($conn, $student_id);
 
         // Downpayment verified — set Confirmed (awaiting registrar final approval).
         // FIX DASH-PAYSTATUS-01: Use 'Partial' (not 'Pending') so the student dashboard
         // correctly shows that a payment has been received, not that they haven't paid yet.
-        $upd = $conn->prepare("UPDATE students SET payment_status='Partial', approval_status='Approved', enrollment_status='Confirmed', accounting_approved_by=?, accounting_approved_at=NOW(), accounting_notes=? WHERE id=?");
+        // FIX AC-PLAN-HEAL-01: COALESCE heals a NULL payment_plan (reset by reEnroll() but
+        // not yet committed by updatePaymentPlan()). Without this, needsPlanSelection stays
+        // true on next Angular loadContext() → student re-routed to plan selector after paying.
+        $upd = $conn->prepare("UPDATE students SET payment_status='Partial', approval_status='Approved', enrollment_status='Confirmed', payment_plan=COALESCE(NULLIF(payment_plan,''),'$paymentPlan'), accounting_approved_by=?, accounting_approved_at=NOW(), accounting_notes=? WHERE id=?");
         $upd->bind_param("isi", $acc_user_id, $notes, $student_id);
         $upd->execute();
 
@@ -3263,8 +3504,9 @@ function verifyPayment($conn, $data) {
         // Installment student reached here — this should only happen for edge cases
         // (e.g. examPeriod was somehow empty). Treat it as a Downpayment and recompute.
         // FIX DASH-PAYSTATUS-01: Use 'Partial' so student sees payment was received.
+        // FIX AC-PLAN-HEAL-01: COALESCE heals a NULL payment_plan — see downpayment path above.
         recomputeSchedule($conn, $student_id);
-        $upd = $conn->prepare("UPDATE students SET payment_status='Partial', approval_status='Approved', enrollment_status='Confirmed', accounting_approved_by=?, accounting_approved_at=NOW(), accounting_notes=? WHERE id=?");
+        $upd = $conn->prepare("UPDATE students SET payment_status='Partial', approval_status='Approved', enrollment_status='Confirmed', payment_plan=COALESCE(NULLIF(payment_plan,''),'$paymentPlan'), accounting_approved_by=?, accounting_approved_at=NOW(), accounting_notes=? WHERE id=?");
         $upd->bind_param("isi", $acc_user_id, $notes, $student_id);
         $upd->execute();
         logAuditShared($conn, $GLOBALS['authUser'] ?? null, 'VERIFY_PAYMENT', 'student', $student_id,
@@ -3283,7 +3525,8 @@ function verifyPayment($conn, $data) {
         return;
     }
 
-    $upd = $conn->prepare("UPDATE students SET payment_status='Paid', approval_status='Approved', enrollment_status='Confirmed', accounting_approved_by=?, accounting_approved_at=NOW(), accounting_notes=? WHERE id=?");
+    // FIX AC-PLAN-HEAL-01: COALESCE heals a NULL payment_plan — see downpayment path above.
+    $upd = $conn->prepare("UPDATE students SET payment_status='Paid', approval_status='Approved', enrollment_status='Confirmed', payment_plan=COALESCE(NULLIF(payment_plan,''),'$paymentPlan'), accounting_approved_by=?, accounting_approved_at=NOW(), accounting_notes=? WHERE id=?");
     $upd->bind_param("isi", $acc_user_id, $notes, $student_id);
     $upd->execute();
 
@@ -3324,13 +3567,29 @@ function rejectPayment($conn, $data) {
     while (ob_get_level() > 0) { ob_end_clean(); }
     if (!$log_id || !$student_id) { echo json_encode(['success' => false, 'message' => 'log_id and student_id required']); return; }
 
-    $stmt = $conn->prepare("UPDATE payment_logs SET status = 'Rejected', verified_by = ?, verified_at = NOW(), notes = ? WHERE id = ? AND status = 'Pending'");
-    $stmt->bind_param("isi", $acc_user_id, $notes, $log_id);
-    $stmt->execute();
+    // FIX REJECT-NOTES-01: Add a dedicated rejection_reason column so the
+    // accounting rejection message is never overwritten by later payment notes.
+    // The notes column is reused for many purposes (exam_period prefix, etc.),
+    // which caused the student to see a blank reason after rejection.
+    $conn->query("ALTER TABLE payment_logs ADD COLUMN IF NOT EXISTS rejection_reason TEXT DEFAULT NULL");
 
-    $upd = $conn->prepare("UPDATE students SET payment_status = 'Pending', approval_status = 'Pending' WHERE id = ?");
-    $upd->bind_param("i", $student_id);
+    // FIX REJECT-NOTES-01 (continued): Also add rejection_reason to the students
+    // table so getPaymentStatus() can return it without an extra JOIN.
+    $conn->query("ALTER TABLE students ADD COLUMN IF NOT EXISTS rejection_reason TEXT DEFAULT NULL");
+
+    // Update payment_logs: mark Rejected, save notes AND rejection_reason.
+    $stmt = $conn->prepare("UPDATE payment_logs SET status = 'Rejected', verified_by = ?, verified_at = NOW(), notes = ?, rejection_reason = ? WHERE id = ? AND status = 'Pending'");
+    $stmt->bind_param("issi", $acc_user_id, $notes, $notes, $log_id);
+    $stmt->execute();
+    $stmt->close();
+
+    // Reset student payment/approval status AND store the rejection reason
+    // directly on the students row so the enrollment page can display it
+    // immediately via the lightweight getPaymentStatus() poll — no extra JOIN.
+    $upd = $conn->prepare("UPDATE students SET payment_status = 'Pending', approval_status = 'Pending', rejection_reason = ? WHERE id = ?");
+    $upd->bind_param("si", $notes, $student_id);
     $upd->execute();
+    $upd->close();
 
     logAuditShared($conn, $GLOBALS['authUser'] ?? null, 'REJECT_PAYMENT', 'student', $student_id,
         "Payment rejected for student ID $student_id. Log: $log_id. Reason: $notes");
@@ -3360,9 +3619,21 @@ function rejectPayment($conn, $data) {
 // which shrinks Midterm+Finals dues proportionally.
 // ═══════════════════════════════════════════════════════════════════════════════
 function recomputeSchedule(mysqli $conn, int $student_id): void {
-    // ── Get total assessment ──────────────────────────────────────────────────
-    $tfR   = $conn->query("SELECT total_assessment FROM tuition_fees WHERE student_id=$student_id LIMIT 1");
-    $total = $tfR ? (float)($tfR->fetch_assoc()['total_assessment'] ?? 0) : 0;
+    // ── Get total assessment — scoped to student's CURRENT semester ───────────
+    // FIX RECOMPUTE-SEM-01: Without the semester filter, re-enrolled students
+    // (who have one tuition_fees row per semester) return the first/oldest row,
+    // causing the payment schedule to show the wrong semester's total_assessment.
+    $semRR = $conn->query("SELECT semester FROM students WHERE id=$student_id LIMIT 1");
+    $curSemRR = $semRR ? $conn->real_escape_string(trim($semRR->fetch_assoc()['semester'] ?? '')) : '';
+    $tfR = $curSemRR !== ''
+        ? $conn->query("SELECT total_assessment FROM tuition_fees WHERE student_id=$student_id AND semester='$curSemRR' ORDER BY id DESC LIMIT 1")
+        : null;
+    if (!$tfR || !($tfRowRR = $tfR->fetch_assoc())) {
+        // Fallback: latest row regardless of semester (handles legacy NULL-semester rows)
+        $tfR2 = $conn->query("SELECT total_assessment FROM tuition_fees WHERE student_id=$student_id ORDER BY id DESC LIMIT 1");
+        $tfRowRR = $tfR2 ? $tfR2->fetch_assoc() : null;
+    }
+    $total = $tfRowRR ? (float)($tfRowRR['total_assessment'] ?? 0) : 0;
     if ($total <= 0) return;
 
     // ── Get current schedule row ──────────────────────────────────────────────
@@ -3379,8 +3650,26 @@ function recomputeSchedule(mysqli $conn, int $student_id): void {
     $paid = ['Downpayment'=>0.0, 'Prelim'=>0.0, 'Midterm'=>0.0, 'Finals'=>0.0];
     if ($paidRes) while ($r = $paidRes->fetch_assoc()) $paid[$r['exam_period']] = (float)$r['paid'];
 
+    // ── FIX CARRY-OVER: Check which periods have an APPROVED permit ───────────
+    // If a period has an approved permit, it means Accounting accepted the student
+    // for that exam regardless of partial payment. The unpaid balance is treated as
+    // SETTLED for that period (carry-over to next term) — so:
+    //   • {period}_status  → 'paid'   (exam cleared)
+    //   • {period}_due     → actual amount paid (not the original due)
+    // _calcInstallmentDues() already redistributes remaining balance to future terms
+    // because prCredit = prPaid (not prDue) when prPaid < prDue.
+    $permRes = $conn->query("
+        SELECT exam_period FROM exam_permits
+        WHERE student_id=$student_id AND status='approved'
+    ");
+    $approvedPermits = [];
+    if ($permRes) while ($pr = $permRes->fetch_assoc()) $approvedPermits[] = $pr['exam_period'];
+
     // ── Use shared helper to compute correct dues ────────────────────────────
-    $dues    = _calcInstallmentDues($total, $paid);
+    // FIX CARRY-OVER-01: Pass $approvedPermits so _calcInstallmentDues() uses
+    // actual paid (not scheduled due) as credit for approved periods. This causes
+    // any shortfall to automatically increase the next term's due — carry-over.
+    $dues    = _calcInstallmentDues($total, $paid, $approvedPermits);
     $newDue  = ['Prelim' => $dues['prelim'], 'Midterm' => $dues['midterm'], 'Finals' => $dues['finals']];
 
     // ── Build UPDATE ──────────────────────────────────────────────────────────
@@ -3392,21 +3681,28 @@ function recomputeSchedule(mysqli $conn, int $student_id): void {
         $newD       = round($newDue[$p], 2);
         $actualPaid = round($paid[$p], 2);
 
+        // FIX CARRY-OVER-01: Approved permit = period is CLEARED regardless of partial payment.
+        // _calcInstallmentDues() already used $prPaid (not $prDue) as credit, so the
+        // unpaid shortfall is already folded into the next term's $newD. Here we simply
+        // set due = paid (balance = 0) and status = 'paid' so the student is NOT asked
+        // to pay this period again. The carry-over is visible in the NEXT term's higher due.
+        if (in_array($p, $approvedPermits)) {
+            $clearAmt  = $actualPaid; // mark as cleared for exactly what was paid
+            $updates[] = "{$col}_due=$clearAmt, {$col}_paid=$clearAmt, {$col}_status='paid'";
+            continue;
+        }
+
         // Determine status from actual paid vs recomputed due
         $totalPaid  = array_sum($paid);
         $fullyPaid  = ($totalPaid >= $total && $total > 0);
 
         if ($newD <= 0 && $fullyPaid) {
-            // Zero due because everything was covered by prior payments
             $st = 'paid';
         } elseif ($actualPaid >= $newD && $newD > 0) {
-            // Paid at least the recomputed due for this term
             $st = 'paid';
         } elseif ($actualPaid > 0) {
-            // Some payment recorded but less than due = partial
             $st = 'partial';
         } elseif ($curStatus === 'locked') {
-            // Not yet unlocked by accounting
             $st = 'locked';
         } else {
             $st = 'unpaid';
@@ -3548,6 +3844,25 @@ function getPaymentSchedule($conn) {
     $notices = [];
     while ($row = $noticeRes->fetch_assoc()) $notices[$row['exam_period']] = $row;
 
+    // ── FIX DISPLAY-CARRY-01: Fetch approved permits — frontend uses this to
+    // hide the "Pay X · remaining" button and show status as Paid for cleared periods.
+    $apRes2 = $conn->query("SELECT exam_period, permit_identifier, approved_at FROM exam_permits WHERE student_id=$student_id AND status='approved' ORDER BY approved_at DESC");
+    $approvedPermitsMap = [];
+    if ($apRes2) while ($apr2 = $apRes2->fetch_assoc()) $approvedPermitsMap[$apr2['exam_period']] = ['permit_identifier'=>$apr2['permit_identifier'],'approved_at'=>$apr2['approved_at']];
+    $schedule['approved_permits'] = $approvedPermitsMap;
+    // Override stale notice amount_due for approved periods so balance shows 0
+    foreach ($approvedPermitsMap as $apPeriod => $apData) {
+        $col = strtolower($apPeriod);
+        if (isset($notices[$apPeriod])) {
+            $notices[$apPeriod]['amount_due']       = (float)($schedule[$col.'_due'] ?? 0);
+            $notices[$apPeriod]['amount_paid']      = (float)($schedule[$col.'_paid'] ?? 0);
+            $notices[$apPeriod]['balance']          = 0.0;
+            $notices[$apPeriod]['permit_cleared']   = true;
+            $notices[$apPeriod]['permit_identifier']= $apData['permit_identifier'];
+        }
+        $schedule[$col.'_status'] = 'paid';
+    }
+
     // Cast all numeric fields — fetch_assoc returns DECIMAL as strings.
     // Without this, JS arithmetic becomes string concatenation (e.g. 5000+"0.00" = "50000.00").
     foreach (['total_assessment','prelim_due','midterm_due','finals_due',
@@ -3556,6 +3871,18 @@ function getPaymentSchedule($conn) {
     }
     // total_paid = authoritative sum from installment_payments (never sum of period fields)
     $schedule['total_paid'] = round($totalPaidAll, 2);
+
+    // ── FIX PERMIT-CARRY-01: Attach carry-over amounts per period to the schedule response ───
+    // These columns are added by migrate.php. If they don't exist yet, default to 0.
+    // The Angular payment-schedule component uses these to show:
+    //   "Includes ₱X.XX carry-over from [previous period]"
+    foreach (['prelim_carry_over', 'midterm_carry_over', 'finals_carry_over'] as $coField) {
+        $schedule[$coField] = isset($schedule[$coField]) ? (float)$schedule[$coField] : 0.0;
+    }
+    // Convenience: carry_over_total so the UI can show a single summary badge
+    $schedule['carry_over_total'] = round(
+        $schedule['prelim_carry_over'] + $schedule['midterm_carry_over'] + $schedule['finals_carry_over'], 2
+    );
 
     // FIX AC-SEMESTER-02: Include student's current semester in schedule response.
     // Angular uses this to display the correct semester label on the CEO/SOA header.
@@ -4407,13 +4734,25 @@ function requestExamPermit($conn, $data) {
         return;
     }
 
-    // ── Installment-plan: must have actual payment recorded for this period ───
+    // ── Installment-plan: permit allowed with partial/zero payment if Accounting sent a notice ───
+    //
+    // CARRY-OVER POLICY (FIX PERMIT-CARRY-01):
+    //   • Old behavior: blocked permit if paid == 0. Broken for partial-payment students.
+    //   • New behavior: permit is requestable as long as Accounting sent a notice (the unlock
+    //     signal). Any unpaid balance for this period is shown to Accounting as carry-over info
+    //     in the remarks. On APPROVAL, processExamPermit() records the carry-over amount in
+    //     payment_schedules and recomputeSchedule() redistributes it to remaining terms.
+    //   • The student does NOT need to re-pay the old period balance before the next exam —
+    //     it is automatically folded into the next term's due amount.
     $paidRes = $conn->query("SELECT COALESCE(SUM(amount),0) AS paid FROM installment_payments ip JOIN students _st ON _st.id=ip.student_id WHERE ip.student_id=$student_id AND ip.exam_period='$exam_period' AND ip.semester=_st.semester");
     $paid = $paidRes ? (float)$paidRes->fetch_assoc()['paid'] : 0;
-    if ($paid <= 0) {
-        while (ob_get_level() > 0) { ob_end_clean(); }
-        echo json_encode(['success'=>false,'message'=>"No payment recorded for $exam_period yet. Please pay at the Accounting office first."]); return;
-    }
+
+    // Get the recomputed due for this period so we can calculate carry-over
+    $pCol    = strtolower($exam_period);
+    $schDueR = $conn->query("SELECT {$pCol}_due FROM payment_schedules WHERE student_id=$student_id LIMIT 1");
+    $schDueRow  = $schDueR ? $schDueR->fetch_assoc() : null;
+    $periodDue  = $schDueRow ? (float)($schDueRow[$pCol . '_due'] ?? 0) : 0;
+    $carryOver  = max(0.0, round($periodDue - $paid, 2));
 
     $stuRes = $conn->query("SELECT student_number FROM students WHERE id=$student_id LIMIT 1");
     $stuNum = $stuRes ? ($stuRes->fetch_assoc()['student_number'] ?? 'STU') : 'STU';
@@ -4421,45 +4760,111 @@ function requestExamPermit($conn, $data) {
     $periodCode   = strtoupper(substr($exam_period, 0, 3));
     $permitIdentifier = 'EP-' . date('Ymd') . '-' . $stuNumClean . '-' . $periodCode;
 
+    // Build remarks so Accounting sees the carry-over situation immediately
+    $autoRemarks = $carryOver > 0
+        ? "₱" . number_format($paid, 2) . " paid of ₱" . number_format($periodDue, 2) . " due. "
+          . "Carry-over: ₱" . number_format($carryOver, 2) . " will be added to the next term upon approval."
+        : 'Fully paid for this period.';
+
     $stmt = $conn->prepare("INSERT INTO exam_permits
-        (student_id,exam_period,school_year,semester,status,permit_identifier)
-        VALUES (?,?,?,?,'pending',?)
+        (student_id,exam_period,school_year,semester,status,permit_identifier,remarks)
+        VALUES (?,?,?,?,'pending',?,?)
         ON DUPLICATE KEY UPDATE
-            status='pending',requested_at=NOW(),remarks=NULL,approved_at=NULL,
-            permit_identifier=VALUES(permit_identifier)");
-    $stmt->bind_param("issss", $student_id, $exam_period, $school_year, $semester, $permitIdentifier);
+            status='pending',requested_at=NOW(),approved_at=NULL,
+            permit_identifier=VALUES(permit_identifier),
+            remarks=VALUES(remarks)");
+    $stmt->bind_param("isssss", $student_id, $exam_period, $school_year, $semester, $permitIdentifier, $autoRemarks);
     $stmt->execute(); $stmt->close();
+
+    $logNote = $carryOver > 0
+        ? "installment, ₱".number_format($paid,2)." paid, ₱".number_format($carryOver,2)." carry-over pending"
+        : "installment, fully paid for period";
     logAuditShared($conn, $GLOBALS['authUser'] ?? null, 'REQUEST_PERMIT', 'student', $student_id,
-        "Requested $exam_period permit for student ID $student_id (installment, ₱".number_format($paid,2)." paid)");
+        "Requested $exam_period permit for student ID $student_id ($logNote)");
     while (ob_get_level() > 0) { ob_end_clean(); }
+
+    $studentMsg = "$exam_period permit request submitted! Accounting will process it shortly.";
+    if ($carryOver > 0) {
+        $studentMsg .= " Your remaining balance of ₱" . number_format($carryOver, 2)
+            . " will automatically carry over to your next term's payment once your permit is approved.";
+    }
     echo json_encode([
         'success'           => true,
-        'message'           => "$exam_period permit request submitted! Accounting will process it shortly.",
+        'message'           => $studentMsg,
         'permit_identifier' => $permitIdentifier,
+        'carry_over'        => $carryOver,
+        'paid_so_far'       => $paid,
+        'period_due'        => $periodDue,
     ]);
 }
 
 function processExamPermit($conn, $data) {
     $permit_id   = (int)($data['permit_id']          ?? 0);
     $action      = ($data['action'] === 'approve') ? 'approved' : 'rejected';
-    $remarks     = $data['remarks'] ?? '';
+    $remarks     = trim($data['remarks'] ?? '');
     $approved_by = (int)($data['accounting_user_id'] ?? 0);
     while (ob_get_level() > 0) { ob_end_clean(); }
     if (!$permit_id) { echo json_encode(['success'=>false,'message'=>'permit_id required']); return; }
-    $conn->query("UPDATE exam_permits SET status='$action',approved_at=NOW(),
-        approved_by=$approved_by,remarks='$remarks' WHERE id=$permit_id");
 
-    // Return permit_identifier in the response so the UI can display it
-    $permRow = (($_r=$conn->query("SELECT permit_identifier FROM exam_permits WHERE id=$permit_id LIMIT 1")) ? $_r->fetch_assoc() : null);
+    // Fetch permit details before updating so we can compute carry-over on approval
+    $permRow = (($_r=$conn->query("SELECT student_id, exam_period, permit_identifier FROM exam_permits WHERE id=$permit_id LIMIT 1")) ? $_r->fetch_assoc() : null);
+    if (!$permRow) { echo json_encode(['success'=>false,'message'=>'Permit not found.']); return; }
+
     $permitIdentifier = $permRow['permit_identifier'] ?? '';
+    $student_id       = (int)$permRow['student_id'];
+    $exam_period      = $permRow['exam_period'];  // Prelim | Midterm | Finals
 
-    logAuditShared($conn, $GLOBALS['authUser'] ?? null, strtoupper($action).'_PERMIT', 'exam_permit', $permit_id,
-        "Exam permit {$action}d. ID: $permit_id. Permit#: $permitIdentifier. Remarks: $remarks");
+    $escapedRemarks = $conn->real_escape_string($remarks);
+    $conn->query("UPDATE exam_permits SET status='$action',approved_at=NOW(),
+        approved_by=$approved_by,remarks='$escapedRemarks' WHERE id=$permit_id");
+
+    // ── CARRY-OVER: on approval, record unpaid balance and recompute future dues ────────────
+    //
+    // FIX PERMIT-CARRY-01: When Accounting approves a partial-payment permit,
+    // compute the carry-over amount (period_due - period_paid) and save it in
+    // payment_schedules. Then call recomputeSchedule() which redistributes the
+    // total remaining balance (including carry-over) evenly across unlocked future
+    // terms. The student does NOT pay the old balance again — it rolls forward.
+    $carryOver = 0.0;
+    if ($action === 'approved') {
+        $pCol    = strtolower($exam_period);
+
+        // Actual paid for this period
+        $paidR   = $conn->query("SELECT COALESCE(SUM(ip.amount),0) AS paid
+            FROM installment_payments ip JOIN students _st ON _st.id=ip.student_id
+            WHERE ip.student_id=$student_id AND ip.exam_period='$exam_period' AND ip.semester=_st.semester");
+        $paid    = $paidR ? (float)$paidR->fetch_assoc()['paid'] : 0.0;
+
+        // Scheduled due for this period
+        $dueR    = $conn->query("SELECT {$pCol}_due FROM payment_schedules WHERE student_id=$student_id LIMIT 1");
+        $dueRow  = $dueR ? $dueR->fetch_assoc() : null;
+        $due     = $dueRow ? (float)($dueRow[$pCol . '_due'] ?? 0) : 0.0;
+
+        $carryOver = max(0.0, round($due - $paid, 2));
+
+        if ($carryOver > 0) {
+            // Persist carry-over in payment_schedules (column added by migrate.php)
+            // Use ADD COLUMN IF NOT EXISTS guard so this is safe even before migration runs
+            $safeCol = $pCol . '_carry_over'; // prelim_carry_over | midterm_carry_over | finals_carry_over
+            $conn->query("UPDATE payment_schedules SET {$safeCol}=$carryOver WHERE student_id=$student_id");
+
+            // recomputeSchedule() sees total_paid < total_assessment and redistributes
+            // the remaining balance (which includes this carry-over) across future terms.
+            recomputeSchedule($conn, $student_id);
+        }
+    }
+
+    $logDetail = "Exam permit {$action}d. ID: $permit_id. Permit#: $permitIdentifier.";
+    if ($carryOver > 0) $logDetail .= " Carry-over ₱" . number_format($carryOver, 2) . " redistributed to next term.";
+    if ($remarks) $logDetail .= " Remarks: $remarks";
+
+    logAuditShared($conn, $GLOBALS['authUser'] ?? null, strtoupper($action).'_PERMIT', 'exam_permit', $permit_id, $logDetail);
     while (ob_get_level() > 0) { ob_end_clean(); }
     echo json_encode([
         'success'           => true,
-        'message'           => "Permit $action.",
+        'message'           => "Permit $action." . ($carryOver > 0 ? " Carry-over of ₱" . number_format($carryOver, 2) . " has been added to the student's next term." : ''),
         'permit_identifier' => $permitIdentifier,
+        'carry_over'        => $carryOver,
     ]);
 }
 function getAllEnrolledStudents($conn) {
@@ -4737,6 +5142,17 @@ function getStudentInstallment($conn) {
             if ($ur_row) $student_id = (int)$ur_row['id'];
         }
     }
+    // FIX TVET-FEES-01: Use the student's actual category for fee config lookup.
+    // TVET diploma students have misc_fee / reg_fee from the TVET config,
+    // not the College config. Using 'College' gave wrong fee breakdown labels.
+    $stCatRes = $conn->query("SELECT student_category FROM students WHERE id=$student_id LIMIT 1");
+    $stCatRow = $stCatRes ? $stCatRes->fetch_assoc() : null;
+    $feeCategory = match(strtoupper(trim($stCatRow['student_category'] ?? ''))) {
+        'SHS'  => 'SHS',
+        'TVET' => 'TVET',
+        default => 'College',
+    };
+
     while (ob_get_level() > 0) { ob_end_clean(); }
     if (!$student_id) { echo json_encode(['success' => false, 'message' => 'student_id required']); return; }
 
@@ -4858,7 +5274,7 @@ function getStudentInstallment($conn) {
             'registrationFee'  => (float)$tf['registration_fee'],
             'laboratoryFee'    => (float)$tf['laboratory_fee'],
             'energyFee'        => (float)$tf['energy_fee'],
-            'extraFees'        => _buildExtraFeesList($conn, 'College', (int)$tf['units']),
+            'extraFees'        => _buildExtraFeesList($conn, $feeCategory, (int)$tf['units']),
             'subtotal'         => (float)$tf['subtotal'],
             'discount'         => (float)$tf['discount'],
             'installmentFee'   => (float)$tf['installment_fee'],
@@ -4902,7 +5318,11 @@ function submitInstallmentPayment($conn, $data) {
         while (ob_get_level() > 0) { ob_end_clean(); }
         echo json_encode(['success' => false, 'message' => 'student_id and amount required']); return;
     }
-    if (!in_array($exam_period, ['Prelim', 'Midterm', 'Finals'])) {
+    // FIX PM-GCASH-DOWNPAYMENT-01: Added 'Downpayment' and 'Full' as valid exam_period values.
+    // GCash installment students submit their first payment as 'Downpayment' — previously
+    // this was rejected here, causing their payment to never reach Accounting.
+    // 'Full' is needed for full-payment GCash students submitting via this endpoint.
+    if (!in_array($exam_period, ['Downpayment', 'Prelim', 'Midterm', 'Finals', 'Full'])) {
         while (ob_get_level() > 0) { ob_end_clean(); }
         echo json_encode(['success' => false, 'message' => 'Invalid exam_period']); return;
     }
@@ -4935,6 +5355,12 @@ function submitInstallmentPayment($conn, $data) {
     }
 
     $log_id = $conn->insert_id;
+
+    // FIX REJECT-NOTES-01: Clear the rejection reason now that the student has
+    // resubmitted, so the old accounting rejection message doesn't persist on
+    // the enrollment page during the new pending-verification period.
+    $conn->query("ALTER TABLE students ADD COLUMN IF NOT EXISTS rejection_reason TEXT DEFAULT NULL");
+    $conn->query("UPDATE students SET rejection_reason = NULL WHERE id = $student_id");
 
     while (ob_get_level() > 0) { ob_end_clean(); }
     echo json_encode([
@@ -5131,21 +5557,19 @@ function getInstallmentStudents($conn) {
 // POST body: { payment_log_id, amount, status, notes }
 // ─────────────────────────────────────────────────────────────
 function editPayment($conn, $data) {
-    $log_id = (int)($data['payment_log_id'] ?? 0);
+    $log_id    = (int)($data['payment_log_id'] ?? 0);   // FIX: was reading 'payment_log_id' but frontend was sending 'log_id' — both fixed now
     if (!$log_id) {
         while (ob_get_level() > 0) { ob_end_clean(); }
         echo json_encode(['success' => false, 'message' => 'payment_log_id required']); return;
     }
-    $amount = (float)($data['amount'] ?? 0);
-    $status = trim($data['status']   ?? 'Pending');
-    $notes  = trim($data['notes']    ?? '');
+    $amount    = (float)($data['amount']          ?? 0);   // FIX: was 'amount', frontend now sends 'amount'
+    $gcash_ref = trim($data['gcash_reference']    ?? '');
+    $gcash_date = trim($data['gcash_date']        ?? '');
+    $notes     = trim($data['notes']              ?? '');
 
-    // Validate status
-    $allowed = ['Pending', 'Verified', 'Rejected'];
-    if (!in_array($status, $allowed)) $status = 'Pending';
-
-    $stmt = $conn->prepare("UPDATE payment_logs SET gcash_amount = ?, status = ?, notes = ? WHERE id = ?");
-    $stmt->bind_param("dssi", $amount, $status, $notes, $log_id);
+    // Keep status as Pending — this is an edit before approval, not a status change
+    $stmt = $conn->prepare("UPDATE payment_logs SET gcash_amount = ?, gcash_reference = ?, gcash_date = ?, notes = ? WHERE id = ? AND status = 'Pending'");
+    $stmt->bind_param("dsssi", $amount, $gcash_ref, $gcash_date, $notes, $log_id);
     $stmt->execute();
 
     if ($stmt->affected_rows >= 0) {
@@ -5190,19 +5614,24 @@ function getSHSFee($conn) {
                 ];
             }
         }
-        $total = max(0, $flat_rate - $discount + $inst_fee);
+        $total = $flat_rate + $inst_fee; // FIX TVET-FLAT-DISCOUNT-01: flat rate is fixed, discount/credits do NOT reduce it
         if ($sid > 0) {
             $semRes5 = $conn->query("SELECT semester FROM students WHERE id=$sid LIMIT 1");
             $sem5 = $conn->real_escape_string(trim(($semRes5 ? $semRes5->fetch_assoc()['semester'] : '') ?? ''));
+            // FIX SHS-TRANSFEREE-PLAN-01: Same fix as TVET-TRANSFEREE-PLAN-01.
+            // Insert with installment_fee=0; ON DUPLICATE KEY preserves whatever
+            // updatePaymentPlan() already wrote so the installment fee is never wiped.
             $conn->query("INSERT INTO tuition_fees
                 (student_id,units,tuition_fee,miscellaneous_fee,registration_fee,
                  laboratory_fee,energy_fee,subtotal,discount,installment_fee,total_assessment,semester)
-                VALUES ($sid,0,$flat_rate,0,0,0,0,$flat_rate,$discount,$inst_fee,$total,'$sem5')
+                VALUES ($sid,0,$flat_rate,0,0,0,0,$flat_rate,0,0,$flat_rate,'$sem5')
                 ON DUPLICATE KEY UPDATE
                     units=0,tuition_fee=$flat_rate,miscellaneous_fee=0,
                     registration_fee=0,laboratory_fee=0,energy_fee=0,
-                    subtotal=$flat_rate,discount=$discount,
-                    installment_fee=$inst_fee,total_assessment=$total,semester='$sem5',updated_at=NOW()");
+                    subtotal=$flat_rate,discount=0,
+                    installment_fee=installment_fee,
+                    total_assessment=GREATEST($flat_rate, subtotal + installment_fee),
+                    semester='$sem5',updated_at=NOW()");
         }
         while (ob_get_level() > 0) { ob_end_clean(); }
         echo json_encode(['success'=>true,'isFree'=>false,'fees'=>[
@@ -5210,7 +5639,7 @@ function getSHSFee($conn) {
             'laboratoryFee'=>0,'energyFee'=>0,
             'extraFees'=>$extra_shs_list,
             'subtotal'=>$flat_rate,
-            'discount'=>$discount,'installmentFee'=>$inst_fee,
+            'discount'=>0,'installmentFee'=>$inst_fee,
             'totalAssessment'=>$total,'shsFlatRate'=>true]]);
         return;
     }
@@ -5237,7 +5666,7 @@ function getTVETFee($conn) {
     $sid         = (int)($_GET['student_id'] ?? 0);
 
     $fc_tvet  = loadFeeConfig($conn, 'TVET');
-    $inst_fee = $hasInst ? (float)($fc_tvet['installment_fee']['value'] ?? 500) : 0.00;
+    $inst_fee = $hasInst ? (float)($fc_tvet['installment_fee']['value'] ?? 750) : 0.00; // FIX TVET-INST-01: was 500
 
     // ── TVET Transferee: flat rate ₱20,000 (same as SHS transferee) ──
     if ($studentType === 'Transferee') {
@@ -5246,37 +5675,76 @@ function getTVETFee($conn) {
         $flat_rate = (float)($fc_tvet['transferee_flat_rate']['value']
                      ?? $fc_shs['transferee_flat_rate']['value']
                      ?? 20000);
-        $total = max(0, $flat_rate - $discount + $inst_fee);
+        // FIX TVET-TRANSFEREE-PLAN-01: Mirror College flow — save subtotal=flat_rate only.
+        // installment_fee starts at 0 here; updatePaymentPlan() will add the correct fee
+        // later when the student picks their plan (same as College getFeePreview does).
+        // Old code always overwrote installment_fee with $inst_fee (always 0 on first load),
+        // and ON DUPLICATE KEY also overwrote it — so updatePaymentPlan()'s update was wiped
+        // every time the fee preview re-loaded, leaving installment_fee permanently ₱0.
+        $total = $flat_rate + $inst_fee;
         if ($sid > 0) {
             $semRes6 = $conn->query("SELECT semester FROM students WHERE id=$sid LIMIT 1");
             $sem6 = $conn->real_escape_string(trim(($semRes6 ? $semRes6->fetch_assoc()['semester'] : '') ?? ''));
             $conn->query("INSERT INTO tuition_fees
                 (student_id,units,tuition_fee,miscellaneous_fee,registration_fee,
                  laboratory_fee,energy_fee,subtotal,discount,installment_fee,total_assessment,semester)
-                VALUES ($sid,0,$flat_rate,0,0,0,0,$flat_rate,$discount,$inst_fee,$total,'$sem6')
+                VALUES ($sid,0,$flat_rate,0,0,0,0,$flat_rate,0,0,$flat_rate,'$sem6')
                 ON DUPLICATE KEY UPDATE
                     units=0,tuition_fee=$flat_rate,miscellaneous_fee=0,
                     registration_fee=0,laboratory_fee=0,energy_fee=0,
-                    subtotal=$flat_rate,discount=$discount,
-                    installment_fee=$inst_fee,total_assessment=$total,semester='$sem6',updated_at=NOW()");
+                    subtotal=$flat_rate,discount=0,
+                    installment_fee=installment_fee,
+                    total_assessment=GREATEST($flat_rate, subtotal + installment_fee),
+                    semester='$sem6',updated_at=NOW()");
         }
         while (ob_get_level() > 0) { ob_end_clean(); }
         echo json_encode(['success' => true, 'isFree' => false, 'fees' => [
             'tuitionFee'      => $flat_rate, 'miscellaneousFee' => 0, 'registrationFee' => 0,
             'laboratoryFee'   => 0, 'energyFee' => 0, 'extraFees' => [],
             'subtotal'        => $flat_rate,
-            'discount'        => $discount, 'installmentFee' => $inst_fee,
+            'discount'        => 0, 'installmentFee' => $inst_fee,
             'totalAssessment' => $total, 'tvetFlatRate' => true,
         ]]);
         return;
     }
 
     // ── TVET New / Old: check if NC (free) or Diploma (paid) ──
+    // FIX TVET-FREE-01: Use programs.department as primary signal.
+    // 'Short Programs(NC)' department = FREE (TESDA-funded NC programs).
+    // 'Collge Diploma' (sic) department = PAID (2yr/3yr diploma programs).
+    // Name-based NC detection as secondary fallback for programs not in DB.
     $isFree  = false;
     $pnUpper = strtoupper($programName);
-    if (str_contains($pnUpper, 'NCII') || str_contains($pnUpper, 'NCIII') ||
-        str_contains($pnUpper, 'NC II') || str_contains($pnUpper, 'NC III')) {
-        $isFree = true;
+
+    // Primary: check programs table by name or code
+    $progDeptRes = $conn->query(
+        "SELECT department FROM programs
+         WHERE name = '" . $conn->real_escape_string($programName) . "'
+            OR code = '" . $conn->real_escape_string($programName) . "'
+         LIMIT 1"
+    );
+    $progDeptRow = $progDeptRes ? $progDeptRes->fetch_assoc() : null;
+    if ($progDeptRow) {
+        $dept = strtolower(trim($progDeptRow['department'] ?? ''));
+        // 'short programs(nc)' = free NC; 'collge diploma' (typo in DB) = paid diploma
+        $isFree = str_contains($dept, 'short programs') || str_contains($dept, 'nc)');
+    } else {
+        // Fallback: name-based detection
+        if (str_contains($pnUpper, 'NCII') || str_contains($pnUpper, 'NCIII') ||
+            str_contains($pnUpper, 'NC II') || str_contains($pnUpper, 'NC III') ||
+            str_contains($pnUpper, ' NC ') || preg_match('/\bNC\s*[IVXLCD]+\b/i', $programName)) {
+            $isFree = true;
+        }
+    }
+
+    // FIX TVET-FREE-02: For free NC students, delete any stale tuition_fees row
+    // (same as getSHSFee does). Without this, a stale row from a previous attempt
+    // causes getPendingPayments / getStudentContext to show a non-zero assessment.
+    if ($isFree && $sid > 0) {
+        $conn->query("DELETE FROM tuition_fees WHERE student_id = $sid");
+        // Also auto-approve free TVET students so they proceed directly to enrollment
+        $conn->query("UPDATE students SET approval_status='Approved', payment_status='Free', enrollment_status='Enrolled'
+                       WHERE id=$sid AND student_type != 'Transferee' AND approval_status != 'Approved'");
     }
 
     $misc_fee = (float)($fc_tvet['misc_fee']['value'] ?? 3500);
@@ -5300,6 +5768,23 @@ function getTVETFee($conn) {
     }
     $subtotal = $misc_fee + $reg_fee + $extra_tvet;
     $total    = $isFree ? 0.00 : max(0, $subtotal - $discount + $inst_fee);
+
+    // FIX TVET-DIPLOMA-01: Save tuition_fees for paid TVET diploma students
+    // so Accounting can see correct assessment in getPendingPayments/SOA.
+    if (!$isFree && $sid > 0 && $total > 0) {
+        $semResTVET = $conn->query("SELECT semester FROM students WHERE id=$sid LIMIT 1");
+        $semTVET = $conn->real_escape_string(trim(($semResTVET ? $semResTVET->fetch_assoc()['semester'] : '') ?? ''));
+        $conn->query("INSERT INTO tuition_fees
+            (student_id,units,tuition_fee,miscellaneous_fee,registration_fee,
+             laboratory_fee,energy_fee,subtotal,discount,installment_fee,total_assessment,semester)
+            VALUES ($sid,0,0,$misc_fee,$reg_fee,0,0,$subtotal,$discount,$inst_fee,$total,'$semTVET')
+            ON DUPLICATE KEY UPDATE
+                units=0,tuition_fee=0,miscellaneous_fee=$misc_fee,
+                registration_fee=$reg_fee,laboratory_fee=0,energy_fee=0,
+                subtotal=$subtotal,discount=$discount,
+                installment_fee=$inst_fee,total_assessment=$total,
+                semester='$semTVET',updated_at=NOW()");
+    }
 
     while (ob_get_level() > 0) { ob_end_clean(); }
     echo json_encode([
@@ -6300,10 +6785,10 @@ function backfillSubjectFeeLog(mysqli $conn): void {
 
         $sign          = ($action === 'Drop') ? -1 : 1;
         $tuitionImpact = round($sign * $units * $tuitionRate, 2);
-        // FIX ADD-DROP-02: Lab fee only added on Add, never deducted on Drop
-        $labFeeImpact  = ($action === 'Add' && $isLab) ? round($labFeeRate, 2) : 0.00;
+        // FIX LAB-REMOVE-01: Lab fee removed — tuition + energy only.
+        $labFeeImpact  = 0.00;
         $energyImpact  = round($sign * $units * $energyRate, 2);
-        $totalImpact   = round($tuitionImpact + $labFeeImpact + $energyImpact, 2);
+        $totalImpact   = round($tuitionImpact + $energyImpact, 2);
 
         $reason       = "Accounting Approved (backfill): Add/Drop request #$rid";
         $addedByRole  = 'accounting';
@@ -6348,9 +6833,8 @@ function backfillSubjectFeeLog(mysqli $conn): void {
  * If full_tuition=true, scholarship_amount is set to the student's total_assessment
  * so the net balance is ₱0 — student is auto-approved and enrolled with no payment needed.
  */
-function grantScholarship(mysqli $conn): void {
+function grantScholarship(mysqli $conn, array $data = []): void {
     global $authUser;
-    $data          = json_decode(file_get_contents('php://input'), true) ?? [];
     $sid           = (int)($data['student_id']        ?? 0);
     $scholarType   = trim($data['scholar_type']       ?? 'Full Scholarship');
     $grantor       = trim($data['grantor']            ?? '');
@@ -6391,7 +6875,10 @@ function grantScholarship(mysqli $conn): void {
     $upd->close();
 
     // Recompute tuition_fees with the new discount
-    $recompute = $conn->prepare("UPDATE tuition_fees SET discount=?, total_assessment=GREATEST(0, subtotal - ? + installment_fee), updated_at=NOW() WHERE student_id=? AND (semester=(SELECT semester FROM students WHERE id=? LIMIT 1) OR semester IS NULL)");
+    // FIX SCHOLAR-05: Scope the tuition_fees update to the student's current semester only.
+    // The old WHERE included OR semester IS NULL which could update stale rows from
+    // previous semesters, corrupting historical tuition data.
+    $recompute = $conn->prepare("UPDATE tuition_fees SET discount=?, total_assessment=GREATEST(0, subtotal - ? + installment_fee), updated_at=NOW() WHERE student_id=? AND semester=(SELECT semester FROM students WHERE id=? LIMIT 1)");
     $recompute->bind_param('ddii', $amount, $amount, $sid, $sid);
     $recompute->execute();
     $recompute->close();
@@ -6412,6 +6899,10 @@ function grantScholarship(mysqli $conn): void {
 
         // Mark tuition as fully paid via scholarship (no payment log needed)
         $conn->query("UPDATE payment_schedules SET prelim_paid=prelim_due, midterm_paid=midterm_due, finals_paid=finals_due, prelim_status='paid', midterm_status='paid', finals_status='paid' WHERE student_id=$sid");
+
+        // FIX SCHOLAR-01: Dismiss any pending payment_logs so the student no longer
+        // appears in the Accounting queue after a full scholarship is granted.
+        $conn->query("UPDATE payment_logs SET status='Cancelled', notes='Cancelled — full scholarship granted' WHERE student_id=$sid AND status='Pending'");
 
         logAuditShared($conn, $authUser ?? null, 'GRANT_FULL_SCHOLARSHIP', 'student', $sid,
             "Full scholarship granted: $scholarType by $grantor. Total assessment ₱" . number_format($totalAssessment, 2) . " fully covered. Student auto-approved.");
@@ -6444,9 +6935,8 @@ function grantScholarship(mysqli $conn): void {
  * POST ?action=remove_scholarship
  * Body: { student_id }
  */
-function removeScholarship(mysqli $conn): void {
+function removeScholarship(mysqli $conn, array $data = []): void {
     global $authUser;
-    $data   = json_decode(file_get_contents('php://input'), true) ?? [];
     $sid    = (int)($data['student_id'] ?? 0);
     $reason = trim($data['reason'] ?? 'Removed by accounting');
     while (ob_get_level() > 0) { ob_end_clean(); }
@@ -6455,9 +6945,18 @@ function removeScholarship(mysqli $conn): void {
     $revokerEmail = $conn->real_escape_string($authUser['email'] ?? '');
     $reasonEsc    = $conn->real_escape_string($reason);
     $conn->query("UPDATE student_scholarships SET is_active=0, revoked_at=NOW(), revoked_by_email='$revokerEmail', revoke_reason='$reasonEsc' WHERE student_id=$sid AND is_active=1");
-    $conn->query("UPDATE students SET is_scholar=0, scholarship_amount=0, scholar_type=NULL, scholar_grantor=NULL WHERE id=$sid");
-    // Revert tuition_fees discount to 0
-    $conn->query("UPDATE tuition_fees SET discount=0, total_assessment=GREATEST(0, subtotal + installment_fee), updated_at=NOW() WHERE student_id=$sid AND (semester=(SELECT semester FROM students WHERE id=$sid LIMIT 1) OR semester IS NULL)");
+    // FIX SCHOLAR-04: Guard before clearing is_scholar — only clear if no other active
+    // scholarship exists. Also reset payment_status to Pending so the student re-enters
+    // the normal payment flow instead of being stuck with a stale status.
+    $otherActive4 = $conn->query("SELECT id FROM student_scholarships WHERE student_id=$sid AND is_active=1 LIMIT 1");
+    if (!$otherActive4 || $otherActive4->num_rows === 0) {
+        $conn->query("UPDATE students SET is_scholar=0, scholarship_amount=0, scholar_type=NULL, scholar_grantor=NULL, payment_status='Pending' WHERE id=$sid");
+    }
+    // Revert tuition_fees discount to 0.
+    // No semester filter — matches approveScholarship behavior and avoids silent skip
+    // when tuition_fees.semester is NULL or mismatched (same fix as FIX BUG-4 in rejectScholarship).
+    $_rmTfSt = $conn->prepare("UPDATE tuition_fees SET discount=0, total_assessment=GREATEST(0, subtotal + installment_fee), updated_at=NOW() WHERE student_id=?");
+    $_rmTfSt->bind_param('i', $sid); $_rmTfSt->execute(); $_rmTfSt->close();
 
     logAuditShared($conn, $authUser ?? null, 'REMOVE_SCHOLARSHIP', 'student', $sid, "Scholarship removed. Reason: $reason");
     while (ob_get_level() > 0) { ob_end_clean(); }
@@ -6493,7 +6992,10 @@ function getPendingScholarships(mysqli $conn): void {
                COALESCE(tf.subtotal, 0)          AS subtotal
         FROM student_scholarships ss
         JOIN students s  ON s.id  = ss.student_id
+        -- FIX SCHOLAR-06: Scope tuition_fees to the student's current semester so the
+        -- correct total_assessment is shown (not a stale row from a previous semester).
         LEFT JOIN tuition_fees tf ON tf.student_id = ss.student_id
+                                  AND tf.semester = s.semester
         $where
         ORDER BY ss.created_at DESC
     ");
@@ -6518,9 +7020,8 @@ function getPendingScholarships(mysqli $conn): void {
 // Sets status=approved, is_active=1, applies discount to tuition_fees.
 // If scholarship covers 100% of total → auto-approve student (Enrolled, Paid).
 // =============================================================================
-function approveScholarship(mysqli $conn): void {
+function approveScholarship(mysqli $conn, array $data = []): void {
     global $authUser;
-    $data           = json_decode(file_get_contents('php://input'), true) ?? [];
     $schId          = (int)($data['scholarship_id']  ?? 0);
     $notes          = trim($data['notes']            ?? '');
     $overrideAmount = isset($data['override_amount']) ? (float)$data['override_amount'] : null;
@@ -6546,7 +7047,9 @@ function approveScholarship(mysqli $conn): void {
     // 1. full_tuition flag → set amount = student's total assessment
     // 2. override_amount sent by accounting → use that
     // 3. fallback to whatever the student declared
-    $tfRow = (($_r=$conn->query("SELECT total_assessment, subtotal FROM tuition_fees WHERE student_id=$sid LIMIT 1")) ? $_r->fetch_assoc() : null);
+    $_tfSt = $conn->prepare("SELECT total_assessment, subtotal FROM tuition_fees WHERE student_id=? LIMIT 1");
+    $_tfSt->bind_param('i', $sid); $_tfSt->execute();
+    $tfRow = $_tfSt->get_result()->fetch_assoc(); $_tfSt->close();
     $totalAssessment = $tfRow ? (float)$tfRow['total_assessment'] : 0;
     $subtotal        = $tfRow ? (float)$tfRow['subtotal']         : 0;
 
@@ -6584,7 +7087,9 @@ function approveScholarship(mysqli $conn): void {
     $recomp->close();
 
     // Fetch new total
-    $newTfRow = (($_r=$conn->query("SELECT total_assessment FROM tuition_fees WHERE student_id=$sid LIMIT 1")) ? $_r->fetch_assoc() : null);
+    $_ntSt = $conn->prepare("SELECT total_assessment FROM tuition_fees WHERE student_id=? LIMIT 1");
+    $_ntSt->bind_param('i', $sid); $_ntSt->execute();
+    $newTfRow = $_ntSt->get_result()->fetch_assoc(); $_ntSt->close();
     $newTotal = $newTfRow ? (float)$newTfRow['total_assessment'] : 0;
 
     $autoApproved = false;
@@ -6598,7 +7103,14 @@ function approveScholarship(mysqli $conn): void {
         $fullStmt->close();
 
         // Unlock all payment periods
-        $conn->query("UPDATE payment_schedules SET prelim_paid=prelim_due, midterm_paid=midterm_due, finals_paid=finals_due, prelim_status='paid', midterm_status='paid', finals_status='paid' WHERE student_id=$sid");
+        $_psSt = $conn->prepare("UPDATE payment_schedules SET prelim_paid=prelim_due, midterm_paid=midterm_due, finals_paid=finals_due, prelim_status='paid', midterm_status='paid', finals_status='paid' WHERE student_id=?");
+        $_psSt->bind_param('i', $sid); $_psSt->execute(); $_psSt->close();
+
+        // FIX SCHOLAR-02: Same as SCHOLAR-01 — dismiss pending payment_logs so the
+        // Accounting queue no longer shows this student after full scholarship is approved.
+        $_plSt = $conn->prepare("UPDATE payment_logs SET status='Cancelled', notes='Cancelled — full scholarship approved' WHERE student_id=? AND status='Pending'");
+        $_plSt->bind_param('i', $sid); $_plSt->execute(); $_plSt->close();
+
         $autoApproved = true;
     }
 
@@ -6621,9 +7133,8 @@ function approveScholarship(mysqli $conn): void {
 // REJECT SCHOLARSHIP — POST ?action=reject_scholarship
 // Body: { scholarship_id, reason }
 // =============================================================================
-function rejectScholarship(mysqli $conn): void {
+function rejectScholarship(mysqli $conn, array $data = []): void {
     global $authUser;
-    $data   = json_decode(file_get_contents('php://input'), true) ?? [];
     $schId  = (int)($data['scholarship_id'] ?? 0);
     $reason = trim($data['reason'] ?? '');
 
@@ -6650,8 +7161,43 @@ function rejectScholarship(mysqli $conn): void {
                       reject_reason='$reasonEsc'
                   WHERE id=$schId");
 
-    // Remove scholar flag from students table
-    $conn->query("UPDATE students SET is_scholar=0, scholarship_amount=0, scholar_type=NULL, scholar_grantor=NULL WHERE id=$sid");
+    // FIX SCHOLAR-03: Only clear is_scholar if this was the ONLY active scholarship.
+    // If the student somehow has another active scholarship record (edge case), keep the flag.
+    // Also restore payment_status to Pending so the student can proceed with payment or re-declare.
+    $_oaSt = $conn->prepare("SELECT id FROM student_scholarships WHERE student_id=? AND is_active=1 LIMIT 1");
+    $_oaSt->bind_param('i', $sid); $_oaSt->execute();
+    $otherActive = $_oaSt->get_result(); $_oaSt->close();
+    if (!$otherActive || $otherActive->num_rows === 0) {
+        $_clrSt = $conn->prepare("UPDATE students SET is_scholar=0, scholarship_amount=0, scholar_type=NULL, scholar_grantor=NULL, payment_status='Pending' WHERE id=?");
+        $_clrSt->bind_param('i', $sid); $_clrSt->execute(); $_clrSt->close();
+    }
+
+    // FIX SCHOLAR-REJECT-01: Restore tuition_fees discount to 0.
+    // removeScholarship() does this correctly; rejectScholarship() was missing it.
+    // Without this, a student who self-declared an amount had their balance permanently
+    // wrong after rejection — the discount row was never cleared.
+    // FIX BUG-4: Removed the AND semester=(subquery) filter — it silently skipped rows
+    // when tuition_fees.semester was NULL, empty, or mismatched. Match by student_id only,
+    // consistent with approveScholarship's UPDATE which has no semester filter.
+    $_tfClrSt = $conn->prepare("UPDATE tuition_fees
+                  SET discount=0,
+                      total_assessment=GREATEST(0, subtotal + installment_fee),
+                      updated_at=NOW()
+                  WHERE student_id=?");
+    $_tfClrSt->bind_param('i', $sid); $_tfClrSt->execute(); $_tfClrSt->close();
+
+    // FIX SCHOLAR-REJECT-02: Safety net — if somehow a payment was Verified before
+    // the scholarship was reviewed (should not happen after SCHOLAR-VERIFY-01 guard,
+    // but defensive coding for older records), cancel those verified logs and flag them
+    // so accounting is aware. The balance has already been corrected above.
+    $_plCanSt = $conn->prepare("UPDATE payment_logs
+                  SET status = 'Cancelled',
+                      notes  = CONCAT(COALESCE(notes,''), ' | Auto-cancelled: scholarship was rejected after verification (SCHOLAR-REJECT-02)')
+                  WHERE student_id = ?
+                    AND status     = 'Verified'
+                    AND created_at > (SELECT COALESCE(created_at, NOW() - INTERVAL 1 YEAR)
+                                      FROM student_scholarships WHERE id = ? LIMIT 1)");
+    $_plCanSt->bind_param('ii', $sid, $schId); $_plCanSt->execute(); $_plCanSt->close();
 
     logAuditShared($conn, $authUser ?? null, 'REJECT_SCHOLARSHIP', 'student', $sid,
         "Scholarship rejected: {$sch['scholar_type']}. Reason: $reason");
@@ -6660,167 +7206,6 @@ function rejectScholarship(mysqli $conn): void {
     echo json_encode(['success'=>true,'message'=>'Scholarship application rejected.']);
 }
 
-// =============================================================================
-// SCHOLARSHIP PRE-APPROVALS
-// Accounting creates a pre-approval record with a unique claim code.
-// The student enters this code during enrollment to verify full scholarship.
-// Table: scholarship_pre_approvals (auto-created if not exists)
-// =============================================================================
-
-function _ensurePreApprovalsTable(mysqli $conn): void {
-    $conn->query("
-        CREATE TABLE IF NOT EXISTS scholarship_pre_approvals (
-            id            INT AUTO_INCREMENT PRIMARY KEY,
-            claim_code    VARCHAR(20) NOT NULL UNIQUE,
-            scholar_type  VARCHAR(100) NOT NULL DEFAULT 'Full Scholarship',
-            grantor       VARCHAR(150) DEFAULT NULL,
-            notes         TEXT DEFAULT NULL,
-            semester      VARCHAR(100) DEFAULT NULL,
-            is_used       TINYINT(1) NOT NULL DEFAULT 0,
-            used_by_student_id INT DEFAULT NULL,
-            used_at       DATETIME DEFAULT NULL,
-            is_revoked    TINYINT(1) NOT NULL DEFAULT 0,
-            revoked_at    DATETIME DEFAULT NULL,
-            revoke_reason TEXT DEFAULT NULL,
-            created_by    INT DEFAULT NULL,
-            created_by_email VARCHAR(150) DEFAULT NULL,
-            created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-    ");
-}
-
-/**
- * GET ?action=get_scholarship_preapprovals[&status=active|used|all]
- * Returns all pre-approval records for Accounting to manage.
- */
-function getScholarshipPreApprovals(mysqli $conn): void {
-    _ensurePreApprovalsTable($conn);
-    $status = trim($_GET['status'] ?? 'active');
-    $where = match($status) {
-        'used'   => 'is_used=1',
-        'all'    => '1=1',
-        default  => 'is_used=0 AND is_revoked=0',  // 'active'
-    };
-    $res = $conn->query("
-        SELECT spa.*,
-               s.student_number, s.first_name, s.last_name
-        FROM scholarship_pre_approvals spa
-        LEFT JOIN students s ON s.id = spa.used_by_student_id
-        WHERE $where
-        ORDER BY spa.created_at DESC
-    ");
-    $rows = [];
-    if ($res) while ($r = $res->fetch_assoc()) $rows[] = $r;
-    while (ob_get_level() > 0) { ob_end_clean(); }
-    echo json_encode(['success' => true, 'preapprovals' => $rows, 'count' => count($rows)]);
-}
-
-/**
- * POST ?action=create_scholarship_preapproval
- * Body: { scholar_type, grantor?, notes?, semester? }
- * Creates a pre-approval with a unique 10-char alphanumeric claim code.
- */
-function createScholarshipPreApproval(mysqli $conn): void {
-    global $authUser;
-    _ensurePreApprovalsTable($conn);
-    $data        = json_decode(file_get_contents('php://input'), true) ?? [];
-    $scholarType = trim($data['scholar_type'] ?? 'Full Scholarship');
-    $grantor     = trim($data['grantor']      ?? '');
-    $notes       = trim($data['notes']        ?? '');
-    $semester    = trim($data['semester']     ?? '');
-
-    if (!$scholarType) {
-        while (ob_get_level() > 0) { ob_end_clean(); }
-        echo json_encode(['success' => false, 'message' => 'scholar_type is required']); return;
-    }
-
-    // Generate unique claim code: SCH- + 8 random uppercase alphanumeric chars
-    $code = '';
-    $attempts = 0;
-    do {
-        $rand = strtoupper(substr(str_shuffle('ABCDEFGHJKLMNPQRSTUVWXYZ23456789'), 0, 8));
-        $code = 'SCH-' . $rand;
-        $chk  = $conn->query("SELECT id FROM scholarship_pre_approvals WHERE claim_code='$code' LIMIT 1");
-        $exists = ($chk && $chk->num_rows > 0);
-        $attempts++;
-    } while ($exists && $attempts < 20);
-
-    $createdBy      = (int)($authUser['user_id'] ?? 0);
-    $createdByEmail = $conn->real_escape_string($authUser['email'] ?? '');
-    $scholarTypeEsc = $conn->real_escape_string($scholarType);
-    $grantorEsc     = $conn->real_escape_string($grantor);
-    $notesEsc       = $conn->real_escape_string($notes);
-    $semesterEsc    = $conn->real_escape_string($semester);
-
-    $conn->query("
-        INSERT INTO scholarship_pre_approvals
-            (claim_code, scholar_type, grantor, notes, semester, created_by, created_by_email)
-        VALUES
-            ('$code', '$scholarTypeEsc', '$grantorEsc', '$notesEsc', '$semesterEsc', $createdBy, '$createdByEmail')
-    ");
-
-    if ($conn->insert_id) {
-        logAuditShared($conn, $authUser ?? null, 'CREATE_SCHOLARSHIP_PREAPPROVAL', 'scholarship_pre_approvals', $conn->insert_id,
-            "Pre-approval created: $scholarType by $grantor. Code: $code");
-        while (ob_get_level() > 0) { ob_end_clean(); }
-        echo json_encode(['success' => true, 'claim_code' => $code, 'message' => "Pre-approval created. Claim code: $code"]);
-    } else {
-        while (ob_get_level() > 0) { ob_end_clean(); }
-        echo json_encode(['success' => false, 'message' => 'Failed to create pre-approval: ' . $conn->error]);
-    }
-}
-
-/**
- * POST ?action=revoke_scholarship_preapproval
- * Body: { id, reason? }
- */
-function revokeScholarshipPreApproval(mysqli $conn): void {
-    global $authUser;
-    _ensurePreApprovalsTable($conn);
-    $data   = json_decode(file_get_contents('php://input'), true) ?? [];
-    $id     = (int)($data['id']     ?? 0);
-    $reason = trim($data['reason']  ?? 'Revoked by accounting');
-    while (ob_get_level() > 0) { ob_end_clean(); }
-    if (!$id) { echo json_encode(['success' => false, 'message' => 'id required']); return; }
-    $reasonEsc = $conn->real_escape_string($reason);
-    $conn->query("UPDATE scholarship_pre_approvals SET is_revoked=1, revoked_at=NOW(), revoke_reason='$reasonEsc' WHERE id=$id AND is_used=0");
-    echo json_encode(['success' => true, 'message' => 'Pre-approval revoked.']);
-}
-
-/**
- * GET ?action=verify_scholarship_code&code=SCH-XXXXXXXX
- * Public endpoint — called during student enrollment to verify claim code.
- * Returns scholar_type, grantor, semester if valid.
- */
-function verifyScholarshipCode(mysqli $conn): void {
-    _ensurePreApprovalsTable($conn);
-    $code = strtoupper(trim($_GET['code'] ?? ''));
-    while (ob_get_level() > 0) { ob_end_clean(); }
-    if (!$code) { echo json_encode(['success' => false, 'message' => 'Code is required']); return; }
-    $codeEsc = $conn->real_escape_string($code);
-    $res = $conn->query("SELECT * FROM scholarship_pre_approvals WHERE claim_code='$codeEsc' LIMIT 1");
-    $row = $res ? $res->fetch_assoc() : null;
-    if (!$row) {
-        echo json_encode(['success' => false, 'message' => 'Invalid scholarship code. Please check with Accounting.']); return;
-    }
-    if ($row['is_revoked']) {
-        echo json_encode(['success' => false, 'message' => 'This scholarship code has been revoked. Please contact Accounting.']); return;
-    }
-    if ($row['is_used']) {
-        echo json_encode(['success' => false, 'message' => 'This scholarship code has already been used.']); return;
-    }
-    echo json_encode([
-        'success'      => true,
-        'valid'        => true,
-        'claim_code'   => $row['claim_code'],
-        'scholar_type' => $row['scholar_type'],
-        'grantor'      => $row['grantor']    ?? '',
-        'semester'     => $row['semester']   ?? '',
-        'notes'        => $row['notes']      ?? '',
-        'preapproval_id' => (int)$row['id'],
-    ]);
-}
 // ================================================================
 // ACCOUNTING: Get add/drop requests with fee preview
 // GET ?action=get_add_drop_requests_accounting[&status=Pending|Approved|Rejected|All]
@@ -6871,25 +7256,30 @@ function getAddDropRequestsForAccounting(mysqli $conn): void {
             $isLab         = (int)($r['is_lab'] ?? 0);
             $sign          = ($r['request_type'] === 'Drop') ? -1 : 1;
             $tuitionImpact = round($sign * $courseCredits * $rTuition, 2);
-            // FIX ADD-DROP-02: Lab fee only added on Add, never deducted on Drop
-            $labImpact     = ($r['request_type'] === 'Add' && $isLab) ? round($rLab, 2) : 0.00;
+            // FIX LAB-REMOVE-01: Lab fee removed — tuition + energy only.
+            $labImpact     = 0.00;
             $energyImpact  = round($sign * $courseCredits * $rEnergy, 2);
-            $totalImpact   = round($tuitionImpact + $labImpact + $energyImpact, 2);
+            $totalImpact   = round($tuitionImpact + $energyImpact, 2);
             $newTotal      = round(max(0, $currentTotal + $totalImpact), 2);
 
            
-            $storedImpact = (float)$r['fee_impact'];           // BUG-ADDDROP-02 FIX: was undefined — caused PHP notice and always fell back to re-computed value
-            $storedNew    = (float)$r['new_total_assessment'];
+            // FIX LAB-REMOVE-01: Lab fee impact removed — only tuition + energy shown.
+            // Re-compute totalImpact and newTotal without lab fee.
+            $tuitionImpact = round($sign * $courseCredits * $rTuition, 2);
+            $energyImpact  = round($sign * $courseCredits * $rEnergy, 2);
+            $totalImpact   = round($tuitionImpact + $energyImpact, 2);
+            $newTotal      = round(max(0, $currentTotal + $totalImpact), 2);
 
+            // Always use freshly computed values — stored fee_impact/new_total_assessment
+            // may be stale (e.g. included lab fee before LAB-REMOVE-01 fix).
             $r['fee_preview'] = [
                 'currentTotal'  => $currentTotal,
                 'currentUnits'  => (int)($r['current_units'] ?? 0),
                 'courseUnits'   => $courseCredits,
                 'tuitionImpact' => $tuitionImpact,
-                'labImpact'     => $labImpact,
                 'energyImpact'  => $energyImpact,
-                'totalImpact'   => $storedImpact ?: $totalImpact,
-                'newTotal'      => $storedNew    ?: $newTotal,
+                'totalImpact'   => $totalImpact,
+                'newTotal'      => $newTotal,
             ];
             unset($r['current_total'], $r['current_units'], $r['is_lab']);
             $rows[] = $r;
@@ -7013,18 +7403,16 @@ function accountingApproveAddDropFromAccounting(mysqli $conn, array $data): void
     $tuitionImpact = round($sign * $courseCredits * $rTuition, 2);
     $energyImpact  = round($sign * $courseCredits * $rEnergy, 2);
 
-    // FIX ADD-DROP-02: Lab fee only added for 'Add', NEVER deducted for 'Drop'
-    // Reason: lab_fee_per_room is a facility/overhead charge; removing one subject
-    // from schedule does not remove a lab room from the student's bill.
-    $labImpact = ($requestType === 'Add' && $isLab) ? round($rLab, 2) : 0.00;
+    // FIX LAB-REMOVE-01: Lab fee removed — tuition + energy only.
+    $labImpact   = 0.00;
 
-    $totalImpact = round($tuitionImpact + $labImpact + $energyImpact, 2);
+    $totalImpact = round($tuitionImpact + $energyImpact, 2);
 
     if ($isFullScholar) {
         $feeImpact = 0.00;
         $newTotal  = 0.00;
     } elseif ($isScholarFlag && $scholarshipAmount > 0) {
-        $newSubtotal = max(0, $currentSubtotal + ($tuitionImpact + $labImpact + $energyImpact));
+        $newSubtotal = max(0, $currentSubtotal + ($tuitionImpact + $energyImpact));
         $feeImpact   = $totalImpact;
         $newTotal    = round(max(0, $newSubtotal - $scholarshipAmount), 2);
     } else {

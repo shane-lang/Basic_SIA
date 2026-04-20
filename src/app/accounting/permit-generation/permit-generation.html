@@ -271,6 +271,11 @@
             <td class="snum">{{ fmtDate(p.requested_at) }}</td>
             <td>
               <div class="act-cell">
+                <!-- FIX PERMIT-CARRY-01: Show carry-over badge for partial-payment permits -->
+                <span *ngIf="p.remarks && p.remarks.includes('Carry-over')"
+                      class="carry-over-badge" title="{{ p.remarks }}">
+                  🔄 Has carry-over
+                </span>
                 <button class="btn-approve" (click)="openPermitModal(p,'approve')">Approve</button>
                 <button class="btn-reject"  (click)="openPermitModal(p,'reject')">Reject</button>
               </div>
@@ -451,6 +456,20 @@
           <div class="snum">{{ selectedPermit.student_number }} · {{ selectedPermit.exam_period }} · {{ selectedPermit.semester }} A.Y. {{ selectedPermit.school_year }}</div>
         </div>
       </div>
+
+      <!-- FIX PERMIT-CARRY-01: Show carry-over info from auto-generated remarks -->
+      <div class="carry-over-notice" *ngIf="selectedPermit.remarks && selectedPermit.remarks.includes('Carry-over')">
+        <div class="co-notice-icon">🔄</div>
+        <div class="co-notice-body">
+          <strong>Partial Payment — Carry-Over Pending</strong>
+          <p>{{ selectedPermit.remarks }}</p>
+          <p class="co-notice-hint">
+            <span *ngIf="modalAction === 'approve'">✅ <strong>Approving</strong> will carry the unpaid balance forward to the student's next term automatically.</span>
+            <span *ngIf="modalAction === 'reject'">❌ <strong>Rejecting</strong> will keep the balance in the current term. The student must pay before requesting again.</span>
+          </p>
+        </div>
+      </div>
+
       <div class="form-row">
         <label>Remarks <span style="color:#9ca3af;font-weight:400">(optional)</span></label>
         <textarea [(ngModel)]="remarks" rows="3" class="finput" placeholder="Add remarks..."></textarea>

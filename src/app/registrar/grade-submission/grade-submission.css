@@ -101,7 +101,9 @@
 .cc-enrolled { font-size:.78rem; color:#64748b; font-weight:600; }
 .cc-name { font-size:.95rem; font-weight:700; color:#1e293b; margin-bottom:5px; }
 .cc-instr { font-size:.78rem; color:#64748b; margin-bottom:4px; }
-.cc-prog { font-size:.78rem; color:#94a3b8; margin-bottom:12px; }
+.cc-prog { font-size:.78rem; color:#94a3b8; margin-bottom:4px; }
+.cc-meta { display:flex; gap:6px; margin-bottom:10px; flex-wrap:wrap; }
+.cc-yl, .cc-sem { font-size:.72rem; color:#64748b; background:#f1f5f9; border-radius:4px; padding:.1rem .4rem; }
 .cc-progress { display:flex; align-items:center; gap:6px; margin-bottom:8px; }
 .ccp-bar { flex:1; height:6px; background:#f1f5f9; border-radius:3px; overflow:hidden; }
 .ccp-fill { height:100%; border-radius:3px; transition:width .4s; }
@@ -233,3 +235,103 @@
 .cat-btn.college.cat-active { background:#1d4ed8; border-color:#1d4ed8; color:#fff; }
 .cat-btn.shs.cat-active     { background:#059669; border-color:#059669; color:#fff; }
 .cat-btn.tvet.cat-active    { background:#d97706; border-color:#d97706; color:#fff; }
+/* ── Year/Semester Group Headers (By Course + Student Detail) ── */
+.group-year-header {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  margin: 1.5rem 0 .5rem;
+  padding: .5rem 1rem;
+  background: var(--primary, #1e3a5f);
+  border-radius: 8px;
+}
+.group-collapsible {
+  cursor: pointer;
+  user-select: none;
+  transition: opacity .15s;
+}
+.group-collapsible:hover { opacity: .85; }
+
+/* Level 2: Program sub-header under department */
+.group-prog-header {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  margin: .5rem 0 .4rem 1rem;
+  padding: .4rem 1rem;
+  background: rgba(30, 58, 95, 0.12);
+  border-left: 3px solid var(--primary, #1e3a5f);
+  border-radius: 0 6px 6px 0;
+}
+.gpr-label {
+  font-size: .82rem;
+  font-weight: 600;
+  color: var(--primary, #1e3a5f);
+  flex: 1;
+}
+.gyr-label {
+  font-size: .85rem;
+  font-weight: 700;
+  color: #fff;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  flex: 1;
+}
+.gyr-right {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+}
+.gyr-count {
+  font-size: .75rem;
+  font-weight: 500;
+  color: rgba(255,255,255,.65);
+  background: rgba(255,255,255,.12);
+  padding: .15rem .5rem;
+  border-radius: 99px;
+}
+.gyr-chevron {
+  font-size: .7rem;
+  color: rgba(255,255,255,.7);
+  transition: transform .2s ease;
+  display: inline-block;
+  transform: rotate(0deg);
+}
+.gyr-chevron-open {
+  transform: rotate(90deg);
+}
+.group-sem-label {
+  font-size: .8rem;
+  font-weight: 600;
+  color: var(--text-secondary, #64748b);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  margin: .75rem 0 .4rem 0;
+  padding-left: .25rem;
+  border-left: 3px solid var(--primary, #1e3a5f);
+  padding-left: .6rem;
+}
+.group-sem-block {
+  margin-bottom: 1.25rem;
+}
+.gsem-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #f1f5f9;
+  border-radius: 6px 6px 0 0;
+  padding: .45rem .9rem;
+  border-left: 3px solid var(--primary, #1e3a5f);
+}
+.gsem-label {
+  font-size: .82rem;
+  font-weight: 700;
+  color: #1e3a5f;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.gsem-units {
+  font-size: .78rem;
+  color: #64748b;
+  font-weight: 500;
+}

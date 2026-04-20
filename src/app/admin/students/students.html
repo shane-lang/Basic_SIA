@@ -70,8 +70,21 @@
 
 <!-- Results Bar -->
 <div class="results-bar">
-  <span class="results-count">{{ totalStudents }} student{{ totalStudents !== 1 ? 's' : '' }} found</span>
-  <span class="view-note">👁️ View only — no edits allowed</span>
+  <span class="results-count">
+    {{ totalStudents }} student{{ totalStudents !== 1 ? 's' : '' }} found
+    <ng-container *ngIf="totalStudents > 0">
+      &nbsp;—&nbsp; showing {{ showingFrom }}–{{ showingTo }}
+    </ng-container>
+  </span>
+  <div class="results-bar-right">
+    <span class="view-note">👁️ View only</span>
+    <label class="page-size-label">
+      Rows:
+      <select class="page-size-select" [(ngModel)]="pageSize" (change)="onPageSizeChange()">
+        <option *ngFor="let n of pageSizeOptions" [value]="n">{{ n }}</option>
+      </select>
+    </label>
+  </div>
 </div>
 
 <!-- Loading -->
@@ -142,10 +155,12 @@
 
 <!-- Pagination -->
 <div class="pagination" *ngIf="totalPages > 1 && !isLoading">
+  <button class="pg-btn" [disabled]="currentPage === 1" (click)="loadStudents(1)" title="First page">«</button>
   <button class="pg-btn" [disabled]="currentPage === 1" (click)="prevPage()">‹ Prev</button>
   <button class="pg-btn" *ngFor="let p of getPages()"
     [class.pg-active]="p === currentPage" (click)="loadStudents(p)">{{ p }}</button>
   <button class="pg-btn" [disabled]="currentPage === totalPages" (click)="nextPage()">Next ›</button>
+  <button class="pg-btn" [disabled]="currentPage === totalPages" (click)="loadStudents(totalPages)" title="Last page">»</button>
   <span class="pg-info">Page {{ currentPage }} of {{ totalPages }}</span>
 </div>
 

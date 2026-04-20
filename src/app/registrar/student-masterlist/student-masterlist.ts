@@ -121,6 +121,35 @@ export class StudentMasterlistComponent implements OnInit {
   totalStudents = 0;
   programs: string[] = [];
 
+  // Group students by program for the grouped table view.
+  get studentsGrouped(): { program: string; students: Student[] }[] {
+    const map = new Map<string, Student[]>();
+    for (const s of this.students) {
+      const key = s.program || 'Unassigned';
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(s);
+    }
+    return Array.from(map.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([program, students]) => ({ program, students }));
+  }
+
+  // Accordion state — stores which program groups are expanded.
+  // All groups start collapsed. Click header to toggle.
+  expandedGroups = new Set<string>();
+
+  toggleGroup(program: string): void {
+    if (this.expandedGroups.has(program)) {
+      this.expandedGroups.delete(program);
+    } else {
+      this.expandedGroups.add(program);
+    }
+  }
+
+  isGroupExpanded(program: string): boolean {
+    return this.expandedGroups.has(program);
+  }
+
   // ── Student Info (detail) ───────────────────────────────
   selectedStudent: Student | null = null;
   isLoadingDetail = false;
@@ -171,6 +200,7 @@ export class StudentMasterlistComponent implements OnInit {
         this.isLoadingStudents = false;
         if (res.success) {
           this.students      = res.students || [];
+          this.expandedGroups.clear();
           this.totalPages    = res.totalPages || 1;
           this.totalStudents = res.total || 0;
           if (!this.programs.length) this.programs = res.programs || [];
@@ -498,8 +528,92 @@ export class StudentMasterlistComponent implements OnInit {
     return new Date(d).toLocaleDateString('en-PH', { year: 'numeric', month: 'short', day: 'numeric' });
   }
 
+  startEdit(): void {
+    if (!this.selectedStudent) return;
+    const s = this.selectedStudent;
+    this.editForm = {
+      first_name:         s.firstName,
+      last_name:          s.lastName,
+      middle_name:        s.middleName,
+      suffix:             s.suffix,
+      phone:              s.phone,
+      address:            s.address,
+      sex:                s.sex,
+      date_of_birth:      s.dateOfBirth,
+      lrn_no:             s.lrnNo,
+      psa_birth_cert_no:  s.psaBirthCertNo,
+      religion:           s.religion,
+      place_of_birth:     s.placeOfBirth,
+      citizenship:        s.citizenship,
+      mother_tongue:      s.motherTongue,
+      strand:             s.strand,
+      last_school_attended: s.lastSchoolAttended,
+    };
+    this.editMode = true;
+    this.cdr.detectChanges();
+  }
+
+  cancelEdit(): void {
+    this.editMode = false;
+    this.editForm = {};
+    this.cdr.detectChanges();
+  }
+
+  saveEdit(): void {
+    if (!this.selectedStudent || this.isSavingEdit) return;
+    this.isSavingEdit = true;
+    this.cdr.detectChanges();
+
+    this.http.post<any>(`${this.api}?action=update_student_info`, {
+      student_id: this.selectedStudent.id,
+      ...this.editForm,
+    }).subscribe({
+      next: (res) => {
+        this.isSavingEdit = false;
+        if (res.success) {
+          // Patch selectedStudent so the view updates immediately
+          const u = res.updated;
+          if (u && this.selectedStudent) {
+            this.selectedStudent.firstName         = u.first_name         ?? this.selectedStudent.firstName;
+            this.selectedStudent.lastName          = u.last_name          ?? this.selectedStudent.lastName;
+            this.selectedStudent.middleName        = u.middle_name        ?? this.selectedStudent.middleName;
+            this.selectedStudent.suffix            = u.suffix             ?? this.selectedStudent.suffix;
+            this.selectedStudent.phone             = u.phone              ?? this.selectedStudent.phone;
+            this.selectedStudent.address           = u.address            ?? this.selectedStudent.address;
+            this.selectedStudent.sex               = u.sex                ?? this.selectedStudent.sex;
+            this.selectedStudent.dateOfBirth       = u.date_of_birth      ?? this.selectedStudent.dateOfBirth;
+            this.selectedStudent.lrnNo             = u.lrn_no             ?? this.selectedStudent.lrnNo;
+            this.selectedStudent.psaBirthCertNo    = u.psa_birth_cert_no  ?? this.selectedStudent.psaBirthCertNo;
+            this.selectedStudent.religion          = u.religion           ?? this.selectedStudent.religion;
+            this.selectedStudent.placeOfBirth      = u.place_of_birth     ?? this.selectedStudent.placeOfBirth;
+            this.selectedStudent.citizenship       = u.citizenship        ?? this.selectedStudent.citizenship;
+            this.selectedStudent.motherTongue      = u.mother_tongue      ?? this.selectedStudent.motherTongue;
+            this.selectedStudent.strand            = u.strand             ?? this.selectedStudent.strand;
+            this.selectedStudent.lastSchoolAttended = u.last_school_attended ?? this.selectedStudent.lastSchoolAttended;
+          }
+          this.editMode = false;
+          this.editForm = {};
+          alert('✅ Student information updated.');
+        } else {
+          alert('❌ Failed: ' + (res.message || 'Could not save changes.'));
+        }
+        this.cdr.detectChanges();
+      },
+      error: () => {
+        this.isSavingEdit = false;
+        alert('❌ Network error. Could not save changes.');
+        this.cdr.detectChanges();
+      }
+    });
+  }
+
   // ── Send Enrollment Report ────────────────────────────────────────────────
   isSendingEnrollReport: { [id: number]: boolean } = {};
+
+  // ── Edit student info ─────────────────────────────────────────────────────
+  editMode    = false;
+  isSavingEdit = false;
+  editForm: any = {};
 
   sendEnrollmentReport(studentId: number, studentName: string): void {
     if (this.isSendingEnrollReport[studentId]) return;

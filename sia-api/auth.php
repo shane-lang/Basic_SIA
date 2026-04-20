@@ -158,6 +158,26 @@ function ensureLoginOtpTable(mysqli $conn): void {
     }
 }
 
+// =============================================================================
+// PASSWORD STRENGTH VALIDATOR
+// Rules: min 8 chars, uppercase, lowercase, number, special character.
+// Returns array of error strings (empty = strong enough).
+// =============================================================================
+function validatePasswordStrength(string $password): array {
+    $errors = [];
+    if (strlen($password) < 8)
+        $errors[] = 'Password must be at least 8 characters.';
+    if (!preg_match('/[A-Z]/', $password))
+        $errors[] = 'Password must contain at least one uppercase letter.';
+    if (!preg_match('/[a-z]/', $password))
+        $errors[] = 'Password must contain at least one lowercase letter.';
+    if (!preg_match('/[0-9]/', $password))
+        $errors[] = 'Password must contain at least one number.';
+    if (!preg_match('/[!@#$%^&*()\-_=+\[\]{};\':",.<>\/?`~\\\\|]/', $password))
+        $errors[] = 'Password must contain at least one special character (e.g. !@#$%).';
+    return $errors;
+}
+
 const PORTAL_ROLES = [
     'student'    => 'student',
     'admin'      => 'admin',
@@ -238,10 +258,19 @@ if ($action === 'register') {
     $email    = trim($data['email']    ?? '');
     $password = trim($data['password'] ?? '');
 
-    if (!$email || !$password)
-        respond(['success' => false, 'message' => 'Email and password are required'], 400);
-    if (strlen($password) < 6)
-        respond(['success' => false, 'message' => 'Password must be at least 6 characters'], 400);
+    if ($email === '')
+        respond(['success' => false, 'message' => 'Email is required.'], 400);
+    if (!filter_var($email, FILTER_VALIDATE_EMAIL))
+        respond(['success' => false, 'message' => 'Please enter a valid email address.'], 400);
+    if (strlen($email) > 255)
+        respond(['success' => false, 'message' => 'Email address is too long.'], 400);
+    if ($password === '')
+        respond(['success' => false, 'message' => 'Password is required.'], 400);
+    if (strlen($password) > 255)
+        respond(['success' => false, 'message' => 'Password is too long.'], 400);
+    $pwErrors = validatePasswordStrength($password);
+    if ($pwErrors)
+        respond(['success' => false, 'message' => $pwErrors[0], 'errors' => $pwErrors], 422);
 
     $check = $conn->prepare("SELECT id, role FROM users WHERE email = ? LIMIT 1");
     $check->bind_param("s", $email);
@@ -251,13 +280,11 @@ if ($action === 'register') {
 
     if ($existing) {
         respond([
-            'success'         => true,
-            'message'         => 'Account already exists. Continuing enrollment.',
-            'user_id'         => (int)$existing['id'],
-            'email'           => $email,
-            'role'            => $existing['role'],
+            'success'         => false,
+            'message'         => 'This email address is already registered. Please use a different email or log in to your existing account.',
+            'code'            => 'EMAIL_EXISTS',
             'already_existed' => true,
-        ]);
+        ], 409);
     }
 
     $hashedPassword = password_hash($password, PASSWORD_BCRYPT, ['cost' => 12]);
@@ -279,6 +306,43 @@ if ($action === 'register') {
 }
 
 // =============================================================================
+
+// =============================================================================
+// VERIFY PASSWORD — POST ?action=verify_password
+// Requires a valid Bearer token. Returns success:true if the supplied password
+// matches the authenticated user's stored hash. Used by the frontend password
+// gate before displaying sensitive documents (COE, SOA, Receipts, Grades).
+// No session is created or altered — this is a read-only check.
+// =============================================================================
+if ($action === 'verify_password') {
+    $authUser = requireAuth($conn);
+
+    $data     = json_decode($rawInput, true);
+    $password = trim($data['password'] ?? '');
+
+    if ($password === '')
+        respond(['success' => false, 'message' => 'Password is required.'], 400);
+
+    $stmt = $conn->prepare('SELECT password FROM users WHERE id = ? LIMIT 1');
+    $stmt->bind_param('i', $authUser['user_id']);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+
+    if (!$row)
+        respond(['success' => false, 'message' => 'User not found.'], 404);
+
+    // Support both bcrypt and legacy plain-text (same as login)
+    $valid = password_verify($password, $row['password'])
+          || $password === $row['password'];
+
+    if (!$valid)
+        respond(['success' => false, 'message' => 'Incorrect password.'], 403);
+
+    respond(['success' => true, 'message' => 'Password verified.']);
+}
+
+// =============================================================================
 // CHANGE PASSWORD — POST ?action=change_password
 // Requires a valid Bearer token (any role).
 // =============================================================================
@@ -292,8 +356,10 @@ if ($action === 'change_password') {
 
     if (!$currentPassword || !$newPassword || !$confirmPassword)
         respond(['success' => false, 'message' => 'All fields are required.'], 400);
-    if (strlen($newPassword) < 6)
-        respond(['success' => false, 'message' => 'New password must be at least 6 characters.'], 422);
+    if (strlen($newPassword) < 8 || !preg_match('/[A-Z]/', $newPassword) || !preg_match('/[a-z]/', $newPassword) || !preg_match('/[0-9]/', $newPassword) || !preg_match('/[!@#$%^&*()\-_=+\[\]{};\':",.<>\/?`~\\\\|]/', $newPassword)) {
+        $pwErrors = validatePasswordStrength($newPassword);
+        respond(['success' => false, 'message' => $pwErrors[0], 'errors' => $pwErrors], 422);
+    }
     if ($newPassword !== $confirmPassword)
         respond(['success' => false, 'message' => 'New password and confirmation do not match.'], 422);
 
@@ -459,8 +525,9 @@ if ($action === 'reset_password') {
     if (!$email || !$otp || !$new_pass || !$conf_pass)
         respond(['success' => false, 'message' => 'Lahat ng fields ay kailangan.']);
 
-    if (strlen($new_pass) < 6)
-        respond(['success' => false, 'message' => 'Ang password ay dapat hindi bababa sa 6 na character.']);
+    $pwErrors = validatePasswordStrength($new_pass);
+    if ($pwErrors)
+        respond(['success' => false, 'message' => $pwErrors[0], 'errors' => $pwErrors]);
 
     if ($new_pass !== $conf_pass)
         respond(['success' => false, 'message' => 'Hindi magkatugma ang password.']);
@@ -512,6 +579,27 @@ $ip           = $_SERVER['REMOTE_ADDR'] ?? '';
 $portal       = trim($data['portal'] ?? '');
 $requiredRole = $portal ? (PORTAL_ROLES[$portal] ?? null) : null;
 
+// ── Input validation ──────────────────────────────────────────────────────────
+if ($email === '') {
+    respond(['success' => false, 'message' => 'Email is required.'], 400);
+}
+if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+    respond(['success' => false, 'message' => 'Please enter a valid email address.'], 400);
+}
+if (strlen($email) > 255) {
+    respond(['success' => false, 'message' => 'Email address is too long.'], 400);
+}
+if ($password === '') {
+    respond(['success' => false, 'message' => 'Password is required.'], 400);
+}
+if (strlen($password) < 6) {
+    respond(['success' => false, 'message' => 'Password must be at least 6 characters.'], 400);
+}
+if (strlen($password) > 255) {
+    respond(['success' => false, 'message' => 'Password is too long.'], 400);
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 if ($portal && $requiredRole === null) {
     respond(['success' => false, 'message' => 'Invalid portal specified.'], 400);
 }
@@ -557,7 +645,7 @@ if ($result && $result->num_rows > 0) {
 
     if ($passwordValid) {
         if ($requiredRole && $user['role'] !== $requiredRole) {
-            respond(['success' => false, 'message' => 'You do not have access to this portal.'], 403);
+            respond(['success' => false, 'message' => 'This account does not have access to this portal. Please use the correct account.']);
         }
 
         $profile = getProfileName($conn, (int)$user['id'], $user['role']);
@@ -581,13 +669,18 @@ if ($result && $result->num_rows > 0) {
             $delSes->execute();
             $delSes->close();
         } else {
-            $kickStmt = $conn->prepare("SELECT COUNT(*) AS cnt FROM sessions WHERE user_id = ?");
+            // FIX AUTO-LOGOUT-01: When device_id is absent (page refresh, new tab, cleared
+            // localStorage), only purge sessions that also have no device_id.
+            // The old DELETE WHERE user_id=? killed ALL sessions for the user — including
+            // active tabs that DID have a device_id — causing phantom logouts where the
+            // student never clicked Logout but was suddenly redirected to the login page.
+            $kickStmt = $conn->prepare("SELECT COUNT(*) AS cnt FROM sessions WHERE user_id = ? AND (device_id IS NULL OR device_id = '')");
             $kickStmt->bind_param("i", $user['id']);
             $kickStmt->execute();
             $activeSessions = (int)$kickStmt->get_result()->fetch_assoc()['cnt'];
             $kickStmt->close();
 
-            $delSes = $conn->prepare("DELETE FROM sessions WHERE user_id = ?");
+            $delSes = $conn->prepare("DELETE FROM sessions WHERE user_id = ? AND (device_id IS NULL OR device_id = '')");
             $delSes->bind_param("i", $user['id']);
             $delSes->execute();
             $delSes->close();

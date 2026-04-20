@@ -92,6 +92,9 @@ view: 'login'  | 'forgot' | 'reset' = 'login';
   errorMessage  = '';
   logoutBanner  = '';   // shown when redirected from session expiry/kick
 
+  // ── Inline field validation errors ──────────────────────────────────────
+  fieldErrors: { email?: string; password?: string } = {};
+
   // ── OTP 2FA state ───────────────────────────────────────────
   showOtp        = false;
   otpToken       = '';
@@ -134,32 +137,52 @@ view: 'login'  | 'forgot' | 'reset' = 'login';
   ) {}
 
   ngOnInit(): void {
-    // ── Already logged in? Redirect immediately ──────────────────────────────
-    // This runs BEFORE showing any login form — if there's a valid token in
-    // sessionStorage, the user should never see the login page again.
-    if (isPlatformBrowser(this.platformId)) {
-      const token = this.auth.getToken();
-      const user  = JSON.parse(sessionStorage.getItem('currentUser') ?? 'null');
-      if (token && user?.role) {
-        this.redirectByRole(user.role);
-        return;
-      }
-    }
-
-    // Show logout reason banner if redirected from session expiry/kick
-    if (isPlatformBrowser(this.platformId)) {
-      const reason = sessionStorage.getItem('logoutReason');
-      if (reason === 'another_device') this.logoutBanner = 'You were signed in from another device. This session has ended.';
-      else if (reason === 'expired')   this.logoutBanner = 'Your session expired. Please sign in again.';
-      else if (reason === 'signed_out') this.logoutBanner = 'You have been signed out.';
-      sessionStorage.removeItem('logoutReason');
-    }
-
+    // ── Set the portal first so banners render with the correct theme ─────────
     const portalData = this.route.snapshot.data['portal'] as Portal | null;
     if (portalData) {
       this.setPortal(portalData);
     } else {
       this.showSelector = true;
+    }
+
+    if (isPlatformBrowser(this.platformId)) {
+      // ── Show reason banners (session expiry, kick, wrong role) ───────────────
+      const reason = sessionStorage.getItem('logoutReason');
+      if (reason === 'another_device') {
+        this.logoutBanner = 'You were signed in from another device. This session has ended.';
+      } else if (reason === 'expired') {
+        this.logoutBanner = 'Your session expired. Please sign in again.';
+      } else if (reason === 'signed_out') {
+        this.logoutBanner = 'You have been signed out.';
+      } else if (reason === 'wrong_role') {
+        // FIX: Show a clear error instead of silently redirecting to a different portal.
+        // The auth guard sets this when a logged-in user visits the wrong portal URL.
+        // We display it as errorMessage (red box) so it's more prominent than the yellow banner.
+        this.errorMessage = 'This account does not have access to this portal. Please log in with the correct account.';
+      }
+      sessionStorage.removeItem('logoutReason');
+
+      // ── Already logged in with the CORRECT role? Auto-redirect to dashboard ──
+      // Only redirect when the stored role actually belongs to this portal.
+      // If the role does NOT match, do NOT redirect — just show the login form
+      // so the user can log in with a different account. No silent cross-portal jumps.
+      const token = this.auth.getToken();
+      const user  = JSON.parse(sessionStorage.getItem('currentUser') ?? 'null');
+      if (token && user?.role && reason !== 'wrong_role') {
+        const portalRole = portalData ?? 'student';
+        const ROLE_ALLOWED: Record<string, string[]> = {
+          admin:      ['admin', 'registrar'],
+          registrar:  ['registrar', 'admin'],
+          accounting: ['accounting'],
+          faculty:    ['faculty'],
+          student:    ['student'],
+        };
+        if ((ROLE_ALLOWED[portalRole] ?? [portalRole]).includes(user.role)) {
+          this.redirectByRole(user.role);
+          return;
+        }
+        // Mismatched role — ignore stale session, stay on this portal's login
+      }
     }
   }
 
@@ -176,19 +199,49 @@ view: 'login'  | 'forgot' | 'reset' = 'login';
   }
 
   onSubmit(): void {
-    if (!this.email || !this.password) {
-      this.errorMessage = 'Please enter your email and password.';
+    // ── Inline field validation ─────────────────────────────────────────────
+    this.fieldErrors = {};
+    this.errorMessage = '';
+
+    const emailTrimmed = this.email.trim();
+    const emailRegex   = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    if (!emailTrimmed) {
+      this.fieldErrors.email = 'Email address is required.';
+    } else if (!emailRegex.test(emailTrimmed)) {
+      this.fieldErrors.email = 'Please enter a valid email address.';
+    }
+
+    if (!this.password) {
+      this.fieldErrors.password = 'Password is required.';
+    } else if (this.password.length < 6) {
+      this.fieldErrors.password = 'Password must be at least 6 characters.';
+    }
+
+    if (this.fieldErrors.email || this.fieldErrors.password) {
+      this.cdr.detectChanges();
       return;
     }
+
     if (!this.portal) return;
 
-    // Guard: if a valid session already exists, redirect instead of logging in again
+    // Guard: if a valid session for THIS portal already exists, redirect instead of logging in again
     if (isPlatformBrowser(this.platformId)) {
       const token = this.auth.getToken();
       const user  = JSON.parse(sessionStorage.getItem('currentUser') ?? 'null');
       if (token && user?.role) {
-        this.redirectByRole(user.role);
-        return;
+        const ROLE_ALLOWED: Record<string, string[]> = {
+          admin:      ['admin', 'registrar'],
+          registrar:  ['registrar', 'admin'],
+          accounting: ['accounting'],
+          faculty:    ['faculty'],
+          student:    ['student'],
+        };
+        if ((ROLE_ALLOWED[this.portal!] ?? [this.portal]).includes(user.role)) {
+          this.redirectByRole(user.role);
+          return;
+        }
+        // Stale session from a different portal — ignore it and proceed with login
       }
     }
 
@@ -207,7 +260,11 @@ view: 'login'  | 'forgot' | 'reset' = 'login';
             this.auth.storeSession(res.token, res.user, this.portal!);
             if (res.session_replaced) sessionStorage.setItem('sessionReplacedWarning', '1');
           }
-          this.router.navigate([this.config!.redirectTo]);
+          // FIX: Redirect based on the role returned by the server, NOT config.redirectTo.
+          // config.redirectTo is based on the selected portal tab — if the backend returns
+          // a different role (e.g. user clicked student-login but actually has admin role),
+          // we must send them to the correct dashboard and not blindly follow the portal config.
+          this.redirectByRole(res.user?.role ?? res.role ?? '');
         } else {
           this.errorMessage = res.message || 'Login failed.';
           this.cdr.detectChanges();
@@ -217,6 +274,13 @@ view: 'login'  | 'forgot' | 'reset' = 'login';
         this.loading = false;
         if (err.status === 0) {
           this.errorMessage = 'Connection error. Make sure XAMPP is running.';
+        } else if (err.status === 403) {
+          // FIX: 403 = logged in but wrong role for this portal.
+          // Show the error HERE on this same portal's login page.
+          // Do NOT navigate away — the user is already on the correct login page.
+          this.errorMessage = err.error?.message || 'This account does not have access to this portal.';
+        } else if (err.status === 401) {
+          this.errorMessage = err.error?.message || 'Invalid email or password.';
         } else {
           this.errorMessage = err.error?.message || `Server error (${err.status}). Please try again.`;
         }
@@ -233,7 +297,22 @@ view: 'login'  | 'forgot' | 'reset' = 'login';
       registrar:  '/registrar',
       faculty:    '/instructor',
     };
-    this.router.navigate([map[role] || '/login']);
+    const loginMap: Record<string, string> = {
+      student:    '/student-login',
+      admin:      '/admin/login',
+      accounting: '/accounting/login',
+      registrar:  '/registrar/login',
+      faculty:    '/faculty/login',
+    };
+    // If already on the correct portal login page, don't redirect in a loop
+    const dest = map[role];
+    if (dest) {
+      this.router.navigate([dest]);
+    } else {
+      // Unknown role — send back to the current portal's login, not student-login
+      const fallback = this.portal ? loginMap[this.portal] ?? '/student-login' : '/student-login';
+      this.router.navigate([fallback]);
+    }
   }
 
   cancelOtp(): void {
@@ -319,6 +398,12 @@ view: 'login'  | 'forgot' | 'reset' = 'login';
   }
 
   togglePw(): void { this.showPw = !this.showPw; }
+
+  clearFieldError(field: 'email' | 'password'): void {
+    if (this.fieldErrors[field]) {
+      delete this.fieldErrors[field];
+    }
+  }
 
   // ══════════════════════════════════════════════════════════
   // FORGOT / RESET PASSWORD

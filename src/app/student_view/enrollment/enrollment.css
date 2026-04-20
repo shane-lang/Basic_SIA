@@ -3760,3 +3760,46 @@
 }
 .scholar-pending-badge  span,
 .scholar-approved-badge span { font-size: 1.4rem; line-height: 1; flex-shrink: 0; }
+/* ── Password Gate: Locked SOA / Invoice placeholders ─────────────────────── */
+.soa-locked-card {
+  position: relative;
+  min-height: 140px;
+  border: 2px dashed #cbd5e1;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.2s, background 0.2s;
+  overflow: hidden;
+}
+.soa-locked-card:hover {
+  border-color: #6366f1;
+  background: linear-gradient(135deg, #eef2ff 0%, #e0e7ff 100%);
+}
+.soa-lock-overlay {
+  text-align: center;
+  padding: 2rem 1.5rem;
+  pointer-events: none;
+}
+.soa-lock-icon {
+  font-size: 2.2rem;
+  margin-bottom: 0.5rem;
+  filter: grayscale(0.2);
+}
+.soa-lock-title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #475569;
+  margin-bottom: 0.3rem;
+}
+.soa-lock-sub {
+  font-size: 0.82rem;
+  color: #94a3b8;
+}
+
+.soa-locked-combined {
+  min-height: 180px;
+  margin-bottom: 16px;
+}

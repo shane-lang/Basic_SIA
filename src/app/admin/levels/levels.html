@@ -55,10 +55,10 @@
 
   <!-- Tabs -->
   <div class="level-tabs">
-    <button class="level-tab" [class.active]="filterLevel==='All'"     (click)="filterLevel='All'">🎓 All Programs</button>
-    <button class="level-tab" [class.active]="filterLevel==='College'" (click)="filterLevel='College'">🏫 College</button>
-    <button class="level-tab" [class.active]="filterLevel==='SHS'"     (click)="filterLevel='SHS'">📗 SHS Strands</button>
-    <button class="level-tab" [class.active]="filterLevel==='TVET'"    (click)="filterLevel='TVET'">🔧 TVET</button>
+    <button class="level-tab" [class.active]="filterLevel==='All'"     (click)="setFilterLevel('All')">🎓 All Programs</button>
+    <button class="level-tab" [class.active]="filterLevel==='College'" (click)="setFilterLevel('College')">🏫 College</button>
+    <button class="level-tab" [class.active]="filterLevel==='SHS'"     (click)="setFilterLevel('SHS')">📗 SHS Strands</button>
+    <button class="level-tab" [class.active]="filterLevel==='TVET'"    (click)="setFilterLevel('TVET')">🔧 TVET</button>
   </div>
 
   <!-- Loading -->
@@ -76,7 +76,7 @@
 
   <!-- Program Cards -->
   <div *ngIf="!isLoading && filteredPrograms.length > 0" class="programs-grid">
-    <div class="prog-card" *ngFor="let p of filteredPrograms"
+    <div class="prog-card" *ngFor="let p of pagedPrograms"
          [class.prog-college]="p.level_type==='College'"
          [class.prog-shs]="p.level_type==='SHS'"
          [class.prog-tvet]="p.level_type==='TVET'">
@@ -119,6 +119,20 @@
           </span>
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- ── Pagination ───────────────────────────────────────────────────── -->
+  <div *ngIf="!isLoading && filteredPrograms.length > 0" class="pagination-bar">
+    <span class="pagination-info">
+      Showing {{ (programPage - 1) * programPageSize + 1 }}–{{ programPage * programPageSize > filteredPrograms.length ? filteredPrograms.length : programPage * programPageSize }} of {{ filteredPrograms.length }} programs
+    </span>
+    <div class="pagination-controls">
+      <button class="page-btn" (click)="goToProgramPage(programPage - 1)" [disabled]="programPage === 1">&#8249;</button>
+      <button class="page-btn" *ngFor="let p of programPageNumbers()"
+              [class.active]="p === programPage"
+              (click)="goToProgramPage(p)">{{ p }}</button>
+      <button class="page-btn" (click)="goToProgramPage(programPage + 1)" [disabled]="programPage === programTotalPages">&#8250;</button>
     </div>
   </div>
 

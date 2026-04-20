@@ -45,7 +45,14 @@ $addDropAuthRequired = ['process_add_drop','get_add_drop_requests',
     'registrar_add_subject','registrar_drop_subject','set_add_drop_window',
     'accounting_approve_add_drop','get_pending_add_drop_for_accounting'];
 $addDropPublicOk = ['submit_add_drop','get_add_drop_window',
-    'get_student_enrollments','search_students'];
+    'get_student_enrollments','search_students',
+    // FIX PLAN-NULL-01: update_payment_plan is called by the login wizard BEFORE
+    // the student has a session token (finishTorReview calls it then calls login).
+    // With auth required it always 401s, plan is never written to DB, and every
+    // subsequent visit after the hint query-param is cleared shows 'full'.
+    // Allow unauthenticated calls — student_id is the identifier, and the only
+    // writable values are 'full'/'installment' which carry no bypass-payment risk.
+    'update_payment_plan'];
 if (in_array($action, $addDropAuthRequired)) {
     $authUser = requireAuth($conn);
 } elseif (in_array($action, $addDropPublicOk)) {
@@ -261,6 +268,16 @@ function getProfile($conn) {
             $department  = $progRow['department'] ?? '';
         }
     }
+    // FIX DEPT-CATEGORY-01: TVET and SHS programs are stored under the College
+    // department in the programs table (e.g. ICTD). Override with the correct
+    // department label based on student_category so the SOA header shows the
+    // right department and not the College one.
+    $catForDept = strtoupper(trim($s['student_category'] ?? ''));
+    if ($catForDept === 'TVET') {
+        $department = 'Technical-Vocational Education and Training (TVET)';
+    } elseif ($catForDept === 'SHS') {
+        $department = 'Senior High School (SHS)';
+    }
 
     // Use the student's own semester field (set at registration) as primary source
     // Fall back to detecting from enrolled courses for older accounts
@@ -299,7 +316,9 @@ function getProfile($conn) {
     $totalPaidP = $paidResP ? (float)$paidResP->fetch_assoc()['paid'] : 0;
     $studentCatP = strtoupper(trim($s['student_category'] ?? ''));
     $studentTypeP = strtolower(trim($s['student_type'] ?? ''));
-    $isFreeP = in_array($studentCatP, ['SHS','TVET']) && $studentTypeP !== 'transferee';
+    // TVET non-transferee = FREE (TESDA/PESFA/STEP gov scholarship)
+    // TVET transferee = flat rate (₱20k). SHS non-transferee = FREE (K-12 DepEd).
+    $isFreeP = (($studentCatP === 'SHS' || $studentCatP === 'TVET') && $studentTypeP !== 'transferee');
     if ($isFreeP) {
         $computedPaymentStatus = 'Free';
     } elseif ($totalAssessmentP <= 0) {
@@ -343,12 +362,16 @@ function getProfile($conn) {
         'paymentMethod'       => $s['payment_method'] ?: '',  // BUG-A FIX: '' not 'GCash'; getStudentContext() heals NULL via payment_logs history
         'paymentPlan'         => $s['payment_plan']      ?? 'full',
         'approvalStatus'      => $s['approval_status']   ?? '',
-        'isScholar'           => false,
-        'scholarType'         => '',
-        'scholarGrantor'      => '',
-        'scholarshipAmount'   => 0.0,
+        // FIX SCHOLAR-PROFILE-01: Return real scholar data instead of hardcoded false/empty.
+        // Read from students row (fast path) AND cross-check active student_scholarships record
+        // so that a pending-but-not-yet-approved scholar still shows isScholar=true on Step 4.
+        'isScholar'           => (bool)($s['is_scholar'] ?? false),
+        'scholarType'         => $s['scholar_type']     ?? '',
+        'scholarGrantor'      => $s['scholar_grantor']  ?? '',
+        'scholarshipAmount'   => (float)($s['scholarship_amount'] ?? 0),
         // Personal
         'lrnNo'               => $s['lrn_no']            ?? '',
+        'tvetType'            => $s['tvet_type']          ?? '',
         'dateOfBirth'         => $s['date_of_birth']     ?? '',
         'sex'                 => $s['sex']               ?? '',
         'religion'            => $s['religion']          ?? '',
@@ -382,11 +405,27 @@ function getPaymentStatus($conn) {
         echo json_encode(['success' => false, 'message' => 'Student not found']);
         return;
     }
-    $stmt = $conn->prepare("SELECT payment_status, payment_method, payment_plan, approval_status, enrollment_status FROM students WHERE id = ? LIMIT 1");
+    // FIX CONFIRMED-POLL-01: Select extra fields needed for Confirmed->Enrolled advancement check
+    // FIX REJECT-NOTES-01: Also fetch rejection_reason so the student sees WHY
+    // their payment was rejected on the enrollment/payment pending screen.
+    // The column is added lazily by rejectPayment() — use COALESCE so older
+    // rows without the column don't break the query.
+    $conn->query("ALTER TABLE students ADD COLUMN IF NOT EXISTS rejection_reason TEXT DEFAULT NULL");
+    $stmt = $conn->prepare("SELECT payment_status, payment_method, payment_plan, approval_status, enrollment_status, student_type, student_category, rejection_reason FROM students WHERE id = ? LIMIT 1");
     $stmt->bind_param("i", $student_id);
     $stmt->execute();
     $r = $stmt->get_result()->fetch_assoc();
     if ($r) {
+        // FIX CONFIRMED-POLL-01: Mirror getStudentContext Confirmed->Enrolled advancement.
+        // Angular polls get_payment_status to decide when to leave the Payment Pending screen.
+        // POLICY: Registrar must confirm all students. Do NOT auto-advance
+        // Confirmed → Enrolled here. getPaymentStatus() only reports the current
+        // DB value — the Registrar sets enrollment_status='Enrolled' explicitly
+        // via confirm_registration. Removing this block prevents the poll from
+        // bypassing the Registrar step for non-transferee College students.
+        $cat       = strtoupper(trim($r['student_category'] ?? ''));
+        $isTransf  = (strcasecmp(trim($r['student_type'] ?? ''), 'Transferee') === 0);
+        $isSHSTVET = ($cat === 'SHS' || $cat === 'TVET');
         // BUG-A FIX: Never default to 'GCash' here — if payment_method is NULL
         // (e.g. after re-enrollment before the student re-selects) return '' so
         // the frontend uses its own stored value rather than forcing GCash on
@@ -395,21 +434,75 @@ function getPaymentStatus($conn) {
         // that must not override that resolved value with a wrong default.
         $resolvedMethod = trim($r['payment_method'] ?? '');
         if ($resolvedMethod === '') {
-            // Quick heal: check most recent payment_log for this student
+            // BUG-TVET-CASH-03 FIX: Skip phantom GCash logs (blank ref + zero amount).
+            // Prefer Cash logs; only use GCash if it has a real reference or amount.
             $pmQ = $conn->prepare(
-                "SELECT payment_method FROM payment_logs
+                "SELECT payment_method, gcash_reference, gcash_amount FROM payment_logs
                  WHERE student_id = ? AND payment_method IS NOT NULL AND payment_method != ''
-                 ORDER BY created_at DESC LIMIT 1"
+                 ORDER BY
+                   CASE WHEN LOWER(payment_method) = 'cash' THEN 0 ELSE 1 END ASC,
+                   created_at DESC LIMIT 1"
             );
             $pmQ->bind_param('i', $student_id);
             $pmQ->execute();
             $pmR = $pmQ->get_result()->fetch_assoc();
             $pmQ->close();
             if ($pmR) {
-                $resolvedMethod = (strtolower($pmR['payment_method']) === 'cash') ? 'Cash' : 'GCash';
+                $logM = strtolower($pmR['payment_method']);
+                $isPhantom = ($logM === 'gcash')
+                    && (trim($pmR['gcash_reference'] ?? '') === '')
+                    && ((float)($pmR['gcash_amount'] ?? 0) <= 0);
+                if (!$isPhantom) {
+                    $resolvedMethod = ($logM === 'cash') ? 'Cash' : 'GCash';
+                }
             }
             // If still empty leave as '' — do NOT default to GCash
         }
+        // FIX REJECT-NOTES-01 (final): Surface the accounting rejection reason
+        // to the student so they know exactly what to fix before resubmitting.
+        //
+        // Priority order:
+        //   1. students.rejection_reason — written by rejectPayment(), clean text,
+        //      never has exam-period prefixes.  This is the authoritative source.
+        //   2. payment_logs.rejection_reason — same value but scoped to the log row.
+        //   3. payment_logs.notes — legacy fallback; strip the "Prelim|[Prelim] "
+        //      prefix that submitPayment() prepends before surfacing to the student.
+        //
+        // Only populated when the student is in Pending/Pending state (i.e. payment
+        // was just rejected).  Cleared to null once a new payment is submitted.
+        $rejectedNote = null;
+        if ($r['payment_status'] === 'Pending' && $r['approval_status'] === 'Pending') {
+
+            // Source 1: students.rejection_reason (added by FIX REJECT-NOTES-01 in Accounting.php)
+            $rejectedNote = !empty($r['rejection_reason']) ? trim($r['rejection_reason']) : null;
+
+            // Source 2 & 3: fall back to payment_logs if students row has no reason yet
+            // (covers rows rejected before this fix was deployed)
+            if (!$rejectedNote) {
+                $rnQ = $conn->prepare(
+                    "SELECT rejection_reason, notes FROM payment_logs
+                     WHERE student_id = ? AND status = 'Rejected'
+                     ORDER BY created_at DESC LIMIT 1"
+                );
+                if ($rnQ) {
+                    $rnQ->bind_param('i', $student_id);
+                    $rnQ->execute();
+                    $rnRow = $rnQ->get_result()->fetch_assoc();
+                    $rnQ->close();
+
+                    if (!empty($rnRow['rejection_reason'])) {
+                        // Source 2: clean dedicated column
+                        $rejectedNote = trim($rnRow['rejection_reason']);
+                    } elseif (!empty($rnRow['notes'])) {
+                        // Source 3: legacy notes — strip "ExamPeriod|[ExamPeriod] " prefix
+                        $raw = trim($rnRow['notes']);
+                        $raw = preg_replace('/^(Prelim|Midterm|Finals|Downpayment|Full)\|(\[\1\]\s*)?/i', '', $raw);
+                        $rejectedNote = $raw !== '' ? $raw : null;
+                    }
+                }
+            }
+        }
+
         echo json_encode([
             'success'          => true,
             'paymentStatus'    => $r['payment_status'],
@@ -417,6 +510,9 @@ function getPaymentStatus($conn) {
             'paymentPlan'      => $r['payment_plan']    ?? 'full',
             'approvalStatus'   => $r['approval_status'],
             'enrollmentStatus' => $r['enrollment_status'],
+            // FIX REJECT-NOTES-01: Accounting rejection reason shown to student.
+            // null when no rejection has occurred or a new payment was submitted.
+            'rejectedNote'     => $rejectedNote,
         ]);
     } else {
         echo json_encode(['success' => false, 'message' => 'Student not found']);
@@ -521,6 +617,25 @@ function getAvailableCourses($conn) {
             ON e.course_id = c.id AND e.status IN ('Pending','Enrolled')
     ";
 
+
+    // FIX ADD-DROP-CREDITED-01: Exclude credited subjects from the Add list.
+    // A credited subject must not appear as addable — it is already "done".
+    $_adCrIds = [];
+    if ($student_id > 0) {
+        $_adCrR = $conn->query("SELECT credited_course_ids, credited_subjects FROM tor_evaluations WHERE student_id = $student_id AND status = 'Evaluated' ORDER BY id DESC LIMIT 1");
+        if ($_adCrR && $_adCrRow = $_adCrR->fetch_assoc()) {
+            $_dec = json_decode($_adCrRow['credited_course_ids'] ?? 'null', true);
+            if (is_array($_dec)) {
+                $_adCrIds = array_map('intval', $_dec);
+            } elseif (!empty($_adCrRow['credited_subjects'])) {
+                foreach (json_decode($_adCrRow['credited_subjects'], true) ?: [] as $_cs) {
+                    if (!empty($_cs['courseId'])) $_adCrIds[] = (int)$_cs['courseId'];
+                }
+            }
+        }
+    }
+    $_crExSql = !empty($_adCrIds) ? 'AND c.id NOT IN (' . implode(',', $_adCrIds) . ')' : '';
+
     if ($student_id > 0 && $semester !== '') {
         $sql  = $baseSelect . "
             WHERE c.semester = ?
@@ -528,6 +643,7 @@ function getAvailableCourses($conn) {
                 SELECT course_id FROM enrollments
                 WHERE student_id = ? AND semester = ? AND status IN ('Pending','Enrolled')
               )
+              " . $_crExSql . "
             GROUP BY c.id
             ORDER BY c.code
         ";
@@ -540,6 +656,7 @@ function getAvailableCourses($conn) {
                 SELECT course_id FROM enrollments
                 WHERE student_id = ? AND status IN ('Pending','Enrolled')
             )
+            " . $_crExSql . "
             GROUP BY c.id
             ORDER BY c.code
         ";
@@ -708,6 +825,7 @@ function getEnrollments($conn) {
             $enrollments[] = [
                 'id'             => (int)$r['id'],
                 'courseId'       => (int)$r['course_id'],
+                'isCredited'     => in_array((int)$r['course_id'], $safeIds),
                 'code'           => cleanCode($r['code']),
                 'name'           => $r['name'],
                 'credits'        => $cred,
@@ -742,13 +860,96 @@ function registerTransferee($conn, $data) {
         echo json_encode(['success' => false, 'message' => $msg, 'enrollment_closed' => true]);
         return;
     }
-    // Validate required fields
-    foreach (['user_id', 'firstName', 'lastName', 'email', 'program'] as $f) {
+    // ── Input validation ──────────────────────────────────────────────────────
+    $requiredFieldsT = ['user_id' => 'User ID', 'firstName' => 'First name',
+                        'lastName' => 'Last name', 'email' => 'Email', 'program' => 'Program'];
+    foreach ($requiredFieldsT as $f => $label) {
         if (empty($data[$f])) {
-            echo json_encode(['success' => false, 'message' => "Field '$f' is required"]);
+            echo json_encode(['success' => false, 'message' => "$label is required."]);
             return;
         }
     }
+    $emailValT = trim($data['email'] ?? '');
+    if (!filter_var($emailValT, FILTER_VALIDATE_EMAIL)) {
+        echo json_encode(['success' => false, 'message' => 'Please enter a valid email address.']);
+        return;
+    }
+    // FIX VAL-EMAIL-01: Reject addresses with no real TLD (e.g. test@test, user@localhost)
+    if (!preg_match('/^[^@]+@[^@]+\.[a-zA-Z]{2,}$/', $emailValT)) {
+        echo json_encode(['success' => false, 'message' => 'Please enter a valid email address with a proper domain (e.g. juan@gmail.com).']);
+        return;
+    }
+    if (strlen($emailValT) > 255) {
+        echo json_encode(['success' => false, 'message' => 'Email address is too long.']);
+        return;
+    }
+    $firstNameValT = trim($data['firstName'] ?? '');
+    if (strlen($firstNameValT) > 100) {
+        echo json_encode(['success' => false, 'message' => 'First name must not exceed 100 characters.']);
+        return;
+    }
+    if (!preg_match("/^[\p{L}\s'\-\.]+$/u", $firstNameValT)) {
+        echo json_encode(['success' => false, 'message' => 'First name contains invalid characters.']);
+        return;
+    }
+    $lastNameValT = trim($data['lastName'] ?? '');
+    if (strlen($lastNameValT) > 100) {
+        echo json_encode(['success' => false, 'message' => 'Last name must not exceed 100 characters.']);
+        return;
+    }
+    if (!preg_match("/^[\p{L}\s'\-\.]+$/u", $lastNameValT)) {
+        echo json_encode(['success' => false, 'message' => 'Last name contains invalid characters.']);
+        return;
+    }
+    $phoneValT = trim($data['phone'] ?? '');
+    if ($phoneValT !== '') {
+        // FIX VAL-PHONE-01: Enforce Philippine mobile number format.
+        // Accepts: 09XXXXXXXXX (11 digits) or +639XXXXXXXXX (13 chars)
+        // Also accepts landline-style numbers with optional area code (7–10 digits)
+        $normalizedPhone = preg_replace('/[\s\-\(\)]/', '', $phoneValT);
+        $isPhMobile  = preg_match('/^(09|\+639)\d{9}$/', $normalizedPhone);
+        $isOtherLandline = preg_match('/^(\+?\d{1,3}[\s\-]?)?\(?\d{2,4}\)?[\s\-]?\d{3,4}[\s\-]?\d{3,4}$/', $phoneValT);
+        if (!$isPhMobile && !$isOtherLandline) {
+            echo json_encode(['success' => false, 'message' => 'Phone number must be a valid Philippine mobile number (e.g. 09XXXXXXXXX or +639XXXXXXXXX).']);
+            return;
+        }
+    }
+    $dobValT = trim($data['dateOfBirth'] ?? '');
+    if ($dobValT !== '') {
+        $dT = DateTime::createFromFormat('Y-m-d', $dobValT);
+        if (!$dT || $dT->format('Y-m-d') !== $dobValT) {
+            echo json_encode(['success' => false, 'message' => 'Date of birth must be in YYYY-MM-DD format.']);
+            return;
+        }
+        // FIX VAL-DOB-01: Block today and future dates (age must be > 0)
+        $today = new DateTime('today');
+        if ($dT >= $today) {
+            echo json_encode(['success' => false, 'message' => 'Date of birth must be before today.']);
+            return;
+        }
+        // FIX VAL-DOB-02: Minimum age check — must be at least 10 years old
+        $age = (int)$today->diff($dT)->y;
+        if ($age < 10) {
+            echo json_encode(['success' => false, 'message' => 'Student must be at least 10 years old to enroll.']);
+            return;
+        }
+        // FIX VAL-DOB-03: Sanity upper bound — date of birth can't be too far in the past
+        if ($age > 100) {
+            echo json_encode(['success' => false, 'message' => 'Please enter a valid date of birth.']);
+            return;
+        }
+    }
+    if (empty($data['lastSchoolAttended'])) {
+        echo json_encode(['success' => false, 'message' => 'Last school attended is required for transferees.']);
+        return;
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // NOTE: TOR file path is NOT required at registration time.
+    // The frontend (sendTorNow) uploads the TOR in step 3 AFTER this call,
+    // using the student_id returned here. Blocking here was wrong because
+    // upload_tor_file requires a student_id that doesn't exist yet.
+    $torFilePath = trim($data['torFilePath'] ?? $data['tor_file_path'] ?? '');
 
     $user_id             = (int)$data['user_id'];
     $firstName           = trim($data['firstName']);
@@ -762,14 +963,29 @@ function registerTransferee($conn, $data) {
     $program             = trim($data['program']);
     $semester            = trim($data['semester']            ?? '');
     $lastSchoolAttended  = trim($data['lastSchoolAttended']  ?? '');
-    
-    // Transferee specific
-    $studentType         = 'Transferee';  // Force transferee type
+    $torFilePath         = trim($data['torFilePath'] ?? $data['tor_file_path'] ?? '');
     $studentCategory     = trim($data['studentCategory'] ?? '');
+    // FIX STUDENT-TYPE-01: registerTransferee() always registers a Transferee.
+    // $studentType was never assigned here, causing an empty string to be saved
+    // to students.student_type — making the Type column blank in TOR Evaluation.
+    $studentType         = 'Transferee';
+    // FIX TVET-TRANSFEREE-01: Save tvet_type for TVET transferees
+    $tvetType            = trim($data['tvet_type'] ?? $data['tvetType'] ?? '');
     
-    // Normalize payment method
-    $rawMethod          = strtolower(trim($data['paymentMethod'] ?? 'gcash'));
-    $paymentMethod      = ($rawMethod === 'cash') ? 'Cash' : 'GCash';
+    // Normalize payment method — accept Cash/GCash case-insensitively.
+    // FIX PM-TRANSFEREE-01: When paymentMethod is absent/empty at registration time
+    // (Step 1 of wizard — payment method is chosen later in Step 4), store '' so
+    // getStudentContext() self-heals from payment_logs on first login.
+    // Defaulting to 'GCash' here overwrites the student's eventual Cash selection
+    // because the DB column is already 'GCash' and the self-heal never fires.
+    $rawMethod          = strtolower(trim($data['paymentMethod'] ?? ''));
+    if ($rawMethod === 'cash') {
+        $paymentMethod = 'Cash';
+    } elseif ($rawMethod === 'gcash') {
+        $paymentMethod = 'GCash';
+    } else {
+        $paymentMethod = ''; // unknown/absent — let getStudentContext() heal from payment_logs
+    }
     
     // Payment plan: full or installment
     $rawPlan           = strtolower(trim($data['paymentPlan'] ?? 'full'));
@@ -866,6 +1082,7 @@ function registerTransferee($conn, $data) {
            has_special_needs, special_needs_details,
            has_assistive_tech, assistive_tech_details,
            payment_plan, payment_method,
+           tvet_type,
            tor_eval_status,
            enrollment_status, payment_status, approval_status)
         VALUES
@@ -880,6 +1097,7 @@ function registerTransferee($conn, $data) {
            ?, ?,
            ?, ?,
            ?, ?,
+           ?,
            'Pending',
            'Pending', 'Pending', 'Pending')
     ");
@@ -889,7 +1107,8 @@ function registerTransferee($conn, $data) {
         return;
     }
 
-    $ins->bind_param("isssssssssssssssssssssissisiss",
+    // 32 params: i s ssss sss ss sssss ssssss is s is is ss s
+    $ins->bind_param("isssssssssssssssssssssissisissss",
         $user_id, $studentNumber,
         $firstName, $lastName, $middleName, $suffix,
         $phone, $dobBind, $address,
@@ -900,7 +1119,8 @@ function registerTransferee($conn, $data) {
         $lastSchoolAttended,
         $hasSpecialNeeds, $specialNeedsDetails,
         $hasAssistiveTech, $assistiveTechDetails,
-        $paymentPlan, $paymentMethod
+        $paymentPlan, $paymentMethod,
+        $tvetType
     );
 
     try { $ins->execute(); }
@@ -917,14 +1137,50 @@ function registerTransferee($conn, $data) {
         $conn->commit(); // FIX E-05: commit the student number transaction
         $newStudentId = $ins->insert_id;
         
-        // Create pending TOR evaluation record for transferee
+        // Create pending TOR evaluation record for transferee — include the uploaded file path
+        // FIX TOR-REQUIRED-01: Store the file reference so Registrar can view/download the TOR.
+        // Ensure the column exists (safe no-op if already present from migrate.php).
+        $conn->query("ALTER TABLE tor_evaluations ADD COLUMN IF NOT EXISTS tor_file_path VARCHAR(500) DEFAULT NULL");
         $torStmt = $conn->prepare("
-            INSERT INTO tor_evaluations (student_id, status, credited_units, approved_units)
-            VALUES (?, 'Pending', 0, 0)
-            ON DUPLICATE KEY UPDATE status = 'Pending', updated_at = NOW()
+            INSERT INTO tor_evaluations (student_id, status, credited_units, approved_units, tor_file_path)
+            VALUES (?, 'Pending', 0, 0, ?)
+            ON DUPLICATE KEY UPDATE status = 'Pending', tor_file_path = VALUES(tor_file_path), updated_at = NOW()
         ");
-        $torStmt->bind_param("i", $newStudentId);
+        $torStmt->bind_param("is", $newStudentId, $torFilePath);
         $torStmt->execute();
+
+        // FIX TVET-TRANSFEREE-SOA-01: Write flat-rate tuition_fees immediately on
+        // registration so saveSoaSnapshot() can seed a non-empty SOA snapshot.
+        // Without this, the SOA assessment is blank until getStudentContext() is
+        // called for the first time (which may be much later, or never, if Accounting
+        // opens the SOA view before the student logs in).
+        if (strtoupper(trim($studentCategory)) === 'TVET') {
+            $fc_early   = loadFeeConfig($conn, 'TVET');
+            $flatEarly  = (float)($fc_early['transferee_flat_rate']['value'] ?? 20000);
+            // FIX BUG-TVET-INST-SEED-01: Use actual $paymentPlan when seeding installment_fee.
+            // Previously hardcoded 0, causing the SOA snapshot to always show full-payment
+            // amount (₱20k) even when the student chose installment — because the snapshot
+            // was written here before updatePaymentPlan() had a chance to correct it.
+            $instEarly  = ($paymentPlan === 'installment')
+                          ? (float)($fc_early['installment_fee']['value'] ?? 500)
+                          : 0.0;
+            $totalEarly = $flatEarly + $instEarly;
+            $semEscE    = $conn->real_escape_string($semester);
+            $conn->query("INSERT INTO tuition_fees
+                (student_id, units, tuition_fee, miscellaneous_fee, registration_fee,
+                 laboratory_fee, energy_fee, subtotal, discount, installment_fee,
+                 total_assessment, semester)
+                VALUES ($newStudentId, 0, 0, 0, 0, 0, 0,
+                        $flatEarly, 0, $instEarly, $totalEarly, '$semEscE')
+                ON DUPLICATE KEY UPDATE
+                    subtotal=IF(subtotal=0,$flatEarly,subtotal),
+                    installment_fee=IF(total_assessment=0,$instEarly,installment_fee),
+                    total_assessment=IF(total_assessment=0,$totalEarly,total_assessment),
+                    semester='$semEscE', updated_at=NOW()");
+            // Seed the SOA snapshot immediately so Accounting/Registrar see the correct
+            // amount from day one — with installment surcharge if plan is installment.
+            saveSoaSnapshot($conn, $newStudentId, $semester);
+        }
 
         // Create initial payment log entry
         if ($paymentMethod === 'Cash') {
@@ -1000,18 +1256,147 @@ function registerStudentSHS($conn, $data) {
 
 // ─────────────────────────────────────────────────────────────
 // REGISTER STUDENT — TVET
-// Wrapper: forces studentCategory='TVET', stores tvetType
+// Wrapper: forces studentCategory='TVET', stores tvetType,
+// allows year_level up to 3rd Year (for returning/continuing TVET students),
+// and handles optional TOR upload stored in tor_evaluations.
 // ─────────────────────────────────────────────────────────────
 function registerStudentTVET($conn, $data) {
     // Force category
     $data['studentCategory'] = 'TVET';
 
-    // Store tvetType in the data (registerStudent already handles tvet_type via extraCols)
+    // Normalise tvetType alias
     if (!empty($data['tvetType']) && empty($data['tvet_type'])) {
         $data['tvet_type'] = $data['tvetType'];
     }
 
+    // FIX TVET-YEARLEVEL-01: Allow 1st, 2nd, or 3rd Year for continuing/returning
+    // TVET students. Default to '1st Year' for brand-new registrants.
+    $validTvetYearLevels = ['1st Year', '2nd Year', '3rd Year'];
+    if (!empty($data['yearLevel']) && in_array($data['yearLevel'], $validTvetYearLevels, true)) {
+        // keep the value provided by the frontend
+    } else {
+        $data['yearLevel'] = '1st Year';
+    }
+
+    // FIX TVET-TRANSFEREE-WIZARD-01: TVET transferees follow the same wizard as
+    // College transferees — same steps, same validations, same TOR requirement.
+    // The ONLY difference is a fixed ₱20,000 tuition (vs per-unit for College).
+    // Ensure studentType is normalised and lastSchoolAttended is required for transferees.
+    $studentType = strtolower(trim($data['studentType'] ?? 'new'));
+    if ($studentType === 'transferee') {
+        // Mirror the validation that registerTransferee() performs
+        if (empty($data['lastSchoolAttended'])) {
+            ob_end_clean();
+            echo json_encode(['success' => false, 'message' => 'Last school attended is required for transferees.']);
+            return;
+        }
+        // Normalise casing to match what registerTransferee() stores
+        $data['studentType'] = 'Transferee';
+    }
+
+    // FIX TVET-TOR-01: Accept optional TOR file path for TVET students (e.g. returning
+    // students with prior credits who want their TOR evaluated).
+    // Works identically to registerTransferee's TOR handling: stores the reference in
+    // tor_evaluations with status='Pending' so Registrar can evaluate it.
+    $torFilePath = trim($data['torFilePath'] ?? $data['tor_file_path'] ?? '');
+    $data['_tvet_tor_file_path'] = $torFilePath; // carry through to post-insert hook below
+
+    // Run the shared registration logic
+    $result = registerStudentTVETWithTor($conn, $data, $torFilePath);
+    // registerStudentTVETWithTor echoes JSON itself; nothing more to do here.
+}
+
+/**
+ * Internal helper — calls registerStudent() then, if a TOR path was provided,
+ * inserts/updates the tor_evaluations row.  We can't do this inside
+ * registerStudent() because that function echoes its own JSON and returns;
+ * we need the new student_id from its response to insert the TOR row.
+ *
+ * Strategy: capture registerStudent()'s output, decode it, act on the student_id,
+ * then re-emit the (possibly augmented) JSON.
+ */
+function registerStudentTVETWithTor(mysqli $conn, array $data, string $torFilePath): void {
+    ob_start();
     registerStudent($conn, $data);
+    $raw = ob_get_clean();
+
+    $resp = json_decode($raw, true);
+
+    if (!empty($resp['success'])) {
+        $newStudentId = (int)($resp['student_id'] ?? 0);
+        $isTransferee = (strtolower(trim($data['studentType'] ?? '')) === 'transferee');
+
+        if ($newStudentId > 0) {
+            $semester = trim($data['semester'] ?? '');
+
+            // ── TOR record: always create for transferees; create for non-transferees
+            //    only when a TOR file was actually supplied. ───────────────────────
+            $needsTorRecord = $isTransferee || $torFilePath !== '';
+            if ($needsTorRecord) {
+                $conn->query("ALTER TABLE tor_evaluations ADD COLUMN IF NOT EXISTS tor_file_path VARCHAR(500) DEFAULT NULL");
+                $torStmt = $conn->prepare("
+                    INSERT INTO tor_evaluations (student_id, status, credited_units, approved_units, tor_file_path)
+                    VALUES (?, 'Pending', 0, 0, ?)
+                    ON DUPLICATE KEY UPDATE
+                        status        = 'Pending',
+                        tor_file_path = IF(VALUES(tor_file_path) != '', VALUES(tor_file_path), tor_file_path),
+                        updated_at    = NOW()
+                ");
+                if ($torStmt) {
+                    $torStmt->bind_param("is", $newStudentId, $torFilePath);
+                    $torStmt->execute();
+                    $torStmt->close();
+                    $resp['tor_status'] = 'Pending';
+                    if ($torFilePath !== '') {
+                        $resp['message'] .= ' TOR uploaded and pending evaluation.';
+                    }
+                }
+            }
+
+            // ── FIX TVET-TRANSFEREE-WIZARD-02: Seed ₱20k flat-rate fee immediately
+            //    on registration so the SOA is never blank when Accounting opens it.
+            //    This mirrors exactly what registerTransferee() does at lines 1011-1027.
+            //    registerStudent() (called above) already handles this via the post-insert
+            //    block added in FIX TVET-TRANSFEREE-FEE-01, but we also handle the
+            //    already_existed=true path here (idempotent ON DUPLICATE KEY UPDATE). ──
+            if ($isTransferee && $semester !== '') {
+                $fc_early   = loadFeeConfig($conn, 'TVET');
+                $flatEarly  = (float)($fc_early['transferee_flat_rate']['value'] ?? 20000);
+                // FIX BUG-TVET-INST-SEED-01 (registerStudentTVETWithTor): same as
+                // registerTransferee fix — resolve installment_fee from $data instead
+                // of hardcoding 0, so the snapshot is correct from the start.
+                $_rawPlanW  = strtolower(trim($data['paymentPlan'] ?? 'full'));
+                $_planW     = ($_rawPlanW === 'installment') ? 'installment' : 'full';
+                $instEarly  = ($_planW === 'installment')
+                              ? (float)($fc_early['installment_fee']['value'] ?? 500)
+                              : 0.0;
+                $totalEarly = $flatEarly + $instEarly;
+                $semEscE    = $conn->real_escape_string($semester);
+                $conn->query("INSERT INTO tuition_fees
+                    (student_id, units, tuition_fee, miscellaneous_fee, registration_fee,
+                     laboratory_fee, energy_fee, subtotal, discount, installment_fee,
+                     total_assessment, semester)
+                    VALUES ($newStudentId, 0, 0, 0, 0, 0, 0,
+                            $flatEarly, 0, $instEarly, $totalEarly, '$semEscE')
+                    ON DUPLICATE KEY UPDATE
+                        subtotal=IF(subtotal=0,$flatEarly,subtotal),
+                        installment_fee=IF(total_assessment=0,$instEarly,installment_fee),
+                        total_assessment=IF(total_assessment=0,$totalEarly,total_assessment),
+                        semester='$semEscE', updated_at=NOW()");
+                saveSoaSnapshot($conn, $newStudentId, $semester);
+            }
+
+            // ── Patch the response message for transferees (same as registerTransferee) ──
+            if ($isTransferee && empty($resp['already_existed'])) {
+                $resp['message']     = 'Transferee registered successfully. Please submit your TOR (Transcript of Records) for evaluation.';
+                $resp['student_type']= 'Transferee';
+                $resp['next_step']   = 'submit_tor';
+                $resp['instructions']= 'As a TVET transferee, you need to submit your TOR for evaluation by the Registrar before proceeding to payment and enrollment.';
+            }
+        }
+    }
+
+    echo json_encode($resp);
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -1029,12 +1414,86 @@ function registerStudent($conn, $data) {
         return;
     }
     // ─────────────────────────────────────────────────────────────
-    foreach (['user_id', 'firstName', 'lastName', 'email', 'program'] as $f) {
+    // ── Input validation ──────────────────────────────────────────────────────
+    $requiredFields = ['user_id' => 'User ID', 'firstName' => 'First name',
+                       'lastName' => 'Last name', 'email' => 'Email', 'program' => 'Program'];
+    foreach ($requiredFields as $f => $label) {
         if (empty($data[$f])) {
-            echo json_encode(['success' => false, 'message' => "Field '$f' is required"]);
+            echo json_encode(['success' => false, 'message' => "$label is required."]);
             return;
         }
     }
+    $emailVal = trim($data['email'] ?? '');
+    if (!filter_var($emailVal, FILTER_VALIDATE_EMAIL)) {
+        echo json_encode(['success' => false, 'message' => 'Please enter a valid email address.']);
+        return;
+    }
+    // FIX VAL-EMAIL-01: Reject addresses with no real TLD (e.g. test@test, user@localhost)
+    if (!preg_match('/^[^@]+@[^@]+\.[a-zA-Z]{2,}$/', $emailVal)) {
+        echo json_encode(['success' => false, 'message' => 'Please enter a valid email address with a proper domain (e.g. juan@gmail.com).']);
+        return;
+    }
+    if (strlen($emailVal) > 255) {
+        echo json_encode(['success' => false, 'message' => 'Email address is too long.']);
+        return;
+    }
+    $firstNameVal = trim($data['firstName'] ?? '');
+    if (strlen($firstNameVal) > 100) {
+        echo json_encode(['success' => false, 'message' => 'First name must not exceed 100 characters.']);
+        return;
+    }
+    if (!preg_match("/^[\p{L}\s'\-\.]+$/u", $firstNameVal)) {
+        echo json_encode(['success' => false, 'message' => 'First name contains invalid characters.']);
+        return;
+    }
+    $lastNameVal = trim($data['lastName'] ?? '');
+    if (strlen($lastNameVal) > 100) {
+        echo json_encode(['success' => false, 'message' => 'Last name must not exceed 100 characters.']);
+        return;
+    }
+    if (!preg_match("/^[\p{L}\s'\-\.]+$/u", $lastNameVal)) {
+        echo json_encode(['success' => false, 'message' => 'Last name contains invalid characters.']);
+        return;
+    }
+    $phoneVal = trim($data['phone'] ?? '');
+    if ($phoneVal !== '') {
+        // FIX VAL-PHONE-01: Enforce Philippine mobile number format.
+        // Accepts: 09XXXXXXXXX (11 digits) or +639XXXXXXXXX (13 chars)
+        // Also accepts landline-style numbers with optional area code
+        $normalizedPhoneVal = preg_replace('/[\s\-\(\)]/', '', $phoneVal);
+        $isPhMobileVal  = preg_match('/^(09|\+639)\d{9}$/', $normalizedPhoneVal);
+        $isOtherLandlineVal = preg_match('/^(\+?\d{1,3}[\s\-]?)?\(?\d{2,4}\)?[\s\-]?\d{3,4}[\s\-]?\d{3,4}$/', $phoneVal);
+        if (!$isPhMobileVal && !$isOtherLandlineVal) {
+            echo json_encode(['success' => false, 'message' => 'Phone number must be a valid Philippine mobile number (e.g. 09XXXXXXXXX or +639XXXXXXXXX).']);
+            return;
+        }
+    }
+    $dobVal = trim($data['dateOfBirth'] ?? '');
+    if ($dobVal !== '') {
+        $d = DateTime::createFromFormat('Y-m-d', $dobVal);
+        if (!$d || $d->format('Y-m-d') !== $dobVal) {
+            echo json_encode(['success' => false, 'message' => 'Date of birth must be in YYYY-MM-DD format.']);
+            return;
+        }
+        // FIX VAL-DOB-01: Block today and future dates (age must be > 0)
+        $today = new DateTime('today');
+        if ($d >= $today) {
+            echo json_encode(['success' => false, 'message' => 'Date of birth must be before today.']);
+            return;
+        }
+        // FIX VAL-DOB-02: Minimum age check — must be at least 10 years old
+        $age = (int)$today->diff($d)->y;
+        if ($age < 10) {
+            echo json_encode(['success' => false, 'message' => 'Student must be at least 10 years old to enroll.']);
+            return;
+        }
+        // FIX VAL-DOB-03: Sanity upper bound
+        if ($age > 100) {
+            echo json_encode(['success' => false, 'message' => 'Please enter a valid date of birth.']);
+            return;
+        }
+    }
+    // ─────────────────────────────────────────────────────────────────────────
 
     $user_id             = (int)$data['user_id'];
     $firstName           = trim($data['firstName']);
@@ -1047,12 +1506,28 @@ function registerStudent($conn, $data) {
     $address             = trim($data['address']             ?? '');
     $program             = trim($data['program']);
     $studentType         = trim($data['studentType']         ?? 'New');
+    // FIX TRANSFEREE-NORMALIZE-01: Always store 'Transferee' with capital T.
+    // Frontend may pass 'transferee' (lowercase) from some code paths, causing
+    // all case-sensitive checks in PHP and Angular to fail silently.
+    if (strtolower($studentType) === 'transferee') $studentType = 'Transferee';
     $studentCategory     = trim($data['studentCategory']     ?? '');
     $enrollmentDate      = date('Y-m-d');
+    // TVET type (NC level / diploma type) — stored in students.tvet_type
+    $tvetType            = trim($data['tvet_type'] ?? $data['tvetType'] ?? '');
 
-    // Normalize payment method
-    $rawMethod     = strtolower(trim($data['paymentMethod'] ?? 'gcash'));
-    $paymentMethod = ($rawMethod === 'cash') ? 'Cash' : 'GCash';
+    // Normalize payment method — accept Cash/GCash case-insensitively.
+    // FIX PM-TRANSFEREE-01 (registerStudent): same fix as registerTransferee.
+    // When paymentMethod is absent at Step 1 registration, store '' so
+    // getStudentContext() self-heals from payment_logs rather than permanently
+    // stamping 'GCash' which masks any subsequent Cash selection.
+    $rawMethod = strtolower(trim($data['paymentMethod'] ?? ''));
+    if ($rawMethod === 'cash') {
+        $paymentMethod = 'Cash';
+    } elseif ($rawMethod === 'gcash') {
+        $paymentMethod = 'GCash';
+    } else {
+        $paymentMethod = ''; // unknown/absent — let getStudentContext() heal from payment_logs
+    }
 
     // Payment plan: full or installment
     $rawPlan     = strtolower(trim($data['paymentPlan'] ?? 'full'));
@@ -1145,6 +1620,11 @@ function registerStudent($conn, $data) {
     // Schema managed by migrate.php
 
     // INSERT using actual DB column names
+    // FIX TVET-YEARLEVEL-01: Capture yearLevel so it is persisted.
+    // For TVET students this may be '1st Year', '2nd Year', or '3rd Year'.
+    // For SHS it will be 'Grade 11' / 'Grade 12'. For College the default is '1st Year'.
+    $yearLevel = trim($data['yearLevel'] ?? '1st Year');
+
     $ins = $conn->prepare("
         INSERT INTO students
           (user_id, student_number,
@@ -1152,12 +1632,14 @@ function registerStudent($conn, $data) {
            phone, date_of_birth, address,
            emergency_contact, emergency_phone,
            program, student_type, student_category, semester, enrollment_date,
+           year_level,
            lrn_no, sex, religion, place_of_birth, citizenship, mother_tongue,
            is_indigenous, psa_birth_cert_no,
            last_school_attended, strand, learning_delivery,
            has_special_needs, special_needs_details,
            has_assistive_tech, assistive_tech_details,
            payment_plan, payment_method,
+           tvet_type,
            enrollment_status, payment_status, approval_status)
         VALUES
           (?, ?,
@@ -1165,12 +1647,14 @@ function registerStudent($conn, $data) {
            ?, ?, ?,
            ?, ?,
            ?, ?, ?, ?, ?,
+           ?,
            ?, ?, ?, ?, ?, ?,
            ?, ?,
            ?, ?, ?,
            ?, ?,
            ?, ?,
            ?, ?,
+           ?,
            'Pending', 'Pending', 'Pending')
     ");
 
@@ -1179,18 +1663,22 @@ function registerStudent($conn, $data) {
         return;
     }
 
-    $ins->bind_param("isssssssssssssssssssssissssisisss",
+    // 35 params: i(user_id) s(num) ssss(name) sss(phone/dob/addr) ss(emerg) ssssss(prog+sem+date+yr)
+    // ssssss(personal) is(indigenous) sss(school/strand/delivery) is(needs) is(assistive) ss(plan/method) s(tvet)
+    $ins->bind_param("issssssssssssssssssssssissssisissss",
         $user_id, $studentNumber,
         $firstName, $lastName, $middleName, $suffix,
         $phone, $dobBind, $address,
         $emergencyContact, $emergencyPhone,
         $program, $studentType, $studentCategory, $semester, $enrollmentDate,
+        $yearLevel,
         $lrnNo, $sex, $religion, $placeOfBirth, $citizenship, $motherTongue,
         $isIndigenous, $psaBirthCertNo,
         $lastSchoolAttended, $strand, $learningDelivery,
         $hasSpecialNeeds, $specialNeedsDetails,
         $hasAssistiveTech, $assistiveTechDetails,
-        $paymentPlan, $paymentMethod
+        $paymentPlan, $paymentMethod,
+        $tvetType
     );
 
     try { $ins->execute(); }
@@ -1234,9 +1722,13 @@ function registerStudent($conn, $data) {
             $sIns->bind_param("issds", $newStudentId, $scholarType, $scholarGrantor, $scholarshipAmount, $semester);
             $sIns->execute();
             $sIns->close();
-            // Mark student as scholar-pending (does NOT apply discount yet)
-            $schUpd = $conn->prepare("UPDATE students SET is_scholar=1, scholar_type=?, scholar_grantor=? WHERE id=?");
-            $schUpd->bind_param("ssi", $scholarType, $scholarGrantor, $newStudentId);
+            // FIX SCHOLAR-PENDING-DISCOUNT-01: Also save scholarship_amount to students table
+            // so getStudentContext() uses it as a preliminary discount in the fee preview
+            // (Payment Instructions step 4). Without this, students.scholarship_amount stays 0
+            // and the fee breakdown shows no discount until Accounting approves — confusing
+            // the student who just declared their scholarship.
+            $schUpd = $conn->prepare("UPDATE students SET is_scholar=1, scholar_type=?, scholar_grantor=?, scholarship_amount=? WHERE id=?");
+            $schUpd->bind_param("ssdi", $scholarType, $scholarGrantor, $scholarshipAmount, $newStudentId);
             $schUpd->execute();
             $schUpd->close();
         }
@@ -1249,6 +1741,36 @@ function registerStudent($conn, $data) {
             $logStmt->bind_param("is", $newStudentId, $semester);
             $logStmt->execute();
             $logStmt->close();
+        }
+
+        // FIX TVET-TRANSFEREE-FEE-01: If this is a TVET transferee registered through
+        // register_student_tvet (not register_transferee), seed the ₱20k flat-rate
+        // tuition_fees row and SOA snapshot immediately — same as registerTransferee() does.
+        // Uses IF(... = 0, ...) guards so this is idempotent and safe to call again.
+        if (strtoupper(trim($studentCategory)) === 'TVET'
+            && strtolower(trim($studentType)) === 'transferee'
+            && $semester !== '') {
+            $fc_fee    = loadFeeConfig($conn, 'TVET');
+            $flatFee   = (float)($fc_fee['transferee_flat_rate']['value'] ?? 20000);
+            // FIX BUG-TVET-INST-SEED-01 (registerStudent post-insert): resolve
+            // installment_fee from actual $paymentPlan instead of hardcoding 0.
+            $instFee   = ($paymentPlan === 'installment')
+                         ? (float)($fc_fee['installment_fee']['value'] ?? 500)
+                         : 0.0;
+            $totalFee  = $flatFee + $instFee;
+            $semEscFee = $conn->real_escape_string($semester);
+            $conn->query("INSERT INTO tuition_fees
+                (student_id, units, tuition_fee, miscellaneous_fee, registration_fee,
+                 laboratory_fee, energy_fee, subtotal, discount, installment_fee,
+                 total_assessment, semester)
+                VALUES ($newStudentId, 0, 0, 0, 0, 0, 0,
+                        $flatFee, 0, $instFee, $totalFee, '$semEscFee')
+                ON DUPLICATE KEY UPDATE
+                    subtotal=IF(subtotal=0,$flatFee,subtotal),
+                    installment_fee=IF(total_assessment=0,$instFee,installment_fee),
+                    total_assessment=IF(total_assessment=0,$totalFee,total_assessment),
+                    semester='$semEscFee', updated_at=NOW()");
+            saveSoaSnapshot($conn, $newStudentId, $semester);
         }
         echo json_encode([
             'success'        => true,
@@ -1280,7 +1802,12 @@ function enrollCourse($conn, $data) {
     }
 
     // Check approval status — must be Approved to enlist
-    $st = $conn->prepare("SELECT approval_status, first_name, last_name FROM students WHERE id = ? LIMIT 1");
+    // FIX TRANSFEREE-ENROLL-GUARD-02: Also fetch student_type and enrollment_status.
+    // Transferees must have enrollment_status='Enrolled' (Registrar confirmed) before
+    // they can manually enlist subjects. approval_status='Approved' alone is not
+    // sufficient — it only means Accounting verified payment, not that the Registrar
+    // has confirmed the enrollment after TOR evaluation.
+    $st = $conn->prepare("SELECT approval_status, enrollment_status, student_type, first_name, last_name FROM students WHERE id = ? LIMIT 1");
     $st->bind_param("i", $student_id);
     $st->execute();
     $stRes = $st->get_result();
@@ -1292,6 +1819,16 @@ function enrollCourse($conn, $data) {
     if ($studentRow['approval_status'] !== 'Approved') {
         echo json_encode(['success' => false,
             'message' => 'Enrollment not approved yet. Payment status: ' . $studentRow['approval_status']]);
+        return;
+    }
+
+    // FIX TRANSFEREE-ENROLL-GUARD-02: Transferees need Registrar confirmation
+    // (enrollment_status='Enrolled') before they can enlist subjects.
+    // Block if they are still 'Confirmed' (Accounting-approved only).
+    if (strcasecmp(trim($studentRow['student_type'] ?? ''), 'Transferee') === 0
+        && ($studentRow['enrollment_status'] ?? '') !== 'Enrolled') {
+        echo json_encode(['success' => false,
+            'message' => 'Your enrollment is pending Registrar confirmation. Please wait for the Registrar to review and confirm your enrollment before selecting subjects.']);
         return;
     }
 
@@ -1352,12 +1889,10 @@ function enrollCourse($conn, $data) {
         $eCheck->bind_param("i", $student_id);
         $eCheck->execute();
         $eRow = $eCheck->get_result()->fetch_assoc();
-        $eCheck->close();
-        if (($eRow['enrollment_status'] ?? '') === 'Confirmed') {
-            $updSt = $conn->prepare("UPDATE students SET enrollment_status = 'Enrolled' WHERE id = ?");
-            $updSt->bind_param("i", $student_id);
-            $updSt->execute();
-        }
+        // POLICY: enrollment_status is set to 'Enrolled' only by the Registrar
+        // via confirm_registration. enrollCourse() must not auto-advance it.
+        // (The old code set Enrolled when status was 'Confirmed' — this bypassed
+        // the Registrar step for students who manually enlisted a subject.)
 
         echo json_encode([
             'success'       => true,
@@ -1460,7 +1995,7 @@ function getEnrollmentSummary($conn) {
 
     // 2. Enrolled courses
     $cStmt = $conn->prepare("
-        SELECT c.code, c.name, c.credits,
+        SELECT c.id AS course_id, c.code, c.name, c.credits,
                COALESCE(c.lec_units, c.credits) AS lec_units,
                COALESCE(c.lab_units, 0)         AS lab_units,
                COALESCE(c.is_general, 0)        AS is_general,
@@ -1491,6 +2026,32 @@ function getEnrollmentSummary($conn) {
     $cStmt->bind_param("i", $student_id);
     $cStmt->execute();
     $cResult = $cStmt->get_result();
+
+    // FIX BUG-SUMMARY-TOR-01: Fetch credited course IDs so they are excluded
+    // from totalCredits. Without this the dashboard shows 23 units instead of
+    // the correct post-credit count (e.g. 17).
+    $_sumCreditedIds = [];
+    $_sumTorRes = $conn->query("SELECT credited_course_ids, credited_subjects
+        FROM tor_evaluations
+        WHERE student_id = $student_id AND status = 'Evaluated'
+        ORDER BY id DESC LIMIT 1");
+    if ($_sumTorRes) {
+        $_sumTorRow = $_sumTorRes->fetch_assoc();
+        $_sumArr = json_decode($_sumTorRow['credited_course_ids'] ?? 'null', true);
+        if (empty($_sumArr) && !empty($_sumTorRow['credited_subjects'])) {
+            $_sumSubs = json_decode($_sumTorRow['credited_subjects'], true);
+            if (is_array($_sumSubs)) {
+                $_sumArr = array_values(array_filter(array_map(
+                    fn($s) => isset($s['courseId']) ? (int)$s['courseId'] : 0,
+                    $_sumSubs
+                )));
+            }
+        }
+        if (!empty($_sumArr) && is_array($_sumArr)) {
+            $_sumCreditedIds = array_map('intval', $_sumArr);
+        }
+    }
+
     $courses = []; $totalCredits = 0;
     while ($r = $cResult->fetch_assoc()) {
         $lec = (int)($r['lec_units'] ?? 0);
@@ -1503,7 +2064,10 @@ function getEnrollmentSummary($conn) {
         $r['isGeneral'] = (bool)($r['is_general'] ?? false);
         $r['isLab']     = (bool)($r['is_lab'] ?? false);
         $courses[]      = $r;
-        $totalCredits  += $cred;
+        // FIX BUG-SUMMARY-TOR-01: Only count units for non-credited courses
+        if (!in_array((int)($r['course_id'] ?? 0), $_sumCreditedIds, true)) {
+            $totalCredits += $cred;
+        }
     }
 
     // ── Resolve student category and type ─────────────────────────────────────
@@ -1522,7 +2086,9 @@ function getEnrollmentSummary($conn) {
             $displayYearLevel = 'Grade 11';
         }
     } elseif ($isTVET) {
-        $displayYearLevel = $s['program'] ?: 'TVET';
+        // FIX TVET-COLLEGE-FLOW-01: TVET now follows College flow — display actual
+        // year_level (1st Year, 2nd Year, 3rd Year) instead of the program name.
+        $displayYearLevel = $rawYL ?: '1st Year';
     } else {
         $displayYearLevel = $rawYL ?: '1st Year';
     }
@@ -1543,14 +2109,23 @@ function getEnrollmentSummary($conn) {
 
     // ── 5. Fee computation — branched by student category ─────────────────────
     //
-    //  SHS / TVET non-transferee  → ₱0 (K-12 Gov subsidy / TESDA)
+    //  SHS non-transferee         → ₱0 (K-12 Gov subsidy / DepEd voucher)
     //  SHS / TVET transferee      → flat rate from fee_config
+    //  TVET non-transferee        → unit-based formula like College (FIX TVET-COLLEGE-FLOW-01)
     //  College                    → unit-based formula from tuition_fees
     //
-    if ($isSHSorTVET && $studentTypeLC !== 'transferee') {
-        // ── FREE students ──────────────────────────────────────────────────────
+    // FIX TVET-FREE-SUMMARY-01: TVET non-transferees are FREE (TESDA/PESFA/STEP gov scholarship),
+    // same as SHS non-transferees (K-12 DepEd). getStudentContext() already treats them as free
+    // (line ~3186). getEnrollmentSummary() was inconsistent — it only put SHS here and routed
+    // TVET non-transferees to the College unit-based block, causing a non-zero fee to appear
+    // in the Enrollment Summary tab even though the student's SOA and dashboard showed ₱0.
+    if (($isSHS || $isTVET) && $studentTypeLC !== 'transferee') {
+        // ── FREE students (SHS non-transferee = K-12; TVET non-transferee = TESDA/PESFA/STEP) ──
         $totalAssessment = 0.0;
         $totalPaid       = 0.0;
+        $freeLabel = $isTVET
+            ? 'Free – Government Scholarship (TESDA/PESFA/STEP)'
+            : 'Free – K-12 Government Subsidy (SHS Voucher)';
         $payment = [
             'units'           => 0,
             'tuitionFee'      => 0,
@@ -1569,9 +2144,7 @@ function getEnrollmentSummary($conn) {
             'method'          => '',
             'paymentDate'     => null,
             'isFree'          => true,
-            'freeLabel'       => $isSHS
-                ? 'Free – K-12 Government Subsidy (SHS Voucher)'
-                : 'Free – TESDA Government Scholarship (PESFA/STEP)',
+            'freeLabel'       => $freeLabel,
         ];
         $termPayments = [];
 
@@ -1617,8 +2190,11 @@ function getEnrollmentSummary($conn) {
 
         // Term payment schedule for transferees
         $psPlanRow = $conn->query("SELECT payment_type FROM payment_schedules WHERE student_id=$student_id ORDER BY id DESC LIMIT 1");
-        if ($psPlanRow && $psPR = $psPlanRow->fetch_assoc() && ($psPR['payment_type'] ?? '') === 'installment') {
-            $paymentPlan = 'installment';
+        if ($psPlanRow) {
+            $psPR = $psPlanRow->fetch_assoc();
+            if (($psPR['payment_type'] ?? '') === 'installment') {
+                $paymentPlan = 'installment';
+            }
         }
         $ipResTR = $conn->query("SELECT exam_period, SUM(amount) AS amt, MAX(payment_date) AS pay_date, MAX(or_ar_number) AS or_no FROM installment_payments WHERE student_id=$student_id GROUP BY exam_period");
         $termMapTR = [];
@@ -1640,12 +2216,26 @@ function getEnrollmentSummary($conn) {
         }
 
     } else {
-        // ── COLLEGE students (unit-based fees) ────────────────────────────────
+        // ── COLLEGE (unit-based fees) ─────────────────────────────────────────
+        // SHS non-transferee  → free (K-12 voucher)     — handled above
+        // TVET non-transferee → free (TESDA scholarship) — handled above
+        // SHS/TVET transferee → flat rate                — handled above
+        // College             → unit-based from tuition_fees (this block)
         // 4a. Real fees from tuition_fees table (set by Accounting)
-        $tfStmt = $conn->prepare("SELECT * FROM tuition_fees WHERE student_id = ? LIMIT 1");
-        $tfStmt->bind_param("i", $student_id);
+        // FIX ENROLL-SEM-01: Filter by current semester so re-enrolled students
+        // get the correct semester's tuition_fees row, not the first/oldest one.
+        $tfStmt = $conn->prepare("SELECT * FROM tuition_fees WHERE student_id = ? AND semester = ? LIMIT 1");
+        $tfStmt->bind_param("is", $student_id, $semester);
         $tfStmt->execute();
         $tf = $tfStmt->get_result()->fetch_assoc();
+        // Fallback: if no row for current semester, get most recent row
+        if (!$tf) {
+            $tfStmt2 = $conn->prepare("SELECT * FROM tuition_fees WHERE student_id = ? ORDER BY id DESC LIMIT 1");
+            $tfStmt2->bind_param("i", $student_id);
+            $tfStmt2->execute();
+            $tf = $tfStmt2->get_result()->fetch_assoc();
+            $tfStmt2->close();
+        }
 
         // 4b. Real amount paid
         $paidStmt = $conn->prepare("SELECT COALESCE(SUM(amount),0) AS total_paid FROM installment_payments WHERE student_id = ? AND semester=(SELECT semester FROM students WHERE id=? LIMIT 1)");
@@ -1756,7 +2346,7 @@ function getEnrollmentSummary($conn) {
         'enrollmentDate' => $s['enrollment_date'],
         'semester'       => $semester,
         'program'        => $s['program'],
-        'yearLevel'      => $displayYearLevel,    // Grade 11/12 for SHS; NC level for TVET
+        'yearLevel'      => $displayYearLevel,    // Grade 11/12 for SHS; 1st/2nd/3rd Year for TVET and College
         'strand'         => $s['strand']           ?? null,   // SHS strand (e.g. STEM, ABM)
         'learningDelivery'=> $s['learning_delivery'] ?? null, // Face-to-Face / Modular
         'totalCourses'   => count($courses),
@@ -1877,15 +2467,20 @@ function autoEnrollNew($conn, $data, $respondJson = true) {
         return 0;
     }
 
-    // Only auto-enroll once Registrar has set enrollment_status = 'Enrolled'.
-    // The Angular frontend calls auto_enroll_all on every page load — without this
-    // guard it inserts enrollment rows before Registrar approval, bypassing the workflow.
-    if (($student['enrollment_status'] ?? '') !== 'Enrolled') {
+    // FIX AUTO-ENROLL-CONFIRMED-01: Accept both 'Enrolled' and 'Confirmed' statuses.
+    // 'Confirmed' means Accounting has approved payment but the Registrar manual step
+    // has not fired yet. Since getStudentContext() now auto-advances Confirmed→Enrolled
+    // before calling this function, reaching here with 'Confirmed' is an edge case
+    // (e.g. direct POST to auto_enroll_new from Angular). We allow it so the enrollment
+    // is never blocked by the Registrar step for College students who have paid.
+    // 'Pending' is still blocked — student hasn't paid yet.
+    $enrollSt = $student['enrollment_status'] ?? '';
+    if ($enrollSt !== 'Enrolled' && $enrollSt !== 'Confirmed') {
         if ($respondJson) echo json_encode([
             'success'  => true,
             'enrolled' => 0,
             'program'  => $student['program'],
-            'message'  => 'Waiting for Registrar approval before auto-enrolling courses.',
+            'message'  => 'Waiting for payment verification before auto-enrolling courses.',
         ]);
         return 0;
     }
@@ -2018,13 +2613,17 @@ function autoEnrollTransfereeAction($conn, $data, $respondJson = true) {
         return 0;
     }
 
-    // Only auto-enroll once Registrar has confirmed (enrollment_status = 'Enrolled').
-    if (($student['enrollment_status'] ?? '') !== 'Enrolled') {
+    // Transferees require Registrar confirmation (enrollment_status = 'Enrolled')
+    // before subjects are auto-enrolled. 'Confirmed' means Accounting verified
+    // payment but Registrar has not yet approved — do NOT enroll subjects yet.
+    // Correct flow: TOR Evaluated → Payment verified → Registrar confirms → Enrolled.
+    $enrollStTr = $student['enrollment_status'] ?? '';
+    if ($enrollStTr !== 'Enrolled') {
         if ($respondJson) echo json_encode([
             'success'  => true,
             'enrolled' => 0,
             'program'  => $student['program'],
-            'message'  => 'Waiting for Registrar approval before auto-enrolling courses.',
+            'message'  => 'Waiting for Registrar confirmation before auto-enrolling courses.',
         ]);
         return 0;
     }
@@ -2199,11 +2798,34 @@ function autoEnrollAll($conn, $data, $respondJson = true) {
         return 0;
     }
 
-    if (trim($row['student_type']) === 'Transferee') {
+    // FIX TRANSFEREE-CASE-02: Use case-insensitive comparison. DB may store
+    // 'transferee', 'Transferee', or 'TRANSFEREE' — strict === 'Transferee' was
+    // causing lowercase-stored transferees to fall through to autoEnrollNew(),
+    // which accepts 'Confirmed' status and auto-enrolls subjects without waiting
+    // for the Registrar. strcasecmp() handles all capitalisation variants.
+    if (strcasecmp(trim($row['student_type']), 'Transferee') === 0) {
         return autoEnrollTransfereeAction($conn, $data, $respondJson);
-    } else {
-        return autoEnrollNew($conn, $data, $respondJson);
     }
+
+    // FIX CONTINUING-TOR-01: A Continuing student who was previously a Transferee
+    // (student_type changed Transferee→Continuing on first re-enroll) still has a
+    // tor_evaluations record with credited course IDs. Route them through
+    // autoEnrollTransfereeAction() so:
+    //   1. Subjects are only enrolled after Registrar approval (enrollment_status=Enrolled)
+    //   2. Credited courses are excluded from auto-enrollment
+    // Without this, autoEnrollNew() was used — it accepts 'Confirmed' status and has
+    // no TOR exclusion, causing subjects to appear before Registrar approval and
+    // credited courses to show up in the enrolled list.
+    $torChkSt = $conn->prepare("SELECT id FROM tor_evaluations WHERE student_id = ? AND status = 'Evaluated' LIMIT 1");
+    $torChkSt->bind_param('i', $student_id);
+    $torChkSt->execute();
+    $hasTor = $torChkSt->get_result()->num_rows > 0;
+    $torChkSt->close();
+    if ($hasTor) {
+        return autoEnrollTransfereeAction($conn, $data, $respondJson);
+    }
+
+    return autoEnrollNew($conn, $data, $respondJson);
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -2446,17 +3068,32 @@ function insertEnrollments($conn, $student_id, $courses, $semester, $notes) {
         // Fix: also flip 'Completed' → 'Enrolled' when the semester changes (i.e. the
         // incoming semester differs from the stored one), AND update the semester field
         // so the row is correctly attributed to the new term.
+        // FIX TOR-DROPPED-02: Never reinstate a TOR-credited Dropped row.
+        // TOR Dropped rows have notes='Credited via TOR evaluation — permanently excluded'
+        // and must remain Dropped forever — even if the course appears in the program curriculum.
+        // The old ON DUPLICATE KEY blindly flipped ALL Dropped->Enrolled, which caused
+        // credited subjects to re-appear as Enrolled after Registrar confirmation.
+        // FIX TRANSFEREE-ENROLL-STATUS-01: Transferee subjects must be inserted as
+        // 'Pending' in the enrollments table — NOT 'Enrolled' — until the Registrar
+        // explicitly confirms. Previously all subjects were inserted as 'Enrolled'
+        // regardless of student type, so transferees could see and access their
+        // subjects immediately after TOR evaluation, bypassing Registrar approval.
+        // autoEnrollTransfereeAction() passes notes='Auto-enrolled (Transferee)' so
+        // we use that to detect and assign the correct initial status.
+        $enrollInitialStatus = (strpos($notes, 'Transferee') !== false) ? 'Pending' : 'Enrolled';
+
+        $torNote = 'Credited via TOR evaluation — permanently excluded';
         $ins = $conn->prepare("
             INSERT INTO enrollments
                 (student_id, course_id, enrollment_date, status, semester, notes)
-            VALUES (?, ?, ?, 'Enrolled', ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?)
             ON DUPLICATE KEY UPDATE
-                status          = IF(status IN ('Dropped','Completed'), 'Enrolled', status),
-                semester        = IF(status IN ('Dropped','Completed'), VALUES(semester), semester),
-                enrollment_date = IF(status IN ('Dropped','Completed'), VALUES(enrollment_date), enrollment_date),
-                notes           = IF(status IN ('Dropped','Completed'), VALUES(notes), notes)
+                status          = IF(status IN ('Dropped','Completed') AND notes != 'Credited via TOR evaluation — permanently excluded', VALUES(status), status),
+                semester        = IF(status IN ('Dropped','Completed') AND notes != 'Credited via TOR evaluation — permanently excluded', VALUES(semester), semester),
+                enrollment_date = IF(status IN ('Dropped','Completed') AND notes != 'Credited via TOR evaluation — permanently excluded', VALUES(enrollment_date), enrollment_date),
+                notes           = IF(status IN ('Dropped','Completed') AND notes != 'Credited via TOR evaluation — permanently excluded', VALUES(notes), notes)
         ");
-        $ins->bind_param("iisss", $student_id, $cid, $enrollDate, $useSemester, $notes);
+        $ins->bind_param("iissss", $student_id, $cid, $enrollDate, $enrollInitialStatus, $useSemester, $notes);
         if ($ins->execute() && ($ins->affected_rows > 0)) {
             $enrolled++;
         }
@@ -2543,8 +3180,26 @@ function updatePaymentPlan($conn, $data) {
     $student_id     = (int)($data['student_id']     ?? 0);
     $raw_plan       = strtolower(trim($data['payment_plan']   ?? 'full'));
     $payment_plan   = ($raw_plan === 'installment') ? 'installment' : 'full';
-    $raw_method     = trim($data['payment_method']  ?? 'Cash');
-    $payment_method = in_array($raw_method, ['GCash','Cash']) ? $raw_method : 'Cash';
+
+    // FIX PM-NULL-01: Resolve payment_method defensively.
+    // 1. Accept the incoming value only when it is a valid known method.
+    // 2. When invalid/absent, fall back to whatever is already saved in the DB
+    //    (preserves Cash students who somehow reach this endpoint without a method param).
+    // 3. Only as a last resort default to 'Cash' (safer than 'GCash' — Cash students
+    //    who reach the cashier are not blocked, but GCash students with no reference would be).
+    $raw_method     = trim($data['payment_method'] ?? '');
+    if (in_array($raw_method, ['GCash', 'Cash'], true)) {
+        $payment_method = $raw_method;
+    } else {
+        // Fall back to the current DB value so we never blank-out an existing choice
+        $existingMethodRow = $conn->prepare("SELECT payment_method FROM students WHERE id = ? LIMIT 1");
+        $existingMethodRow->bind_param('i', (int)($data['student_id'] ?? 0));
+        $existingMethodRow->execute();
+        $existingMethodData = $existingMethodRow->get_result()->fetch_assoc();
+        $existingMethodRow->close();
+        $existingMethod = trim($existingMethodData['payment_method'] ?? '');
+        $payment_method = in_array($existingMethod, ['GCash', 'Cash'], true) ? $existingMethod : 'Cash';
+    }
 
     if (!$student_id) {
         echo json_encode(['success' => false, 'message' => 'student_id required']);
@@ -2569,23 +3224,162 @@ function updatePaymentPlan($conn, $data) {
     }
     $existsChk->close();
 
+    // FIX PM-NULL-02: Always persist payment_plan. Only persist payment_method when
+    // it is a known valid value — this prevents a NULL/empty incoming param from
+    // wiping a previously saved 'Cash' or 'GCash' on the student row.
     $stUpd = $conn->prepare("UPDATE students SET payment_plan = ?, payment_method = ? WHERE id = ?");
     $stUpd->bind_param('ssi', $payment_plan, $payment_method, $student_id);
     $stUpd->execute();
     $stUpd->close();
 
+    // FIX RE-ENROLL-CASH-LOG-01: After re-enrollment, reEnroll() wipes all pending
+    // payment_logs. When the student then picks Cash here, no log row exists.
+    // getPendingPayments() falls into the no-log path where recovery queries
+    // payment_logs history — but history is also empty — so $rawPm = '' and the
+    // student is shown as GCash in Accounting.
+    //
+    // Fix: when method is Cash, ensure a pending payment_log exists for the
+    // student's current semester. Use INSERT IGNORE (via a unique-index guard) so
+    // this is idempotent — calling update_payment_plan twice won't create duplicates.
+    // We check for an existing Pending Cash row first to avoid a redundant INSERT.
+    if ($payment_method === 'Cash') {
+        $semRow = $conn->prepare("SELECT semester FROM students WHERE id = ? LIMIT 1");
+        $semRow->bind_param('i', $student_id);
+        $semRow->execute();
+        $semData = $semRow->get_result()->fetch_assoc();
+        $semRow->close();
+        $curSem = $semData['semester'] ?? '';
+
+        // Only insert if there is no existing Pending log for this student+semester
+        $chkLog = $conn->prepare(
+            "SELECT id FROM payment_logs
+             WHERE student_id = ? AND status = 'Pending' AND semester = ?
+             LIMIT 1"
+        );
+        $chkLog->bind_param('is', $student_id, $curSem);
+        $chkLog->execute();
+        $existingLog = $chkLog->get_result()->fetch_assoc();
+        $chkLog->close();
+
+        if (!$existingLog) {
+            // Determine exam_period from payment plan
+            $examPeriodSeed = ($payment_plan === 'installment') ? 'Downpayment' : 'Full';
+            $insLog = $conn->prepare(
+                "INSERT INTO payment_logs
+                    (student_id, payment_method, gcash_reference, gcash_amount,
+                     semester, exam_period, status)
+                 VALUES (?, 'Cash', '', 0, ?, ?, 'Pending')"
+            );
+            $insLog->bind_param('iss', $student_id, $curSem, $examPeriodSeed);
+            $insLog->execute();
+            $insLog->close();
+        } else {
+            // Log exists — ensure its payment_method is 'Cash' AND exam_period matches
+            // the chosen payment_plan. A phantom 'Full'/'GCash' log may have been
+            // auto-created by getPendingPayments before the student chose their plan.
+            // BUG-TVET-CASH-02 FIX: Update BOTH payment_method AND exam_period so the
+            // Accounting queue shows the correct method (Cash) and period (Downpayment
+            // for installment, Full for full-payment). Without fixing exam_period, the
+            // student appears as "Full" plan even after choosing installment.
+            $fixExamPeriod = ($payment_plan === 'installment') ? 'Downpayment' : 'Full';
+            $fixLog = $conn->prepare(
+                "UPDATE payment_logs
+                 SET payment_method = 'Cash', exam_period = ?
+                 WHERE student_id = ? AND status = 'Pending' AND semester = ?"
+            );
+            $fixLog->bind_param('sis', $fixExamPeriod, $student_id, $curSem);
+            $fixLog->execute();
+            $fixLog->close();
+        }
+    }
+
+    // FIX PM-GCASH-LOG-01: Seed a pending payment_log for GCash students.
+    // Previously only Cash students got a log row here. GCash students had NO log,
+    // so getPendingPayments() placed them in the noLogSql fallback path. The fallback
+    // tries to recover payment_method from payment_logs history — but a brand-new
+    // transferee has no history — so $rawPm = '' and the student is skipped by the
+    // continue guard (fires when payment_plan is non-empty). This made College
+    // GCash+installment transferees invisible to Accounting after login.
+    // Fix: create an 'AwaitingSubmission' payment_log (status='Pending', no ref/amount)
+    // so the primary getPendingPayments() SQL picks them up via the payment_logs JOIN,
+    // and they appear in the Accounting queue with paymentMethod='GCash' correctly.
+    if ($payment_method === 'GCash') {
+        $semRowG = $conn->prepare("SELECT semester FROM students WHERE id = ? LIMIT 1");
+        $semRowG->bind_param('i', $student_id);
+        $semRowG->execute();
+        $semDataG = $semRowG->get_result()->fetch_assoc();
+        $semRowG->close();
+        $curSemG = $semDataG['semester'] ?? '';
+
+        // Only insert if there is no existing Pending log for this student+semester.
+        // GCash students will later call submit_gcash to fill in ref/amount;
+        // this row just ensures they appear in getPendingPayments() immediately.
+        $chkLogG = $conn->prepare(
+            "SELECT id FROM payment_logs
+             WHERE student_id = ? AND status = 'Pending' AND semester = ?
+             LIMIT 1"
+        );
+        $chkLogG->bind_param('is', $student_id, $curSemG);
+        $chkLogG->execute();
+        $existingLogG = $chkLogG->get_result()->fetch_assoc();
+        $chkLogG->close();
+
+        if (!$existingLogG) {
+            $examPeriodG = ($payment_plan === 'installment') ? 'Downpayment' : 'Full';
+            $insLogG = $conn->prepare(
+                "INSERT INTO payment_logs
+                    (student_id, payment_method, gcash_reference, gcash_amount,
+                     semester, exam_period, status)
+                 VALUES (?, 'GCash', '', 0, ?, ?, 'Pending')"
+            );
+            $insLogG->bind_param('iss', $student_id, $curSemG, $examPeriodG);
+            $insLogG->execute();
+            $insLogG->close();
+        } else {
+            // Log exists — ensure payment_method and exam_period are correct.
+            // A phantom Cash log may have been created by the noLogSql path before
+            // the student chose GCash. Overwrite it so Accounting sees GCash.
+            $fixExamPeriodG = ($payment_plan === 'installment') ? 'Downpayment' : 'Full';
+            $fixLogG = $conn->prepare(
+                "UPDATE payment_logs
+                 SET payment_method = 'GCash', exam_period = ?
+                 WHERE student_id = ? AND status = 'Pending' AND semester = ?"
+            );
+            $fixLogG->bind_param('sis', $fixExamPeriodG, $student_id, $curSemG);
+            $fixLogG->execute();
+            $fixLogG->close();
+        }
+    }
+
     // Also add installment_fee to tuition_fees if switching to installment.
-    // Read rate from fee_config — never hardcode monetary values.
-    $fc = loadFeeConfig($conn, 'College');
+    // Read rate from fee_config — use the student's actual category, not always 'College'.
+    // FIX TVET-INST-02: updatePaymentPlan() was always loading College fee config even
+    // for TVET/SHS students. TVET has its own installment_fee (₱500) in fee_config.
+    // Also removed the AND installment_fee = 0 condition — it blocked the update when
+    // getTVETFee() had already written a row (e.g. ₱500 from a prior call), causing
+    // TVET installment students to remain on 'full' fee in tuition_fees.
+    $catRow = $conn->prepare("SELECT student_category FROM students WHERE id = ? LIMIT 1");
+    $catRow->bind_param('i', $student_id);
+    $catRow->execute();
+    $catData = $catRow->get_result()->fetch_assoc();
+    $catRow->close();
+    $feeCategory = match(strtoupper(trim($catData['student_category'] ?? ''))) {
+        'SHS'  => 'SHS',
+        'TVET' => 'TVET',
+        default => 'College',
+    };
+    $fc = loadFeeConfig($conn, $feeCategory);
     $installFee = (float)($fc['installment_fee']['value'] ?? 750);
 
     if ($payment_plan === 'installment') {
+        // FIX TVET-INST-02: Removed AND installment_fee = 0 condition.
+        // Always update installment_fee so switching plans always applies the correct rate.
         $stmt2 = $conn->prepare(
             "UPDATE tuition_fees
              SET installment_fee = ?,
                  total_assessment = GREATEST(0, subtotal - discount + ?),
                  updated_at = NOW()
-             WHERE student_id = ? AND installment_fee = 0"
+             WHERE student_id = ?"
         );
         $stmt2->bind_param('ddi', $installFee, $installFee, $student_id);
         $stmt2->execute();
@@ -2618,6 +3412,22 @@ function updatePaymentPlan($conn, $data) {
     $psUpd->bind_param('isi', $student_id, $payment_plan, $student_id);
     $psUpd->execute();
     $psUpd->close();
+
+    // FIX TVET-INST-PLAN-01: Refresh the SOA snapshot immediately after a plan change so
+    // that the soa_snapshots row picks up the updated installment_fee and total_assessment
+    // from tuition_fees.  Without this call, a TVET transferee who picks Cash+Installment
+    // still shows the full-payment amount in the SOA because the snapshot was written at
+    // registration time (installment_fee=0, total_assessment=flatRate) and the
+    // ON DUPLICATE KEY guards in saveSoaSnapshot() now allow the plan-switch update.
+    $snapSemRow = $conn->prepare("SELECT semester FROM students WHERE id = ? LIMIT 1");
+    $snapSemRow->bind_param('i', $student_id);
+    $snapSemRow->execute();
+    $snapSemData = $snapSemRow->get_result()->fetch_assoc();
+    $snapSemRow->close();
+    $semForSnap = trim($snapSemData['semester'] ?? '');
+    if ($semForSnap !== '') {
+        saveSoaSnapshot($conn, $student_id, $semForSnap);
+    }
 
     logAuditShared($conn, $GLOBALS['authUser'] ?? null, 'UPDATE_PAYMENT_PLAN', 'student', $student_id,
         "Payment plan updated to '$payment_plan' ($payment_method) for student ID $student_id");
@@ -2663,16 +3473,53 @@ function computeFeesNew($conn, $student_id, $programName, $semester, $yearLevel,
     $units = 0;
 
     // Source 1: Actual enrolled units (most accurate — avoids format mismatches)
+    // FIX BUG-UNITS-TOR-01: Also exclude any TOR-credited course IDs for students
+    // who have a tor_evaluations record (e.g. re-enrolled Transferee→Continuing).
+    // Without this, credited courses that still have Enrolled/Pending rows inflate
+    // the unit count and the fee (e.g. 23 units shown instead of 12).
+    $_torExcludeNew = '';
+    // FIX BUG-UNITS-TOR-01b: Fetch both columns; fall back to credited_subjects
+    // when credited_course_ids is NULL (TOR evaluated by older code version).
+    $_torChkNew = $conn->query("SELECT credited_course_ids, credited_subjects FROM tor_evaluations
+        WHERE student_id = $student_id AND status = 'Evaluated'
+        ORDER BY id DESC LIMIT 1");
+    if ($_torChkNew) {
+        $_torChkRow = $_torChkNew->fetch_assoc();
+        $_torArrNew = json_decode($_torChkRow['credited_course_ids'] ?? 'null', true);
+        if (empty($_torArrNew) && !empty($_torChkRow['credited_subjects'])) {
+            $_subsNew = json_decode($_torChkRow['credited_subjects'], true);
+            if (is_array($_subsNew)) {
+                $_torArrNew = array_values(array_filter(array_map(
+                    fn($s) => isset($s['courseId']) ? (int)$s['courseId'] : 0,
+                    $_subsNew
+                )));
+            }
+        }
+        if (!empty($_torArrNew) && is_array($_torArrNew)) {
+            $_torIdsNew = implode(',', array_map('intval', $_torArrNew));
+            $_torExcludeNew = "AND e.course_id NOT IN ($_torIdsNew)";
+        }
+    }
     $enrolledUnitsRes = $conn->query("SELECT COALESCE(SUM(c.credits), 0) AS u
         FROM enrollments e JOIN courses c ON e.course_id = c.id
-        WHERE e.student_id = $student_id AND e.status IN ('Enrolled','Pending')");
+        WHERE e.student_id = $student_id AND e.status IN ('Enrolled','Pending')
+        $_torExcludeNew");
     $units = (int)(($enrolledUnitsRes ? $enrolledUnitsRes->fetch_assoc()['u'] : 0) ?: 0);
 
     // Source 2: program_courses junction (if no enrollments yet)
+    // FIX BUG-UNITS-TOR-02: Also exclude TOR credited courses from program_courses
+    // fallback. Without this, a re-enrolled Transferee→Continuing student with
+    // no Enrolled rows yet (pre-Registrar approval) falls through to this source
+    // and gets billed for the full 23 units including the 9 credited ones.
     if ($units <= 0) {
+        $_torExcludePc = '';
+        if (!empty($_torArrNew)) {
+            $_torIdsPc = implode(',', array_map('intval', $_torArrNew));
+            $_torExcludePc = "AND pc.course_id NOT IN ($_torIdsPc)";
+        }
         $pu = $conn->query("SELECT COALESCE(SUM(c.credits),0) AS u
             FROM program_courses pc JOIN programs p ON pc.program_id=p.id JOIN courses c ON pc.course_id=c.id
-            WHERE (p.name='$pn_esc' OR p.code='$pn_esc') $ylFilter $semFilter");
+            WHERE (p.name='$pn_esc' OR p.code='$pn_esc') $ylFilter $semFilter $_torExcludePc");
         $units = (int)(($pu ? $pu->fetch_assoc()['u'] : 0) ?: 0);
     }
 
@@ -2706,7 +3553,7 @@ function computeFeesNew($conn, $student_id, $programName, $semester, $yearLevel,
 //  Before TOR evaluation the full program unit count is used as an estimate
 //  so the student can see a preliminary SOA during the payment step.
 // ═════════════════════════════════════════════════════════════════
-function computeFeesTransferee($conn, $student_id, $programName, $semester, $yearLevel, $paymentPlan, $discount) {
+function computeFeesTransferee($conn, $student_id, $programName, $semester, $yearLevel, $paymentPlan, $discount, $flatTuition = null) {
     // Ensure year_level column exists (safe no-op if already present)
     $pn_esc = $programName;
     $yl_esc = $yearLevel;
@@ -2729,13 +3576,49 @@ function computeFeesTransferee($conn, $student_id, $programName, $semester, $yea
     // after TOR evaluation credited courses have been Dropped.
     // Avoids the stale tor_evaluations.approved_units bug where approved_units
     // was saved when program_courses was incomplete (e.g. only 12 units linked).
+    //
+    // FIX BUG-UNITS-TOR-01: Explicitly exclude credited course IDs from the unit
+    // count, regardless of whether their enrollment rows have been set to Dropped yet.
+    // Root cause: autoEnrollTransfereeAction idempotency check short-circuits when
+    // correctEnrollCount > 0 — so if evaluateTOR ran after the first auto-enroll,
+    // newly-credited subjects may still have Enrolled/Pending rows on the next
+    // getStudentContext call, causing the fee to be computed on 23 units instead of 12.
+    // Fix: always read credited_course_ids from tor_evaluations and exclude them
+    // from the SUM — computeFeesTransferee should never bill for credited subjects
+    // even if the enrollment table hasn't been cleaned up yet.
     $units = 0;
+    $_torCreditExclude = '';
+    // FIX BUG-UNITS-TOR-01b: Also fetch credited_subjects as fallback for rows
+    // where credited_course_ids is NULL (TOR evaluated by older code version).
+    $_torIdsRes = $conn->query("SELECT credited_course_ids, credited_subjects FROM tor_evaluations
+        WHERE student_id = $student_id AND status = 'Evaluated'
+        ORDER BY id DESC LIMIT 1");
+    if ($_torIdsRes) {
+        $_torIdsRow = $_torIdsRes->fetch_assoc();
+        // Primary: credited_course_ids int array (fastest)
+        $_creditedArr = json_decode($_torIdsRow['credited_course_ids'] ?? 'null', true);
+        // Fallback: parse courseId from credited_subjects object array
+        if (empty($_creditedArr) && !empty($_torIdsRow['credited_subjects'])) {
+            $_subs = json_decode($_torIdsRow['credited_subjects'], true);
+            if (is_array($_subs)) {
+                $_creditedArr = array_values(array_filter(array_map(
+                    fn($s) => isset($s['courseId']) ? (int)$s['courseId'] : 0,
+                    $_subs
+                )));
+            }
+        }
+        if (!empty($_creditedArr) && is_array($_creditedArr)) {
+            $_idsStr = implode(',', array_map('intval', $_creditedArr));
+            $_torCreditExclude = "AND e.course_id NOT IN ($_idsStr)";
+        }
+    }
     $actualRes = $conn->query("
         SELECT COALESCE(SUM(c.credits), 0) AS u
         FROM enrollments e
         JOIN courses c ON e.course_id = c.id
         WHERE e.student_id = $student_id
           AND e.status IN ('Enrolled', 'Pending')
+          $_torCreditExclude
     ");
     if ($actualRes) {
         $units = (int)($actualRes->fetch_assoc()['u'] ?? 0);
@@ -2782,7 +3665,7 @@ function computeFeesTransferee($conn, $student_id, $programName, $semester, $yea
 
     if ($units <= 0) $units = 18; // absolute fallback
 
-    return _buildFees($conn, $student_id, $programName, $semester, $yearLevel, $units, $paymentPlan, $discount);
+    return _buildFees($conn, $student_id, $programName, $semester, $yearLevel, $units, $paymentPlan, $discount, $flatTuition, $_creditedArr ?? []);
 }
 
 
@@ -2790,30 +3673,45 @@ function computeFeesTransferee($conn, $student_id, $programName, $semester, $yea
 // SHARED FEE BUILDER — used by both compute functions above.
 // Computes all fee line items, saves to tuition_fees, returns array.
 // ─────────────────────────────────────────────────────────────
-function _buildFees($conn, $student_id, $programName, $semester, $yearLevel, $units, $paymentPlan, $discount) {
+function _buildFees($conn, $student_id, $programName, $semester, $yearLevel, $units, $paymentPlan, $discount, $flatTuition = null, array $creditedCourseIds = []) {
     $pn_esc = $programName;
     $yl_esc = $yearLevel;
 
-    // ── If student has approved add/drop requests, use ACTUAL enrolled units ──
-    // This overrides the program-curriculum unit count so dropped subjects
-    // reduce the SOA and added subjects increase it.
-    $adRes = $conn->query("
-        SELECT COUNT(*) AS cnt FROM add_drop_requests
-        WHERE student_id = $student_id AND status = 'Approved'
-        LIMIT 1
-    ");
-    $hasAddDrop = $adRes && (int)$adRes->fetch_assoc()['cnt'] > 0;
+    // ── If a flat tuition override is given (e.g. TVET transferee ₱20k),
+    //    skip ALL unit-based recalculation. Units are irrelevant — add/drop
+    //    and TOR credits must never change the fixed amount. ──────────────────
+    $isFlatRate = ($flatTuition !== null);
 
-    if ($hasAddDrop) {
-        $actualUnitsRes = $conn->query("
-            SELECT COALESCE(SUM(c.credits), 0) AS total_units
-            FROM enrollments e
-            JOIN courses c ON e.course_id = c.id
-            WHERE e.student_id = $student_id AND e.status IN ('Enrolled','Pending')
+    if (!$isFlatRate) {
+        // ── If student has approved add/drop requests, use ACTUAL enrolled units ──
+        // This overrides the program-curriculum unit count so dropped subjects
+        // reduce the SOA and added subjects increase it.
+        $adRes = $conn->query("
+            SELECT COUNT(*) AS cnt FROM add_drop_requests
+            WHERE student_id = $student_id AND status = 'Approved'
+            LIMIT 1
         ");
-        $actualUnits = (int)(($actualUnitsRes ? $actualUnitsRes->fetch_assoc()['total_units'] : 0) ?: 0);
-        if ($actualUnits > 0) {
-            $units = $actualUnits;
+        $hasAddDrop = $adRes && (int)$adRes->fetch_assoc()['cnt'] > 0;
+
+        if ($hasAddDrop) {
+            // FIX BUG-UNITS-TOR-02: Exclude TOR-credited course IDs from the
+            // add/drop unit recount so transferees are never overbilled.
+            $_adTorExclude = '';
+            if (!empty($creditedCourseIds)) {
+                $_adTorIds = implode(',', array_map('intval', $creditedCourseIds));
+                $_adTorExclude = "AND e.course_id NOT IN ($_adTorIds)";
+            }
+            $actualUnitsRes = $conn->query("
+                SELECT COALESCE(SUM(c.credits), 0) AS total_units
+                FROM enrollments e
+                JOIN courses c ON e.course_id = c.id
+                WHERE e.student_id = $student_id AND e.status IN ('Enrolled','Pending')
+                $_adTorExclude
+            ");
+            $actualUnits = (int)(($actualUnitsRes ? $actualUnitsRes->fetch_assoc()['total_units'] : 0) ?: 0);
+            if ($actualUnits > 0) {
+                $units = $actualUnits;
+            }
         }
     }
 
@@ -2829,7 +3727,17 @@ function _buildFees($conn, $student_id, $programName, $semester, $yearLevel, $un
     $r_reg      = (float)($fc['reg_fee']['value']               ?? 700);
     $r_lab_room = (float)($fc['lab_fee_per_room']['value']      ?? 1900);
     $r_energy   = (float)($fc['energy_rate_per_unit']['value']  ?? 63);
-    $r_install  = (float)($fc['installment_fee']['value']       ?? 750);
+    // FIX TVET-INST-FEE-01: Flat-rate students (TVET transferee) must use the TVET
+    // fee config for installment_fee — not the College config — because computeFeesTVET()
+    // already loaded the correct flat rate from TVET config but _buildFees() was
+    // ignoring it and using College's installment_fee instead. This caused the
+    // assessment to use the wrong installment surcharge for TVET students.
+    if ($isFlatRate) {
+        $fcTVET    = loadFeeConfig($conn, 'TVET');
+        $r_install = (float)($fcTVET['installment_fee']['value'] ?? 750);
+    } else {
+        $r_install = (float)($fc['installment_fee']['value'] ?? 750);
+    }
     $std_keys   = ['tuition_rate_per_unit','misc_fee','reg_fee','lab_fee_per_room','energy_rate_per_unit','installment_fee'];
     $extra_fees      = 0.00;
     $extra_fees_list = [];
@@ -2846,27 +3754,52 @@ function _buildFees($conn, $student_id, $programName, $semester, $yearLevel, $un
         }
     }
 
-    $tuition_fee = $units * $r_tuition;
-    $misc_fee    = $r_misc;
-    $reg_fee     = $r_reg;
-    $lab_fee     = $lab_cnt * $r_lab_room;
-    $energy_fee  = $units * $r_energy;
+    $tuition_fee = $isFlatRate ? (float)$flatTuition : ($units * $r_tuition);
+    $misc_fee    = $isFlatRate ? 0.0 : $r_misc;
+    $reg_fee     = $isFlatRate ? 0.0 : $r_reg;
+    $lab_fee     = $isFlatRate ? 0.0 : ($lab_cnt * $r_lab_room);
+    $energy_fee  = $isFlatRate ? 0.0 : ($units * $r_energy);
+    $extra_fees  = $isFlatRate ? 0.0 : $extra_fees;
+    if ($isFlatRate) { $extra_fees_list = []; }
     $subtotal    = $tuition_fee + $misc_fee + $reg_fee + $lab_fee + $energy_fee + $extra_fees;
     $inst_fee    = ($paymentPlan === 'installment') ? $r_install : 0.00;
-    $total       = max(0, $subtotal - $discount + $inst_fee);
+    // Flat-rate students (TVET transferee) pay exactly flat + installment.
+    // Discount / credits MUST NOT change the fixed government fee.
+    $total       = $isFlatRate ? ($subtotal + $inst_fee) : max(0, $subtotal - $discount + $inst_fee);
 
-    // FIX-TUITION-SEMESTER-01: Always stamp semester on every write so each term
-    // gets its own row and getStudentPaymentHistory can find the correct fees for
-    // a past semester. tuition_fees has no UNIQUE KEY on student_id alone so
-    // ON DUPLICATE KEY never fired — every call created a NULL-semester duplicate.
+    $savedDiscount = $isFlatRate ? 0 : $discount;
     $safeSemTF = $conn->real_escape_string($semester);
-    $_tfChk = $conn->query("SELECT id FROM tuition_fees WHERE student_id=$student_id AND semester='$safeSemTF' ORDER BY id DESC LIMIT 1");
+    $_tfChk = $conn->query("SELECT id, installment_fee FROM tuition_fees WHERE student_id=$student_id AND semester='$safeSemTF' ORDER BY id DESC LIMIT 1");
     $_tfRow = $_tfChk ? $_tfChk->fetch_assoc() : null;
     if ($_tfRow) {
         $_tfId = (int)$_tfRow['id'];
-        $conn->query("UPDATE tuition_fees SET units=$units, tuition_fee=$tuition_fee, miscellaneous_fee=$misc_fee, registration_fee=$reg_fee, laboratory_fee=$lab_fee, energy_fee=$energy_fee, subtotal=$subtotal, discount=$discount, installment_fee=$inst_fee, total_assessment=$total, updated_at=NOW() WHERE id=$_tfId");
+        // FIX BUG-INST-RACE-01: Never let a paymentPlan='full' race call (installment_fee=0)
+        // clobber an already-committed installment_fee > 0 or its matching total_assessment.
+        // When $inst_fee=0 (full-plan call), preserve the DB installment_fee if it is positive.
+        // This is safe because updatePaymentPlan() uses its own dedicated UPDATE to zero it out
+        // when the student genuinely switches to full — _buildFees should never do it implicitly.
+        $_dbInstFee   = (float)($_tfRow['installment_fee'] ?? 0);
+        $instFeeExpr  = $inst_fee > 0
+            ? "$inst_fee"
+            : "IF(installment_fee > 0, installment_fee, 0)";
+        $totalExpr    = $inst_fee > 0
+            ? "$total"
+            : ($isFlatRate
+                ? "subtotal + IF(installment_fee > 0, installment_fee, 0)"
+                : "GREATEST(0, $subtotal - $savedDiscount + IF(installment_fee > 0, installment_fee, 0))");
+        $conn->query("UPDATE tuition_fees SET units=$units, tuition_fee=$tuition_fee, miscellaneous_fee=$misc_fee, registration_fee=$reg_fee, laboratory_fee=$lab_fee, energy_fee=$energy_fee, subtotal=$subtotal, discount=$savedDiscount, installment_fee=$instFeeExpr, total_assessment=$totalExpr, updated_at=NOW() WHERE id=$_tfId");
+        // FIX BUG-INST-RACE-01b: When this was a full-plan race call (inst_fee=0) but the
+        // DB had a positive installment_fee, use the preserved DB value in the return array
+        // so Angular renders the correct installment charge. Without this, the DB row is
+        // protected but the API response still contains installmentFee=0 → display shows ₱0.
+        if ($inst_fee <= 0 && $_dbInstFee > 0) {
+            $inst_fee = $_dbInstFee;
+            $total    = $isFlatRate
+                ? ($subtotal + $inst_fee)
+                : max(0, $subtotal - $savedDiscount + $inst_fee);
+        }
     } else {
-        $conn->query("INSERT INTO tuition_fees (student_id, units, tuition_fee, miscellaneous_fee, registration_fee, laboratory_fee, energy_fee, subtotal, discount, installment_fee, total_assessment, semester) VALUES ($student_id, $units, $tuition_fee, $misc_fee, $reg_fee, $lab_fee, $energy_fee, $subtotal, $discount, $inst_fee, $total, '$safeSemTF')");
+        $conn->query("INSERT INTO tuition_fees (student_id, units, tuition_fee, miscellaneous_fee, registration_fee, laboratory_fee, energy_fee, subtotal, discount, installment_fee, total_assessment, semester) VALUES ($student_id, $units, $tuition_fee, $misc_fee, $reg_fee, $lab_fee, $energy_fee, $subtotal, $savedDiscount, $inst_fee, $total, '$safeSemTF')");
     }
 
     return [
@@ -2878,11 +3811,27 @@ function _buildFees($conn, $student_id, $programName, $semester, $yearLevel, $un
         'energyFee'        => $energy_fee,
         'extraFees'        => $extra_fees_list,
         'subtotal'         => $subtotal,
-        'discount'         => $discount,
+        'discount'         => $savedDiscount,
         'installmentFee'   => $inst_fee,
         'totalAssessment'  => $total,
     ];
 }
+
+// ─────────────────────────────────────────────────────────────
+// TVET TRANSFEREE FEES
+// Exactly the same as College transferee EXCEPT tuition is a
+// fixed ₱20k flat rate — misc, reg, lab, energy = ₱0.
+// Add/drop and TOR credits do NOT change the total.
+// Installment charge (₱750) still applies if paymentPlan = installment.
+// ─────────────────────────────────────────────────────────────
+function computeFeesTVET($conn, $student_id, $semester, $paymentPlan) {
+    $fc       = loadFeeConfig($conn, 'TVET');
+    $flatRate = (float)($fc['transferee_flat_rate']['value'] ?? 20000);
+    // Delegate entirely to computeFeesTransferee with the flat tuition override.
+    // $programName / $yearLevel are unused when $flatTuition is set (unit lookup is skipped).
+    return computeFeesTransferee($conn, $student_id, '', $semester, '', $paymentPlan, 0, $flatRate);
+}
+
 
 // ═════════════════════════════════════════════════════════════════
 //  GET STUDENT CONTEXT
@@ -2891,6 +3840,10 @@ function _buildFees($conn, $student_id, $programName, $semester, $yearLevel, $un
 //  computeFeesTransferee() based on student_type.
 // ═════════════════════════════════════════════════════════════════
 function getStudentContext($conn) {
+    // FIX BUG-AUTOLOGOUT-01: Buffer output so PHP notices/warnings never corrupt
+    // the JSON response. Stray output before json_encode makes Angular receive
+    // invalid JSON → res.success is falsy → router.navigate(['/login']) → phantom logout.
+    ob_start();
     // Central guard: ensure year_level column exists before ANY sub-function runs.
     // This is the top-level function called by Angular on every page load — guaranteeing
     // it runs here means all child calls (autoEnrollNew, autoEnrollAll, collectProgramCourses, etc.)
@@ -2902,7 +3855,12 @@ function getStudentContext($conn) {
     }
 
     // ── 1. Load student row ────────────────────────────────────
-    $s_res = $conn->prepare("SELECT s.id, s.user_id, s.student_number, s.first_name, s.last_name, s.middle_name, s.suffix, s.date_of_birth, s.age, s.sex, s.address, s.phone, s.program, s.year_level, s.semester, s.student_category, s.student_type, s.enrollment_status, s.approval_status, s.payment_status, s.payment_method, s.payment_plan, s.enrollment_date, s.strand, s.learning_delivery, s.last_school_attended, s.gpa, s.profile_picture, s.is_scholar, s.scholar_type, s.scholar_grantor, s.scholarship_amount, s.has_special_needs, s.special_needs_details, s.has_assistive_tech, s.assistive_tech_details, u.email AS user_email FROM students s JOIN users u ON s.user_id = u.id WHERE s.id = ? LIMIT 1");
+    // FIX REJECT-NOTES-01: Ensure rejection_reason column exists before SELECT.
+    $conn->query("ALTER TABLE students ADD COLUMN IF NOT EXISTS rejection_reason TEXT DEFAULT NULL");
+    // FIX SHS-CTX-01: Extended SELECT — added lrn_no, tvet_type, religion, place_of_birth,
+    // citizenship, mother_tongue, is_indigenous, psa_birth_cert_no, emergency_contact,
+    // emergency_phone so all SHS/personal fields are available in the JSON response.
+    $s_res = $conn->prepare("SELECT s.id, s.user_id, s.student_number, s.first_name, s.last_name, s.middle_name, s.suffix, s.date_of_birth, s.age, s.sex, s.address, s.phone, s.program, s.year_level, s.semester, s.student_category, s.student_type, s.enrollment_status, s.approval_status, s.payment_status, s.payment_method, s.payment_plan, s.enrollment_date, s.strand, s.learning_delivery, s.last_school_attended, s.gpa, s.profile_picture, s.is_scholar, s.scholar_type, s.scholar_grantor, s.scholarship_amount, s.has_special_needs, s.special_needs_details, s.has_assistive_tech, s.assistive_tech_details, s.lrn_no, s.tvet_type, s.religion, s.place_of_birth, s.citizenship, s.mother_tongue, s.is_indigenous, s.psa_birth_cert_no, s.emergency_contact, s.emergency_phone, s.rejection_reason, u.email AS user_email FROM students s JOIN users u ON s.user_id = u.id WHERE s.id = ? LIMIT 1");
     $s_res->bind_param("i", $student_id);
     $s_res->execute();
     $s = $s_res->get_result()->fetch_assoc();
@@ -2921,11 +3879,65 @@ function getStudentContext($conn) {
     $paymentPlan = $needsPlanSelection ? 'full' : trim($rawPlan);
     if ($paymentPlan === '') $paymentPlan = 'full';
 
+    // FIX TOR-PLAN-DEFAULT-01: The students table has payment_plan DEFAULT 'full'
+    // so new transferees always have payment_plan='full' in DB — never NULL.
+    // This means $needsPlanSelection is always false for transferees who haven't
+    // actually chosen a plan yet, causing them to skip the plan selector and land
+    // directly on Cash+Full payment screen after TOR evaluation.
+    //
+    // Fix: For transferees whose TOR is Evaluated but have NOT yet made any payment
+    // (no payment_schedules row, no installment_payments row), force needsPlanSelection=true
+    // so Angular always shows the plan selector before the payment screen.
+    // This is safe — once the student picks a plan, payment_schedules is written
+    // and this block no longer fires.
+    if (!$needsPlanSelection && $paymentPlan === 'full') {
+        $torEvalCheck = $s['tor_eval_status'] ?? null;
+        $isTransfereeCtx = (strcasecmp($s['student_type'] ?? '', 'Transferee') === 0
+                         || strcasecmp($s['student_type'] ?? '', 'Continuing') === 0);
+        $hasPaid = (($s['payment_status'] ?? '') === 'Paid'
+                 || ($s['payment_status'] ?? '') === 'Partial');
+        if ($isTransfereeCtx && $torEvalCheck === 'Evaluated' && !$hasPaid) {
+            // Check if student has ever made a real payment choice (payment_schedules exists)
+            $psExistChk = $conn->query("SELECT id FROM payment_schedules WHERE student_id = {$s['id']} LIMIT 1");
+            $hasPaymentSchedule = $psExistChk && $psExistChk->num_rows > 0;
+            if (!$hasPaymentSchedule) {
+                $needsPlanSelection = true; // Force plan selector — student hasn't chosen yet
+            }
+        }
+    }
+
+    // FIX RACE-01 (backend): When DB payment_plan is still NULL (race window between
+    // update_payment_plan write and this read), the frontend passes hint_payment_plan
+    // as a query param (set from sessionStorage pendingPaymentPlan written by finishTorReview).
+    // Accept the hint ONLY when the DB value is genuinely missing — never let the hint
+    // downgrade an already-committed DB value (e.g. 'installment' -> 'full').
+    if ($needsPlanSelection) {
+        $hint = strtolower(trim($_GET['hint_payment_plan'] ?? $_POST['hint_payment_plan'] ?? ''));
+        if ($hint === 'installment' || $hint === 'full') {
+            $paymentPlan        = $hint;
+            $needsPlanSelection = false; // hint supplied - no need to show plan selector
+        }
+    }
+
     // Secondary: confirm/correct from payment_schedules if it exists
+    // FIX BUG-TVET-PSROW-01: Previous one-liner had operator precedence trap —
+    // ($psR = fetch_assoc() && ...) assigned the boolean result of the whole
+    // expression to $psR, not the array row, so $psR['payment_type'] was always null.
     if ($paymentPlan !== 'installment') {
         $psRow = $conn->query("SELECT payment_type FROM payment_schedules WHERE student_id = {$s['id']} ORDER BY id DESC LIMIT 1");
-        if ($psRow && $psR = $psRow->fetch_assoc() && ($psR['payment_type'] ?? '') === 'installment') {
-            $paymentPlan = 'installment';
+        if ($psRow) {
+            $psR = $psRow->fetch_assoc();
+            if (($psR['payment_type'] ?? '') === 'installment') {
+                $paymentPlan = 'installment';
+                // FIX BUG-PLAN-RESET-01: payment_schedules confirmed installment —
+                // clear needsPlanSelection so the frontend does NOT show the plan
+                // selector again. Without this, students.payment_plan=NULL (post
+                // re-enroll race) causes the plan selector to appear every login
+                // even though installment was already chosen and payment_schedules
+                // proves it. The student picks "full" on the selector thinking they
+                // must choose again — resulting in their plan being reset to full.
+                $needsPlanSelection = false;
+            }
         }
     }
 
@@ -2934,39 +3946,95 @@ function getStudentContext($conn) {
         $arChk = $conn->query("SELECT id FROM installment_payments WHERE student_id = $student_id AND or_ar_type = 'AR' LIMIT 1");
         if ($arChk && $arChk->num_rows > 0) {
             $paymentPlan = 'installment';
+            // FIX BUG-PLAN-RESET-01 (AR path): same as payment_schedules fix above.
+            $needsPlanSelection = false;
         }
     }
 
     // Sync payment_schedules.payment_type if it disagrees with the resolved plan
     if ($paymentPlan === 'installment') {
         $conn->query("UPDATE payment_schedules SET payment_type = 'installment' WHERE student_id = $student_id AND payment_type != 'installment'");
+        // FIX PLAN-SYNC-01: Also write back to students.payment_plan so subsequent
+        // page loads resolve instantly from the students table without re-running the
+        // payment_schedules fallback chain. Without this, every page load where
+        // students.payment_plan is NULL goes through the fallback and may still
+        // flicker as 'full' during the DB read → fee compute gap.
+        if (($s['payment_plan'] ?? '') !== 'installment') {
+            $conn->query("UPDATE students SET payment_plan = 'installment' WHERE id = $student_id AND (payment_plan IS NULL OR payment_plan != 'installment')");
+        }
     }
 
     $paymentMethod  = trim($s['payment_method'] ?? '') ?: '';
-    // FIX RE-ENROLL-METHOD-02: Self-heal NULL payment_method for students who
-    // re-enrolled before this patch (reEnroll() used to set payment_method=NULL).
-    // Recover the method from their most recent payment_log entry, then persist
-    // it back to students so all subsequent reads are correct.
+    // FIX RE-ENROLL-METHOD-02 / PM-NULL-03: Self-heal NULL/empty payment_method.
+    // Priority order:
+    //   1. payment_logs — prefer Cash logs; ignore phantom GCash logs.
+    //   2. students.payment_plan context — if plan is set but method is still missing,
+    //      look at payment_logs more broadly (Verified records).
+    //   3. Stay '' — never default to 'GCash'. The UI should prompt for clarification.
     if ($paymentMethod === '') {
+        // BUG-TVET-CASH-03 FIX: Prefer Cash logs over phantom GCash logs.
+        // Phantom GCash logs (gcash_reference='' AND gcash_amount=0) are auto-created
+        // by getPendingPayments noLogSql path before the student chooses their method.
+        // The self-heal must not treat these as evidence of a real GCash selection.
+        // Strategy: look for a Cash log first; only fall back to GCash if a real
+        // GCash log exists (gcash_reference non-empty OR gcash_amount > 0).
         $pmHealSt = $conn->prepare(
-            "SELECT payment_method FROM payment_logs
+            "SELECT payment_method, gcash_reference, gcash_amount
+             FROM payment_logs
              WHERE student_id = ? AND payment_method IS NOT NULL AND payment_method != ''
-             ORDER BY created_at DESC LIMIT 1"
+             ORDER BY
+               CASE WHEN LOWER(payment_method) = 'cash' THEN 0 ELSE 1 END ASC,
+               created_at DESC
+             LIMIT 1"
         );
         $pmHealSt->bind_param('i', $student_id);
         $pmHealSt->execute();
         $pmHealRow = $pmHealSt->get_result()->fetch_assoc();
         $pmHealSt->close();
-        $paymentMethod = $pmHealRow
-            ? (strtolower($pmHealRow['payment_method']) === 'cash' ? 'Cash' : 'GCash')
-            : 'GCash'; // absolute fallback — no history at all
+
+        if ($pmHealRow) {
+            $logMethod = strtolower($pmHealRow['payment_method']);
+            $isPhantomGcash = ($logMethod === 'gcash')
+                && (trim($pmHealRow['gcash_reference'] ?? '') === '')
+                && ((float)($pmHealRow['gcash_amount'] ?? 0) <= 0);
+            if ($isPhantomGcash) {
+                $paymentMethod = ''; // phantom — do NOT inherit GCash from it
+            } else {
+                $paymentMethod = ($logMethod === 'cash') ? 'Cash' : 'GCash';
+            }
+        }
+
+        // FIX PM-NULL-03: If STILL empty after payment_logs check (e.g. very first login,
+        // no log written yet because register_student saved '' and no Cash log was created),
+        // check payment_logs for ANY Verified record as a last resort.
+        if ($paymentMethod === '') {
+            $pmVerSt = $conn->prepare(
+                "SELECT payment_method, gcash_reference, gcash_amount
+                 FROM payment_logs
+                 WHERE student_id = ? AND status = 'Verified'
+                   AND payment_method IS NOT NULL AND payment_method != ''
+                 ORDER BY CASE WHEN LOWER(payment_method) = 'cash' THEN 0 ELSE 1 END ASC,
+                          created_at DESC
+                 LIMIT 1"
+            );
+            $pmVerSt->bind_param('i', $student_id);
+            $pmVerSt->execute();
+            $pmVerRow = $pmVerSt->get_result()->fetch_assoc();
+            $pmVerSt->close();
+            if ($pmVerRow) {
+                $paymentMethod = (strtolower($pmVerRow['payment_method']) === 'cash') ? 'Cash' : 'GCash';
+            }
+        }
+
+        // Persist whatever we resolved so subsequent page loads skip this self-heal chain
         if ($paymentMethod !== '') {
             $pmFixSt = $conn->prepare("UPDATE students SET payment_method = ? WHERE id = ? AND (payment_method IS NULL OR payment_method = '')");
             $pmFixSt->bind_param('si', $paymentMethod, $student_id);
             $pmFixSt->execute();
             $pmFixSt->close();
         }
-    }
+    } // end if ($paymentMethod === '')
+
     $approvalStatus = $s['approval_status']  ?? 'Pending';
     $paymentStatus  = $s['payment_status']   ?? 'Pending';
     $enrollStatus   = $s['enrollment_status'] ?? 'Pending';
@@ -2975,9 +4043,20 @@ function getStudentContext($conn) {
     $torStatus = null; $torCreditedUnits = 0; $torApprovedUnits = 0;
     $torCreditedSubjects = []; $torNotes = ''; $torEvalAt = '';
 
-    if ($studentType === 'Transferee') {
+    // FIX TRANSFEREE-CASE-01: Normalize student_type comparison to be case-insensitive.
+    // DB may store 'Transferee', 'transferee', or 'TRANSFEREE'. Define early so all
+    // branches in this function use the same safe check.
+    // FIX TOR-CONTINUING-01: Also fetch TOR for Continuing students who were
+    // previously Transferees. After re-enrollment, student_type changes from
+    // 'Transferee' → 'Continuing', but their tor_evaluations record still exists
+    // and the credited units must still be excluded from fee computation.
+    $isTransferee = (strcasecmp($studentType, 'Transferee') === 0);
+    $hasTorRecord = false;
+
+    if ($isTransferee || strcasecmp($studentType, 'Continuing') === 0) {
         $tor_res = $conn->query("SELECT * FROM tor_evaluations WHERE student_id = $student_id ORDER BY id DESC LIMIT 1");
         if ($tor_res && $tor_res->num_rows > 0) {
+            $hasTorRecord = true;
             $tor = $tor_res->fetch_assoc();
             $torStatus           = $tor['status'];
             $torCreditedUnits    = (int)($tor['credited_units']  ?? 0);
@@ -2985,6 +4064,18 @@ function getStudentContext($conn) {
             $torNotes            = $tor['registrar_notes']        ?? '';
             $torEvalAt           = $tor['evaluated_at']           ?? '';
             $torCreditedSubjects = json_decode($tor['credited_subjects'] ?? '[]', true) ?: [];
+            // FIX BUG-UNITS-TOR-01b: Backfill credited_course_ids when it is NULL
+            if (empty($tor['credited_course_ids']) && !empty($torCreditedSubjects)) {
+                $_backfillIds = array_values(array_filter(array_map(
+                    fn($s) => isset($s['courseId']) ? (int)$s['courseId'] : 0,
+                    $torCreditedSubjects
+                )));
+                if (!empty($_backfillIds)) {
+                    $_backfillJson = json_encode($_backfillIds);
+                    $_torId = (int)($tor['id'] ?? 0);
+                    $conn->query("UPDATE tor_evaluations SET credited_course_ids = '$_backfillJson' WHERE id = $_torId AND (credited_course_ids IS NULL OR credited_course_ids = '')");
+                }
+            }
         }
     }
 
@@ -2999,36 +4090,93 @@ function getStudentContext($conn) {
     }
 
     // ── 4. Compute fees — route by student type ────────────────
-    // Scholar discount from student_scholarships table
+    // Scholar discount: use approved (is_active=1) amount first.
+    // FIX SCHOLAR-PENDING-DISCOUNT-02: If no approved scholarship exists yet,
+    // fall back to the student's declared scholarship_amount (pending approval).
+    // This ensures the Payment Instructions (step 4) shows the discounted fee
+    // immediately after the student declares their scholarship, not only after
+    // Accounting approves. The label still shows "Pending Approval" on the UI.
     $schCtx = $conn->query("SELECT COALESCE(SUM(scholarship_amount),0) AS total FROM student_scholarships WHERE student_id = {$s['id']} AND is_active = 1");
     $discount = (float)($schCtx ? $schCtx->fetch_assoc()['total'] : 0);
+    if ($discount <= 0 && (bool)($s['is_scholar'] ?? false)) {
+        // Try students.scholarship_amount first (set by our patch on declare/register)
+        $discount = (float)($s['scholarship_amount'] ?? 0);
+        // FIX SCHOLAR-PENDING-BACKFILL-01: If still 0 (student registered before the patch),
+        // read directly from the pending student_scholarships row and backfill students table.
+        if ($discount <= 0) {
+            $pendingSchCtx = $conn->query("SELECT scholarship_amount FROM student_scholarships WHERE student_id = {$s['id']} AND status = 'pending' ORDER BY id DESC LIMIT 1");
+            $pendingSchRow = $pendingSchCtx ? $pendingSchCtx->fetch_assoc() : null;
+            if ($pendingSchRow && (float)$pendingSchRow['scholarship_amount'] > 0) {
+                $discount = (float)$pendingSchRow['scholarship_amount'];
+                // Backfill students table so future page loads skip this query
+                $conn->query("UPDATE students SET scholarship_amount=$discount WHERE id={$s['id']} AND (scholarship_amount IS NULL OR scholarship_amount=0)");
+            }
+        }
+    }
 
     $studentCategory = strtoupper(trim($s['student_category'] ?? ''));
-    $isSHSTVET = ($studentCategory === 'SHS' || $studentCategory === 'TVET');
+    $isSHS     = ($studentCategory === 'SHS');
+    $isTVET    = ($studentCategory === 'TVET');
+    $isSHSTVET = ($isSHS || $isTVET);
 
-    if ($studentType === 'Transferee') {
+    if ($isTransferee && $isTVET) {
+        // TVET transferee → ₱20k flat rate (no unit-based fees)
+        $fees = computeFeesTVET($conn, $student_id, $semester, $paymentPlan);
+    } elseif ($isTransferee) {
+        // SHS / College transferee → unit-based transferee fees
         $fees = computeFeesTransferee($conn, $student_id, $programName, $semester, $yearLevel, $paymentPlan, $discount);
-    } elseif ($isSHSTVET) {
-        // SHS/TVET New & Old — FREE (K-12 Voucher / TESDA PRISAA)
-        // Return zero fees and clear any stale tuition_fees record
+    } elseif (($isSHS || $isTVET) && !$isTransferee) {
+        // SHS non-transferee   → FREE (K-12 DepEd voucher)
+        // TVET non-transferee  → FREE (TESDA/PESFA/STEP government scholarship)
         $conn->query("DELETE FROM tuition_fees WHERE student_id = $student_id");
+        // FIX FREE-SNAPSHOT-01: Force-delete any stale soa_snapshots row that may
+        // have been written when this student was wrongly treated as a paying student
+        // (e.g. when TVET-COLLEGE-FLOW-01 was active). The ON DUPLICATE KEY UPDATE
+        // guard in saveSoaSnapshot() never overwrites non-zero fees, so we must wipe
+        // the bad row first before saveSoaSnapshot() can write the correct ₱0 snapshot.
+        $_semEscFree = $conn->real_escape_string($semester);
+        $conn->query("DELETE FROM soa_snapshots WHERE student_id = $student_id AND semester = '$_semEscFree'");
         $fees = [
             'units' => 0, 'tuitionFee' => 0, 'miscellaneousFee' => 0,
             'registrationFee' => 0, 'laboratoryFee' => 0, 'energyFee' => 0,
             'subtotal' => 0, 'discount' => 0, 'installmentFee' => 0,
             'totalAssessment' => 0,
         ];
-        // FIX: SHS/TVET non-transferee students are FREE — auto-approve immediately
-        // so the frontend can route them to the dashboard and trigger auto-enrollment.
-        // Without this they stay Pending forever because verifyPayment() never runs.
-        $isTransfereeCheck = (trim($studentType) === 'Transferee');
-        if (!$isTransfereeCheck && $approvalStatus !== 'Approved') {
-            $conn->query("UPDATE students SET approval_status='Approved', payment_status='Paid', enrollment_status='Enrolled' WHERE id=$student_id AND approval_status != 'Approved'");
-            $approvalStatus = 'Approved';
-            $paymentStatus  = 'Paid';
-            $enrollStatus   = 'Enrolled';
+        // FIX FREE-REGISTRAR-01: SHS/TVET free students still require Registrar
+        // approval before becoming Enrolled — even though tuition is ₱0.
+        // Previously they were auto-approved + auto-enrolled immediately, bypassing
+        // the Registrar entirely. Now:
+        //   • payment_status → 'Paid' (no payment needed — free)
+        //   • approval_status → 'Approved' (Accounting side is satisfied)
+        //   • enrollment_status → 'Confirmed' (waiting for Registrar to set 'Enrolled')
+        // The Registrar will see them in the pending list and confirm via the normal
+        // confirm-enrollment flow, which sets enrollment_status='Enrolled'.
+        // Guard: !$isTransferee is belt-and-suspenders — the outer elseif already checks.
+        if (!$isTransferee) {
+            if ($paymentStatus !== 'Paid') {
+                $conn->query("UPDATE students SET payment_status='Paid' WHERE id=$student_id AND payment_status != 'Paid'");
+                $paymentStatus = 'Paid';
+            }
+            if ($approvalStatus !== 'Approved') {
+                $conn->query("UPDATE students SET approval_status='Approved' WHERE id=$student_id AND approval_status != 'Approved'");
+                $approvalStatus = 'Approved';
+            }
+            // Only set Confirmed (not Enrolled) — Registrar must do the final step
+            if ($enrollStatus === 'Pending') {
+                $conn->query("UPDATE students SET enrollment_status='Confirmed' WHERE id=$student_id AND enrollment_status='Pending'");
+                $enrollStatus = 'Confirmed';
+            }
         }
+        // Write the correct ₱0 free snapshot so the SOA shows "Free – Government Scholarship"
+        saveSoaSnapshot($conn, $student_id, $semester);
     } else {
+
+        // ── BUG-CTX-01 FIX: College (non-SHS, non-TVET) students — compute unit-based fees.
+        // Previously this else block had NO $fees assignment, so $fees was undefined.
+        // Any access to $fees['totalAssessment'] below (installment auto-approve check,
+        // $total = $fees['totalAssessment'], array_merge at return) threw a PHP 8 TypeError,
+        // which the exception handler caught and returned {success:false}, causing Angular to
+        // redirect to /login — triggering the enrollment → login → dashboard redirect loop.
         $fees = computeFeesNew($conn, $student_id, $programName, $semester, $yearLevel, $paymentPlan, $discount);
 
         // Auto-approve installment students who are fully paid but still Pending/stuck
@@ -3146,30 +4294,50 @@ function getStudentContext($conn) {
     foreach ($termOrder as $t) { if (isset($termBreakdown[$t])) $sortedTerms[] = $termBreakdown[$t]; }
 
     // ── 5b. SERVER-SIDE AUTO-ENROLL GUARD ────────────────────
-    // If student is Approved but has zero active enrollments, trigger auto-enrollment
-    // here so subjects are always present on context load — no client round-trip needed.
-    // This fixes the race condition where the Angular UI loads before the auto_enroll POST
-    // completes, leaving the subjects list permanently empty.
-    if ($approvalStatus === 'Approved' && $studentType !== 'Transferee' && !$isSHSTVET) {
+    // POLICY CHANGE: ALL students (transferee and non-transferee) must wait for
+    // Registrar confirmation before subjects are enrolled.
+    // The old block auto-advanced non-transferee College students from
+    // 'Confirmed' → 'Enrolled' and immediately ran autoEnrollNew() the moment
+    // getStudentContext() was called after Accounting approved payment.
+    // This bypassed the Registrar's confirm_registration step entirely.
+    //
+    // Subjects are now enrolled ONLY when:
+    //   • Registrar calls confirm_registration (registrar.php) → sets
+    //     enrollment_status='Enrolled' and runs autoEnrollAll().
+    //   • SHS/TVET non-transferees remain auto-approved as free (no change).
+    //
+    // For free SHS/TVET non-transferees: auto-enroll still runs below because
+    // their enrollment_status is already 'Enrolled' (set by the free-student
+    // auto-approve block above, which runs before this section).
+    $shouldAutoEnroll = ($enrollStatus === 'Enrolled' && !$isTransferee && !$isSHSTVET);
+    if ($shouldAutoEnroll) {
         $enrollCount = (int)$conn->query(
             "SELECT COUNT(*) AS c FROM enrollments WHERE student_id = $student_id AND status IN ('Enrolled','Pending')"
         )->fetch_assoc()['c'];
         if ($enrollCount === 0) {
-            // Re-use autoEnrollNew logic inline (non-responding — just run it)
             autoEnrollNew($conn, ['student_id' => $student_id, 'semester' => $semester], false);
+        }
+        if ($semester !== '') {
+            saveSoaSnapshot($conn, $student_id, $semester);
         }
     }
 
     // ── 6. Build response ─────────────────────────────────────
     $pic = $s['profile_picture'] ?: 'https://ui-avatars.com/api/?name=' . urlencode(($s['first_name']??'').'+'.($s['last_name']??'')) . '&size=150';
     // Guardian from student_guardians table
-    $guardianName = ''; $guardianContact = ''; $guardianEmail = ''; $guardianRelationship = '';
-    $gCtx = $conn->query("SELECT guardian_name, contact, email, relationship FROM student_guardians WHERE student_id = {$s['id']} AND is_emergency = 1 LIMIT 1");
+    // FIX SHS-CTX-02: Also fetch address; fall back from emergency row to any guardian row
+    // so SHS students who registered with a primary (non-emergency) guardian still see data.
+    $guardianName = ''; $guardianContact = ''; $guardianEmail = ''; $guardianRelationship = ''; $guardianAddress = '';
+    $gCtx = $conn->query("SELECT guardian_name, contact, email, relationship, address FROM student_guardians WHERE student_id = {$s['id']} AND is_emergency = 1 LIMIT 1");
+    if (!$gCtx || $gCtx->num_rows === 0) {
+        $gCtx = $conn->query("SELECT guardian_name, contact, email, relationship, address FROM student_guardians WHERE student_id = {$s['id']} ORDER BY id ASC LIMIT 1");
+    }
     if ($gCtx && $gc = $gCtx->fetch_assoc()) {
         $guardianName         = $gc['guardian_name'] ?? '';
         $guardianContact      = $gc['contact']       ?? '';
         $guardianEmail        = $gc['email']         ?? '';
         $guardianRelationship = $gc['relationship']  ?? '';
+        $guardianAddress      = $gc['address']       ?? '';
     }
     if (!$guardianName)    $guardianName    = $s['emergency_contact'] ?? '';
     if (!$guardianContact) $guardianContact = $s['emergency_phone']   ?? '';
@@ -3180,29 +4348,62 @@ function getStudentContext($conn) {
     $nextYearLevel  = '';
     $periodLabel    = '';
 
-    // BUG-REENROLL-NEW-FIX: removed $studentType !== 'New' gate — New students
-    // must be allowed to re-enroll so they can become Old. The gate caused New
-    // students to be permanently stuck on their first semester with no way to advance.
+    // FIX REENROLL-ALL-TYPES-01: Apply Completed enrollments check to ALL student
+    // types, not just 'New'. Previously Old/Continuing students had
+    // $hasCompletedEnrollments = true unconditionally, which caused TVET and College
+    // Old/Continuing students to see the re-enroll screen immediately after Registrar
+    // confirmation — they were Approved+Enrolled but had zero Completed rows because
+    // their current semester was still in progress.
     //
-    // FIX REENROLL-NEWSTUDENT-01: However, a brand-new student who was JUST confirmed
-    // by the Registrar (student_type='New', zero Completed enrollments) must NOT be
-    // flagged for re-enrollment. The old gate removal exposed this: if the enrollment
-    // period label differs even slightly from the student's stored semester, the
-    // detection fires and shows "Re-enrollment" to a student on their very first login.
+    // Root cause of the screenshot bug: Shane Gongora (TVET, Old/Continuing) was just
+    // confirmed by Registrar → enrollment_status='Enrolled'. The period label differed
+    // from her stored semester → needsReEnroll fired at first dashboard load.
     //
-    // Rule: New students only see re-enrollment prompt if they already have at least
-    // one Completed enrollment row — meaning they've finished their first semester.
-    // Old/Continuing/Transferee students keep the existing behavior.
-    $hasCompletedEnrollments = true; // default: allow re-enroll check
-    if ($studentType === 'New') {
-        $compChkR = $conn->query(
-            "SELECT COUNT(*) AS cnt FROM enrollments
-             WHERE student_id = $student_id AND status = 'Completed'"
+    // Unified rule for ALL student types:
+    //   (a) Has Completed/Failed enrollment rows → semester genuinely done → allow.
+    //   (b) No Completed rows BUT open period is a DIFFERENT AY → edge case where
+    //       Registrar confirmed and subjects were never marked Completed yet → allow.
+    //   (c) Neither → block (student is still mid-semester).
+    $compChkAll = $conn->query(
+        "SELECT COUNT(*) AS cnt FROM enrollments
+         WHERE student_id = $student_id
+           AND status IN ('Completed','Failed')"
+    );
+    $completedCountAll = $compChkAll ? (int)$compChkAll->fetch_assoc()['cnt'] : 0;
+
+    if ($completedCountAll > 0) {
+        // (a) Has completed/failed subjects — semester is genuinely done
+        $hasCompletedEnrollments = true;
+    } else {
+        // FIX REENROLL-PERIOD-01: Allow re-enroll whenever the open period label
+        // differs from the student's current semester — regardless of whether
+        // subjects are Completed yet. Admin setting a new period label is the
+        // authoritative signal that a new enrollment window has begun.
+        // Previously this only allowed re-enroll when the AY was different,
+        // which blocked same-AY term changes (e.g. 1st Sem → 2nd Sem, same AY).
+        $openPeriodChk   = getEnrollmentPeriodRow($conn);
+        $openLabelChk    = trim($openPeriodChk['label'] ?? '');
+        $studentSemChk   = trim($s['semester'] ?? '');
+        // Normalize both labels: strip extra spaces around comma, normalize AY order
+        $normLabel = function(string $lbl): string {
+            $lbl = preg_replace('/\s*,\s*/', ', ', trim($lbl));
+            $lbl = preg_replace_callback('/AY\s*(\d{4})-(\d{4})/i', function($m) {
+                return 'AY ' . min((int)$m[1],(int)$m[2]) . '-' . max((int)$m[1],(int)$m[2]);
+            }, $lbl);
+            return $lbl;
+        };
+        $hasCompletedEnrollments = (
+            $openLabelChk !== '' &&
+            $normLabel($openLabelChk) !== $normLabel($studentSemChk)
         );
-        $hasCompletedEnrollments = $compChkR && (int)$compChkR->fetch_assoc()['cnt'] > 0;
     }
 
-    if ($approvalStatus === 'Approved' && $enrollStatus === 'Enrolled' && $hasCompletedEnrollments) {
+    // FIX REENROLL-CONFIRMED-01: Accept 'Confirmed' in addition to 'Enrolled'.
+    // The auto-advance Confirmed→Enrolled runs earlier in getStudentContext() but
+    // only inside the paymentStatus block. A Transferee with Partial payment lands
+    // on 'Confirmed' and never enters that block, so $enrollStatus stays 'Confirmed'
+    // here. Both statuses mean the student is actively enrolled and eligible.
+    if ($approvalStatus === 'Approved' && in_array($enrollStatus, ['Enrolled', 'Confirmed'], true) && $hasCompletedEnrollments) {
         $period = getEnrollmentPeriodRow($conn);
         if ($period['is_open'] ?? false) {
             $periodLabel = trim($period['label'] ?? '');
@@ -3242,28 +4443,80 @@ function getStudentContext($conn) {
                 $ylMap  = ['1st Year'=>1,'2nd Year'=>2,'3rd Year'=>3,'4th Year'=>4,'5th Year'=>5];
                 $ylBack = [1=>'1st Year',2=>'2nd Year',3=>'3rd Year',4=>'4th Year',5=>'5th Year'];
 
+                // Max year level per category: TVET=3, SHS=12(Grade), College=4 or 5
+                $catUC = strtoupper(trim($s['student_category'] ?? ''));
+                $maxYL = ($catUC === 'TVET') ? 3 : (($catUC === 'SHS') ? 2 : 5);
+
                 $nextSemester  = $periodLabel;
                 $nextYearLevel = $yearLevel;
 
-                // Extract term parts for year-level advancement decision
-                $periodTerm  = '';
+                // FIX YEARLEVEL-ADVANCE-01: Advance year level whenever student
+                // completed 2nd Semester — regardless of what the new period term is.
+                // Old check (period must be '1st Sem') failed when admin opens next
+                // AY's 2nd Semester after student finished current AY's 2nd Semester.
                 $studentTerm = '';
-                if (preg_match('/^(1st\s+Semester|2nd\s+Semester|Summer|Midyear)/i', $periodLabel, $_pm)) {
-                    $periodTerm = preg_replace('/\s+/', ' ', trim($_pm[1]));
-                }
                 if (preg_match('/^(1st\s+Semester|2nd\s+Semester|Summer|Midyear)/i', $studentSem, $_sm)) {
                     $studentTerm = preg_replace('/\s+/', ' ', trim($_sm[1]));
                 }
-
-                // Advance year level: 2nd Sem → 1st Sem of next AY
-                if (strcasecmp($periodTerm, '1st Semester') === 0 &&
-                    strcasecmp($studentTerm, '2nd Semester') === 0) {
+                if (strcasecmp($studentTerm, '2nd Semester') === 0) {
                     $curYLNum      = $ylMap[$yearLevel] ?? 1;
-                    $nextYLNum     = min($curYLNum + 1, 5);
-                    $nextYearLevel = $ylBack[$nextYLNum];
+                    // FIX TVET-MAXYL-02: Use programs.duration for TVET instead of hardcoded 3
+                    $catUC2 = strtoupper(trim($s['student_category'] ?? ''));
+                    if ($catUC2 === 'TVET') {
+                        $tvetDurCtx = $conn->query(
+                            "SELECT COALESCE(p.duration, 3) AS dur
+                             FROM programs p
+                             WHERE p.name = '{$conn->real_escape_string($s['program'] ?? '')}'
+                                OR p.code = '{$conn->real_escape_string($s['program'] ?? '')}'
+                             LIMIT 1"
+                        );
+                        $maxYL = $tvetDurCtx ? (int)($tvetDurCtx->fetch_assoc()['dur'] ?? 3) : 3;
+                    } else {
+                        $maxYL = ($catUC2 === 'SHS') ? 2 : 5;
+                    }
+                    $nextYLNum     = min($curYLNum + 1, $maxYL);
+                    $nextYearLevel = $ylBack[$nextYLNum] ?? $yearLevel;
                 }
             }
         }
+    }
+
+    // ── FIX DEPT-CTX-01: Resolve department + programCode from programs table.
+    // getStudentContext() was missing this lookup — department was always ''
+    // in the student enrollment view (SOA header, enrollment summary, etc.)
+    // because only getProfile() had the programs table join. Now both endpoints
+    // return consistent department and programCode values.
+    $ctxProgramCode = '';
+    $ctxDepartment  = '';
+    // FIX CTX-CATEGORY-01: Use students.student_category as the canonical value for
+    // studentCategory returned to Angular. Previously ctxLevelType was overwritten by
+    // programs.level_type, which caused College students whose program had level_type='TVET'
+    // (or any mismatched value) to be misidentified as TVET/SHS by the Angular routing logic.
+    // Result: isFree=true → TVET branch fired → student routed to payment step even after
+    // Accounting approved, showing "Cash Payment Instructions" indefinitely (stuck screen).
+    // The programs.level_type is kept for department/display purposes ONLY via $ctxDeptLevelType.
+    $ctxLevelType     = strtoupper(trim($s['student_category'] ?? '')); // canonical — never overwritten
+    $ctxDeptLevelType = $ctxLevelType; // may be overwritten by programs table for display only
+    $hasPTableCtx     = $conn->query("SHOW TABLES LIKE 'programs'")->num_rows > 0;
+    if ($hasPTableCtx && $programName !== '') {
+        $deptStmt = $conn->prepare("SELECT code, level_type, department FROM programs WHERE name = ? OR code = ? LIMIT 1");
+        $deptStmt->bind_param('ss', $programName, $programName);
+        $deptStmt->execute();
+        $deptRow = $deptStmt->get_result()->fetch_assoc();
+        $deptStmt->close();
+        if ($deptRow) {
+            $ctxProgramCode   = $deptRow['code']       ?? '';
+            $ctxDeptLevelType = $deptRow['level_type'] ?? $ctxDeptLevelType; // display only
+            $ctxDepartment    = $deptRow['department'] ?? '';
+            // Do NOT assign $ctxLevelType here — students.student_category is authoritative.
+        }
+    }
+    // Override department for TVET and SHS (same logic as getProfile FIX DEPT-CATEGORY-01)
+    $catForDeptCtx = strtoupper(trim($s['student_category'] ?? ''));
+    if ($catForDeptCtx === 'TVET') {
+        $ctxDepartment = 'Technical-Vocational Education and Training (TVET)';
+    } elseif ($catForDeptCtx === 'SHS') {
+        $ctxDepartment = 'Senior High School (SHS)';
     }
 
     // Flush output buffer — discard any stray notices before sending JSON
@@ -3283,9 +4536,11 @@ function getStudentContext($conn) {
             'phone'            => $s['phone']            ?? '',
             'profilePicture'   => $pic,
             'program'          => $programName,
+            'programCode'      => $ctxProgramCode,
+            'department'       => $ctxDepartment,
+            'studentCategory'  => $ctxLevelType,
             'yearLevel'        => $s['year_level']       ?? '1st Year',
             'studentType'      => $studentType,
-            'studentCategory'  => strtoupper(trim($s['student_category'] ?? '')),
             'semester'         => $semester,
             'gpa'              => (float)($s['gpa']      ?? 0),
             'enrollmentStatus' => $enrollStatus,
@@ -3294,21 +4549,50 @@ function getStudentContext($conn) {
             'paymentMethod'    => $paymentMethod,
             'paymentPlan'      => $paymentPlan,
             'approvalStatus'   => $approvalStatus,
-            'isScholar'        => $discount > 0,
-            'scholarshipAmount'=> $discount,
+            // FIX SCHOLAR-CTX-01: isScholar must be true even while scholarship is still pending
+            // (is_active=0). students.is_scholar is set to 1 at declare time, so it correctly
+            // reflects pending state. $discount>0 only after accounting approves — using
+            // it alone caused the scholar badge and Step 4 data to disappear on every reload.
+            // scholarType/scholarGrantor were also missing from this response entirely.
+            'isScholar'        => (bool)($s['is_scholar'] ?? false) || $discount > 0,
+            'scholarType'      => $s['scholar_type']    ?? '',
+            'scholarGrantor'   => $s['scholar_grantor'] ?? '',
+            'scholarshipAmount'=> $discount > 0 ? $discount : (float)($s['scholarship_amount'] ?? 0),
             'torEvalStatus'    => $torStatus,
-            'lrnNo'            => $s['lrn_no']           ?? '',
-            'dateOfBirth'      => $s['date_of_birth']    ?? '',
-            'sex'              => $s['sex']              ?? '',
-            'address'          => $s['address']          ?? '',
-            'guardianName'     => $guardianName,
-            'guardianContact'  => $guardianContact,
-            'emergencyContact'    => $s['emergency_contact'] ?? $guardianName,
-            'emergencyPhone'      => $s['emergency_phone']   ?? $guardianContact,
+            // FIX SHS-CTX-03: All SHS-specific and personal fields added to response.
+            // Previously these were blank in the student dashboard view because they
+            // were only returned by get_profile, not get_student_context.
+            'strand'              => $s['strand']              ?? '',
+            'learningDelivery'    => $s['learning_delivery']   ?? '',
+            'lastSchoolAttended'  => $s['last_school_attended'] ?? '',
+            'lrnNo'               => $s['lrn_no']              ?? '',
+            'tvetType'            => $s['tvet_type']           ?? '',
+            'dateOfBirth'         => $s['date_of_birth']       ?? '',
+            'age'                 => (isset($s['date_of_birth']) && $s['date_of_birth'])
+                                        ? (int)date_diff(date_create($s['date_of_birth']), date_create('today'))->y
+                                        : '',
+            'sex'                 => $s['sex']                 ?? '',
+            'religion'            => $s['religion']            ?? '',
+            'placeOfBirth'        => $s['place_of_birth']      ?? '',
+            'citizenship'         => $s['citizenship']         ?? '',
+            'address'             => $s['address']             ?? '',
+            'motherTongue'        => $s['mother_tongue']       ?? '',
+            'isIndigenous'        => (bool)($s['is_indigenous'] ?? false),
+            'psaBirthCertNo'      => $s['psa_birth_cert_no']   ?? '',
+            'hasSpecialNeeds'     => (bool)($s['has_special_needs']   ?? false),
+            'specialNeedsDetails' => $s['special_needs_details']      ?? '',
+            'hasAssistiveTech'    => (bool)($s['has_assistive_tech']  ?? false),
+            'assistiveTechDetails'=> $s['assistive_tech_details']     ?? '',
+            'guardianName'        => $guardianName,
+            'guardianContact'     => $guardianContact,
+            'guardianAddress'     => $guardianAddress,
             'guardianEmail'       => $guardianEmail,
             'guardianRelationship'=> $guardianRelationship,
+            'emergencyContact'    => $s['emergency_contact'] ?? $guardianName,
+            'emergencyPhone'      => $s['emergency_phone']   ?? $guardianContact,
+            'rejectionReason'     => $s['rejection_reason']    ?? null,
         ],
-        'torEvaluation' => ($studentType === 'Transferee' && $torStatus) ? [
+        'torEvaluation' => (($isTransferee || $hasTorRecord) && $torStatus) ? [
             'status'           => $torStatus,
             'creditedUnits'    => $torCreditedUnits,
             'approvedUnits'    => $torApprovedUnits,
@@ -3328,9 +4612,46 @@ function getStudentContext($conn) {
         'balance'       => $balance,
         'isFullyPaid'   => $is_fully_paid,
         'needsReEnroll' => $needsReEnroll,
+        '_debug_reenroll' => [
+            'approvalStatus'          => $approvalStatus,
+            'enrollStatus'            => $enrollStatus,
+            'hasCompletedEnrollments' => $hasCompletedEnrollments ?? false,
+            'completedCount'          => $completedCountAll ?? 0,
+            'studentSemester'         => $s['semester'] ?? '',
+            'resolvedSemester'        => $semester ?? '',
+            'periodLabel_raw'         => (getEnrollmentPeriodRow($conn))['label'] ?? '',
+            'periodIsOpen'            => (getEnrollmentPeriodRow($conn))['is_open'] ?? false,
+            'needsReEnroll'           => $needsReEnroll,
+        ],
         'nextSemester'  => $nextSemester,
         'nextYearLevel' => $nextYearLevel,
         'needsPlanSelection' => $needsPlanSelection ?? false,
+        // FIX BUG-CTX-COURSES-01: Include enrolled course list in context response.
+        // The frontend hasEnrollments check (res.courses?.length > 0) is used to
+        // decide whether TVET non-transferees should skip to dashboard or show the
+        // payment wizard. Without this key, hasEnrollments is always false →
+        // student is routed back to the payment step on every login even after
+        // they already completed enrollment.
+        'courses'     => (function() use ($conn, $student_id) {
+            $_cr = $conn->query("
+                SELECT c.id AS course_id, c.code, c.name, c.credits,
+                       COALESCE(c.lec_units, c.credits) AS lec_units,
+                       COALESCE(c.lab_units, 0)         AS lab_units,
+                       e.status
+                FROM enrollments e
+                JOIN courses c ON e.course_id = c.id
+                WHERE e.student_id = $student_id
+                  AND e.status IN ('Enrolled','Pending')
+                ORDER BY c.code
+            ");
+            if (!$_cr) return [];
+            $_out = [];
+            while ($_row = $_cr->fetch_assoc()) {
+                $_row['code'] = cleanCode($_row['code']);
+                $_out[] = $_row;
+            }
+            return $_out;
+        })(),
     ]);
 }
 
@@ -3358,9 +4679,68 @@ function reEnroll($conn, $data) {
         jsonOut(['success' => false, 'message' => 'Student not found']);
     }
 
-    // Must be Approved + Enrolled to re-enroll
-    if ($s['approval_status'] !== 'Approved' || $s['enrollment_status'] !== 'Enrolled') {
+    // FIX REENROLL-CONFIRMED-01: Accept 'Confirmed' in addition to 'Enrolled'.
+    // Transferees with partial payment stay on 'Confirmed' — they are legitimately
+    // active and must be allowed to re-enroll for the next semester.
+    if ($s['approval_status'] !== 'Approved' || !in_array($s['enrollment_status'], ['Enrolled', 'Confirmed'], true)) {
         jsonOut(['success' => false, 'message' => 'Student is not in an active enrollment. Current status: ' . $s['enrollment_status']]);
+    }
+
+    // FIX SHS-REENROLL-01: Block re-enroll for SHS students who just enrolled
+    // and have no Completed/Failed subjects yet in their current semester.
+    //
+    // SHS non-transferees are auto-approved (free K-12 voucher) immediately on
+    // first dashboard load, so they pass the Approved+Enrolled check above right
+    // after registration. We prevent them from triggering reEnroll() until they
+    // actually have at least one Completed enrollment row — proof the term ended.
+    //
+    // FIX REENROLL-ALL-TYPES-01: Block re-enroll for ALL categories (SHS, TVET,
+    // College) when the student has no Completed/Failed enrollments yet in their
+    // current semester. This prevents the race condition where Registrar just
+    // confirmed the student (enrollment_status → 'Enrolled') and the open
+    // enrollment period label differs from their semester, making needsReEnroll
+    // fire on first login before they have attended a single class.
+    //
+    // Exception: allow if the open period is a DIFFERENT AY — this covers the
+    // genuine edge case where subjects were never marked Completed (e.g. migrated
+    // data) but the student clearly needs to advance to the next school year.
+    $curSemEscRE = $conn->real_escape_string(trim($s['semester'] ?? ''));
+    $doneCheckRE = $conn->query(
+        "SELECT COUNT(*) AS cnt FROM enrollments
+         WHERE student_id = $student_id
+           AND status IN ('Completed', 'Failed')
+           AND semester = '$curSemEscRE'"
+    );
+    $doneCountRE = $doneCheckRE ? (int)$doneCheckRE->fetch_assoc()['cnt'] : 0;
+    if ($doneCountRE === 0) {
+        // FIX REENROLL-PERIOD-01: Allow re-enroll whenever the open period label
+        // differs from the student's current semester. Admin opening a new period
+        // is the authoritative signal — do not require Completed subjects.
+        // Previously this only unblocked on different AY, preventing same-AY
+        // term advances (e.g. 1st Sem → 2nd Sem within the same AY).
+        $openPeriodRE  = getEnrollmentPeriodRow($conn);
+        $openLabelRE   = trim($openPeriodRE['label'] ?? '');
+        $studentSemRE  = trim($s['semester'] ?? '');
+        $normLabelRE = function(string $lbl): string {
+            $lbl = preg_replace('/\s*,\s*/', ', ', trim($lbl));
+            $lbl = preg_replace_callback('/AY\s*(\d{4})-(\d{4})/i', function($m) {
+                return 'AY ' . min((int)$m[1],(int)$m[2]) . '-' . max((int)$m[1],(int)$m[2]);
+            }, $lbl);
+            return $lbl;
+        };
+        $isDifferentPeriod = (
+            $openLabelRE !== '' &&
+            $normLabelRE($openLabelRE) !== $normLabelRE($studentSemRE)
+        );
+
+        if (!$isDifferentPeriod) {
+            jsonOut([
+                'success' => false,
+                'message' => 'Re-enrollment is not allowed yet. Please complete your current semester ('
+                           . ($s['semester'] ?? 'current') . ') before re-enrolling.',
+                'code'    => 'SEMESTER_NOT_COMPLETE',
+            ]);
+        }
     }
 
     // Enrollment period must be open
@@ -3387,8 +4767,9 @@ function reEnroll($conn, $data) {
         $newSemLabel
     );
 
-    // ── Year-level maps (College + SHS) ───────────────────────────────────
+    // ── Year-level maps (College + SHS + TVET) ───────────────────────────────
     // College: 1st Year … 4th Year (max = 4)
+    // TVET:    1st Year … 3rd Year (NC programs max = 3)
     // SHS:     Grade 11, Grade 12   (max grade = 12)
     $ylMap  = ['1st Year'=>1,'2nd Year'=>2,'3rd Year'=>3,'4th Year'=>4,'5th Year'=>5,
                'Grade 11'=>11,'Grade 12'=>12];
@@ -3413,22 +4794,39 @@ function reEnroll($conn, $data) {
         $newSemTerm = preg_replace('/\s+/', ' ', trim($_m[1]));
     }
 
-    // Advance year level when moving from 2nd Semester → 1st Semester of next AY.
-    // Use case-insensitive normalized comparison to avoid whitespace issues.
-    $isAdvancing = (strcasecmp($newSemTerm, '1st Semester') === 0)
-                && (strcasecmp($curSemTerm, '2nd Semester') === 0);
+    // FIX YEARLEVEL-ADVANCE-01 (reEnroll): Advance whenever student completed 2nd Sem.
+    // Old check required new period to be '1st Semester' — missed cases where admin
+    // opens next AY's 2nd Semester after student finished current AY's 2nd Semester.
+    $isAdvancing = strcasecmp($curSemTerm, '2nd Semester') === 0;
 
     // ── Graduation detection ──────────────────────────────────────────────
-    // A student graduates when they complete their program's final year/grade
-    // and the next period would push them beyond that final year:
-    //   • College: completed 4th Year 2nd Semester → would advance to 5th Year
-    //   • SHS:     completed Grade 12 2nd Semester → no Grade 13 exists
+    // A student graduates when they complete their program's final year/grade.
+    // For TVET, the max year level comes from programs.duration (1=NC, 2=2yr diploma, 3=3yr diploma).
+    // For SHS: Grade 12; College: 4th Year (or 5th for 5-year programs).
     $isGraduating = false;
     if ($isAdvancing) {
         $curNum = $ylMap[$curYL] ?? 0;
+
         if ($category === 'SHS' && $curNum === 12) {
+            // SHS: Grade 12 is the final year
             $isGraduating = true;
-        } elseif ($category !== 'SHS' && $curNum >= 4) {
+        } elseif ($category === 'TVET') {
+            // FIX TVET-GRAD-01: Respect programs.duration for TVET.
+            // NC programs = 1 year (max 1st Year), 2-yr diploma = 2, 3-yr diploma = 3.
+            $tvetDurRes = $conn->query(
+                "SELECT COALESCE(p.duration, 3) AS dur
+                 FROM programs p
+                 WHERE p.name = '{$conn->real_escape_string($s['program'])}'
+                    OR p.code = '{$conn->real_escape_string($s['program'])}'
+                 LIMIT 1"
+            );
+            $tvetMaxYL = $tvetDurRes ? (int)($tvetDurRes->fetch_assoc()['dur'] ?? 3) : 3;
+            // NC programs (duration=1) graduate after completing their single year
+            if ($curNum >= $tvetMaxYL) {
+                $isGraduating = true;
+            }
+        } elseif ($category !== 'SHS' && $category !== 'TVET' && $curNum >= 4) {
+            // College: maximum 4 years (5-year programs handled by 5th Year cap below)
             $isGraduating = true;
         }
     }
@@ -3499,8 +4897,22 @@ function reEnroll($conn, $data) {
         $newYL           = $curYL;
         $becameIrregular = true;
     } elseif ($isAdvancing) {
-        $curNum = $ylMap[$curYL] ?? 1;
-        $newYL  = $ylBack[min($curNum + 1, 5)] ?? $curYL;
+        $curNum  = $ylMap[$curYL] ?? 1;
+        // FIX TVET-MAXYL-01: Max year level per category uses programs.duration for TVET,
+        // not a hardcoded constant. NC=1yr, 2-yr diploma=2, 3-yr diploma=3.
+        if ($category === 'TVET') {
+            $tvetDurRes2 = $conn->query(
+                "SELECT COALESCE(p.duration, 3) AS dur
+                 FROM programs p
+                 WHERE p.name = '{$conn->real_escape_string($s['program'])}'
+                    OR p.code = '{$conn->real_escape_string($s['program'])}'
+                 LIMIT 1"
+            );
+            $maxYLNum = $tvetDurRes2 ? (int)($tvetDurRes2->fetch_assoc()['dur'] ?? 3) : 3;
+        } else {
+            $maxYLNum = ($category === 'TVET') ? 3 : 5;
+        }
+        $newYL   = $ylBack[min($curNum + 1, $maxYLNum)] ?? $curYL;
     }
 
     // Determine new student_type: New→Old, Transferee→Continuing, rest→Continuing
@@ -3560,16 +4972,13 @@ function reEnroll($conn, $data) {
     //   Confirmed → Registrar queue empty → subjects never auto-enrolled).
     // is_irregular = 1 when the student failed at least one subject this semester.
     $isIrregularVal = $becameIrregular ? 1 : 0;
-    // FIX RE-ENROLL-METHOD-01: Do NOT null out payment_method on re-enrollment.
-    // Nulling it caused two cascading bugs:
-    //   1. getStudentContext() / getProfile() default NULL → 'GCash', so Cash
-    //      students see GCash in the payment UI even when they chose Cash.
-    //   2. getPendingPayments() reads NULL payment_method as 'gcash' (fallback),
-    //      creating an AwaitingSubmission GCash row instead of a Cash row —
-    //      Accounting can't record cash payment, student never reaches Confirmed,
-    //      and Registrar never sees the student for confirmation.
-    // payment_plan is still reset to NULL so the plan selector (full/installment)
-    // appears again — the plan amount may change based on new semester fees.
+    // FIX RE-ENROLL-METHOD-02: Reset payment_method to NULL on re-enrollment.
+    // The student must re-choose their payment method for the new semester —
+    // they may have used Cash before but want GCash now (or vice versa).
+    // getStudentContext() self-heals NULL payment_method from payment_logs history,
+    // so the UI will always have a valid value once the student submits payment.
+    // The old fix (preserving payment_method) caused the bug where a GCash student
+    // who paid Cash in a previous semester was permanently shown as Cash in Accounting.
     $updStmt = $conn->prepare(
         "UPDATE students SET
             year_level        = ?,
@@ -3580,6 +4989,7 @@ function reEnroll($conn, $data) {
             payment_status    = 'Pending',
             approval_status   = 'Pending',
             payment_plan      = NULL,
+            payment_method    = NULL,
             enrollment_date   = CURDATE(),
             registrar_confirmed    = 'Pending',
             registrar_confirmed_at = NULL,
@@ -3729,6 +5139,75 @@ function searchStudents($conn) {
 // GET STUDENT ENROLLMENTS (for Add/Drop view)
 // GET ?action=get_student_enrollments&student_id=X
 // ----------------------------------------------------------------
+// ─────────────────────────────────────────────────────────────────────────────
+// Returns ['met' => bool, 'list' => string|null] for a course's prerequisites.
+// 'list' is a human-readable comma-separated string of unmet prereq codes+names.
+// ─────────────────────────────────────────────────────────────────────────────
+function getPrerequisiteInfo(mysqli $conn, int $student_id, int $course_id): array {
+    // Cache the table-existence check across calls (static = per-request cache)
+    static $prereqTableExists = null;
+    if ($prereqTableExists === null) {
+        $tc = $conn->query("SHOW TABLES LIKE 'course_prerequisites'");
+        $prereqTableExists = ($tc && $tc->num_rows > 0);
+    }
+    if (!$prereqTableExists) return ['met' => true, 'list' => null];
+
+    $pStmt = $conn->prepare("
+        SELECT cp.prerequisite_id, c.code, c.name
+        FROM course_prerequisites cp
+        JOIN courses c ON c.id = cp.prerequisite_id
+        WHERE cp.course_id = ?
+    ");
+    $pStmt->bind_param('i', $course_id);
+    $pStmt->execute();
+    $pRes = $pStmt->get_result();
+    $pStmt->close();
+
+    if ($pRes->num_rows === 0) return ['met' => true, 'list' => null];
+
+    $unmet = [];
+    while ($prereqRow = $pRes->fetch_assoc()) {
+        $prereq_id = (int)$prereqRow['prerequisite_id'];
+        $passed = false;
+
+        $gradeStmt = $conn->prepare("
+            SELECT sg.grade FROM student_grades sg
+            JOIN enrollments e ON sg.enrollment_id = e.id
+            WHERE sg.student_id = ? AND e.course_id = ?
+            ORDER BY sg.updated_at DESC, sg.id DESC LIMIT 1
+        ");
+        $gradeStmt->bind_param('ii', $student_id, $prereq_id);
+        $gradeStmt->execute();
+        $gradeRow = $gradeStmt->get_result()->fetch_assoc();
+        $gradeStmt->close();
+        if ($gradeRow !== null) $passed = ((float)$gradeRow['grade'] <= 3.0);
+
+        if (!$passed) {
+            $complStmt = $conn->prepare("
+                SELECT e.id FROM enrollments e
+                WHERE e.student_id = ? AND e.course_id = ? AND e.status = 'Completed'
+                  AND NOT EXISTS (
+                      SELECT 1 FROM student_grades sg2
+                      WHERE sg2.enrollment_id = e.id AND sg2.grade > 3.0
+                  ) LIMIT 1
+            ");
+            $complStmt->bind_param('ii', $student_id, $prereq_id);
+            $complStmt->execute();
+            $passed = ($complStmt->get_result()->num_rows > 0);
+            $complStmt->close();
+        }
+
+        if (!$passed) {
+            $unmet[] = cleanCode($prereqRow['code']) . ' – ' . $prereqRow['name'];
+        }
+    }
+
+    return [
+        'met'  => empty($unmet),
+        'list' => !empty($unmet) ? implode(', ', $unmet) : null,
+    ];
+}
+
 function getStudentEnrollments($conn) {
     $sid = (int)($_GET['student_id'] ?? 0);
     // Also accept user_id and resolve to students.id
@@ -3806,62 +5285,264 @@ function getStudentEnrollments($conn) {
     }
     $stmt->close();
 
-    // Available courses - get student program first
-    $stuStmt = $conn->prepare("SELECT semester, program FROM students WHERE id = ? LIMIT 1");
+    // FIX ADD-DROP-CREDITED-03: Tag credited subjects in the enrolled list so the
+    // frontend can hide the Drop button and show a "Credited" badge instead.
+    // Without this flag, the Drop panel shows a "Request drop" button on credited
+    // subjects even though the backend will reject it with SUBJECT_CREDITED.
+    $_crEnrIds = [];
+    $_crEnrR = $conn->query("SELECT credited_course_ids, credited_subjects FROM tor_evaluations WHERE student_id = $sid AND status = 'Evaluated' ORDER BY id DESC LIMIT 1");
+    if ($_crEnrR && $_crEnrRow = $_crEnrR->fetch_assoc()) {
+        $_crEnrDec = json_decode($_crEnrRow['credited_course_ids'] ?? 'null', true);
+        if (is_array($_crEnrDec)) {
+            $_crEnrIds = array_map('intval', $_crEnrDec);
+        } elseif (!empty($_crEnrRow['credited_subjects'])) {
+            foreach (json_decode($_crEnrRow['credited_subjects'], true) ?: [] as $_crEnrSub) {
+                if (!empty($_crEnrSub['courseId'])) $_crEnrIds[] = (int)$_crEnrSub['courseId'];
+            }
+        }
+    }
+    foreach ($enrolled as &$_enrRef) {
+        $_enrRef['is_credited'] = in_array((int)$_enrRef['course_id'], $_crEnrIds, true);
+    }
+    unset($_enrRef);
+
+    // FIX ADD-DROP-CREDITED-05: Inject credited subjects into the enrolled list so they
+    // appear in the Drop tab as read-only "Credited" rows.
+    // Credited subjects are NOT in the enrollments table (they come from TOR evaluation),
+    // so they were invisible in the Drop tab. Students had no way to see which subjects
+    // were credited — they just saw unexplained gaps in their subject list.
+    // We inject them here with is_credited=true so the template shows the Credited badge
+    // and hides the Drop button (already handled by the existing template logic).
+    if (!empty($_crEnrIds) && !empty($_crEnrRow)) {
+        // Fetch course details for each credited course ID not already in enrolled list
+        $_enrolledCourseIds = array_column($enrolled, 'course_id');
+        $_creditedSubjects  = json_decode($_crEnrRow['credited_subjects'] ?? '[]', true) ?: [];
+
+        foreach ($_crEnrIds as $_crCid) {
+            // Skip if already in enrolled list (shouldn't happen but guard anyway)
+            if (in_array($_crCid, $_enrolledCourseIds, true)) continue;
+
+            // Fetch course details
+            $_crCourse = $conn->query("
+                SELECT c.id AS course_id, c.code, c.name, c.credits,
+                       COALESCE(c.lec_units, c.credits) AS lec_units,
+                       COALESCE(c.lab_units, 0) AS lab_units,
+                       COALESCE(c.is_general, 0) AS is_general,
+                       COALESCE(c.is_lab, 0) AS is_lab,
+                       c.semester
+                FROM courses c WHERE c.id = $_crCid LIMIT 1
+            ");
+            if (!$_crCourse) continue;
+            $_crCRow = $_crCourse->fetch_assoc();
+            if (!$_crCRow) continue;
+
+            // Find creditedFrom label from credited_subjects JSON if available
+            $_creditedFrom = '';
+            foreach ($_creditedSubjects as $_cs) {
+                if ((int)($_cs['courseId'] ?? 0) === $_crCid) {
+                    $_creditedFrom = $_cs['creditedFrom'] ?? '';
+                    break;
+                }
+            }
+
+            $lec  = (int)($_crCRow['lec_units'] ?? 0);
+            $lab  = (int)($_crCRow['lab_units'] ?? 0);
+            $cred = (int)($_crCRow['credits']   ?? 0);
+            if ($lec === 0 && $lab === 0 && $cred > 0) $lec = $cred;
+
+            $enrolled[] = [
+                'enrollment_id'   => 0,           // no real enrollment row
+                'status'          => 'Credited',
+                'enrollment_date' => '',
+                'course_id'       => (int)$_crCRow['course_id'],
+                'code'            => cleanCode($_crCRow['code']),
+                'name'            => $_crCRow['name'],
+                'credits'         => $cred,
+                'lecUnits'        => $lec,
+                'labUnits'        => $lab,
+                'lec_units'       => $lec,
+                'lab_units'       => $lab,
+                'isGeneral'       => (bool)($_crCRow['is_general'] ?? false),
+                'isLab'           => (bool)($_crCRow['is_lab']     ?? false),
+                'instructor'      => '',
+                'day'             => '',
+                'time'            => '',
+                'room'            => '',
+                'semester'        => $_crCRow['semester'] ?? '',
+                'is_credited'     => true,
+                'credited_from'   => $_creditedFrom,
+            ];
+        }
+    }
+
+    // Available courses - get student program, year_level first
+    $stuStmt = $conn->prepare("SELECT semester, program, year_level FROM students WHERE id = ? LIMIT 1");
     $stuStmt->bind_param('i', $sid);
     $stuStmt->execute();
     $stuRow  = $stuStmt->get_result()->fetch_assoc() ?? [];
     $stuStmt->close();
-    $stuProg = $stuRow['program'] ?? '';
+    $stuProg  = $stuRow['program']    ?? '';
+    $stuYL    = $stuRow['year_level'] ?? '';
 
-    // Build available courses query with parameterized program filter
-    if ($stuProg !== '') {
-        $avStmt = $conn->prepare("
-            SELECT c.id, c.code, c.name, c.credits,
-                   COALESCE(c.lec_units, c.credits) AS lec_units,
-                   COALESCE(c.lab_units, 0)         AS lab_units,
-                   COALESCE(c.is_general, 0)        AS is_general,
-                   COALESCE(c.is_lab, 0)            AS is_lab,
-                   '' AS instructor, '' AS day, '' AS time, '' AS room, c.semester,
-                   COALESCE(c.capacity,50) AS capacity,
-                   COUNT(e2.id) AS enrolled_count
-            FROM courses c
-            LEFT JOIN enrollments e2 ON e2.course_id = c.id AND e2.status IN ('Enrolled','Pending')
-            WHERE c.id NOT IN (
-                SELECT course_id FROM enrollments
-                WHERE student_id = ? AND semester = ? AND status IN ('Enrolled','Pending')
-            )
-            AND (c.program = ? OR c.is_general = 1)
-            GROUP BY c.id
-            ORDER BY c.code
-        ");
-        $avSem = $stuRow['semester'] ?? '';
-        $avStmt->bind_param('iss', $sid, $avSem, $stuProg);
-    } else {
-        $avStmt = $conn->prepare("
-            SELECT c.id, c.code, c.name, c.credits,
-                   COALESCE(c.lec_units, c.credits) AS lec_units,
-                   COALESCE(c.lab_units, 0)         AS lab_units,
-                   COALESCE(c.is_general, 0)        AS is_general,
-                   COALESCE(c.is_lab, 0)            AS is_lab,
-                   '' AS instructor, '' AS day, '' AS time, '' AS room, c.semester,
-                   COALESCE(c.capacity,50) AS capacity,
-                   COUNT(e2.id) AS enrolled_count
-            FROM courses c
-            LEFT JOIN enrollments e2 ON e2.course_id = c.id AND e2.status IN ('Enrolled','Pending')
-            WHERE c.id NOT IN (
-                SELECT course_id FROM enrollments
-                WHERE student_id = ? AND status IN ('Enrolled','Pending')
-            )
-            GROUP BY c.id
-            ORDER BY c.code
-        ");
-        $avStmt->bind_param('i', $sid);
+    // FIX ADD-DROP-YL-01 / ADD-DROP-SEM-01 / ADD-DROP-RETAKE-01:
+    //
+    // Return ALL subjects from the student's program that are not currently
+    // Enrolled or Pending — this includes:
+    //   • Subjects from PAST semesters that were Failed, Dropped, or never taken
+    //   • Subjects from the CURRENT semester not yet enrolled in
+    //   • Subjects from FUTURE semesters (visible via filter but not default-shown)
+    //
+    // The frontend will default-filter to the student's current year+semester,
+    // but the dropdowns let them reveal past/future subjects too.
+    //
+    // Normalise semester term from student record
+    $avSem   = $stuRow['semester'] ?? '';
+    $semTerm = '';
+    if ($avSem !== '') {
+        preg_match('/^(1st Semester|2nd Semester|Summer)/i', $avSem, $sm2);
+        $semTerm = $sm2[1] ?? $avSem;
     }
+
+    // Program filter clause — same for both branches
+    $progClause = $stuProg !== ''
+        ? "AND (c.program = ? OR c.is_general = 1 OR EXISTS (
+               SELECT 1 FROM program_courses pc
+               JOIN programs p ON p.id = pc.program_id
+               WHERE pc.course_id = c.id AND p.name = ?))"
+        : '';
+
+    // FIX ADD-DROP-CREDITED-04: Exclude credited subjects from the available-to-add list.
+    // getStudentEnrollments() already computes $_crEnrIds above for the enrolled list tagging.
+    // Re-use that set here to add a SQL exclusion clause so credited subjects never appear
+    // in the Add tab. Without this, transferees could see (and request to add) subjects
+    // that are already credited from their TOR — the backend would reject with SUBJECT_CREDITED
+    // but the UI should never show them as addable in the first place.
+    $_crAvExSql = !empty($_crEnrIds) ? 'AND c.id NOT IN (' . implode(',', array_map('intval', $_crEnrIds)) . ')' : '';
+
+    // Exclude ONLY subjects currently Enrolled or Pending (not Failed/Dropped/Completed-past)
+    $sql = "
+        SELECT c.id, c.code, c.name, c.credits,
+               COALESCE(c.lec_units, c.credits) AS lec_units,
+               COALESCE(c.lab_units, 0)         AS lab_units,
+               COALESCE(c.is_general, 0)        AS is_general,
+               COALESCE(c.is_lab, 0)            AS is_lab,
+               COALESCE(c.year_level, '')        AS year_level,
+               COALESCE(c.semester, '')          AS semester,
+               '' AS instructor, '' AS day, '' AS time, '' AS room,
+               COALESCE(c.capacity, 50)         AS capacity,
+               COUNT(e2.id)                     AS enrolled_count
+        FROM courses c
+        LEFT JOIN enrollments e2
+               ON e2.course_id = c.id AND e2.status IN ('Enrolled','Pending')
+        WHERE c.id NOT IN (
+            -- Already actively enrolled or pending this semester — exclude
+            SELECT course_id FROM enrollments
+            WHERE student_id = ? AND status IN ('Enrolled','Pending')
+        )
+        AND c.id NOT IN (
+            -- Passed (Completed with passing grade) — no need to retake
+            SELECT e3.course_id FROM enrollments e3
+            WHERE e3.student_id = ?
+              AND e3.status = 'Completed'
+              AND NOT EXISTS (
+                  SELECT 1 FROM student_grades sg
+                  WHERE sg.enrollment_id = e3.id AND sg.grade > 3.0
+              )
+        )
+        $progClause
+        $_crAvExSql
+        GROUP BY c.id
+        ORDER BY c.year_level, c.semester, c.code
+    ";
+
+    $avStmt = $conn->prepare($sql);
+    if (!$avStmt) {
+        // SQL prepare failed — return enrolled list with empty available rather than crashing
+        echo json_encode([
+            'success'           => true,
+            'student_id'        => $sid,
+            'enrolled'          => $enrolled,
+            'available'         => [],
+            'student_year_level'=> $stuYL,
+            'student_semester'  => $semTerm,
+            '_debug'            => 'avStmt prepare failed: ' . $conn->error,
+        ]);
+        return;
+    }
+    if ($stuProg !== '') {
+        $avStmt->bind_param('iiss', $sid, $sid, $stuProg, $stuProg);
+    } else {
+        $avStmt->bind_param('ii', $sid, $sid);
+    }
+
+    // Pass back student's current year_level + semester for frontend default filters
+    $stuYLOut  = $stuYL;
+    $stuSemOut = $semTerm;
     $avStmt->execute();
     $avRes = $avStmt->get_result();
+
+    // ── Pre-fetch ALL prereqs and past-subject flags in 2 bulk queries ────────
+    // This replaces N per-course queries with 2 total — critical for performance.
+
+    // 1. All course_ids the student previously attempted (Failed/Dropped/Completed)
+    $pastIds = [];
+    $pastQ = $conn->prepare("
+        SELECT DISTINCT course_id FROM enrollments
+        WHERE student_id = ? AND status IN ('Failed','Dropped','Completed')
+    ");
+    if ($pastQ) {
+        $pastQ->bind_param('i', $sid);
+        $pastQ->execute();
+        $pastRes = $pastQ->get_result();
+        while ($pr = $pastRes->fetch_assoc()) $pastIds[(int)$pr['course_id']] = true;
+        $pastQ->close();
+    }
+
+    // 2. All course_ids the student has PASSED (Completed + passing grade) — for prereq check
+    $passedIds = [];
+    $passedQ = $conn->prepare("
+        SELECT DISTINCT e.course_id FROM enrollments e
+        WHERE e.student_id = ? AND e.status = 'Completed'
+          AND NOT EXISTS (
+              SELECT 1 FROM student_grades sg
+              WHERE sg.enrollment_id = e.id AND sg.grade > 3.0
+          )
+    ");
+    if ($passedQ) {
+        $passedQ->bind_param('i', $sid);
+        $passedQ->execute();
+        $passedRes = $passedQ->get_result();
+        while ($pr = $passedRes->fetch_assoc()) $passedIds[(int)$pr['course_id']] = true;
+        $passedQ->close();
+    }
+
+    // 3. All prerequisite relationships for courses in the program (one query)
+    static $prereqTableExists2 = null;
+    if ($prereqTableExists2 === null) {
+        $tc2 = $conn->query("SHOW TABLES LIKE 'course_prerequisites'");
+        $prereqTableExists2 = ($tc2 && $tc2->num_rows > 0);
+    }
+    $prereqMap = []; // course_id => [['prereq_id'=>int,'code'=>str,'name'=>str], ...]
+    if ($prereqTableExists2) {
+        $pMapRes = $conn->query("
+            SELECT cp.course_id, cp.prerequisite_id, c.code, c.name
+            FROM course_prerequisites cp
+            JOIN courses c ON c.id = cp.prerequisite_id
+        ");
+        if ($pMapRes) {
+            while ($pm = $pMapRes->fetch_assoc()) {
+                $prereqMap[(int)$pm['course_id']][] = [
+                    'prereq_id' => (int)$pm['prerequisite_id'],
+                    'code'      => cleanCode($pm['code']),
+                    'name'      => $pm['name'],
+                ];
+            }
+        }
+    }
+
+    // ── Build available list using pre-fetched maps ───────────────────────────
     $available = [];
-    while ($r = $avRes->fetch_assoc()) {
+    if ($avRes) while ($r = $avRes->fetch_assoc()) {
         $r['code'] = cleanCode($r['code']);
         $r['available_seats'] = max(0, (int)$r['capacity'] - (int)$r['enrolled_count']);
         $lec = (int)($r['lec_units'] ?? 0);
@@ -3872,11 +5553,140 @@ function getStudentEnrollments($conn) {
         $r['labUnits']  = $lab;
         $r['isGeneral'] = (bool)($r['is_general'] ?? false);
         $r['isLab']     = (bool)($r['is_lab'] ?? false);
+
+        $courseId = (int)$r['id'];
+
+        // Prereq check using pre-fetched map
+        $prereqs = $prereqMap[$courseId] ?? [];
+        $unmet = [];
+        foreach ($prereqs as $pq) {
+            if (!isset($passedIds[$pq['prereq_id']])) {
+                $unmet[] = $pq['code'] . ' – ' . $pq['name'];
+            }
+        }
+        $r['prereqMet']     = empty($unmet);
+        $r['prereqList']    = !empty($unmet) ? implode(', ', $unmet) : null;
+
+        // Past subject flag from pre-fetched set (Failed/Dropped/Completed)
+        $r['isPastSubject'] = isset($pastIds[$courseId]);
+
+        // Retake flag: was previously Failed, Dropped, or Completed-with-fail
+        // (uses pastIds which includes all non-passing outcomes)
+        $r['isRetake'] = isset($pastIds[$courseId]);
+
+        // FIX ADD-DROP-CREDITED-04: Tag credited subjects so the UI can hide the Add button.
+        // The SQL exclusion above already removes them, but this flag is a defense-in-depth
+        // guard in case a subject slips through (e.g. credited_course_ids NULL fallback path).
+        $r['is_credited'] = in_array($courseId, $_crEnrIds, true);
+
+        // Future-semester flag: course is from a semester the student hasn't reached yet.
+        // Used by the frontend to visually distinguish/disable future-sem subjects.
+        // Logic mirrors GUARD 2 in submitAddDropRequest.
+        $r['isFutureSemester'] = false;
+        if (!$r['isRetake'] && $semTerm !== '') {
+            $semOrder = ['1st Semester' => 1, '2nd Semester' => 2, 'Summer' => 3];
+            $ylOrder  = [
+                '1st Year' => 1, '2nd Year' => 2, '3rd Year' => 3,
+                '4th Year' => 4, '5th Year' => 5,
+                'Grade 11' => 11, 'Grade 12' => 12,
+            ];
+            $cSemStr  = trim($r['semester'] ?? '');
+            $cYLStr   = trim($r['year_level'] ?? '');
+            $cSemNorm = '';
+            foreach (array_keys($semOrder) as $key) {
+                if (stripos($cSemStr, $key) !== false) { $cSemNorm = $key; break; }
+            }
+            $sSemNorm = '';
+            foreach (array_keys($semOrder) as $key) {
+                if (stripos($semTerm, $key) !== false) { $sSemNorm = $key; break; }
+            }
+            if ($cSemNorm !== '' && $sSemNorm !== '') {
+                $cYLNum = $ylOrder[$cYLStr]  ?? 0;
+                $sYLNum = $ylOrder[$stuYL]   ?? 0;
+                // Back subject (lower year) is never a future semester
+                $isBackSubject = ($cYLNum > 0 && $sYLNum > 0 && $cYLNum < $sYLNum);
+                if (!$isBackSubject) {
+                    // FIX YEAR-GUARD-01: A subject from a HIGHER year level is always
+                    // a future subject, regardless of semester.
+                    // e.g. 2nd Year student must never see 3rd/4th Year subjects as addable.
+                    $isHigherYear = ($cYLNum > 0 && $sYLNum > 0 && $cYLNum > $sYLNum);
+                    if ($isHigherYear) {
+                        $r['isFutureSemester'] = true;
+                    } else {
+                        // Same year level: check by semester order only
+                        $r['isFutureSemester'] = ($semOrder[$cSemNorm] > $semOrder[$sSemNorm]);
+                    }
+                }
+            }
+        }
+
         $available[] = $r;
     }
     $avStmt->close();
 
-    echo json_encode(['success' => true, 'student_id' => $sid, 'enrolled' => $enrolled, 'available' => $available]);
+    // FIX ADD-DROP-PREREQ-02: For each unmet prerequisite course, inject it into the
+    // available list (if not already there and not already enrolled) so the student
+    // can request to add the prerequisite first.
+    $availableIds = array_column($available, 'id');
+    $enrolledIds  = array_column($enrolled, 'course_id');
+    foreach ($available as $av) {
+        if ($av['prereqMet']) continue;
+        // Fetch the actual prerequisite course rows
+        $pqStmt = $conn->prepare("
+            SELECT c.id, c.code, c.name, c.credits,
+                   COALESCE(c.lec_units, c.credits) AS lec_units,
+                   COALESCE(c.lab_units, 0)         AS lab_units,
+                   COALESCE(c.is_general, 0)        AS is_general,
+                   COALESCE(c.is_lab, 0)            AS is_lab,
+                   COALESCE(c.year_level, '')        AS year_level,
+                   COALESCE(c.semester, '')          AS semester,
+                   '' AS instructor, '' AS day, '' AS time, '' AS room,
+                   COALESCE(c.capacity,50) AS capacity,
+                   COUNT(e2.id) AS enrolled_count
+            FROM course_prerequisites cp
+            JOIN courses c ON c.id = cp.prerequisite_id
+            LEFT JOIN enrollments e2 ON e2.course_id = c.id AND e2.status IN ('Enrolled','Pending')
+            WHERE cp.course_id = ?
+            GROUP BY c.id
+        ");
+        $pqAvId = (int)$av['id'];
+        $pqStmt->bind_param('i', $pqAvId);
+        $pqStmt->execute();
+        $pqRes = $pqStmt->get_result();
+        while ($pq = $pqRes->fetch_assoc()) {
+            $pqId = (int)$pq['id'];
+            // Skip if already in available list or already enrolled
+            if (in_array($pqId, $availableIds, true)) continue;
+            if (in_array($pqId, $enrolledIds,  true)) continue;
+            // FIX ADD-DROP-CREDITED-04: Never inject a credited subject as a prereq suggestion.
+            if (in_array($pqId, $_crEnrIds, true)) continue;
+            $pq['code'] = cleanCode($pq['code']);
+            $pq['available_seats'] = max(0, (int)$pq['capacity'] - (int)$pq['enrolled_count']);
+            $lec = (int)($pq['lec_units'] ?? 0);
+            $lab = (int)($pq['lab_units'] ?? 0);
+            $cred = (int)($pq['credits'] ?? 0);
+            if ($lec === 0 && $lab === 0 && $cred > 0) $lec = $cred;
+            $pq['lecUnits']    = $lec;
+            $pq['labUnits']    = $lab;
+            $pq['isGeneral']   = (bool)($pq['is_general'] ?? false);
+            $pq['isLab']       = (bool)($pq['is_lab'] ?? false);
+            $pq['prereqMet']   = true;  // prerequisites have no further prereqs we block on
+            $pq['prereqList']  = null;
+            $pq['isPrereqFor'] = cleanCode($av['code']); // hint for frontend badge
+            $available[]       = $pq;
+            $availableIds[]    = $pqId;
+        }
+        $pqStmt->close();
+    }
+
+    echo json_encode([
+        'success'           => true,
+        'student_id'        => $sid,
+        'enrolled'          => $enrolled,
+        'available'         => $available,
+        'student_year_level'=> $stuYLOut  ?? '',
+        'student_semester'  => $stuSemOut ?? '',
+    ]);
 }
 
 // ----------------------------------------------------------------
@@ -3916,8 +5726,12 @@ function declareScholarship($conn, $data) {
     $semRes = $conn->query("SELECT semester FROM students WHERE id=$sid LIMIT 1");
     $semester = $semRes ? ($semRes->fetch_assoc()['semester'] ?? '') : '';
 
-    // Deactivate any previous pending scholarship for this student
-    $conn->query("UPDATE student_scholarships SET is_active=0, status='superseded' WHERE student_id=$sid AND status='pending'");
+    // FIX SCHOLAR-DECLARE-01: Supersede all non-approved records (pending AND rejected),
+    // not just 'pending'. A rejected scholarship stays in the table with is_active=0 and
+    // status='rejected'. When the student re-declares, that stale row polluted the history
+    // list and could interfere with uniqueness checks. Mark everything non-approved as
+    // 'superseded' so the history is clean and only the new submission is visible as active.
+    $conn->query("UPDATE student_scholarships SET is_active=0, status='superseded' WHERE student_id=$sid AND status IN ('pending','rejected')");
 
     // Insert new pending scholarship
     $ins = $conn->prepare("INSERT INTO student_scholarships (student_id, scholar_type, grantor, scholarship_amount, semester, is_active, status) VALUES (?,?,?,?,?,0,'pending')");
@@ -3925,9 +5739,12 @@ function declareScholarship($conn, $data) {
     $ins->execute();
     $ins->close();
 
-    // Mark student as scholar (pending — no discount yet)
-    $upd = $conn->prepare("UPDATE students SET is_scholar=1, scholar_type=?, scholar_grantor=? WHERE id=?");
-    $upd->bind_param('ssi', $type, $grantor, $sid);
+    // FIX SCHOLAR-PENDING-DISCOUNT-03: Save scholarship_amount to students table so
+    // getStudentContext() uses it as a preliminary discount in the fee preview
+    // before Accounting formally approves. Without this, the Payment Instructions
+    // (Step 4) shows no discount after a student re-declares their scholarship.
+    $upd = $conn->prepare("UPDATE students SET is_scholar=1, scholar_type=?, scholar_grantor=?, scholarship_amount=? WHERE id=?");
+    $upd->bind_param('ssdi', $type, $grantor, $amount, $sid);
     $upd->execute();
     $upd->close();
 
@@ -3972,6 +5789,40 @@ function registrarAddSubject($conn, $data) {
     $capStmt->close();
     if ($cap && (int)$cap['cnt'] >= (int)$cap['cap']) {
         echo json_encode(['success' => false, 'message' => 'Subject is full']); return;
+    }
+
+    // ── FIX ADD-DROP-PREREQ-REGISTRAR-01: Check prerequisites for Registrar adds.
+    // Registrar CAN override (set force_override=true in the request body) but must
+    // acknowledge the violation. Without force_override the add is blocked just like
+    // a student add, keeping the curriculum guardrails intact by default.
+    $forceOverride = !empty($data['force_override']);
+    if (!$forceOverride && !studentPassedPrerequisites($conn, $sid, $cid)) {
+        $prereqNames = [];
+        $pnStmt = $conn->prepare(
+            "SELECT c.code, c.name FROM course_prerequisites cp
+             JOIN courses c ON c.id = cp.prerequisite_id
+             WHERE cp.course_id = ?"
+        );
+        if ($pnStmt) {
+            $pnStmt->bind_param('i', $cid);
+            $pnStmt->execute();
+            $pnRes = $pnStmt->get_result();
+            while ($pn = $pnRes->fetch_assoc()) {
+                $prereqNames[] = trim($pn['code'] . ' – ' . $pn['name']);
+            }
+            $pnStmt->close();
+        }
+        $prereqList = !empty($prereqNames) ? implode(', ', $prereqNames) : 'see curriculum';
+        echo json_encode([
+            'success'         => false,
+            'message'         => 'Student has not passed all prerequisites for this subject. '
+                               . 'Required: ' . $prereqList . '. '
+                               . 'To override, resend with force_override: true.',
+            'code'            => 'PREREQ_NOT_MET',
+            'can_override'    => true,
+            'prereqs_missing' => $prereqNames,
+        ]);
+        return;
     }
 
     $reason = trim($data['reason'] ?? 'Add/Drop by Registrar');
@@ -4059,14 +5910,12 @@ function _logSubjectFeeImpact(mysqli $conn, int $sid, int $cid, string $action, 
     else                                                  $category = 'Minor';
 
     // Calculate fee impacts
-    // FIX ADD-DROP-02: Lab fee is a per-room facility charge — it is only added
-    // when a lab subject is ADDED. Dropping a subject does NOT reduce the lab room
-    // count (other students still use it), so lab_fee_impact is always 0 on Drop.
-    $sign           = ($action === 'Drop') ? -1 : 1;
-    $tuitionImpact  = round($sign * $units * $tuitionRate, 2);
-    $labFeeImpact   = ($action === 'Add' && $isLab) ? round($labFeeRate, 2) : 0.00;
-    $energyImpact   = round($sign * $units * $energyRate, 2);
-    $totalImpact    = round($tuitionImpact + $labFeeImpact + $energyImpact, 2);
+    // FIX LAB-REMOVE-01: Lab fee impact removed — fee impact is tuition + energy only.
+    $sign          = ($action === 'Drop') ? -1 : 1;
+    $tuitionImpact = round($sign * $units * $tuitionRate, 2);
+    $labFeeImpact  = 0.00;
+    $energyImpact  = round($sign * $units * $energyRate, 2);
+    $totalImpact   = round($tuitionImpact + $energyImpact, 2);
 
     // Fetch student semester
     $semRes = $conn->prepare("SELECT semester FROM students WHERE id=? LIMIT 1");
@@ -4220,11 +6069,23 @@ function submitAddDropRequest($conn, $data) {
         echo json_encode(['success'=>false,'message'=>'request_type must be Add or Drop']); return;
     }
 
-    // Check if Add/Drop window is open
-    $winRes = $conn->query("SELECT * FROM add_drop_window WHERE is_active=1 ORDER BY id DESC LIMIT 1");
-    $win = $winRes ? $winRes->fetch_assoc() : null;
-    $now = date('Y-m-d H:i:s');
-    if (!$win || $now < $win['start_date'] || $now > $win['end_date']) {
+    // Check if Add/Drop window is open.
+    // FIX WINDOW-TZ-01: Use MySQL NOW() for the time comparison so both
+    // getAddDropWindow() and submitAddDropRequest() use the same clock.
+    // PHP date() may be UTC while stored datetimes are PHT (+08:00),
+    // making the window appear closed here even though the banner shows OPEN.
+    // Also removed is_active=1 — getAddDropWindow() does not require it.
+    $winRes = $conn->query("SELECT * FROM add_drop_window ORDER BY id DESC LIMIT 1");
+    $win    = $winRes ? $winRes->fetch_assoc() : null;
+    if ($win) {
+        $s      = $conn->real_escape_string($win['start_date']);
+        $e      = $conn->real_escape_string($win['end_date']);
+        $chk    = $conn->query("SELECT (NOW() >= '$s' AND NOW() <= '$e') AS open");
+        $isOpen = $chk ? (bool)$chk->fetch_assoc()['open'] : false;
+    } else {
+        $isOpen = false;
+    }
+    if (!$isOpen) {
         $msg = $win
             ? 'Add/Drop period is closed. Window: ' . date('M d, Y h:i A', strtotime($win['start_date'])) . ' – ' . date('M d, Y h:i A', strtotime($win['end_date']))
             : 'Add/Drop is not currently open. Please wait for the Registrar to set the schedule.';
@@ -4240,6 +6101,212 @@ function submitAddDropRequest($conn, $data) {
     if ($isDup) {
         echo json_encode(['success'=>false,'message'=>'You already have a pending '.$type.' request for this subject']); return;
     }
+
+    // FIX ADD-DROP-CREDITED-02: Block Add OR Drop requests for credited subjects.
+    // Credited subjects are permanently excluded via TOR evaluation — they cannot
+    // be added (already done) or dropped (not enrolled in the first place).
+    // Check BEFORE the year-level / semester / prereq guards so the error is clear.
+    {
+        $_crBlockR = $conn->query("SELECT credited_course_ids, credited_subjects FROM tor_evaluations WHERE student_id = $sid AND status = 'Evaluated' ORDER BY id DESC LIMIT 1");
+        $_crBlockIds = [];
+        if ($_crBlockR && $_crBlockRow = $_crBlockR->fetch_assoc()) {
+            $_crDec = json_decode($_crBlockRow['credited_course_ids'] ?? 'null', true);
+            if (is_array($_crDec)) {
+                $_crBlockIds = array_map('intval', $_crDec);
+            } elseif (!empty($_crBlockRow['credited_subjects'])) {
+                foreach (json_decode($_crBlockRow['credited_subjects'], true) ?: [] as $_cs2) {
+                    if (!empty($_cs2['courseId'])) $_crBlockIds[] = (int)$_cs2['courseId'];
+                }
+            }
+        }
+        if (in_array($cid, $_crBlockIds)) {
+            $crName = $conn->query("SELECT name FROM courses WHERE id = $cid LIMIT 1");
+            $crNameStr = ($crName && $crRow = $crName->fetch_assoc()) ? $crRow['name'] : 'This subject';
+            echo json_encode([
+                'success' => false,
+                'message' => $crNameStr . ' is a credited subject and cannot be added or dropped.',
+                'code'    => 'SUBJECT_CREDITED',
+            ]);
+            return;
+        }
+    }
+
+    // ── FIX ADD-DROP-YL-02 / ADD-DROP-SEM-01 / ADD-DROP-PREREQ-01 ──────────────
+    // For ADD requests only: enforce year-level, semester, and prerequisite rules.
+    // Registrar-initiated adds (registrarAddSubject) intentionally bypass this.
+    //
+    // Rules for student-submitted Add requests:
+    //  1. BLOCK if course year_level is HIGHER than student's current year_level.
+    //     Lower year = back subject = allowed. Same year = normal. Higher = not yet.
+    //  2. BLOCK if course semester is a FUTURE semester — UNLESS the course was
+    //     previously Failed or Dropped (retake), or it's a back subject (lower year).
+    //     Semester order: 1st Semester < 2nd Semester < Summer.
+    //  3. BLOCK if course belongs to a different program (unless is_general).
+    //  4. BLOCK if prerequisites not yet passed — UNLESS the course was previously
+    //     Failed (student already met prereqs when they first enrolled it).
+    if ($type === 'Add') {
+        // ── Fetch course + student details ────────────────────────────────────
+        $courseChk = $conn->prepare(
+            "SELECT year_level, semester, name, program,
+                    COALESCE(is_general,0) AS is_general
+             FROM courses WHERE id = ? LIMIT 1"
+        );
+        $courseChk->bind_param('i', $cid);
+        $courseChk->execute();
+        $courseRow = $courseChk->get_result()->fetch_assoc();
+        $courseChk->close();
+
+        $stuChk = $conn->prepare("SELECT year_level, semester, program FROM students WHERE id = ? LIMIT 1");
+        $stuChk->bind_param('i', $sid);
+        $stuChk->execute();
+        $stuRow2 = $stuChk->get_result()->fetch_assoc();
+        $stuChk->close();
+
+        $courseYL   = trim($courseRow['year_level'] ?? '');
+        $courseSem  = trim($courseRow['semester']   ?? '');   // e.g. "1st Semester"
+        $courseProgV= trim($courseRow['program']    ?? '');
+        $isGeneral  = (bool)($courseRow['is_general'] ?? false);
+
+        $studentYL  = trim($stuRow2['year_level']  ?? '');
+        $stuProg2   = trim($stuRow2['program']      ?? '');
+
+        // Normalise student semester — strip AY suffix
+        // e.g. "1st Semester, AY 2025-2026" → "1st Semester"
+        $stuSemRaw2 = trim($stuRow2['semester'] ?? '');
+        preg_match('/^(1st Semester|2nd Semester|Summer)/i', $stuSemRaw2, $semMatch2);
+        $studentSem = $semMatch2[1] ?? $stuSemRaw2;
+
+        // ── Pre-check: previously Failed or Dropped this exact course? ────────
+        // Retake = student already met all requirements to enroll once before.
+        // We allow retakes to bypass year-level, semester, and prereq guards.
+        $prevStmt = $conn->prepare("
+            SELECT e.id FROM enrollments e
+            WHERE e.student_id = ? AND e.course_id = ?
+              AND (
+                e.status IN ('Failed','Dropped')
+                OR (e.status = 'Completed' AND EXISTS (
+                    SELECT 1 FROM student_grades sg
+                    WHERE sg.enrollment_id = e.id AND sg.grade > 3.0
+                ))
+              )
+            LIMIT 1
+        ");
+        $prevStmt->bind_param('ii', $sid, $cid);
+        $prevStmt->execute();
+        $isRetake = ($prevStmt->get_result()->num_rows > 0);
+        $prevStmt->close();
+
+        // ── GUARD 1: Year-level — only block HIGHER year subjects ─────────────
+        // Lower year (back subject) and same year are always allowed.
+        // Retakes bypass: student already reached that year once.
+        if (!$isRetake && $courseYL !== '' && $studentYL !== '') {
+            $ylOrder = [
+                '1st Year' => 1, '2nd Year' => 2, '3rd Year' => 3,
+                '4th Year' => 4, '5th Year' => 5,
+                'Grade 11' => 11, 'Grade 12' => 12,
+            ];
+            $stuYLNum = $ylOrder[$studentYL] ?? 0;
+            $crsYLNum = $ylOrder[$courseYL]  ?? 0;
+            if ($crsYLNum > 0 && $stuYLNum > 0 && $crsYLNum > $stuYLNum) {
+                echo json_encode([
+                    'success' => false,
+                    'message' => 'You cannot add a ' . $courseYL . ' subject ('
+                               . ($courseRow['name'] ?? 'this course')
+                               . '). You are currently in ' . $studentYL . '.',
+                    'code'    => 'YEAR_LEVEL_MISMATCH',
+                ]);
+                return;
+            }
+        }
+
+        // ── GUARD 2: Semester — block FUTURE semester subjects ────────────────
+        // Allowed: current semester, past semester (back subject), or retake.
+        // Blocked: future semester (higher term order AND not a lower year level).
+        if (!$isRetake && $courseSem !== '' && $studentSem !== '') {
+            $semOrder = ['1st Semester' => 1, '2nd Semester' => 2, 'Summer' => 3];
+
+            // Normalise course semester (may have mixed case or extra text)
+            $cSemNorm = '';
+            foreach (array_keys($semOrder) as $key) {
+                if (stripos($courseSem, $key) !== false) { $cSemNorm = $key; break; }
+            }
+            $sSemNorm = '';
+            foreach (array_keys($semOrder) as $key) {
+                if (stripos($studentSem, $key) !== false) { $sSemNorm = $key; break; }
+            }
+
+            if ($cSemNorm !== '' && $sSemNorm !== '') {
+                $ylOrder  = [
+                    '1st Year' => 1, '2nd Year' => 2, '3rd Year' => 3,
+                    '4th Year' => 4, '5th Year' => 5,
+                    'Grade 11' => 11, 'Grade 12' => 12,
+                ];
+                $stuYLNum = $ylOrder[$studentYL] ?? 0;
+                $crsYLNum = $ylOrder[$courseYL]  ?? 0;
+
+                // Back subject: course is from a lower year level — always allowed
+                $isBackSubject = ($crsYLNum > 0 && $stuYLNum > 0 && $crsYLNum < $stuYLNum);
+
+                if (!$isBackSubject) {
+                    // Same year level (or year unknown): use semester term order
+                    $isFutureSem = ($semOrder[$cSemNorm] > $semOrder[$sSemNorm]);
+                    if ($isFutureSem) {
+                        echo json_encode([
+                            'success' => false,
+                            'message' => 'You cannot add a subject from a future semester ('
+                                       . $cSemNorm
+                                       . ($courseYL ? ', ' . $courseYL : '') . '). '
+                                       . 'You are currently in ' . $sSemNorm
+                                       . ($studentYL ? ' (' . $studentYL . ')' : '') . '.',
+                            'code'    => 'FUTURE_SEMESTER',
+                        ]);
+                        return;
+                    }
+                }
+            }
+        }
+
+        // ── GUARD 3: Program — block different-program subjects ───────────────
+        if (!$isGeneral && $courseProgV !== '' && $stuProg2 !== '' && $courseProgV !== $stuProg2) {
+            echo json_encode([
+                'success' => false,
+                'message' => 'This subject belongs to a different program ('
+                           . $courseProgV . ') and cannot be added.',
+                'code'    => 'PROGRAM_MISMATCH',
+            ]);
+            return;
+        }
+
+        // ── GUARD 4: Prerequisites ────────────────────────────────────────────
+        // Retakes bypass: student already passed prereqs when they first enrolled.
+        if (!$isRetake && !studentPassedPrerequisites($conn, $sid, $cid)) {
+            $prereqNames = [];
+            $pnStmt = $conn->prepare(
+                "SELECT c.code, c.name FROM course_prerequisites cp
+                 JOIN courses c ON c.id = cp.prerequisite_id
+                 WHERE cp.course_id = ?"
+            );
+            if ($pnStmt) {
+                $pnStmt->bind_param('i', $cid);
+                $pnStmt->execute();
+                $pnRes = $pnStmt->get_result();
+                while ($pn = $pnRes->fetch_assoc()) {
+                    $prereqNames[] = trim($pn['code'] . ' – ' . $pn['name']);
+                }
+                $pnStmt->close();
+            }
+            $prereqList = !empty($prereqNames)
+                ? ' Required: ' . implode(', ', $prereqNames) . '.'
+                : '';
+            echo json_encode([
+                'success' => false,
+                'message' => 'You have not yet passed all prerequisites for this subject.' . $prereqList,
+                'code'    => 'PREREQ_NOT_MET',
+            ]);
+            return;
+        }
+    }
+    // ── End year-level + semester + prerequisite guard ────────────────────────
 
     $eidVal = $eid > 0 ? $eid : null;
     $stmt = $conn->prepare("INSERT INTO add_drop_requests (student_id,request_type,course_id,enrollment_id,reason) VALUES (?,?,?,?,?)");
@@ -4839,10 +6906,10 @@ function _calcAddDropFeeImpact(mysqli $conn, int $sid, int $cid, string $request
 
     $sign          = ($requestType === 'Drop') ? -1 : 1;
     $tuitionImpact = round($sign * $courseCredits * $rTuition, 2);
-    // FIX ADD-DROP-02: Lab fee only added for Add (facility cost), never deducted on Drop
-    $labImpact     = ($requestType === 'Add' && $isLab) ? round($rLab, 2) : 0.00;
+    // FIX LAB-REMOVE-01: Lab fee removed — tuition + energy only.
+    $labImpact     = 0.00;
     $energyImpact  = round($sign * $courseCredits * $rEnergy, 2);
-    $totalImpact   = round($tuitionImpact + $labImpact + $energyImpact, 2);
+    $totalImpact   = round($tuitionImpact + $energyImpact, 2);
 
     // Full scholar: ₱0 always — no fee impact at all
     // Partial scholar: compute new subtotal, apply fixed discount
@@ -4854,7 +6921,7 @@ function _calcAddDropFeeImpact(mysqli $conn, int $sid, int $cid, string $request
         $energyImpact  = 0.00;
     } elseif ($isScholar && $scholarshipAmount > 0) {
         // Partial scholar — compute new subtotal after add/drop, apply same discount
-        $newSubtotal = max(0, $currentSubtotal + ($tuitionImpact + $labImpact + $energyImpact));
+        $newSubtotal = max(0, $currentSubtotal + ($tuitionImpact + $energyImpact));
         $newTotal    = round(max(0, $newSubtotal - $scholarshipAmount), 2);
     } else {
         $newTotal = round(max(0, $currentTotal + $totalImpact), 2);
@@ -5226,6 +7293,41 @@ function getCurriculum($conn) {
         }
     }
 
+    // FIX CURRICULUM-CREDITED-01: Fetch credited course IDs from TOR evaluation.
+    // Transferee students have subjects credited by the Registrar via tor_evaluations.
+    // Without this, credited subjects always show as 'not_taken' in the curriculum view.
+    // Priority: credited_course_ids (int array) → fallback: match by courseId in credited_subjects JSON.
+    $creditedIds = [];
+    $torQ = $conn->prepare("
+        SELECT credited_course_ids, credited_subjects
+        FROM   tor_evaluations
+        WHERE  student_id = ? AND status = 'Evaluated'
+        ORDER  BY id DESC LIMIT 1
+    ");
+    if ($torQ) {
+        $torQ->bind_param('i', $student_id);
+        $torQ->execute();
+        $torRow = $torQ->get_result()->fetch_assoc();
+        $torQ->close();
+        if ($torRow) {
+            if (!empty($torRow['credited_course_ids'])) {
+                $decoded = json_decode($torRow['credited_course_ids'], true);
+                if (is_array($decoded)) {
+                    $creditedIds = array_map('intval', $decoded);
+                }
+            }
+            // Fallback: parse credited_subjects JSON for courseId fields
+            if (empty($creditedIds) && !empty($torRow['credited_subjects'])) {
+                $subs = json_decode($torRow['credited_subjects'], true);
+                if (is_array($subs)) {
+                    foreach ($subs as $sub) {
+                        if (!empty($sub['courseId'])) $creditedIds[] = (int)$sub['courseId'];
+                    }
+                }
+            }
+        }
+    }
+
     // Fetch prerequisite relationships for all courses in this program
     // Key: course_id → ['prereq_id'=>int, 'prereq_code'=>string]
     $prereqMap = [];
@@ -5278,9 +7380,14 @@ function getCurriculum($conn) {
 
         // Determine status
         // FIX CURRICULUM-01: Use actual final_grade from student_grades.
+        // FIX CURRICULUM-CREDITED-01: Check credited_course_ids from TOR evaluation first.
+        // Credited subjects take priority — a transferee's credited subject should show
+        // as 'credited' even if there's also an enrollment record for it.
         $status = 'not_taken';
         $grade  = null;
-        if ($enr) {
+        if (in_array($cid, $creditedIds)) {
+            $status = 'credited';
+        } elseif ($enr) {
             $finalGrade = $enr['final_grade'] !== null ? (float)$enr['final_grade'] : null;
             if ($finalGrade !== null) {
                 $grade  = $finalGrade;
@@ -5337,7 +7444,9 @@ function getCurriculum($conn) {
         foreach ($sems as $sem => $cs) {
             $semTotal = array_sum(array_column($cs, 'credits'));
             $semCompleted = array_sum(array_map(
-                fn($c) => $c['status'] === 'completed' ? $c['credits'] : 0, $cs
+                // FIX CURRICULUM-CREDITED-01: Count 'credited' subjects in completed units
+                // so Overall Progress and semester totals reflect TOR credits correctly.
+                fn($c) => ($c['status'] === 'completed' || $c['status'] === 'credited') ? $c['credits'] : 0, $cs
             ));
             $yearTotalUnits     += $semTotal;
             $yearCompletedUnits += $semCompleted;
@@ -5475,8 +7584,8 @@ function getSoaSnapshot(mysqli $conn): void {
             $stInfoR->close();
             $cat   = strtoupper(trim($stInfo['student_category'] ?? ''));
             $stype = trim($stInfo['student_type'] ?? '');
-            $isFree = ($cat === 'SHS' && $stype !== 'Transferee')
-                   || ($cat === 'TVET' && $stype !== 'Transferee');
+            // TVET non-transferee = FREE (TESDA gov scholarship). SHS non-transferee = FREE (K-12).
+            $isFree = (($cat === 'SHS' || $cat === 'TVET') && $stype !== 'Transferee');
             jsonOut([
                 'success'            => true,
                 'snapshot'           => null,
@@ -5528,6 +7637,24 @@ function getSoaSnapshot(mysqli $conn): void {
     $isCurrentSem = (trim($curSemRow['semester'] ?? '') === $semester);
 
     if ($isCurrentSem) {
+        // FIX FREE-SNAPSHOT-02: If the student is a free SHS/TVET non-transferee,
+        // delete any stale non-zero soa_snapshots row before re-seeding.
+        // saveSoaSnapshot() uses ON DUPLICATE KEY UPDATE with IF(fee=0,...) guards
+        // that prevent overwriting a frozen non-zero fee with ₱0 — so we must
+        // wipe the wrong row first before the correct ₱0 snapshot can be written.
+        $_freeChkR = $conn->prepare("SELECT student_category, student_type FROM students WHERE id = ? LIMIT 1");
+        $_freeChkR->bind_param('i', $student_id);
+        $_freeChkR->execute();
+        $_freeRow = $_freeChkR->get_result()->fetch_assoc();
+        $_freeChkR->close();
+        $_cat   = strtoupper(trim($_freeRow['student_category'] ?? ''));
+        $_stype = strtolower(trim($_freeRow['student_type']     ?? ''));
+        $_isFreeStu = (($_cat === 'SHS' || $_cat === 'TVET') && $_stype !== 'transferee');
+        if ($_isFreeStu) {
+            $_semEscFix = $conn->real_escape_string($semester);
+            $conn->query("DELETE FROM soa_snapshots WHERE student_id = $student_id AND semester = '$_semEscFix' AND total_assessment > 0");
+            $conn->query("DELETE FROM tuition_fees WHERE student_id = $student_id");
+        }
         saveSoaSnapshot($conn, $student_id, $semester);
         // Re-fetch after refresh so $snap has the latest payment data
         $snapRefresh = $conn->prepare(
@@ -5570,9 +7697,13 @@ function getSoaSnapshot(mysqli $conn): void {
     }
 
     // Decode JSON fields
-    $snap['subjects']  = json_decode($snap['subjects_json']  ?? '[]', true) ?: [];
-    $snap['payments']  = json_decode($snap['payments_json']  ?? '[]', true) ?: [];
-    unset($snap['subjects_json'], $snap['payments_json']);
+    $snap['subjects']   = json_decode($snap['subjects_json']   ?? '[]', true) ?: [];
+    $snap['payments']   = json_decode($snap['payments_json']   ?? '[]', true) ?: [];
+    $snap['extra_fees'] = json_decode($snap['extra_fees_json'] ?? '[]', true) ?: [];
+    unset($snap['subjects_json'], $snap['payments_json'], $snap['extra_fees_json']);
+
+    // Backfill extra_fees_json column if it doesn't exist yet (safe no-op if already present)
+    $conn->query("ALTER TABLE soa_snapshots ADD COLUMN IF NOT EXISTS extra_fees_json MEDIUMTEXT DEFAULT NULL");
 
     // Cast numerics
     foreach (['units','tuition_fee','miscellaneous_fee','registration_fee','laboratory_fee',

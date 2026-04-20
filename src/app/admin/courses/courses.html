@@ -108,7 +108,7 @@
          [class.card-college]="getCardLevel(c) === 'College'"
          [class.card-shs]="getCardLevel(c) === 'SHS'"
          [class.card-tvet]="getCardLevel(c) === 'TVET'"
-         *ngFor="let c of filteredList">
+         *ngFor="let c of pagedList">
       <div class="card-top">
         <div class="card-code-wrap">
           <span class="card-code">{{ c.code }}</span>
@@ -132,11 +132,67 @@
       <h3 class="card-name">{{ c.name }}</h3>
       <p class="card-desc">{{ c.description || 'No description provided.' }}</p>
       <div class="card-meta">
-        <span class="meta-pill meta-dept" *ngIf="c.department">{{ c.department }}</span>
         <span class="meta-pill meta-level" *ngIf="c.year_level">{{ c.year_level }}</span>
-        <span class="meta-pill meta-program" *ngIf="c.program">{{ c.program }}</span>
 
+        <!-- If shared: collapsible program+dept list -->
+        <ng-container *ngIf="c.shared_programs && c.shared_programs.length > 1; else singleProgram">
+          <div class="shared-inline-list">
+            <button class="shared-toggle-btn" (click)="toggleSharedExpand(c.id, $event)">
+              🔗 Shared across {{ c.shared_programs.length }} programs
+              <span class="shared-chevron">{{ isSharedExpanded(c.id) ? '▲' : '▼' }}</span>
+            </button>
+            <div class="shared-inline-rows" *ngIf="isSharedExpanded(c.id)">
+              <!-- If dept filter is active: group under that dept header only -->
+              <ng-container *ngIf="filterDept !== 'All'; else allDeptsView">
+                <div class="shared-dept-group">
+                  <span class="shared-dept-header">{{ filterDept }}</span>
+                  <ng-container *ngFor="let sp of c.shared_programs">
+                    <div class="shared-inline-row"
+                         *ngIf="sp.department === filterDept">
+                      <span class="meta-pill meta-program-sm">{{ sp.program_code }}</span>
+                      <span class="shared-prog-name">{{ sp.program_name }}</span>
+                    </div>
+                  </ng-container>
+                </div>
+              </ng-container>
+              <!-- No dept filter active: group rows by department -->
+              <ng-template #allDeptsView>
+                <ng-container *ngFor="let dept of c.all_departments">
+                  <div class="shared-dept-group">
+                    <span class="shared-dept-header">{{ dept }}</span>
+                    <ng-container *ngFor="let sp of c.shared_programs">
+                      <div class="shared-inline-row" *ngIf="sp.department === dept">
+                        <span class="meta-pill meta-program-sm">{{ sp.program_code }}</span>
+                        <span class="shared-prog-name">{{ sp.program_name }}</span>
+                      </div>
+                    </ng-container>
+                  </div>
+                </ng-container>
+              </ng-template>
+            </div>
+          </div>
+        </ng-container>
+
+        <!-- Not shared: show single program + department pill as before -->
+        <ng-template #singleProgram>
+          <span class="meta-pill meta-dept"    *ngIf="c.department">{{ c.department }}</span>
+          <span class="meta-pill meta-program" *ngIf="c.program">{{ c.program }}</span>
+        </ng-template>
       </div>
+    </div>
+  </div>
+
+  <!-- ── Pagination ───────────────────────────────────────────────────── -->
+  <div *ngIf="!isLoading && filteredList.length > 0" class="pagination-bar">
+    <span class="pagination-info">
+      Showing {{ (coursePage - 1) * coursePageSize + 1 }}–{{ coursePage * coursePageSize > filteredList.length ? filteredList.length : coursePage * coursePageSize }} of {{ filteredList.length }} subjects
+    </span>
+    <div class="pagination-controls">
+      <button class="page-btn" (click)="goToCoursePage(coursePage - 1)" [disabled]="coursePage === 1">‹</button>
+      <button class="page-btn" *ngFor="let p of coursePageNumbers()"
+              [class.active]="p === coursePage"
+              (click)="goToCoursePage(p)">{{ p }}</button>
+      <button class="page-btn" (click)="goToCoursePage(coursePage + 1)" [disabled]="coursePage === courseTotalPages">›</button>
     </div>
   </div>
 
@@ -361,6 +417,18 @@
         <div class="view-item" *ngIf="viewTarget && getCardLevel(viewTarget) !== 'SHS'"><label>Semester</label><p>{{ viewTarget.semester || '—' }}</p></div>
         <div class="view-item"><label>Enrolled</label><p>{{ viewTarget.enrolled_count ?? 0 }} students</p></div>
         <div class="view-item"><label>Instructor</label><p>{{ viewTarget.instructor || '—' }}</p></div>
+        <!-- Shared programs list -->
+        <div class="view-item view-item-full"
+             *ngIf="viewTarget.shared_programs && viewTarget.shared_programs.length > 1">
+          <label>Shared With Programs</label>
+          <div class="shared-view-pills">
+            <span class="meta-pill meta-program"
+                  *ngFor="let sp of viewTarget.shared_programs">
+              {{ sp.program_code }} — {{ sp.program_name }}
+              <span class="shared-dept-hint" *ngIf="sp.department">({{ sp.department }})</span>
+            </span>
+          </div>
+        </div>
       </div>
     </div>
     <div class="modal-foot">

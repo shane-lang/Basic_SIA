@@ -445,7 +445,40 @@ mat-card-content { padding: 0; }
   .modal-body { padding: 20px; }
 }
 
-::ng-deep .mat-mdc-card { box-shadow: 0 10px 40px rgba(0,0,0,0.3) !important; }
+/* ── Inline field validation errors (login & forgot password) ── */
+.login-field-error {
+  color: #c62828;
+  font-size: 12px;
+  font-weight: 600;
+  margin-top: -12px;
+  margin-bottom: 6px;
+  padding: 0 4px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  animation: slideInError 0.15s ease-out;
+}
+
+@keyframes slideInError {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Red underline on Material field when error is set */
+.field-has-error .mdc-line-ripple::before,
+.field-has-error .mdc-line-ripple::after {
+  border-bottom-color: #c62828 !important;
+}
+.field-has-error .mat-mdc-form-field-focus-overlay { background-color: rgba(198, 40, 40, 0.05); }
+.field-has-error .mat-mdc-floating-label { color: #c62828 !important; }
+.field-has-error .mdc-text-field--filled:not(.mdc-text-field--disabled) .mdc-line-ripple::before { border-bottom-color: #c62828 !important; }
+
+/* Also highlight the input itself */
+.field-has-error input.mat-mdc-input-element {
+  color: #c62828;
+}
+
+
 /* ══════════════════════════════════════════════════════════
    ENROLLMENT WIZARD PAGE
 ══════════════════════════════════════════════════════════ */
@@ -559,15 +592,33 @@ mat-card-content { padding: 0; }
 
 /* ── Error Banner ── */
 .enroll-error {
-  margin: 0 auto 0;
+  /* Sticky so it stays visible no matter how far down the user has scrolled */
+  position: sticky;
+  top: 0;
+  z-index: 200;
+
+  margin: 0 auto;
   max-width: 780px;
   width: calc(100% - 48px);
   background: #fff3cd;
   color: #856404;
   padding: 12px 18px;
-  border-radius: 8px;
+  border-radius: 0 0 8px 8px;   /* flat top — flush with the step-bar */
   font-size: 14px;
+  font-weight: 600;
   border-left: 4px solid #ffc107;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  animation: errorSlideDown 0.2s ease-out;
+}
+
+
+
+@keyframes errorSlideDown {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
 /* ── Wizard Wrapper ── */
@@ -812,8 +863,8 @@ mat-card-content { padding: 0; }
   font-size: 14px;
 }
 .summary-row:last-child { border-bottom: none; }
-.summary-row label { color: #718096; min-width: 90px; font-weight: 600; }
-.summary-row p { margin: 0; color: #1a202c; }
+.summary-row label { color: #718096; min-width: 90px; font-weight: 600; flex-shrink: 0; }
+.summary-row p { margin: 0; color: #1a202c; word-break: break-word; overflow-wrap: anywhere; }
 .text-green { color: #38a169; font-weight: 600; }
 
 /* ── Account Info Box ── */
@@ -1127,7 +1178,7 @@ span.optional-tag { font-size: 11px; background: #e2e8f0; padding: 1px 7px; bord
 .status-credited { background: #dcfce7; color: #15803d; }
 .status-enroll   { background: #eff6ff; color: #1d4ed8; }
 
-.prev-schools-list{display:flex;flex-direction:column;gap:8px}.prev-school-row{display:grid;grid-template-columns:150px 1fr 130px 32px;gap:8px;align-items:center}.btn-remove-school{background:none;border:1.5px solid #fca5a5;color:#ef4444;border-radius:6px;width:32px;height:36px;cursor:pointer}.btn-add-school{margin-top:4px;background:none;border:1.5px dashed #6366f1;color:#6366f1;border-radius:8px;padding:6px 14px;font-size:.85rem;cursor:pointer}.field-hint{display:block;margin-top:4px;color:#6366f1;font-size:.8rem;font-style:italic}
+.prev-schools-list{display:flex;flex-direction:column;gap:8px}.prev-school-row{display:grid;grid-template-columns:160px 1fr 210px 32px;gap:8px;align-items:center}.btn-remove-school{background:none;border:1.5px solid #fca5a5;color:#ef4444;border-radius:6px;width:32px;height:36px;cursor:pointer}.btn-add-school{margin-top:4px;background:none;border:1.5px dashed #6366f1;color:#6366f1;border-radius:8px;padding:6px 14px;font-size:.85rem;cursor:pointer}.field-hint{display:block;margin-top:4px;color:#6366f1;font-size:.8rem;font-style:italic}
 /* ── Selected Strand Summary (Step 2) ── */
 .selected-strand-summary { display:flex; align-items:center; gap:0.6rem; background:#ecfdf5; border:1.5px solid #86efac; border-radius:10px; padding:0.65rem 1rem; font-size:0.9rem; }
 .ss-label { color:#6b7280; font-weight:600; }
@@ -1522,3 +1573,456 @@ span.optional-tag { font-size: 11px; background: #e2e8f0; padding: 1px 7px; bord
   color: #166534;
   line-height: 1.5;
 }
+/* ── Scholar Proof Upload section ──────────────────────────── */
+.fscb-proof-section {
+  margin-top: 1.1rem;
+  padding-top: 1rem;
+  border-top: 1px solid #d1fae5;
+}
+.fscb-proof-label {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #1e293b;
+  margin-bottom: 0.3rem;
+}
+.fscb-proof-label .req {
+  color: #dc2626;
+  margin-left: 2px;
+}
+.fscb-proof-hint {
+  font-size: 0.79rem;
+  color: #6b7280;
+  margin: 0 0 0.6rem;
+  line-height: 1.45;
+}
+.fscb-proof-box {
+  border: 2px dashed #86efac;
+  border-radius: 10px;
+  background: #f0fdf4;
+  transition: all 0.18s ease;
+}
+.fscb-proof-box:hover,
+.fscb-proof-box.has-file {
+  border-color: #16a34a;
+  background: #dcfce7;
+}
+.proof-uploaded-badge {
+  margin-top: 0.45rem;
+  font-size: 0.82rem;
+  color: #15803d;
+  font-weight: 500;
+  padding: 0.3rem 0.5rem;
+  background: #f0fdf4;
+  border-radius: 6px;
+  display: inline-block;
+}
+/* ══ INLINE VALIDATION STYLES ════════════════════════════════ */
+.field-wrap {
+  display: flex;
+  flex-direction: column;
+}
+
+.inline-error {
+  color: #c62828;
+  font-size: 12px;
+  font-weight: 600;
+  margin-top: -14px;
+  margin-bottom: 4px;
+  padding: 4px 2px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  animation: slideInError 0.15s ease-out;
+}
+
+.inline-error::before {
+  content: '⚠';
+  font-size: 11px;
+}
+
+.inline-error.server-error {
+  background: #ffebee;
+  border-left: 3px solid #c62828;
+  border-radius: 4px;
+  padding: 8px 10px;
+  margin-top: 0;
+  margin-bottom: 8px;
+}
+
+/* Angular Material field error state */
+.field-error .mat-mdc-text-field-wrapper {
+  border-color: #c62828 !important;
+}
+
+/* Enrollment wizard inline field errors */
+.field-inline-error {
+  color: #dc2626;
+  font-size: 12px;
+  font-weight: 600;
+  margin-top: 3px;
+  padding: 3px 6px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  animation: slideInError 0.15s ease-out;
+}
+
+.field-inline-error::before {
+  content: '⚠';
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.field-inline-error.server-field-error {
+  background: #fef2f2;
+  border: 1px solid #fca5a5;
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin-top: 10px;
+  font-size: 13px;
+}
+
+/* Red border on invalid input fields */
+.form-control.input-field-error {
+  border-color: #dc2626 !important;
+  background: #fff8f8;
+}
+
+.form-control.input-field-error:focus {
+  border-color: #dc2626 !important;
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.12);
+}
+
+@keyframes slideInError {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+/* ── Inline field validation errors ────────────────────────────────────────── */
+.field-error {
+  color: #dc2626;
+  font-size: 0.75rem;
+  margin-top: 4px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  animation: slideInError 0.15s ease-out;
+}
+.field-error::before {
+  content: '⚠';
+  font-size: 0.7rem;
+  flex-shrink: 0;
+}
+
+/* Highlight invalid inputs */
+.form-control.is-invalid {
+  border-color: #dc2626 !important;
+  background-color: #fff8f8 !important;
+  box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.12);
+}
+.form-control.is-invalid:focus {
+  border-color: #dc2626 !important;
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.2);
+}
+
+/* mat-form-field inline error for login / forgot password */
+mat-form-field.mat-form-field .mat-error,
+mat-error {
+  font-size: 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+mat-error::before {
+  content: '⚠';
+  font-size: 0.7rem;
+}
+
+/* ── Address breakdown grid ─────────────────────────────────────────────── */
+.address-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem 1rem;
+  margin-top: 0.25rem;
+}
+.address-grid .addr-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.address-grid .addr-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 0;
+}
+/* Barangay, City, Province each take full width on their row */
+.address-grid .addr-field:nth-child(3),
+.address-grid .addr-field:nth-child(4),
+.address-grid .addr-field:nth-child(5) {
+  grid-column: span 1;
+}
+@media (max-width: 600px) {
+  .address-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── School year range (From – To) ──────────────────────────────────────── */
+.ps-year-range {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.ps-year-range select {
+  flex: 1;
+  min-width: 0;
+}
+.year-dash {
+  font-weight: 700;
+  color: #6b7280;
+  flex-shrink: 0;
+}
+
+/* ── Copy-my-address shortcut button ─────────────────────────────────────── */
+.btn-copy-addr {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 10px;
+  padding: 2px 10px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #2563eb;
+  background: #eff6ff;
+  border: 1.5px solid #93c5fd;
+  border-radius: 20px;
+  cursor: pointer;
+  vertical-align: middle;
+  transition: background 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+.btn-copy-addr:hover {
+  background: #dbeafe;
+  border-color: #3b82f6;
+}
+
+/* ── Address toggle button & summary ────────────────────────────────────── */
+.btn-addr-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 8px 16px;
+  background: #eff6ff;
+  border: 1.5px dashed #93c5fd;
+  border-radius: 8px;
+  color: #2563eb;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.btn-addr-toggle:hover {
+  background: #dbeafe;
+  border-color: #3b82f6;
+}
+.addr-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 6px;
+  padding: 10px 14px;
+  background: #f0fdf4;
+  border: 1.5px solid #86efac;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.addr-summary:hover { background: #dcfce7; }
+.addr-summary-text {
+  font-size: 0.85rem;
+  color: #166534;
+  line-height: 1.4;
+}
+.addr-edit-btn {
+  font-size: 0.78rem;
+  color: #15803d;
+  font-weight: 600;
+  white-space: nowrap;
+  margin-left: 12px;
+}
+.btn-addr-done {
+  margin-top: 4px;
+  padding: 7px 20px;
+  background: #2563eb;
+  color: #fff;
+  border: none;
+  border-radius: 7px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.btn-addr-done:hover { background: #1d4ed8; }
+.full-addr-col { grid-column: 1 / -1; }
+/* ── Scholarship Accordion Picker ─────────────────────────── */
+/* ── Full Scholarship standalone shortcut ──────────────────────────────── */
+.full-scholar-shortcut-wrap {
+  margin-bottom: 0.75rem;
+}
+.full-scholar-shortcut-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  width: 100%;
+  padding: 0.85rem 1rem;
+  background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+  border: 2px solid #16a34a;
+  border-radius: 12px;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.18s ease;
+}
+.full-scholar-shortcut-btn:hover {
+  background: linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%);
+  border-color: #15803d;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(22,163,74,0.15);
+}
+.fsb-icon {
+  font-size: 1.6rem;
+  flex-shrink: 0;
+}
+.fsb-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.fsb-text strong {
+  font-size: 0.95rem;
+  color: #15803d;
+  font-weight: 600;
+}
+.fsb-text small {
+  font-size: 0.78rem;
+  color: #4b7c5f;
+}
+.fsb-arrow {
+  font-size: 1.1rem;
+  color: #16a34a;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.scholar-accordion {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+.scholar-cat-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  overflow: hidden;
+  transition: box-shadow 0.15s;
+}
+.scholar-cat-card.expanded {
+  box-shadow: 0 2px 8px rgba(59,130,246,0.13);
+  border-color: #93c5fd;
+}
+.scholar-cat-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.75rem 1rem;
+  background: #f8fafc;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: #1e293b;
+  transition: background 0.15s;
+}
+.scholar-cat-header:hover { background: #eff6ff; }
+.scholar-cat-card.expanded .scholar-cat-header {
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+.cat-icon { font-size: 1.25rem; flex-shrink: 0; }
+.cat-label { flex: 1; }
+.cat-count {
+  font-size: 0.78rem;
+  color: #64748b;
+  font-weight: 400;
+  white-space: nowrap;
+}
+.cat-chevron {
+  font-size: 0.72rem;
+  color: #94a3b8;
+  margin-left: 0.25rem;
+}
+.scholar-type-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.6rem 0.75rem 0.75rem;
+  background: #fff;
+  border-top: 1px solid #dbeafe;
+}
+.scholar-type-btn {
+  padding: 0.55rem 0.9rem;
+  border: 1px solid #dbeafe;
+  border-radius: 7px;
+  background: #f0f9ff;
+  color: #1e40af;
+  font-size: 0.875rem;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  line-height: 1.4;
+}
+.scholar-type-btn:hover {
+  background: #dbeafe;
+  border-color: #93c5fd;
+}
+/* Selected badge */
+.scholar-selected-badge {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.65rem 1rem;
+  background: #eff6ff;
+  border: 2px solid #3b82f6;
+  border-radius: 10px;
+  margin-top: 0.4rem;
+}
+.scholar-badge-icon { font-size: 1.1rem; flex-shrink: 0; }
+.scholar-badge-text {
+  flex: 1;
+  font-weight: 500;
+  color: #1e40af;
+  font-size: 0.9rem;
+  line-height: 1.35;
+}
+.scholar-badge-clear {
+  padding: 0.3rem 0.75rem;
+  border: 1px solid #93c5fd;
+  border-radius: 6px;
+  background: #fff;
+  color: #1d4ed8;
+  font-size: 0.78rem;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s;
+}
+.scholar-badge-clear:hover { background: #dbeafe; }

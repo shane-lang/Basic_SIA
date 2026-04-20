@@ -2,40 +2,45 @@
 
   <!-- Header -->
   <div class="sad-header">
-    <div class="sad-header-icon">📋</div>
-    <div>
+    <div class="sad-header-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/>
+        <rect x="9" y="3" width="6" height="4" rx="2"/>
+        <line x1="9" y1="12" x2="15" y2="12"/>
+        <line x1="9" y1="16" x2="12" y2="16"/>
+      </svg>
+    </div>
+    <div class="sad-header-text">
       <h1 class="sad-title">Add / Drop Subjects</h1>
-      <p class="sad-subtitle">Submit a request to add or drop subjects. The Registrar will review and approve your request.</p>
+      <p class="sad-subtitle">Submit a request to modify your enrollment. The Registrar will review and approve all changes.</p>
     </div>
   </div>
 
-  <!-- Add/Drop Window Status Banner -->
-  <div *ngIf="!windowLoading">
-    <div class="sad-window-open" *ngIf="windowOpen">
-      🟢 <strong>Add/Drop is OPEN</strong>
-      <span *ngIf="window"> · {{ windowDates() }}</span>
-      <span *ngIf="window?.label"> · {{ window!.label }}</span>
-    </div>
-    <div class="sad-window-closed" *ngIf="!windowOpen">
-      🔴 <strong>Add/Drop is CLOSED</strong>
-      <span *ngIf="window"> · Last window: {{ windowDates() }}</span>
-      <span *ngIf="!window"> · The Registrar has not set a schedule yet.</span>
-    </div>
+  <!-- Window Status Banner -->
+  <div *ngIf="!windowLoading" class="sad-window-bar" [class.sad-window-open]="windowOpen" [class.sad-window-closed]="!windowOpen">
+    <span class="sad-window-dot"></span>
+    <span class="sad-window-label">Add/Drop is {{ windowOpen ? 'OPEN' : 'CLOSED' }}</span>
+    <span class="sad-window-dates" *ngIf="window">{{ windowDates() }}</span>
+    <span class="sad-window-dates" *ngIf="window?.label"> · {{ window!.label }}</span>
+    <span class="sad-window-dates" *ngIf="!window && !windowOpen"> · The Registrar has not set a schedule yet.</span>
   </div>
 
-  <!-- Success -->
-  <div class="sad-success" *ngIf="successMsg">
-    ✅ {{ successMsg }}
-    <button (click)="successMsg=''">✕</button>
+  <!-- Success Toast -->
+  <div class="sad-success-toast" *ngIf="successMsg">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+    <span>{{ successMsg }}</span>
+    <button (click)="successMsg=''">×</button>
   </div>
 
-  <!-- Main tabs -->
+  <!-- Main Tabs -->
   <div class="sad-main-tabs">
     <button class="sad-main-tab" [class.sad-main-active]="activeTab==='request'" (click)="activeTab='request'">
-      📝 Submit Request
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5"/><path d="M17.5 2.5a2.121 2.121 0 013 3L12 14l-4 1 1-4 8.5-8.5z"/></svg>
+      Submit request
     </button>
     <button class="sad-main-tab" [class.sad-main-active]="activeTab==='history'" (click)="activeTab='history'">
-      📂 My Requests
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      My requests
       <span class="sad-badge" *ngIf="pendingCount > 0">{{ pendingCount }}</span>
     </button>
   </div>
@@ -43,86 +48,234 @@
   <!-- ── REQUEST TAB ── -->
   <div *ngIf="activeTab === 'request'">
 
-    <div class="sad-info-box">
-      ℹ️ Add/Drop requests are reviewed by the Registrar. Approved requests are applied immediately to your enrollment.
+    <div class="sad-info-banner">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      You can add subjects from your current semester or from past semesters you failed or haven't taken yet (back subjects / retakes). Subjects from future semesters are not available for adding. Use the Semester and Year Level filters to browse. All requests are reviewed by the Registrar.
     </div>
 
-    <!-- Sub tabs -->
+    <!-- Sub Tabs -->
     <div class="sad-sub-tabs">
-      <button class="sad-sub-tab" [class.sad-sub-drop]="requestTab==='drop'" [class.sad-sub-active]="requestTab==='drop'" (click)="requestTab='drop'">
-        ➖ Drop a Subject
+      <button class="sad-sub-tab"
+        [class.sad-sub-active-drop]="requestTab==='drop'"
+        [class.sad-sub-active-add]="requestTab==='add'"
+        [class.sad-sub-drop]="requestTab==='drop'"
+        [class.sad-sub-add]="requestTab==='add'"
+        (click)="requestTab='drop'">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Drop a subject
         <span class="sad-sub-count">{{ enrolled.length }}</span>
       </button>
-      <button class="sad-sub-tab" [class.sad-sub-add]="requestTab==='add'" [class.sad-sub-active]="requestTab==='add'" (click)="requestTab='add'">
-        ➕ Add a Subject
-        <span class="sad-sub-count">{{ available.length }}</span>
+      <button class="sad-sub-tab"
+        [class.sad-sub-active-drop]="requestTab==='drop'"
+        [class.sad-sub-active-add]="requestTab==='add'"
+        [class.sad-sub-drop]="requestTab==='drop'"
+        [class.sad-sub-add]="requestTab==='add'"
+        (click)="requestTab='add'">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Add a subject
+        <span class="sad-sub-count">{{ addableCount }}</span>
       </button>
     </div>
 
     <!-- Loading -->
     <div class="sad-loading" *ngIf="isLoading">
-      <div class="sad-spinner"></div> Loading subjects...
+      <div class="sad-spinner"></div>
+      Loading subjects…
     </div>
 
-    <!-- DROP subjects -->
+    <!-- ── DROP PANEL ── -->
     <div *ngIf="requestTab==='drop' && !isLoading">
       <div class="sad-panel-bar">
-        <span class="sad-panel-label">Your Enrolled Subjects</span>
-        <input class="sad-filter" [(ngModel)]="enFilter" placeholder="Filter...">
+        <span class="sad-panel-label">Enrolled subjects</span>
+        <div class="sad-filter-wrap">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input class="sad-filter" [(ngModel)]="enFilter" placeholder="Filter subjects…">
+        </div>
       </div>
+
       <div class="sad-empty" *ngIf="filteredEnrolled.length === 0">
-        <span>📭</span><p>No enrolled subjects</p>
+        <div class="sad-empty-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        </div>
+        <p>No enrolled subjects</p>
       </div>
-      <div class="sad-cards" *ngIf="filteredEnrolled.length > 0">
+
+      <div class="sad-grid" *ngIf="filteredEnrolled.length > 0">
         <div class="sad-card sad-card-enrolled" *ngFor="let s of filteredEnrolled">
-          <div class="sad-card-top">
-            <span class="sad-code">{{ s.code }}</span>
-          </div>
-          <div class="sad-name">{{ s.name }}</div>
-          <div class="sad-type-row">
-            <span class="tag-major" *ngIf="!isMinor(s.code)">Major</span>
-            <span class="tag-minor" *ngIf="isMinor(s.code)">Minor</span>            <span class="units-breakdown">Lec {{ s.lecUnits || s.lec_units || s.credits }}<ng-container *ngIf="(s.labUnits || s.lab_units || 0) > 0"> / Lab {{ s.labUnits || s.lab_units }}</ng-container></span>
-          </div>
-          <div class="sad-card-foot">
-            <span class="sad-pending-tag" *ngIf="hasPending(s.course_id, 'Drop')">⏳ Pending request</span>
-            <button class="sad-btn-drop"
-              [disabled]="hasPending(s.course_id, 'Drop') || !windowOpen"
-              [title]="!windowOpen ? 'Add/Drop is currently closed' : ''"
-              (click)="open(s, 'drop')">
-              ➖ Request Drop
-            </button>
+          <div class="sad-card-inner">
+            <div class="sad-card-top">
+              <span class="sad-code">{{ s.code }}</span>
+              <div class="sad-tags">
+                <span class="sad-tag sad-tag-major" *ngIf="!isMinor(s.code)">Major</span>
+                <span class="sad-tag sad-tag-minor" *ngIf="isMinor(s.code)">GE / Minor</span>
+                <!--<span class="sad-tag sad-tag-lab" *ngIf="s.isLab || s.is_lab">Lab</span>
+                 FIX ADD-DROP-CREDITED-03: Show Credited badge so student understands why the Drop button is hidden -->
+                <span class="sad-tag sad-tag-credited" *ngIf="s.is_credited">Credited</span>
+              </div>
+            </div>
+            <div class="sad-cname">{{ s.name }}</div>
+            <div class="sad-meta">
+              <span>{{ s.lecUnits || s.lec_units || s.credits }} lec<ng-container *ngIf="(s.labUnits || s.lab_units || 0) > 0"> · {{ s.labUnits || s.lab_units }} lab</ng-container> units</span>
+              <span *ngIf="s.instructor">{{ s.instructor }}</span>
+              <span *ngIf="s.day">{{ s.day }} · {{ s.time }}</span>
+            </div>
+            <!-- FIX ADD-DROP-CREDITED-03: Credited notice instead of Drop button -->
+            <div class="sad-credited-notice" *ngIf="s.is_credited">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+              <span>Credited from TOR evaluation<ng-container *ngIf="s.credited_from"> — {{ s.credited_from }}</ng-container>. Cannot be dropped.</span>
+            </div>
+            <div class="sad-card-foot" *ngIf="!s.is_credited">
+              <span class="sad-pending-chip" *ngIf="hasPending(s.course_id, 'Drop')">Request pending</span>
+              <span *ngIf="!hasPending(s.course_id, 'Drop')"></span>
+              <button class="sad-btn-drop"
+                [disabled]="hasPending(s.course_id, 'Drop') || !windowOpen"
+                [title]="!windowOpen ? 'Add/Drop is currently closed' : ''"
+                (click)="open(s, 'drop')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                Request drop
+              </button>
+            </div>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- ADD subjects -->
+    <!-- ── ADD PANEL ── -->
     <div *ngIf="requestTab==='add' && !isLoading">
-      <div class="sad-panel-bar">
-        <span class="sad-panel-label">Available Subjects</span>
-        <input class="sad-filter" [(ngModel)]="avFilter" placeholder="Filter...">
+
+      <!-- Filters -->
+      <div class="sad-add-filters">
+        <div class="sad-filter-group">
+          <label class="sad-filter-lbl">📅 Semester</label>
+          <select class="sad-filter-sel" [(ngModel)]="avSemFilter">
+            <option value="">All Semesters</option>
+            <option *ngFor="let sem of uniqueAvSemesters" [value]="sem">{{ sem }}</option>
+          </select>
+        </div>
+        <div class="sad-filter-group">
+          <label class="sad-filter-lbl">🎓 Year Level</label>
+          <select class="sad-filter-sel" [(ngModel)]="avYearFilter">
+            <option value="">All Year Levels</option>
+            <option *ngFor="let yl of uniqueAvYearLevels" [value]="yl">{{ yl }}</option>
+          </select>
+        </div>
+        <div class="sad-filter-group sad-filter-grow">
+          <label class="sad-filter-lbl">🔍 Search</label>
+          <div class="sad-filter-wrap">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input class="sad-filter" [(ngModel)]="avFilter" placeholder="Filter subjects…">
+          </div>
+        </div>
       </div>
+
+      <!-- Filter hint + clear -->
+      <div class="sad-filter-hint" *ngIf="avSemFilter || avYearFilter">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+        Showing <strong>{{ filteredAvailable.length }}</strong> of {{ available.length }} subjects
+        <span *ngIf="avSemFilter"> · {{ avSemFilter }}</span>
+        <span *ngIf="avYearFilter"> · {{ avYearFilter }}</span>
+        <button class="sad-clear-btn" (click)="avSemFilter='';avYearFilter='';avFilter=''">✕ Clear filters</button>
+      </div>
+
       <div class="sad-empty" *ngIf="filteredAvailable.length === 0">
-        <span>📭</span><p>No available subjects for this semester</p>
+        <div class="sad-empty-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        </div>
+        <p>No subjects match your filters</p>
+        <button class="sad-clear-btn sad-clear-btn-lg" *ngIf="avSemFilter || avYearFilter"
+                (click)="avSemFilter='';avYearFilter='';avFilter=''">Show all subjects</button>
       </div>
-      <div class="sad-cards" *ngIf="filteredAvailable.length > 0">
-        <div class="sad-card sad-card-available" *ngFor="let s of filteredAvailable" [class.sad-full]="s.available_seats===0">
-          <div class="sad-card-top">
-            <span class="sad-code">{{ s.code }}</span>
-          </div>
-          <div class="sad-name">{{ s.name }}</div>
-          <div class="sad-type-row">
-            <span class="tag-major" *ngIf="!isMinor(s.code)">Major</span>
-            <span class="tag-minor" *ngIf="isMinor(s.code)">Minor</span>            <span class="units-breakdown">Lec {{ s.lecUnits || s.lec_units || s.credits }}<ng-container *ngIf="(s.labUnits || s.lab_units || 0) > 0"> / Lab {{ s.labUnits || s.lab_units }}</ng-container></span>
-          </div>
-          <div class="sad-card-foot">
-            <span class="sad-pending-tag" *ngIf="hasPending(s.id, 'Add')">⏳ Pending request</span>
-            <button class="sad-btn-add"
-              [disabled]="s.available_seats===0 || hasPending(s.id, 'Add') || !windowOpen"
-              [title]="!windowOpen ? 'Add/Drop is currently closed' : ''"
-              (click)="open(s, 'add')">
-              ➕ Request Add
-            </button>
+
+      <div class="sad-grid" *ngIf="filteredAvailable.length > 0">
+        <div class="sad-card sad-card-available"
+          [class.sad-card-faded]="s.is_credited || s.available_seats === 0 || (!s.isRetake && !s.prereqMet) || (s.isFutureSemester && !s.isRetake)"
+          [class.sad-card-future]="s.isFutureSemester && !s.isRetake"
+          [class.sad-card-credited]="s.is_credited"
+          *ngFor="let s of filteredAvailable">
+          <div class="sad-card-inner">
+            <div class="sad-card-top">
+              <span class="sad-code">{{ s.code }}</span>
+              <div class="sad-tags">
+                <span class="sad-tag sad-tag-major" *ngIf="!isMinor(s.code)">Major</span>
+                <span class="sad-tag sad-tag-minor" *ngIf="isMinor(s.code)">GE / Minor</span>
+                <span class="sad-tag sad-tag-lab" *ngIf="s.isLab || s.is_lab">Lab</span>
+                <span class="sad-tag sad-tag-full" *ngIf="s.available_seats === 0">Full</span>
+                <span class="sad-tag sad-tag-retake" *ngIf="s.isRetake && !s.is_credited">Retake</span>
+                <span class="sad-tag sad-tag-credited" *ngIf="s.is_credited">Credited</span>
+                <span class="sad-tag sad-tag-prereq" *ngIf="!s.prereqMet && !s.isRetake && !s.isFutureSemester && !s.is_credited">Prereq needed</span>
+                <span class="sad-tag sad-tag-future" *ngIf="s.isFutureSemester && !s.isRetake && !s.is_credited">Future sem</span>
+              </div>
+            </div>
+
+            <!-- Year level + semester context pills -->
+            <div class="sad-subject-ctx">
+              <span class="sad-ctx-pill sad-ctx-yl" *ngIf="s.year_level || s.yearLevel">
+                {{ s.year_level || s.yearLevel }}
+              </span>
+              <span class="sad-ctx-pill sad-ctx-sem" *ngIf="s.semester">
+                {{ s.semester }}
+              </span>
+            </div>
+
+            <!-- Credited notice — shown instead of other warnings -->
+            <div class="sad-credited-notice" *ngIf="s.is_credited">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+              <span>This subject is credited from your TOR evaluation and cannot be added.</span>
+            </div>
+
+            <!-- Future-semester notice (shown instead of prereq warn) -->
+            <div class="sad-prereq-warn sad-future-warn" *ngIf="s.isFutureSemester && !s.isRetake && !s.is_credited">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              <span>This subject is from a future semester and cannot be added yet.</span>
+            </div>
+
+            <!-- Prerequisite warning (only for non-retake, non-future-sem, non-credited subjects) -->
+            <div class="sad-prereq-warn" *ngIf="!s.prereqMet && !s.isRetake && !s.isFutureSemester && !s.is_credited">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+              <span>Prerequisite not met<ng-container *ngIf="s.prereqList"> — requires {{ s.prereqList }}</ng-container></span>
+            </div>
+
+            <!-- Retake notice -->
+            <div class="sad-retake-notice" *ngIf="s.isRetake && !s.is_credited">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+              <span>Previously taken — eligible for retake</span>
+            </div>
+
+            <div class="sad-cname">{{ s.name }}</div>
+
+            <!-- Seat availability bar -->
+            <div class="sad-seats-bar">
+              <div class="sad-seats-fill"
+                [class.sad-seats-warn]="seatPct(s) >= 80"
+                [class.sad-seats-full]="s.available_seats === 0"
+                [style.width.%]="seatPct(s)">
+              </div>
+            </div>
+
+            <div class="sad-meta">
+              <span>{{ s.available_seats }} of {{ s.capacity }} seats available</span>
+              <span>{{ s.lecUnits || s.lec_units || s.credits }} lec<ng-container *ngIf="(s.labUnits || s.lab_units || 0) > 0"> · {{ s.labUnits || s.lab_units }} lab</ng-container> units</span>
+              <span *ngIf="s.instructor">{{ s.instructor }}</span>
+              <span *ngIf="s.day">{{ s.day }} · {{ s.time }}</span>
+            </div>
+            <div class="sad-card-foot">
+              <span class="sad-pending-chip" *ngIf="hasPending(s.id, 'Add')">Request pending</span>
+              <span *ngIf="!hasPending(s.id, 'Add')"></span>
+              <!-- FIX ADD-DROP-CREDITED-04: Disable Add button and hide it for credited subjects -->
+              <div class="sad-credited-block" *ngIf="s.is_credited">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                Credited subject
+              </div>
+              <button class="sad-btn-add" *ngIf="!s.is_credited"
+                [disabled]="s.available_seats === 0 || hasPending(s.id, 'Add') || !windowOpen || (!s.isRetake && !s.prereqMet) || (s.isFutureSemester && !s.isRetake)"
+                [title]="(s.isFutureSemester && !s.isRetake) ? 'This subject is from a future semester'
+                        : (!s.isRetake && !s.prereqMet) ? 'Complete prerequisites first'
+                        : (!windowOpen ? 'Add/Drop is currently closed' : '')"
+                (click)="open(s, 'add')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                Request add
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -132,31 +285,28 @@
   <!-- ── HISTORY TAB ── -->
   <div *ngIf="activeTab === 'history'">
     <div class="sad-empty" *ngIf="requests.length === 0">
-      <span>📂</span><p>You have no add/drop requests yet</p>
+      <div class="sad-empty-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      </div>
+      <p>No add/drop requests yet</p>
     </div>
-    <div class="sad-history" *ngIf="requests.length > 0">
-      <div class="sad-req-card" *ngFor="let r of requests">
-        <div class="sad-req-left">
-          <span class="sad-req-type" [class.sad-type-add]="r.request_type==='Add'" [class.sad-type-drop]="r.request_type==='Drop'">
-            {{ r.request_type === 'Add' ? '➕' : '➖' }} {{ r.request_type }}
+
+    <div class="sad-hist-list" *ngIf="requests.length > 0">
+      <div class="sad-hist-card" *ngFor="let r of requests">
+        <div class="sad-hist-left">
+          <span class="sad-hist-type" [class.sad-hist-add]="r.request_type==='Add'" [class.sad-hist-drop]="r.request_type==='Drop'">
+            {{ r.request_type === 'Add' ? '+ Add' : '− Drop' }} request
           </span>
-          <div class="sad-req-course">
-            <strong>{{ r.code }}</strong> — {{ r.course_name }}
+          <div class="sad-hist-course">
+            <span class="sad-hist-code">{{ r.code }}</span> — {{ r.course_name }}
           </div>
-          <div class="sad-req-meta">
-            {{ r.credits }} units
-            <span class="tag-major" *ngIf="!isMinor(r.code)" style="font-size:10px">Major</span>
-            <span class="tag-minor" *ngIf="isMinor(r.code)" style="font-size:10px">Minor</span>            <span style="font-size:10px;color:#6b7280"> · Lec {{ r.lecUnits || r.lec_units || r.credits }}<ng-container *ngIf="(r.labUnits || r.lab_units || 0) > 0"> / Lab {{ r.labUnits || r.lab_units }}</ng-container></span>
-            · {{ r.instructor }} · {{ r.day }} {{ r.time }}
-          </div>
-          <div class="sad-req-reason">Reason: {{ r.reason }}</div>
-          <div class="sad-req-remarks" *ngIf="r.remarks">Registrar note: {{ r.remarks }}</div>
+          <div class="sad-hist-meta">{{ r.credits }} units</div>
+          <div class="sad-hist-reason">"{{ r.reason }}"</div>
+          <div class="sad-hist-remarks" *ngIf="r.remarks">Registrar: {{ r.remarks }}</div>
         </div>
-        <div class="sad-req-right">
-          <span class="sad-status-badge" [class]="statusCls(r.status)">
-            {{ statusIcon(r.status) }} {{ r.status }}
-          </span>
-          <span class="sad-req-date">{{ r.created_at | date:'MMM d, y' }}</span>
+        <div class="sad-hist-right">
+          <span class="sad-status-pill" [class]="statusCls(r.status)">{{ r.status }}</span>
+          <span class="sad-hist-date">{{ r.created_at | date:'MMM d, y' }}</span>
         </div>
       </div>
     </div>
@@ -167,42 +317,61 @@
 <!-- ══ MODAL ══ -->
 <div class="sad-overlay" *ngIf="showModal" (click)="close()">
   <div class="sad-modal" (click)="$event.stopPropagation()">
-    <div class="sad-modal-hdr" [class.sad-hdr-drop]="modalType==='drop'" [class.sad-hdr-add]="modalType==='add'">
-      <span>{{ modalType==='add' ? '➕' : '➖' }}</span>
-      <div>
-        <div class="sad-modal-title">Request to {{ modalType==='add' ? 'Add' : 'Drop' }} Subject</div>
-        <div class="sad-modal-sub">Your request will be sent to the Registrar for approval</div>
+
+    <div class="sad-modal-hdr" [class.sad-modal-hdr-drop]="modalType==='drop'" [class.sad-modal-hdr-add]="modalType==='add'">
+      <div class="sad-modal-icon" [class.sad-modal-icon-add]="modalType==='add'" [class.sad-modal-icon-drop]="modalType==='drop'">
+        <svg *ngIf="modalType==='add'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        <svg *ngIf="modalType==='drop'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>
       </div>
-      <button class="sad-modal-x" (click)="close()">✕</button>
+      <div class="sad-modal-hdr-text">
+        <div class="sad-modal-title">Request to {{ modalType === 'add' ? 'add' : 'drop' }} subject</div>
+        <div class="sad-modal-sub">Your request will be reviewed by the Registrar</div>
+      </div>
+      <button class="sad-modal-close" (click)="close()">×</button>
     </div>
+
     <div class="sad-modal-body">
+
+      <!-- Subject summary card -->
       <div class="sad-modal-subj">
-        <div class="sad-modal-code">{{ modalSubject?.code }}</div>
-        <div class="sad-modal-name">{{ modalSubject?.name }}</div>
-        <div class="sad-modal-meta">
+        <div class="sad-modal-subj-code">{{ modalSubject?.code }}</div>
+        <div class="sad-modal-subj-name">{{ modalSubject?.name }}</div>
+        <div class="sad-modal-subj-meta">
           <span>{{ modalSubject?.credits }} units</span>
-          <span>{{ modalSubject?.instructor }}</span>
-          <span>{{ modalSubject?.day }} {{ modalSubject?.time }}</span>
-          <span *ngIf="modalType==='add' && modalSubject?.available_seats !== undefined">
-           <!-- {{ modalSubject.available_seats }} seats left-->
-          </span>
+          <span *ngIf="modalSubject?.instructor"> · {{ modalSubject?.instructor }}</span>
+          <span *ngIf="modalSubject?.day"> · {{ modalSubject?.day }} {{ modalSubject?.time }}</span>
+          <span *ngIf="modalType==='add' && modalSubject?.available_seats !== undefined"> · {{ modalSubject?.available_seats }} seats left</span>
         </div>
       </div>
+
+      <!-- Drop warning -->
       <div class="sad-modal-warn" *ngIf="modalType==='drop'">
-        ⚠️ Dropping a subject may affect your units and academic standing.
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        Dropping a subject may affect your unit load and academic standing.
       </div>
+
+      <!-- Reason -->
       <div class="sad-modal-field">
-        <label>Reason for {{ modalType==='add' ? 'Adding' : 'Dropping' }} <span style="color:#ef4444">*</span></label>
+        <label>Reason for {{ modalType === 'add' ? 'adding' : 'dropping' }} <span class="sad-required">*</span></label>
         <textarea class="sad-modal-ta" [(ngModel)]="modalReason" rows="3"
-          placeholder="e.g. Schedule conflict, missed pre-requisite, wrong section..."></textarea>
+          placeholder="e.g. Schedule conflict, need lighter load, missed prerequisite…"></textarea>
       </div>
-      <div class="sad-modal-err" *ngIf="errorMsg">⚠️ {{ errorMsg }}</div>
+
+      <!-- Error -->
+      <div class="sad-modal-err" *ngIf="errorMsg">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        {{ errorMsg }}
+      </div>
     </div>
+
     <div class="sad-modal-ftr">
-      <button class="sad-mf-cancel" (click)="close()">Cancel</button>
-      <button class="sad-mf-submit" (click)="submit()" [disabled]="isSubmitting"
-        [class.sad-mf-add]="modalType==='add'" [class.sad-mf-drop]="modalType==='drop'">
-        {{ isSubmitting ? '⏳ Submitting...' : '📨 Submit Request' }}
+      <button class="sad-btn-cancel" (click)="close()">Cancel</button>
+      <button class="sad-btn-submit"
+        [class.sad-btn-submit-add]="modalType==='add'"
+        [class.sad-btn-submit-drop]="modalType==='drop'"
+        (click)="submit()"
+        [disabled]="isSubmitting">
+        {{ isSubmitting ? 'Submitting…' : 'Submit request' }}
       </button>
     </div>
   </div>

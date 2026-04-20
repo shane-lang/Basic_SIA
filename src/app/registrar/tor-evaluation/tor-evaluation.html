@@ -265,7 +265,11 @@
       </div>
       <div class="fee-recompute-card" *ngIf="recomputedFee && totalCreditedUnits > 0">
         <div class="frc-header">💰 Recomputed Tuition After Crediting ({{ approvedUnits }} units remaining)</div>
-        <div class="frc-body">
+        <div class="frc-body" *ngIf="recomputedFee.isFlatRate">
+          <div class="frc-row"><span>{{ recomputedFee.flatRateLabel || 'TVET Transferee Flat Rate' }}</span><span>₱{{ fa(recomputedFee.tuitionFee) }}</span></div>
+          <div class="frc-row frc-total"><span><strong>NEW TOTAL ASSESSMENT</strong></span><span><strong>₱{{ fa(recomputedFee.totalAssessment) }}</strong></span></div>
+        </div>
+        <div class="frc-body" *ngIf="!recomputedFee.isFlatRate">
           <div class="frc-row"><span>Tuition ({{ recomputedFee.units }} units × ₱{{ recomputedFee.units > 0 ? (recomputedFee.tuitionFee / recomputedFee.units | number:'1.2-2') : '650.00' }})</span><span>₱{{ fa(recomputedFee.tuitionFee) }}</span></div>
           <div class="frc-row"><span>Miscellaneous</span><span>₱{{ fa(recomputedFee.miscellaneousFee) }}</span></div>
           <div class="frc-row"><span>Registration</span><span>₱{{ fa(recomputedFee.registrationFee) }}</span></div>
@@ -476,17 +480,19 @@
             </a>
           </div>
 
-          <!-- PDF embed (works for PDF and image files) -->
+          <!-- PDF embed — using <embed> instead of <iframe> so the
+               browser PDF viewer renders without its toolbar/controls.
+               The #toolbar=0&navpanes=0 fragment further suppresses
+               the toolbar on Chrome/Edge's built-in PDF renderer. -->
           <div class="stor-embed-wrap">
-            <iframe
+            <embed
               *ngIf="selectedStudentTor.torFile?.toLowerCase()?.endsWith('.pdf')"
-              [src]="selectedStudentTor.torFileUrl"
-              class="stor-iframe"
-              frameborder="0">
-            </iframe>
+              [src]="selectedStudentTor.safeTorFileUrl"
+              type="application/pdf"
+              class="stor-iframe">
             <img
               *ngIf="!selectedStudentTor.torFile?.toLowerCase()?.endsWith('.pdf')"
-              [src]="selectedStudentTor.torFileUrl"
+              [src]="selectedStudentTor.safeTorFileUrl"
               class="stor-img-preview"
               alt="TOR Image">
           </div>
@@ -510,9 +516,9 @@
 
       <!-- ── CURRICULUM PANEL ── -->
       <ng-container *ngIf="studentTorActiveInner==='curriculum'">
-        <div class="courses-loading" *ngIf="!studentCurriculum">⏳ Loading curriculum...</div>
+        <div class="courses-loading" *ngIf="isCoursesLoading">⏳ Loading curriculum...</div>
 
-        <ng-container *ngIf="studentCurriculum">
+        <ng-container *ngIf="!isCoursesLoading && studentCurriculum">
           <!-- Summary -->
           <div class="view-summary-pills">
             <div class="vsp-item credited">

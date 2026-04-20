@@ -339,9 +339,6 @@ if (in_array($request, ['send_enrollment_report', 'send_enrollment_confirmation'
             <td><strong>{$enr['course_code']}</strong></td>
             <td>{$enr['course_name']}</td>
             <td style='text-align:center'>{$enr['units']}</td>
-            <td>{$enr['section_code']}</td>
-            <td>{$schedule}</td>
-            <td>{$enr['room_name']}</td>
         </tr>";
     }
 
@@ -352,13 +349,12 @@ if (in_array($request, ['send_enrollment_report', 'send_enrollment_confirmation'
     <table>
       <tr>
         <th>Subject Code</th><th>Subject Name</th><th>Units</th>
-        <th>Section</th><th>Schedule</th><th>Room</th>
       </tr>
       {$rowsHtml}
       <tr class='total-row'>
         <td colspan='2'><strong>Total Units</strong></td>
         <td style='text-align:center'><strong>{$totalUnits}</strong></td>
-        <td colspan='3'></td>
+
       </tr>
     </table>
 
@@ -549,7 +545,7 @@ if ($request === 'send_soa') {
 
     <h3 style='color:#1a3a6b'>✅ Payment History</h3>
     <table>
-      <tr><th>OR/AR #</th><th>Period</th><th>Date</th><th>Method</th><th style='text-align:right'>Amount</th></tr>
+      <tr><th>Service Invoice #</th><th>Period</th><th>Date</th><th>Method</th><th style='text-align:right'>Amount</th></tr>
       {$payRowsHtml}
       <tr class='total-row'>
         <td colspan='4'><strong>Total Paid</strong></td>
