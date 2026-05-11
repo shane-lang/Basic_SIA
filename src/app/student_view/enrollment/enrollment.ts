@@ -5,6 +5,7 @@ import { HttpClient } from '@angular/common/http';
 import { Router, ActivatedRoute } from '@angular/router';
 import { environment } from '../../environment';
 import { PasswordGateService } from '../password-gate/password-gate.service';
+import { AuthService } from '../../services/auth';
 
 interface StudentCourse {
   id: number; courseId: number; code: string; name: string; credits: number;
@@ -80,9 +81,189 @@ export class Enrollment implements OnInit, OnDestroy {
     if (this.soaVerified) this.startSoaLockTimer();
   }
 
-  constructor(private http: HttpClient, public router: Router, private cdr: ChangeDetectorRef, private activatedRoute: ActivatedRoute, public gate: PasswordGateService) {}
+  constructor(private http: HttpClient, public router: Router, private cdr: ChangeDetectorRef, private activatedRoute: ActivatedRoute, public gate: PasswordGateService, private auth: AuthService) {}
 
-  workflowStep: 'payment' | 'cash-pending' | 'approval' | 'dashboard' | 'tor-pending' | 're-enroll' | 'graduated' | 'pending-approval' = 'payment';
+  workflowStep: 'payment' | 'cash-pending' | 'approval' | 'dashboard' | 'tor-pending' | 're-enroll' | 'graduated' | 'pending-approval' | 'subject-selection' | 'subject-waiting' = 'payment';
+
+  // ── Subject Selection (post-login resubmission after registrar rejection) ─
+  subjectSelectionStatus: 'Pending' | 'Submitted' | 'Approved' | 'Rejected' = 'Pending';
+  wasRejectedSubjectSelection = false;
+  subjectSelectionRejectionNote: string | null = null;
+  subjectSelectionCourses: { id: number; code: string; name: string; credits: number; yearLevel: string; semester: string; selected: boolean }[] = [];
+  isSubjectSelectionLoading = false;
+  subjectSelectionError = '';
+  isSubjectSubmitting = false;
+  private subjectReselectionPollInterval: any = null;
+
+  get selectedSubjects() { return this.subjectSelectionCourses.filter(s => s.selected); }
+  get selectedSubjectUnits() { return this.selectedSubjects.reduce((t, s) => t + s.credits, 0); }
+
+  toggleSubject(c: { selected: boolean }): void { c.selected = !c.selected; this.cdr.detectChanges(); }
+  selectAllSubjects(): void { this.subjectSelectionCourses.forEach(c => c.selected = true); this.cdr.detectChanges(); }
+
+  loadSubjectSelectionCourses(): void {
+    if (!this.student?.program) return;
+    this.isSubjectSelectionLoading = true;
+    this.subjectSelectionError = '';
+    this.subjectSelectionCourses = [];
+    this.cdr.detectChanges();
+    const program = this.student.program;
+    this.http.get<any>(`${this.registrarApi}?action=get_program_courses&program=${encodeURIComponent(program)}`).subscribe({
+      next: (res) => {
+        this.isSubjectSelectionLoading = false;
+        if (res.success && res.courses) {
+          const yearLevel = (this.student.yearLevel || '1st Year').trim();
+          const semTerm   = (this.student.semester || '').split(',')[0].trim();
+          const all = res.courses.map((c: any) => ({
+            id:        +(c.courseId ?? c.id ?? 0),
+            code:      c.code,
+            name:      c.name,
+            credits:   +(c.credits ?? 0),
+            yearLevel: (c.yearLevel ?? c.year_level ?? '').trim(),
+            semester:  (c.semester  ?? '').trim(),
+            selected:  false,
+          }));
+          const filtered = all.filter((c: any) => {
+            const ylMatch  = !c.yearLevel || c.yearLevel === yearLevel;
+            const semMatch = !c.semester  || c.semester  === semTerm || c.semester === this.student.semester;
+            return ylMatch && semMatch;
+          });
+          this.subjectSelectionCourses = filtered.length > 0 ? filtered : all;
+          // Pre-check previously rejected selection (wasRejected) courses
+          if (this.wasRejectedSubjectSelection) {
+            this.loadAndPreFillRejectedSelection();
+          } else {
+            // Fresh: select all by default
+            this.subjectSelectionCourses.forEach(c => c.selected = true);
+          }
+        } else {
+          this.subjectSelectionError = 'Could not load subjects for your program.';
+        }
+        this.cdr.detectChanges();
+      },
+      error: () => {
+        this.isSubjectSelectionLoading = false;
+        this.subjectSelectionError = 'Could not connect to server.';
+        this.cdr.detectChanges();
+      }
+    });
+  }
+
+  private loadAndPreFillRejectedSelection(): void {
+    // Pre-fill the courses the student previously submitted (before rejection)
+    this.http.get<any>(`${this.apiUrl}?action=get_subject_selection&student_id=${this.studentDbId}`).subscribe({
+      next: (res) => {
+        const prevCourses: any[] = res.selection?.requested_courses ?? [];
+        const prevIds = new Set(prevCourses.map((c: any) => c.id));
+        const prevCodes = new Set(prevCourses.map((c: any) => c.code));
+        this.subjectSelectionCourses.forEach(c => {
+          c.selected = prevIds.has(c.id) || prevCodes.has(c.code);
+        });
+        // If no match at all, select all as fallback
+        if (!this.subjectSelectionCourses.some(c => c.selected)) {
+          this.subjectSelectionCourses.forEach(c => c.selected = true);
+        }
+        this.cdr.detectChanges();
+      },
+      error: () => {
+        // On error, default to select all
+        this.subjectSelectionCourses.forEach(c => c.selected = true);
+        this.cdr.detectChanges();
+      }
+    });
+  }
+
+  submitReselectedSubjects(): void {
+    const selected = this.selectedSubjects;
+    if (selected.length === 0) {
+      this.addNotification('error', 'Please select at least one subject before submitting.');
+      return;
+    }
+    // FIX BUG-SUBJSEL-CODES-01: Backend only accepts course_ids (integers).
+    // course_codes fallback was silently rejected by the backend. Now we surface
+    // a clear error if IDs are missing so the student knows to refresh.
+    const courseIds = selected.map(s => s.id).filter(id => id > 0);
+    if (courseIds.length === 0) {
+      this.addNotification('error', 'Could not resolve subject IDs. Please refresh the page and try again.');
+      return;
+    }
+    this.isSubjectSubmitting = true;
+    this.subjectSelectionError = '';
+    this.cdr.detectChanges();
+    const payload: any = { student_id: this.studentDbId, course_ids: courseIds, notes: '' };
+    this.http.post<any>(`${this.apiUrl}?action=submit_subject_selection`, payload).subscribe({
+      next: (res) => {
+        this.isSubjectSubmitting = false;
+        if (res.success) {
+          this.subjectSelectionStatus         = 'Submitted';
+          this.wasRejectedSubjectSelection     = false;
+          this.subjectSelectionRejectionNote   = null;
+          this.route('subject-waiting');
+          this.addNotification('success', '✅ Subject selection submitted! Waiting for Registrar approval.');
+          this.startSubjectReselectionPoll();
+        } else {
+          this.subjectSelectionError = res.message || 'Could not submit subject selection.';
+          this.addNotification('error', this.subjectSelectionError);
+        }
+        this.cdr.detectChanges();
+      },
+      error: () => {
+        this.isSubjectSubmitting = false;
+        this.subjectSelectionError = 'Could not connect to server.';
+        this.addNotification('error', 'Cannot connect to server. Please try again.');
+        this.cdr.detectChanges();
+      }
+    });
+  }
+
+  private startSubjectReselectionPoll(): void {
+    this._stopSubjectReselectionPoll();
+    const check = () => {
+      if (!this.studentDbId) return;
+      this.http.get<any>(`${this.apiUrl}?action=get_subject_selection&student_id=${this.studentDbId}`).subscribe({
+        next: (res) => {
+          const status = res.status ?? '';
+          if (status === 'Approved') {
+            this._stopSubjectReselectionPoll();
+            this.addNotification('success', '🎉 Your subject selection was approved! Redirecting to payment...');
+            setTimeout(() => this.loadContext(), 1500);
+          } else if (res.wasRejected) {
+            this._stopSubjectReselectionPoll();
+            this.wasRejectedSubjectSelection   = true;
+            this.subjectSelectionRejectionNote = res.rejectionNote ?? null;
+            this.route('subject-selection');
+            this.addNotification('error', '❌ Your subject selection was rejected again. Please review and resubmit.');
+            this.cdr.detectChanges();
+          // FIX SUBJSEL-POLL-REJECT-01: Detect full registration rejection.
+          // When the Registrar rejects the entire registration (not just the subject
+          // selection), enrollment_status='Rejected' is set but subject_selections
+          // is not updated — so wasRejected is always false on the poll. The student
+          // was stuck on "Waiting for Registrar Approval" forever with no feedback.
+          // Now we detect registrationRejected=true and immediately re-route to
+          // subject-selection so the student can reselect and resubmit.
+          } else if (res.registrationRejected) {
+            this._stopSubjectReselectionPoll();
+            this.wasRejectedSubjectSelection   = true;
+            this.subjectSelectionRejectionNote = res.registrationRejectedReason ?? null;
+            this.route('subject-selection');
+            this.loadSubjectSelectionCourses();
+            this.addNotification('error', '❌ Your registration was rejected by the Registrar. Please review your subject selection and resubmit.');
+            this.cdr.detectChanges();
+          }
+        },
+        error: () => {}
+      });
+    };
+    check();
+    this.subjectReselectionPollInterval = setInterval(check, 8000);
+  }
+
+  private _stopSubjectReselectionPoll(): void {
+    if (this.subjectReselectionPollInterval) {
+      clearInterval(this.subjectReselectionPollInterval);
+      this.subjectReselectionPollInterval = null;
+    }
+  }
   // Re-enrollment state
   needsReEnroll      = false;
   nextSemester       = '';
@@ -223,6 +404,7 @@ export class Enrollment implements OnInit, OnDestroy {
     this.clearSoaLockTimer();  // stop JS timer only; lock state preserved across tabs
     if (this.pollInterval)    clearInterval(this.pollInterval);
     if (this.torPollInterval) clearInterval(this.torPollInterval);
+    this._stopSubjectReselectionPoll();
   }
 
   enrollmentSummary: {
@@ -251,9 +433,13 @@ export class Enrollment implements OnInit, OnDestroy {
       this.startSoaLockTimer();
     }
 
-    const storedUser = sessionStorage.getItem('currentUser');
+    // FIX AUTH-REHYDRATE-01: AuthService.getCurrentUser() has a localStorage
+    // fallback that works immediately on page refresh, unlike raw sessionStorage
+    // which is empty until the first HTTP call triggers getToken() rehydration.
+    // Old code: sessionStorage.getItem('currentUser') -> null on refresh -> /login.
+    const storedUser = this.auth.getCurrentUser();
     if (!storedUser) { this.router.navigate(['/login']); return; }
-    this.userId = JSON.parse(storedUser).id;
+    this.userId = (storedUser as any).id;
 
     // ── Restore last known step IMMEDIATELY to prevent flash back to 'payment' ──
     // This is purely a visual restore — loadContext() will correct it from DB truth.
@@ -283,6 +469,15 @@ export class Enrollment implements OnInit, OnDestroy {
     if (savedStep === 'approval' || savedStep === 'cash-pending') {
       this.isApprovalPending = true;
       this.startApprovalPolling();
+    }
+
+    // FIX SUBJSEL-POLL-RELOAD-01: Restart subject reselection poll on page reload.
+    // Without this, if the registrar rejects while the tab is closed/refreshed,
+    // the student is stuck on subject-waiting forever with no rejection feedback.
+    // loadContext() will also call startSubjectReselectionPoll() if still Submitted,
+    // so no duplicate intervals (startSubjectReselectionPoll stops the previous one).
+    if (savedStep === 'subject-waiting') {
+      this.startSubjectReselectionPoll();
     }
 
     // FIX DUE-DATE-FE-01: Do NOT call loadDueDates() here — studentDbId is 0
@@ -459,6 +654,65 @@ export class Enrollment implements OnInit, OnDestroy {
           return;
         }
         this.needsReEnroll = false;
+
+        // ── SUBJECT SELECTION ROUTING (FIX REJECT-RESELECT-01) ───────────────
+        // Check BEFORE payment routing. If registrar rejected or student hasn't
+        // submitted yet, route to subject-selection step first.
+        // subjectSelectionStatus values from getStudentContext:
+        //   'Pending'   → hasn't submitted yet OR was rejected (wasRejectedSubjectSelection distinguishes)
+        //   'Submitted' → waiting for registrar review
+        //   'Approved'  → proceed normally to payment routing below
+        //
+        // Free SHS/TVET non-transferees are always 'Approved' (backend forces this).
+        // Transferees skip subject selection (TOR flow handles their subjects).
+        // FIX BUG-SUBJSEL-LOGIN-01: Default to 'Pending' (not 'Approved') when the field
+        // is missing from the response. Using 'Approved' as default caused students whose
+        // selection was rejected to bypass the subject-selection step entirely on next login,
+        // routing them straight to payment/dashboard without ever seeing the reselection form.
+        //
+        // FIX REG-REJECT-ROUTING-01: If enrollment_status='Rejected', the registrar rejected
+        // the whole registration (not just the subject selection). Force subjectSelectionStatus
+        // back to 'Pending' here so the subject-selection block below fires correctly — even if
+        // the DB value wasn't reset yet (race condition on first login after rejection).
+        const _selStatus    = (res.subjectSelectionStatus as string) ?? 'Pending';
+        const _wasRejected  = res.wasRejectedSubjectSelection === true;
+        const _rejNote      = res.subjectSelectionRejectionNote ?? null;
+        const _isTransfereeCtx = (res.student?.studentType ?? '').toLowerCase() === 'transferee';
+        const _catCtx = (this.studentCategory || (res.student?.studentCategory ?? '')).toUpperCase();
+        const _isFreeCtx  = (_catCtx === 'SHS' || _catCtx === 'TVET') && !_isTransfereeCtx;
+
+        // FIX REG-REJECT-ROUTING-01: Registrar rejected the registration.
+        // Treat as Pending so the block below routes to subject-selection.
+        // The backend also resets subject_selection_status='Pending' in rejectRegistration(),
+        // but we guard here too in case the student reloads before the DB write propagates.
+        const _enrollRejected = (res.student?.enrollmentStatus === 'Rejected');
+        const _effectiveSelStatus = (_enrollRejected && !_isFreeCtx && !_isTransfereeCtx)
+          ? 'Pending'
+          : _selStatus;
+
+        if (!_isFreeCtx && !_isTransfereeCtx && _effectiveSelStatus !== 'Approved') {
+          this.wasRejectedSubjectSelection   = _wasRejected || _enrollRejected;
+          this.subjectSelectionRejectionNote = _rejNote;
+          this.subjectSelectionStatus        = _effectiveSelStatus as any;
+          // FIX REG-REJECT-ROUTING-02: Use _effectiveSelStatus (not _selStatus) so that
+          // when enrollment_status='Rejected', the effective status is 'Pending' and we
+          // route to subject-selection — not subject-waiting.  Without this fix, a student
+          // whose full registration was rejected but whose subject_selection_status is still
+          // 'Submitted' in the DB would be stuck on the waiting screen with no way to
+          // reselect subjects, because _effectiveSelStatus was computed as 'Pending' but the
+          // Submitted branch checked the raw _selStatus instead.
+          if (_effectiveSelStatus === 'Submitted') {
+            // Already submitted — show waiting screen and poll
+            this.route('subject-waiting');
+            this.startSubjectReselectionPoll();
+          } else {
+            // Pending or rejected — show the subject selection form
+            this.route('subject-selection');
+            this.loadSubjectSelectionCourses();
+          }
+          this.cdr.detectChanges();
+          return;
+        }
 
         // FIX FE-PLAN-02: After re-enroll, needsPlanSelection=true means student
         // must pick full/installment before paying. Route to payment so plan selector shows.

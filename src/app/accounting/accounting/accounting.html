@@ -454,6 +454,15 @@
           <div class="am-gcash-row"><span>📞 GCash Ref</span><strong class="mono">{{ selectedPayment.gcashReference }}</strong></div>
           <div class="am-gcash-row"><span>💰 Amount</span><strong>₱{{ formatAmount(selectedPayment.gcashAmount) }}</strong></div>
           <div class="am-gcash-row"><span>📅 Date</span><strong>{{ formatDate(selectedPayment.gcashDate) }}</strong></div>
+          <div class="am-cash-fields" style="margin-top:12px;">
+            <div class="form-group">
+              <label>OR / AR Number <span style="color:#ef4444">*</span></label>
+              <input type="text" class="form-control" [(ngModel)]="cashOrArNumber" placeholder="e.g. OR-2026-0001"
+                [style.border-color]="gcashOrArError && (!cashOrArNumber || cashOrArNumber.trim() === '') ? '#ef4444' : ''"
+                (ngModelChange)="gcashOrArError = ''">
+              <div *ngIf="gcashOrArError" class="am-err">⚠️ {{ gcashOrArError }}</div>
+            </div>
+          </div>
         </div>
 
         <!-- Cash entry -->
@@ -477,6 +486,12 @@
             <span class="am-cash-due-hint"> — any amount accepted</span>
           </div>
           <div class="am-cash-fields">
+            <div class="form-group">
+              <label>OR / AR Number <span style="color:#ef4444">*</span></label>
+              <input type="text" class="form-control" [(ngModel)]="cashOrArNumber" placeholder="e.g. OR-2026-0001"
+                [style.border-color]="cashAmountError && (!cashOrArNumber || cashOrArNumber.trim() === '') ? '#ef4444' : ''"
+                (ngModelChange)="cashAmountError = ''">
+            </div>
             <div class="form-group">
               <label>Amount Received (₱) <span style="color:#ef4444">*</span></label>
               <input type="number" class="form-control" [(ngModel)]="cashAmount" min="1"
@@ -521,7 +536,7 @@
       <div class="am-footer">
         <button class="am-btn-cancel" (click)="closeModal()">Cancel</button>
         <button class="am-btn-confirm" (click)="confirmAction()"
-          [disabled]="isProcessing || selectedPayment?.hasPendingScholarship || (isCash(selectedPayment) && (!cashAmount || cashAmount <= 0)) || !!cashAmountError">
+          [disabled]="isProcessing || selectedPayment?.hasPendingScholarship || (isCash(selectedPayment) && (!cashAmount || cashAmount <= 0)) || (isCash(selectedPayment) && (!cashOrArNumber || cashOrArNumber.trim() === '')) || (isGCash(selectedPayment) && (!cashOrArNumber || cashOrArNumber.trim() === '')) || !!cashAmountError">
           <span *ngIf="!isProcessing">✓ {{ isCash(selectedPayment) ? 'Confirm Cash Received' : 'Approve Payment' }}</span>
           <span *ngIf="isProcessing">⏳ Processing...</span>
         </button>

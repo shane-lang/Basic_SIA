@@ -214,13 +214,18 @@
       <div class="step-label">Personal Info</div>
     </div>
     <div class="step-line" [class.done]="stepNumber>2"></div>
-    <div class="step-item" [class.active]="enrollStep==='documents'" [class.done]="stepNumber>3">
+    <div class="step-item" [class.active]="enrollStep==='subjects'" [class.done]="stepNumber>3">
       <div class="step-circle">{{ stepNumber>3 ? '✓' : '3' }}</div>
-      <div class="step-label">Documents</div>
+      <div class="step-label">Subjects</div>
     </div>
     <div class="step-line" [class.done]="stepNumber>3"></div>
+    <div class="step-item" [class.active]="enrollStep==='documents'" [class.done]="stepNumber>4">
+      <div class="step-circle">{{ stepNumber>4 ? '✓' : '4' }}</div>
+      <div class="step-label">Documents</div>
+    </div>
+    <div class="step-line" [class.done]="stepNumber>4"></div>
     <div class="step-item" [class.active]="enrollStep==='account'">
-      <div class="step-circle">4</div>
+      <div class="step-circle">5</div>
       <div class="step-label">Account</div>
     </div>
   </div>
@@ -377,7 +382,7 @@
         <div class="form-grid">
           <div class="form-group">
             <label>Last Name <span class="req">*</span></label>
-            <input type="text" class="form-control" [(ngModel)]="regForm.lastName" placeholder="Dela Cruz" [class.is-invalid]="fieldErrors['lastName']" (blur)="validateStep2Field('lastName')" (input)="fieldErrors['lastName'] && validateStep2Field('lastName')">
+            <input type="text" class="form-control" [(ngModel)]="regForm.lastName" placeholder="Dela Cruz" [class.is-invalid]="fieldErrors['lastName']" (blur)="validateStep2Field('lastName'); checkNameDuplicate()" (input)="fieldErrors['lastName'] && validateStep2Field('lastName')">
             <div class="field-error" *ngIf="fieldErrors['lastName']">{{ fieldErrors['lastName'] }}</div>
           </div>
           <div class="form-group">
@@ -455,7 +460,7 @@
           </div>
           <div class="form-group">
             <label>Date of Birth <span class="req">*</span></label>
-            <input type="date" class="form-control" [(ngModel)]="regForm.dateOfBirth" (change)="computeAgeFromDOB()" [class.is-invalid]="fieldErrors['dateOfBirth']" (blur)="validateStep2Field('dateOfBirth')">
+            <input type="date" class="form-control" [(ngModel)]="regForm.dateOfBirth" (change)="computeAgeFromDOB(); checkNameDuplicate()" [class.is-invalid]="fieldErrors['dateOfBirth']" (blur)="validateStep2Field('dateOfBirth'); checkNameDuplicate()">
             <div class="field-error" *ngIf="fieldErrors['dateOfBirth']">{{ fieldErrors['dateOfBirth'] }}</div>
           </div>
           <div class="form-group">
@@ -790,9 +795,184 @@
       </div>
     </div>
 
-    <!-- ══ STEP 3: DOCUMENTS ══ -->
+    <!-- ══ STEP 3: SUBJECT SELECTION ══ -->
+    <div class="wizard-card" *ngIf="enrollStep==='subjects'">
+
+      <!-- ══ SUB-VIEW A: SELECTION ══ -->
+      <ng-container *ngIf="subjectSubmissionStatus === 'idle'">
+        <h2 class="wiz-title">Step 3 of 5 — Select Your Subjects</h2>
+        <p class="wiz-subtitle">
+          Choose the subjects for <strong>{{ regForm.yearLevel || '1st Year' }}</strong>,
+          <strong>{{ fullSemester }}</strong>.
+          After submitting, the Registrar will review your list.
+          <strong>You cannot proceed to Step 4 until they approve.</strong>
+        </p>
+
+        <div class="subject-loading" *ngIf="isSubjectSelectionLoading">
+          <div class="spinner"></div>
+          <span>Loading subjects for {{ selectedProgramName }}…</span>
+        </div>
+        <div class="enroll-error" *ngIf="subjectSelectionError && !isSubjectSelectionLoading">
+          ⚠️ {{ subjectSelectionError }}
+          <button class="btn-retry" (click)="loadSubjectSelection()">Retry</button>
+        </div>
+
+        <div *ngIf="!isSubjectSelectionLoading && subjectSelectionCourses.length > 0">
+          <div class="subject-summary-bar">
+            <span class="subj-count-badge">{{ selectedSubjects.length }} of {{ subjectSelectionCourses.length }} selected</span>
+            <span class="subj-units-badge">{{ selectedSubjectUnits }} units</span>
+            <button class="btn-select-all" (click)="selectAllSubjects()"
+                    *ngIf="selectedSubjects.length < subjectSelectionCourses.length">✓ Select All</button>
+          </div>
+
+          <ng-container *ngFor="let yr of getSubjectYearLevels()">
+            <ng-container *ngFor="let sem of getSubjectSemesters(yr)">
+              <div class="subj-group-header">{{ yr }} · {{ sem }}</div>
+              <div class="subject-grid">
+                <div *ngFor="let course of getSubjectSelectionFor(yr, sem)"
+                     class="subject-card"
+                     [class.subject-card-selected]="course.selected"
+                     [class.subject-card-unselected]="!course.selected"
+                     (click)="toggleSubject(course)">
+                  <div class="subject-check">
+                    <span class="check-icon" *ngIf="course.selected">✓</span>
+                    <span class="uncheck-icon" *ngIf="!course.selected">○</span>
+                  </div>
+                  <div class="subject-info">
+                    <div class="subject-code">{{ course.code }}</div>
+                    <div class="subject-name">{{ course.name }}</div>
+                  </div>
+                  <div class="subject-units"><span class="units-pill">{{ course.credits }} units</span></div>
+                </div>
+              </div>
+            </ng-container>
+          </ng-container>
+        </div>
+
+        <div class="subj-empty-notice"
+             *ngIf="!isSubjectSelectionLoading && subjectSelectionCourses.length === 0 && !subjectSelectionError">
+          No subjects found. You may proceed — the Registrar will assign your subjects.
+        </div>
+
+        <div class="registrar-review-notice">
+          <span class="notice-icon">📋</span>
+          <div>
+            <strong>Registrar Approval Required Before Step 4</strong>
+            <p>Click "Submit for Approval" below. Create your account (Step 5), then wait here.
+               The Registrar will review your subjects and unlock Step 4 once approved.</p>
+          </div>
+        </div>
+
+        <div class="wiz-actions">
+          <button class="btn-back" (click)="enrollStep='info'; enrollError=''">← Back</button>
+          <button class="btn-next" (click)="proceedFromSubjects()"
+                  [disabled]="selectedSubjects.length === 0">
+            Submit {{ selectedSubjects.length }} Subject{{ selectedSubjects.length !== 1 ? 's' : '' }} for Approval →
+          </button>
+        </div>
+      </ng-container>
+
+      <!-- ══ SUB-VIEW B: PENDING ACCOUNT CREATION ══ -->
+      <!-- Student has confirmed their subject selection.
+           They must complete Steps 4 & 5 so we get a student_id,
+           then the subjects are submitted to the Registrar automatically.
+           The student will be brought BACK here (waiting screen) after
+           account creation — they cannot access fee/payment until approved. -->
+      <ng-container *ngIf="subjectSubmissionStatus === 'pending-account'">
+        <div class="subj-approval-box waiting-box">
+          <div class="sab-icon">📝</div>
+          <h2 class="sab-title">Subject Selection Confirmed</h2>
+          <p class="sab-desc">
+            You have selected <strong>{{ selectedSubjects.length }} subjects ({{ selectedSubjectUnits }} units)</strong>.
+            To submit these for Registrar approval, you need to complete
+            <strong>Steps 4 &amp; 5</strong> first to create your account.
+            <br><br>
+            <strong style="color:#b45309">⚠ You will NOT be able to see your fee assessment or proceed to payment until the Registrar approves your subjects.</strong>
+          </p>
+          <div class="subj-submitted-list">
+            <div class="subj-submitted-header">Your selected subjects (pending submission)</div>
+            <div class="subj-submitted-row" *ngFor="let s of selectedSubjects">
+              <span class="mono">{{ s.code }}</span>
+              <span class="subj-submitted-name">{{ s.name }}</span>
+              <span class="units-pill">{{ s.credits }} units</span>
+            </div>
+          </div>
+          <div class="wiz-actions" style="justify-content:center; margin-top:1.25rem">
+            <button class="btn-back" (click)="subjectSubmissionStatus='idle'">← Change Subjects</button>
+            <button class="btn-next" (click)="goToDocumentsFromSubjects()">
+              Continue to Steps 4 &amp; 5 →
+            </button>
+          </div>
+        </div>
+      </ng-container>
+
+      <!-- ══ SUB-VIEW C: WAITING FOR REGISTRAR (after account created) ══ -->
+      <ng-container *ngIf="subjectSubmissionStatus === 'waiting'">
+        <div class="subj-approval-box waiting-box">
+          <div class="sab-icon">📋</div>
+          <h2 class="sab-title">Waiting for Registrar Approval</h2>
+          <p class="sab-desc">
+            Your account has been created and your subject selection is now with the Registrar.
+            <strong>Step 4 will unlock automatically once approved.</strong>
+            This page checks every 8 seconds — no need to refresh.
+          </p>
+          <div class="subj-submitted-list">
+            <div class="subj-submitted-header">
+              Submitted subjects ({{ selectedSubjects.length }} · {{ selectedSubjectUnits }} units)
+            </div>
+            <div class="subj-submitted-row" *ngFor="let s of selectedSubjects">
+              <span class="mono">{{ s.code }}</span>
+              <span class="subj-submitted-name">{{ s.name }}</span>
+              <span class="units-pill">{{ s.credits }} units</span>
+            </div>
+          </div>
+          <div class="subj-waiting-pulse">
+            <div class="pulse-dot"></div>
+            <span>Waiting for Registrar…</span>
+          </div>
+        </div>
+      </ng-container>
+
+      <!-- ══ SUB-VIEW D: APPROVED ══ -->
+      <ng-container *ngIf="subjectSubmissionStatus === 'approved'">
+        <div class="subj-approval-box approved-box">
+          <div class="sab-icon">✅</div>
+          <h2 class="sab-title">Subjects Approved!</h2>
+          <p class="sab-desc">
+            The Registrar has approved your subject selection.
+            <span *ngIf="subjectRegistrarNotes"><br><em>Note: {{ subjectRegistrarNotes }}</em></span>
+            <br><br>
+            <strong>Redirecting you to the Student Portal…</strong>
+          </p>
+          <div class="subj-waiting-pulse" style="justify-content:center; margin-top:.5rem">
+            <div class="pulse-dot" style="background:#16a34a"></div>
+            <span style="color:#166534">Opening Student Portal…</span>
+          </div>
+        </div>
+      </ng-container>
+
+      <!-- ══ SUB-VIEW E: REJECTED ══ -->
+      <ng-container *ngIf="subjectSubmissionStatus === 'rejected'">
+        <div class="subj-approval-box rejected-box">
+          <div class="sab-icon">❌</div>
+          <h2 class="sab-title">Subject Selection Rejected</h2>
+          <p class="sab-desc">
+            The Registrar has returned your selection for revision.
+          </p>
+          <div class="subj-registrar-notes rejection" *ngIf="subjectRegistrarNotes">
+            <strong>Reason:</strong> {{ subjectRegistrarNotes }}
+          </div>
+          <div class="wiz-actions" style="justify-content:center; margin-top:1.25rem">
+            <button class="btn-next" (click)="resetSubjectSelection()">← Revise My Subjects</button>
+          </div>
+        </div>
+      </ng-container>
+
+    </div>
+
+    <!-- ══ STEP 4: DOCUMENTS ══ -->
     <div class="wizard-card" *ngIf="enrollStep==='documents'">
-      <h2 class="wiz-title">Step 3 of 4 — Documents & Payment</h2>
+      <h2 class="wiz-title">Step 4 of 5 — Documents & Payment</h2>
       <p class="wiz-subtitle">Upload your requirements for {{ selectedProgramName }}</p>
 
       <!-- ── SHS Documents & Fee ── -->
@@ -1214,135 +1394,76 @@
 
       </ng-container>
 
-      <!-- ══ NON-TRANSFEREE: Fee Assessment + Payment Plan + Method (College only) ══ -->
+      <!-- ══ NON-TRANSFEREE: Fee Assessment TEMPLATE ONLY (College) ══ -->
       <ng-container *ngIf="!isTransfereeEnrolling && isCollege && !isFullScholarship">
 
-      <!-- ══ FEE ASSESSMENT BREAKDOWN ══ -->
+      <!-- ══ FEE ASSESSMENT — TEMPLATE ONLY (no actual amounts) ══ -->
       <div class="form-section fee-assessment-section">
-        <h3 class="section-heading">📋 Fee Assessment</h3>
+        <h3 class="section-heading">📋 Fee Assessment (Reference)</h3>
 
-        <div class="fee-loading" *ngIf="isFeePreviewLoading">
-          <div class="fee-spinner">⏳</div>
-          <span>Computing your tuition fees...</span>
+        <!-- APPROVAL PENDING -->
+        <div class="fee-pending-approval" *ngIf="subjectSubmissionStatus === 'pending-account'">
+          <div class="fpa-icon">⏳</div>
+          <p><strong>Fee assessment is not yet available.</strong><br>
+            Your subject selection is waiting for Registrar approval.
+            The breakdown will be confirmed once the Registrar approves your subjects.</p>
         </div>
 
-        <div class="fee-error" *ngIf="feePreviewError && !isFeePreviewLoading">
-          ⚠️ {{ feePreviewError }}
-          <button class="btn-retry" (click)="loadFeePreview()" style="margin-left:10px;padding:3px 12px;font-size:12px;cursor:pointer;border:1px solid #f59e0b;background:#fffbeb;border-radius:5px;color:#92400e;">🔄 Retry</button>
-        </div>
-
-        <div class="fee-breakdown-card" *ngIf="feePreview && !isFeePreviewLoading">
-          <div class="fee-breakdown-header">Assessment for the Current Semester — {{ selectedProgramName }}
-            <span *ngIf="feePreview.units === 18" style="font-size:10px;font-weight:400;color:#92400e;margin-left:8px;">⚠️ Estimated (18 units) — Accounting will confirm exact amount</span>
+        <!-- Formula-only fee template (always shown for non-transferee College) -->
+        <div class="fee-breakdown-card fee-template-card" *ngIf="subjectSubmissionStatus !== 'pending-account'">
+          <div class="fee-breakdown-header">
+            Fee Structure — {{ selectedProgramName }}
+            <span class="fee-template-badge">📌 Formula Template</span>
           </div>
           <div class="fee-breakdown-table">
-            <div class="fb-row"><span>No. of Units</span><span>{{ feePreview.units }}</span></div>
-            <div class="fb-row"><span>Tuition Fee ({{ feePreview.units }} units × ₱{{ feePreview.units > 0 ? (feePreview.tuitionFee / feePreview.units | number:'1.2-2') : '650.00' }})</span><span>₱{{ feePreview.tuitionFee | number:'1.2-2' }}</span></div>
-            <div class="fb-row"><span>Miscellaneous Fee</span><span>₱{{ feePreview.miscellaneousFee | number:'1.2-2' }}</span></div>
-            <div class="fb-row"><span>Registration Fee</span><span>₱{{ feePreview.registrationFee | number:'1.2-2' }}</span></div>
-            <div class="fb-row"><span>Laboratory Fee ({{ feePreview.laboratoryFee > 0 && feePreview.units > 0 ? 'lab rooms × ₱' + (feePreview.laboratoryFee | number:'1.0-0') : 'lab rooms' }})</span><span>₱{{ feePreview.laboratoryFee | number:'1.2-2' }}</span></div>
-            <div class="fb-row"><span>Energy Fee ({{ feePreview.units }} units × ₱{{ feePreview.units > 0 ? (feePreview.energyFee / feePreview.units | number:'1.2-2') : '63.00' }})</span><span>₱{{ feePreview.energyFee | number:'1.2-2' }}</span></div>
-            <!-- Extra / custom fees added by Accounting -->
-            <div class="fb-row" *ngFor="let ef of (feePreview.extraFees || [])">
-              <span>{{ ef.fee_label }}<ng-container *ngIf="ef.is_per_unit"> ({{ feePreview.units }} units × ₱{{ ef.rate | number:'1.2-2' }})</ng-container></span>
-              <span>₱{{ ef.amount | number:'1.2-2' }}</span>
+            <div class="fb-row fb-template">
+              <span>Tuition Fee</span>
+              <span class="formula-cell">No. of Units × ₱650.00</span>
             </div>
-            <div class="fb-row fb-subtotal"><span>Subtotal</span><span>₱{{ feePreview.subtotal | number:'1.2-2' }}</span></div>
-            <div class="fb-row fb-discount" *ngIf="feePreview.discount > 0">
-              <span>🎓 Scholarship Discount</span><span class="text-green">– ₱{{ feePreview.discount | number:'1.2-2' }}</span>
+            <div class="fb-row fb-template">
+              <span>Miscellaneous Fee</span>
+              <span class="formula-cell">₱6,688.00 (fixed)</span>
             </div>
-            <div class="fb-row fb-installment" *ngIf="paymentPlan === 'installment'">
-              <span>Installment Fee</span><span>₱750.00</span>
+            <div class="fb-row fb-template">
+              <span>Registration Fee</span>
+              <span class="formula-cell">₱700.00 (fixed)</span>
             </div>
-            <div class="fb-row fb-total">
+            <div class="fb-row fb-template">
+              <span>Laboratory Fee</span>
+              <span class="formula-cell">No. of Lab Rooms × ₱1,900.00</span>
+            </div>
+            <div class="fb-row fb-template">
+              <span>Energy Fee</span>
+              <span class="formula-cell">No. of Units × ₱63.00</span>
+            </div>
+            <div class="fb-row fb-template fb-subtotal">
+              <span>Subtotal</span>
+              <span class="formula-cell">Sum of above</span>
+            </div>
+            <div class="fb-row fb-template fb-discount" *ngIf="isScholar && scholarshipAmount > 0">
+              <span>🎓 Scholarship Discount</span>
+              <span class="formula-cell">− ₱{{ scholarshipAmount | number:'1.2-2' }}</span>
+            </div>
+            <div class="fb-row fb-template fb-installment">
+              <span>Installment Surcharge <em style="font-size:11px;color:#6b7280">(if installment plan)</em></span>
+              <span class="formula-cell">+₱750.00</span>
+            </div>
+            <div class="fb-row fb-total fb-template-total">
               <span><strong>TOTAL ASSESSMENT</strong></span>
-              <span><strong>₱{{ feePreview.totalAssessment | number:'1.2-2' }}</strong></span>
+              <span class="formula-cell"><em>Computed in Step 5</em></span>
             </div>
           </div>
-        </div>
-      </div>
-
-      <!-- ══ PAYMENT PLAN ══ -->
-      <div class="form-section">
-        <h3 class="section-heading">📅 Payment Plan</h3>
-        <div class="plan-toggle">
-          <button class="plan-btn" [class.selected]="paymentPlan==='full'" (click)="paymentPlan='full'; onPaymentPlanChange()">
-            <span class="plan-icon">💰</span>
-            <span class="plan-label">Full Payment</span>
-            <span class="plan-sub">Pay everything at once</span>
-          </button>
-          <button class="plan-btn" [class.selected]="paymentPlan==='installment'" (click)="paymentPlan='installment'; onPaymentPlanChange()">
-            <span class="plan-icon">📆</span>
-            <span class="plan-label">Installment</span>
-            <span class="plan-sub">4 payments — DP + 3 terms<br><small>+₱750 installment fee</small></span>
-          </button>
-        </div>
-
-        <!-- Installment Schedule (only shown when fee is loaded with installment=true) -->
-        <div class="installment-schedule" *ngIf="paymentPlan==='installment' && feePreview && !isFeePreviewLoading">
-          <div class="inst-sched-title">📆 Installment Schedule</div>
-          <div class="inst-sched-table">
-            <div class="is-header">
-              <span>Period</span><span>Amount</span><span>Coverage</span>
-            </div>
-            <div class="is-row dp">
-              <span>⬇️ <strong>Downpayment (DP)</strong></span>
-              <span class="is-amount">₱{{ dpAmount | number:'1.2-2' }}</span>
-              <span class="is-badge">Upon Enrollment</span>
-            </div>
-            <div class="is-row prelim">
-              <span>📝 <strong>Prelim</strong></span>
-              <span class="is-amount">₱{{ prelimAmount | number:'1.2-2' }}</span>
-              <span class="is-badge">Before Prelim Exam</span>
-            </div>
-            <div class="is-row midterm">
-              <span>📝 <strong>Midterm</strong></span>
-              <span class="is-amount">₱{{ midtermAmount | number:'1.2-2' }}</span>
-              <span class="is-badge">Before Midterm Exam</span>
-            </div>
-            <div class="is-row finals">
-              <span>📝 <strong>Finals</strong></span>
-              <span class="is-amount">₱{{ finalsAmount | number:'1.2-2' }}</span>
-              <span class="is-badge">Before Finals Exam</span>
-            </div>
-            <div class="is-total">
-              <span>Total</span>
-              <span>₱{{ feePreview.totalAssessment | number:'1.2-2' }}</span>
-              <span></span>
-            </div>
+          <div class="fee-template-note">
+            📌 Actual amounts will be confirmed by Accounting based on your approved subjects and enrolled units.<br>
+            <strong>💳 Mode and Plan of Payment will be available in Step 5.</strong>
           </div>
-          <div class="inst-note">ℹ️ Each installment will be recorded by Accounting with an OR/AR number as proof of payment.</div>
-        </div>
-
-        <!-- Full payment summary -->
-        <div class="full-pay-summary" *ngIf="paymentPlan==='full' && feePreview && !isFeePreviewLoading">
-          <div class="fps-row">
-            <span>💰 Full Payment Amount</span>
-            <strong>₱{{ feePreview.totalAssessment | number:'1.2-2' }}</strong>
-          </div>
-          <div class="fps-note">Official Receipt (OR) will be issued by Accounting upon full payment.</div>
-        </div>
-      </div>
-
-      <!-- ══ PAYMENT METHOD ══ -->
-      <div class="form-section">
-        <h3 class="section-heading">💳 Payment Method</h3>
-        <div class="payment-method-toggle">
-          <button class="method-btn" [class.selected]="paymentMethod==='GCash'" (click)="paymentMethod='GCash'; saveWizardState()">📱 GCash</button>
-          <button class="method-btn" [class.selected]="paymentMethod==='Cash'"  (click)="paymentMethod='Cash'; saveWizardState()">💵 Cash (walk-in)</button>
-        </div>
-        <div class="method-note" *ngIf="paymentMethod==='GCash'">
-          📱 After creating your account you'll be directed to submit your GCash reference number.
-        </div>
-        <div class="method-note cash" *ngIf="paymentMethod==='Cash'">
-          💵 After creating your account, proceed to the <strong>Accounting Office</strong> to pay in person.
         </div>
       </div>
 
       </ng-container><!-- end non-transferee -->
 
       <div class="wiz-actions">
-        <button class="btn-back" (click)="enrollStep='info'; enrollError=''">← Back</button>
+        <button class="btn-back" (click)="isTransfereeEnrolling ? (enrollStep='info') : (enrollStep='subjects'); enrollError=''">← Back</button>
         <button class="btn-next" *ngIf="isCollege" (click)="proceedFromDocuments()">
           {{ isTransfereeEnrolling ? 'Send TOR to Registrar →' : 'Next: Create Account →' }}
         </button>
@@ -1671,14 +1792,18 @@
 
     <!-- ══ STEP 4: ACCOUNT ══ -->
     <div class="wizard-card" *ngIf="enrollStep==='account'">
-      <h2 class="wiz-title">Step 4 of 4 — Create Your Account</h2>
+      <h2 class="wiz-title">Step 5 of 5 — Create Your Account</h2>
       <p class="wiz-subtitle">These will be your login credentials for the Student Portal.</p>
 
       <div class="form-section">
         <div class="form-grid">
           <div class="form-group full-col">
             <label>Email / Username <span class="req">*</span></label>
-            <input type="email" class="form-control" placeholder="your@email.com" [(ngModel)]="accountForm.email" [disabled]="isSubmitting" [class.is-invalid]="accountErrors['email']" (blur)="validateStep4Field('email')" (input)="accountErrors['email'] && validateStep4Field('email')">
+            <input type="email" class="form-control" placeholder="your@email.com"
+                   [(ngModel)]="accountForm.email" [disabled]="isSubmitting"
+                   [class.is-invalid]="accountErrors['email']"
+                   (blur)="validateStep4Field('email'); checkEmailAvailability()"
+                   (input)="accountErrors['email'] && validateStep4Field('email')">
             <div class="field-error" *ngIf="accountErrors['email']">{{ accountErrors['email'] }}</div>
           </div>
           <div class="form-group">
@@ -1694,6 +1819,44 @@
         </div>
       </div>
 
+      <!-- ══ PAYMENT PLAN + MODE — Required selection for students who need to pay ══ -->
+      <div class="form-section step5-payment-section" *ngIf="!accountAlreadyCreated && (isCollege || (isSHS && isTransfereeEnrolling) || (isTVET && isTransfereeEnrolling))">
+
+        <!-- Payment Plan -->
+        <h3 class="section-heading">📅 Plan of Payment <span class="req">*</span></h3>
+        <div class="plan-toggle">
+          <button class="plan-btn" [class.selected]="paymentPlan==='full'" (click)="paymentPlan='full'; onPaymentPlanChange(); saveWizardState()">
+            <span class="plan-icon">💰</span>
+            <span class="plan-label">Full Payment</span>
+            <span class="plan-sub">Pay everything at once</span>
+          </button>
+          <button class="plan-btn" [class.selected]="paymentPlan==='installment'" (click)="paymentPlan='installment'; onPaymentPlanChange(); saveWizardState()">
+            <span class="plan-icon">📆</span>
+            <span class="plan-label">Installment</span>
+            <span class="plan-sub">4 payments — DP + 3 terms<br><small>+₱750 installment fee</small></span>
+          </button>
+        </div>
+        <div class="plan-required-hint" *ngIf="!paymentPlan">
+          ⚠️ Please select a payment plan to enable account creation.
+        </div>
+
+        <!-- Payment Mode -->
+        <h3 class="section-heading" style="margin-top:1.25rem;">💳 Mode of Payment <span class="req">*</span></h3>
+        <div class="payment-method-toggle">
+          <button class="method-btn" [class.selected]="paymentMethod==='GCash'" (click)="paymentMethod='GCash'; saveWizardState()">📱 GCash</button>
+          <button class="method-btn" [class.selected]="paymentMethod==='Cash'"  (click)="paymentMethod='Cash'; saveWizardState()">💵 Cash (walk-in)</button>
+        </div>
+        <div class="plan-required-hint" *ngIf="!paymentMethod">
+          ⚠️ Please select a payment mode to enable account creation.
+        </div>
+        <div class="method-note" *ngIf="paymentMethod==='GCash'">
+          📱 After creating your account you'll be directed to submit your GCash reference number.
+        </div>
+        <div class="method-note cash" *ngIf="paymentMethod==='Cash'">
+          💵 After creating your account, proceed to the <strong>Accounting Office</strong> to pay in person.
+        </div>
+      </div>
+
       <!-- Summary -->
       <div class="enrollment-summary">
         <h4>📋 Enrollment Summary</h4>
@@ -1704,10 +1867,14 @@
         <ng-container *ngIf="!isTransfereeEnrolling">
           <!-- College: show full fee breakdown -->
           <ng-container *ngIf="isCollege">
-            <div class="summary-row"><label>Payment:</label><p>{{ paymentMethod==='GCash' ? '📱 GCash' : '💵 Cash (walk-in)' }}</p></div>
-            <div class="summary-row"><label>Plan:</label><p>{{ paymentPlan === 'full' ? '💰 Full Payment' : '📆 Installment (DP + Prelim + Midterm + Finals)' }}</p></div>
-            <div class="summary-row" *ngIf="feePreview"><label>Total Assessment:</label><p><strong>₱{{ feePreview.totalAssessment | number:'1.2-2' }}</strong></p></div>
-            <div class="summary-row" *ngIf="paymentPlan==='installment' && feePreview"><label>1st Payment (DP):</label><p>₱{{ dpAmount | number:'1.2-2' }}</p></div>
+            <div class="summary-row" *ngIf="!accountAlreadyCreated"><label>Payment:</label><p>{{ paymentMethod==='GCash' ? '📱 GCash' : '💵 Cash (walk-in)' }}</p></div>
+            <div class="summary-row" *ngIf="!accountAlreadyCreated"><label>Plan:</label><p>{{ paymentPlan === 'full' ? '💰 Full Payment' : '📆 Installment (DP + Prelim + Midterm + Finals)' }}</p></div>
+            <div class="summary-row" *ngIf="feePreview && !accountAlreadyCreated"><label>Total Assessment:</label><p><span class="pending-fee-label">Total will be available once the Registrar approves your subjects.</span></p></div>
+            <div class="summary-row" *ngIf="subjectSubmissionStatus === 'pending-account' || accountAlreadyCreated">
+              <label>Total Assessment:</label>
+              <p><span class="pending-fee-label">⏳ Pending Registrar Approval</span></p>
+            </div>
+            <div class="summary-row" *ngIf="paymentPlan==='installment' && feePreview && !accountAlreadyCreated"><label>1st Payment (DP):</label><p>Total will be available once the Registrar approves your subjects.</p></div>
           </ng-container>
           <!-- SHS New/Old: free -->
           <ng-container *ngIf="isSHS">
@@ -1802,19 +1969,30 @@
 
       <div class="wiz-actions">
         <button class="btn-back" (click)="enrollStep='documents'; enrollError=''" [disabled]="isSubmitting">← Back</button>
-        <button class="btn-submit" *ngIf="isCollege" (click)="submitEnrollment()" [disabled]="isSubmitting || !privacyConsentGiven">
+        <!-- When account was already created (subject-first flow), skip re-creation -->
+        <div *ngIf="accountAlreadyCreated" class="account-created-notice">
+          ✓ Your account has been created. Please wait for Registrar approval on your subjects.<br>
+          If already approved, click below to go to your portal.
+          <br><br>
+          <button class="btn-submit" (click)="proceedAfterSubjectApproval()">
+            Go to Student Portal →
+          </button>
+        </div>
+        <button class="btn-submit" *ngIf="isCollege && !accountAlreadyCreated" (click)="submitEnrollment()" [disabled]="isSubmitting || !privacyConsentGiven || (!paymentPlan || !paymentMethod)">
           {{ isSubmitting ? '⏳ Creating Account...' : '✓ Create Account & Continue →' }}
         </button>
-        <button class="btn-submit" *ngIf="isSHS" (click)="submitEnrollmentSHS()" [disabled]="isSubmitting || !privacyConsentGiven">
+        <button class="btn-submit" *ngIf="isSHS && !accountAlreadyCreated" (click)="submitEnrollmentSHS()" [disabled]="isSubmitting || !privacyConsentGiven || (isTransfereeEnrolling && (!paymentPlan || !paymentMethod))">
           {{ isSubmitting ? '⏳ Creating Account...' : '✓ Create Account & Enroll →' }}
         </button>
-        <button class="btn-submit" *ngIf="isTVET" (click)="submitEnrollmentTVET()" [disabled]="isSubmitting || !privacyConsentGiven">
+        <button class="btn-submit" *ngIf="isTVET && !accountAlreadyCreated" (click)="submitEnrollmentTVET()" [disabled]="isSubmitting || !privacyConsentGiven || (isTransfereeEnrolling && (!paymentPlan || !paymentMethod))">
           {{ isSubmitting ? '⏳ Creating Account...' : '✓ Create Account & Enroll →' }}
         </button>
       </div>
     </div>
 
     <!-- ══ STEP: Registration Confirmation ════════════════════════════════ -->
+
+
     <div class="wizard-card confirmed-card" *ngIf="enrollStep==='confirmed'">
       <div class="confirmed-checkmark">✓</div>
       <h2 class="confirmed-title">Registration Successful!</h2>

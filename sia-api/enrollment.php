@@ -43,9 +43,13 @@ $publicActions = [
 // (Angular interceptor may not send token if sessionStorage cleared across tabs)
 $addDropAuthRequired = ['process_add_drop','get_add_drop_requests',
     'registrar_add_subject','registrar_drop_subject','set_add_drop_window',
-    'accounting_approve_add_drop','get_pending_add_drop_for_accounting'];
+    'accounting_approve_add_drop','get_pending_add_drop_for_accounting',
+    // Subject selection (registrar-side) requires auth
+    'get_pending_subject_selections','approve_subject_selection'];
 $addDropPublicOk = ['submit_add_drop','get_add_drop_window',
     'get_student_enrollments','search_students',
+    // Subject selection (student-side) uses session-based auth but allow token-optional
+    'submit_subject_selection','get_subject_selection',
     // FIX PLAN-NULL-01: update_payment_plan is called by the login wizard BEFORE
     // the student has a session token (finishTorReview calls it then calls login).
     // With auth required it always 401s, plan is never written to DB, and every
@@ -138,6 +142,8 @@ switch ($method) {
             case 'get_curriculum':          getCurriculum($conn);               break;
             case 'get_soa_snapshot':        getSoaSnapshot($conn);              break;
             case 'get_enrollment_period':   getEnrollmentPeriod($conn);         break;
+            case 'get_subject_selection':   getSubjectSelection($conn);         break;
+            case 'get_pending_subject_selections': getPendingSubjectSelections($conn); break;
             default: echo json_encode(['success' => false, 'message' => 'Unknown action: ' . $action]);
         }
         break;
@@ -186,6 +192,9 @@ switch ($method) {
             case 'approve_enrollment':      approveEnrollment($conn, $data);        break;
             case 'update_payment_plan':     updatePaymentPlan($conn, $data);        break;
             case 're_enroll':               reEnroll($conn, $data);                 break;
+            // ── Subject Selection ─────────────────────────────────────────
+            case 'submit_subject_selection':  submitSubjectSelection($conn, $data);  break;
+            case 'approve_subject_selection': approveSubjectSelection($conn, $data); break;
             // ── Misc ──────────────────────────────────────────────────
             case 'update_profile':          updateProfile($conn, $data);            break;
             default: echo json_encode(['success' => false, 'message' => 'Unknown action: ' . $action]);
@@ -207,6 +216,496 @@ switch ($method) {
 // Explicit close() caused "mysqli object is already closed" in late-running functions.
 
 endif; // end include guard
+
+// =============================================================================
+// SUBJECT SELECTION — Step between registration and payment.
+//
+// Flow:
+//   1. Student completes registration (Step 1 of wizard).
+//   2. Student sees available subjects for their program/semester and picks them
+//      (submitSubjectSelection). Selections are stored in subject_selections table
+//      with status='Pending'.
+//   3. Registrar reviews the selected subjects, optionally adjusts, then approves
+//      (approveSubjectSelection). This sets subject_selection_status='Approved' on
+//      the students row and stores the approved course IDs on the selection row.
+//   4. ONLY AFTER approval, the payment step (Step 3) becomes visible to the student.
+//      The payment total is computed from the APPROVED units (not the requested ones).
+//   5. On Registrar confirmation (confirmRegistration), autoEnrollAll() runs as usual
+//      but now uses the pre-approved course list from subject_selections.
+//
+// DB additions (lazy-created here — no migration required):
+//   • students.subject_selection_status  VARCHAR(20)  DEFAULT 'Pending'
+//     Values: 'Pending'(not yet submitted), 'Submitted'(waiting registrar), 'Approved', 'Rejected'
+//   • subject_selections table  (one row per student per semester)
+// =============================================================================
+
+function ensureSubjectSelectionSchema(mysqli $conn): void {
+    // Add subject_selection_status column to students if missing
+    $conn->query("ALTER TABLE students ADD COLUMN IF NOT EXISTS subject_selection_status VARCHAR(20) NOT NULL DEFAULT 'Pending'");
+    $conn->query("ALTER TABLE students ADD COLUMN IF NOT EXISTS subject_selection_approved_at DATETIME DEFAULT NULL");
+    $conn->query("ALTER TABLE students ADD COLUMN IF NOT EXISTS subject_selection_approved_by INT DEFAULT NULL");
+
+    // Create subject_selections table
+    $conn->query("CREATE TABLE IF NOT EXISTS subject_selections (
+        id               INT AUTO_INCREMENT PRIMARY KEY,
+        student_id       INT NOT NULL,
+        semester         VARCHAR(100) NOT NULL DEFAULT '',
+        requested_course_ids  JSON DEFAULT NULL,
+        approved_course_ids   JSON DEFAULT NULL,
+        status           ENUM('Submitted','Approved','Rejected') NOT NULL DEFAULT 'Submitted',
+        student_notes    TEXT DEFAULT NULL,
+        registrar_notes  TEXT DEFAULT NULL,
+        reviewed_by      INT DEFAULT NULL,
+        reviewed_at      DATETIME DEFAULT NULL,
+        created_at       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_student_sem (student_id, semester),
+        INDEX idx_status (status),
+        INDEX idx_student (student_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STUDENT: Submit subject selection
+// POST { student_id, course_ids: [int,...], notes? }
+//
+// Rules:
+//  • Only allowed when enrollment is open.
+//  • Student must be registered (student row exists) with enrollment_status='Pending'
+//    or 'Submitted' (re-submission allowed while still Pending).
+//  • Validates that each course_id belongs to the student's program/semester/year_level.
+//  • Does NOT create enrollment rows — Registrar approval does that.
+// ─────────────────────────────────────────────────────────────────────────────
+function submitSubjectSelection(mysqli $conn, array $data): void {
+    ensureSubjectSelectionSchema($conn);
+
+    $sid = (int)($data['student_id'] ?? 0);
+    if (!$sid && !empty($data['user_id'])) {
+        $rs = $conn->prepare("SELECT id FROM students WHERE user_id = ? LIMIT 1");
+        $rs->bind_param('i', (int)$data['user_id']);
+        $rs->execute();
+        $rr = $rs->get_result()->fetch_assoc();
+        $rs->close();
+        $sid = $rr ? (int)$rr['id'] : 0;
+    }
+    if (!$sid) {
+        jsonOut(['success' => false, 'message' => 'student_id required'], 400);
+    }
+
+    $courseIds = array_values(array_filter(array_map('intval', (array)($data['course_ids'] ?? [])), fn($v) => $v > 0));
+    $notes     = trim($data['notes'] ?? '');
+
+    if (empty($courseIds)) {
+        jsonOut(['success' => false, 'message' => 'At least one subject must be selected.'], 400);
+    }
+
+    // Load student record
+    $stSt = $conn->prepare("SELECT program, year_level, semester, student_category, student_type, enrollment_status, subject_selection_status FROM students WHERE id = ? LIMIT 1");
+    $stSt->bind_param('i', $sid);
+    $stSt->execute();
+    $student = $stSt->get_result()->fetch_assoc();
+    $stSt->close();
+    if (!$student) {
+        jsonOut(['success' => false, 'message' => 'Student not found.'], 404);
+    }
+
+    // Block resubmission if already approved by registrar
+    if ($student['subject_selection_status'] === 'Approved') {
+        jsonOut(['success' => false, 'message' => 'Your subject selection has already been approved by the Registrar. Changes are no longer allowed.'], 400);
+    }
+
+    $programName = trim($student['program']);
+    $yearLevel   = trim($student['year_level'] ?? '1st Year');
+    $semester    = trim($student['semester']   ?? '');
+    $cat         = strtoupper(trim($student['student_category'] ?? ''));
+
+    // SHS and TVET non-transferees are auto-enrolled — they do NOT need subject selection
+    $isFree = (($cat === 'SHS' || $cat === 'TVET') && strtolower(trim($student['student_type'] ?? '')) !== 'transferee');
+    if ($isFree) {
+        jsonOut(['success' => false, 'message' => 'Free-tuition students (SHS/TVET) are auto-enrolled and do not need to submit a subject selection.'], 400);
+    }
+
+    // Validate each course_id: must be in the student's program (or general ed)
+    // We do a bulk lookup to keep it efficient.
+    $placeholders = implode(',', array_fill(0, count($courseIds), '?'));
+    $types        = str_repeat('i', count($courseIds));
+    $validSt = $conn->prepare("
+        SELECT c.id, c.code, c.name, c.credits, c.year_level AS c_yl, c.semester AS c_sem,
+               COALESCE(c.is_general, 0) AS is_general
+        FROM courses c
+        WHERE c.id IN ($placeholders)
+    ");
+    $validSt->bind_param($types, ...$courseIds);
+    $validSt->execute();
+    $validRes = $validSt->get_result();
+    $validSt->close();
+
+    // Resolve program code for matching
+    $pRow = $conn->query("SELECT code FROM programs WHERE name = '" . $conn->real_escape_string($programName) . "' OR code = '" . $conn->real_escape_string($programName) . "' LIMIT 1");
+    $programCode = $pRow && ($pr = $pRow->fetch_assoc()) ? $pr['code'] : $programName;
+
+    $foundIds    = [];
+    $invalidCodes= [];
+    while ($row = $validRes->fetch_assoc()) {
+        // Accept if: same program name OR code, OR is_general, OR linked via program_courses
+        $inProgram = ($row['program'] ?? '' === $programName)
+                  || ($row['program'] ?? '' === $programCode)
+                  || (bool)$row['is_general'];
+        if (!$inProgram) {
+            // Check program_courses junction
+            $pcSt = $conn->prepare("SELECT 1 FROM program_courses pc JOIN programs p ON p.id=pc.program_id WHERE pc.course_id=? AND (p.name=? OR p.code=?) LIMIT 1");
+            $pcSt->bind_param('iss', $row['id'], $programName, $programCode);
+            $pcSt->execute();
+            $inProgram = $pcSt->get_result()->num_rows > 0;
+            $pcSt->close();
+        }
+        if (!$inProgram) {
+            $invalidCodes[] = cleanCode($row['code']);
+        } else {
+            $foundIds[] = (int)$row['id'];
+        }
+    }
+
+    if (!empty($invalidCodes)) {
+        jsonOut(['success' => false, 'message' => 'The following subjects do not belong to your program: ' . implode(', ', $invalidCodes) . '. Please select only subjects from your program curriculum.'], 400);
+    }
+
+    $missingIds = array_diff($courseIds, $foundIds);
+    if (!empty($missingIds)) {
+        jsonOut(['success' => false, 'message' => 'One or more selected subject IDs are invalid.'], 400);
+    }
+
+    // Upsert subject_selections row
+    $idsJson = json_encode(array_values(array_unique($courseIds)));
+    $stmt = $conn->prepare("
+        INSERT INTO subject_selections (student_id, semester, requested_course_ids, status, student_notes)
+        VALUES (?, ?, ?, 'Submitted', ?)
+        ON DUPLICATE KEY UPDATE
+            requested_course_ids = VALUES(requested_course_ids),
+            status               = 'Submitted',
+            student_notes        = VALUES(student_notes),
+            registrar_notes      = NULL,
+            reviewed_by          = NULL,
+            reviewed_at          = NULL,
+            updated_at           = NOW()
+    ");
+    $stmt->bind_param('isss', $sid, $semester, $idsJson, $notes);
+    $stmt->execute();
+    $stmt->close();
+
+    // Update student's selection status to 'Submitted'
+    $conn->prepare("UPDATE students SET subject_selection_status = 'Submitted' WHERE id = ?")->bind_param('i', $sid);
+    $upd2 = $conn->prepare("UPDATE students SET subject_selection_status = 'Submitted', subject_selection_approved_at = NULL, subject_selection_approved_by = NULL WHERE id = ?");
+    $upd2->bind_param('i', $sid);
+    $upd2->execute();
+    $upd2->close();
+
+    logAuditShared($conn, $GLOBALS['authUser'] ?? null, 'SUBMIT_SUBJECT_SELECTION', 'student', $sid,
+        "Student $sid submitted subject selection: " . count($courseIds) . " subjects for $semester.");
+
+    jsonOut([
+        'success'       => true,
+        'message'       => 'Subject selection submitted successfully. Waiting for Registrar approval.',
+        'courseCount'   => count($foundIds),
+        'status'        => 'Submitted',
+    ]);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STUDENT / REGISTRAR: Get subject selection for a student
+// GET ?action=get_subject_selection&student_id=X
+// ─────────────────────────────────────────────────────────────────────────────
+function getSubjectSelection(mysqli $conn): void {
+    ensureSubjectSelectionSchema($conn);
+
+    $sid = (int)($_GET['student_id'] ?? 0);
+    if (!$sid && !empty($_GET['user_id'])) {
+        $rs = $conn->prepare("SELECT id FROM students WHERE user_id = ? LIMIT 1");
+        $rs->bind_param('i', (int)$_GET['user_id']);
+        $rs->execute();
+        $rr = $rs->get_result()->fetch_assoc();
+        $rs->close();
+        $sid = $rr ? (int)$rr['id'] : 0;
+    }
+    if (!$sid) {
+        jsonOut(['success' => false, 'message' => 'student_id required'], 400);
+    }
+
+    // Get student context for selection_status and semester
+    // FIX SUBJSEL-POLL-REJECT-01: Include enrollment_status so the Angular poll on the
+    // subject-waiting screen can detect when the Registrar rejects the whole registration
+    // (not just the subject selection). Without enrollment_status here, the poll only
+    // ever saw wasRejected from subject_selections.status — but a full registration
+    // rejection sets enrollment_status='Rejected' without touching subject_selections,
+    // so the "Waiting for Registrar Approval" screen never transitioned to the rejection UI.
+    $stSt = $conn->prepare("SELECT semester, subject_selection_status, subject_selection_approved_at, subject_selection_approved_by, enrollment_status, accounting_notes FROM students WHERE id = ? LIMIT 1");
+    $stSt->bind_param('i', $sid);
+    $stSt->execute();
+    $student = $stSt->get_result()->fetch_assoc();
+    $stSt->close();
+    if (!$student) {
+        jsonOut(['success' => false, 'message' => 'Student not found.'], 404);
+    }
+
+    // Get the most recent selection row
+    $selSt = $conn->prepare("SELECT * FROM subject_selections WHERE student_id = ? ORDER BY id DESC LIMIT 1");
+    $selSt->bind_param('i', $sid);
+    $selSt->execute();
+    $sel = $selSt->get_result()->fetch_assoc();
+    $selSt->close();
+
+    if (!$sel) {
+        jsonOut([
+            'success'   => true,
+            'selection' => null,
+            'status'    => $student['subject_selection_status'] ?? 'Pending',
+        ]);
+    }
+
+    // Hydrate requested courses
+    $reqIds  = json_decode($sel['requested_course_ids'] ?? '[]', true) ?: [];
+    $appIds  = json_decode($sel['approved_course_ids']  ?? '[]', true) ?: [];
+    $hydrate = function(array $ids) use ($conn): array {
+        if (empty($ids)) return [];
+        $ph = implode(',', array_fill(0, count($ids), '?'));
+        $ty = str_repeat('i', count($ids));
+        $st = $conn->prepare("SELECT id, code, name, credits, COALESCE(lec_units,credits) AS lec_units, COALESCE(lab_units,0) AS lab_units, semester, year_level FROM courses WHERE id IN ($ph)");
+        $st->bind_param($ty, ...$ids);
+        $st->execute();
+        $rows = $st->get_result()->fetch_all(MYSQLI_ASSOC);
+        $st->close();
+        foreach ($rows as &$r) { $r['code'] = cleanCode($r['code']); }
+        return $rows;
+    };
+
+    $sel['requested_courses'] = $hydrate($reqIds);
+    $sel['approved_courses']  = $hydrate($appIds);
+    unset($sel['requested_course_ids'], $sel['approved_course_ids']);
+
+    // FIX REJECT-RESELECT-01: Expose wasRejected + rejectionNote explicitly so Angular
+    // enrollment component can show the rejection banner and pre-fill the form without
+    // having to infer state from sel.status. When registrar rejects:
+    //   subject_selections.status        = 'Rejected'   (archived in the table)
+    //   students.subject_selection_status = 'Pending'   (allows resubmission)
+    // Angular reads subjectSelectionStatus='Pending' from getStudentContext and lands
+    // on the subject-selection step, but without wasRejected it can't distinguish
+    // "first time" from "re-do after rejection". Now it always knows which case it is.
+    $wasRejected   = ($sel['status'] === 'Rejected');
+    $rejectionNote = $wasRejected ? trim($sel['registrar_notes'] ?? '') : null;
+
+    jsonOut([
+        'success'               => true,
+        'selection'             => $sel,
+        'status'                => $student['subject_selection_status'] ?? 'Pending',
+        'approvedAt'            => $student['subject_selection_approved_at'],
+        'approvedBy'            => $student['subject_selection_approved_by'],
+        'wasRejected'           => $wasRejected,
+        'rejectionNote'         => $rejectionNote,
+        // FIX SUBJSEL-POLL-REJECT-01: Expose enrollment_status so the Angular
+        // subject-waiting poll can detect a full registration rejection immediately.
+        'enrollmentStatus'      => $student['enrollment_status'] ?? '',
+        'registrationRejected'  => ($student['enrollment_status'] === 'Rejected'),
+        'registrationRejectedReason' => ($student['enrollment_status'] === 'Rejected')
+            ? trim($student['accounting_notes'] ?? '')
+            : null,
+    ]);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// REGISTRAR: Get all pending subject selections
+// GET ?action=get_pending_subject_selections[&status=Submitted]
+// ─────────────────────────────────────────────────────────────────────────────
+function getPendingSubjectSelections(mysqli $conn): void {
+    ensureSubjectSelectionSchema($conn);
+
+    $authUser = $GLOBALS['authUser'] ?? null;
+    if (!$authUser || !in_array($authUser['role'] ?? '', ['registrar','admin'], true)) {
+        jsonOut(['success' => false, 'message' => 'Access denied. Registrar or Admin only.'], 403);
+    }
+
+    $statusFilter = trim($_GET['status'] ?? 'Submitted');
+    if (!in_array($statusFilter, ['Submitted','Approved','Rejected','All'], true)) {
+        $statusFilter = 'Submitted';
+    }
+    $whereStatus = $statusFilter === 'All' ? '' : "AND ss.status = '$statusFilter'";
+
+    $res = $conn->query("
+        SELECT ss.*,
+               s.first_name, s.last_name, s.student_number,
+               s.program, s.year_level, s.semester, s.student_category,
+               s.subject_selection_status
+        FROM subject_selections ss
+        JOIN students s ON ss.student_id = s.id
+        WHERE 1=1 $whereStatus
+        ORDER BY ss.created_at DESC
+    ");
+    $rows = [];
+    if ($res) {
+        while ($r = $res->fetch_assoc()) {
+            $reqIds = json_decode($r['requested_course_ids'] ?? '[]', true) ?: [];
+            $appIds = json_decode($r['approved_course_ids']  ?? '[]', true) ?: [];
+
+            // Bulk-fetch course names for preview
+            $allIds   = array_unique(array_merge($reqIds, $appIds));
+            $courseMap= [];
+            if (!empty($allIds)) {
+                $ph = implode(',', array_map('intval', $allIds));
+                $cRes = $conn->query("SELECT id, code, name, credits, COALESCE(lec_units,credits) AS lec_units, COALESCE(lab_units,0) AS lab_units FROM courses WHERE id IN ($ph)");
+                if ($cRes) {
+                    while ($c = $cRes->fetch_assoc()) {
+                        $c['code'] = cleanCode($c['code']);
+                        $courseMap[(int)$c['id']] = $c;
+                    }
+                }
+            }
+
+            $r['requested_courses'] = array_values(array_filter(array_map(fn($id) => $courseMap[$id] ?? null, $reqIds)));
+            $r['approved_courses']  = array_values(array_filter(array_map(fn($id) => $courseMap[$id] ?? null, $appIds)));
+            $r['total_requested_units'] = array_sum(array_column($r['requested_courses'], 'credits'));
+            $r['total_approved_units']  = array_sum(array_column($r['approved_courses'],  'credits'));
+            unset($r['requested_course_ids'], $r['approved_course_ids']);
+            $rows[] = $r;
+        }
+    }
+
+    jsonOut(['success' => true, 'selections' => $rows, 'count' => count($rows)]);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// REGISTRAR: Approve (or reject) a subject selection
+// POST { student_id, action:'Approved'|'Rejected', approved_course_ids:[int,...], notes? }
+//
+// On Approval:
+//   • approved_course_ids may differ from requested (registrar can remove/add).
+//   • Sets students.subject_selection_status = 'Approved'.
+//   • Updates tuition_fees based on approved units (triggers computeFeesNew).
+//   • Does NOT yet enroll subjects — that happens at confirmRegistration.
+// ─────────────────────────────────────────────────────────────────────────────
+function approveSubjectSelection(mysqli $conn, array $data): void {
+    ensureSubjectSelectionSchema($conn);
+
+    $authUser = $GLOBALS['authUser'] ?? null;
+    if (!$authUser || !in_array($authUser['role'] ?? '', ['registrar','admin'], true)) {
+        jsonOut(['success' => false, 'message' => 'Access denied. Registrar or Admin only.'], 403);
+    }
+
+    $sid    = (int)($data['student_id'] ?? 0);
+    $action = trim($data['action']      ?? '');
+    $notes  = trim($data['notes']       ?? '');
+    $approvedIds = array_values(array_filter(array_map('intval', (array)($data['approved_course_ids'] ?? [])), fn($v) => $v > 0));
+
+    if (!$sid || !in_array($action, ['Approved','Rejected'], true)) {
+        jsonOut(['success' => false, 'message' => 'student_id and action (Approved|Rejected) required.'], 400);
+    }
+    if ($action === 'Approved' && empty($approvedIds)) {
+        jsonOut(['success' => false, 'message' => 'At least one approved_course_id must be provided when approving.'], 400);
+    }
+
+    // Load student
+    $stSt = $conn->prepare("SELECT program, year_level, semester, student_category, subject_selection_status FROM students WHERE id = ? LIMIT 1");
+    $stSt->bind_param('i', $sid);
+    $stSt->execute();
+    $student = $stSt->get_result()->fetch_assoc();
+    $stSt->close();
+    if (!$student) {
+        jsonOut(['success' => false, 'message' => 'Student not found.'], 404);
+    }
+
+    // Check there's a pending selection
+    $selSt = $conn->prepare("SELECT id FROM subject_selections WHERE student_id = ? AND status = 'Submitted' ORDER BY id DESC LIMIT 1");
+    $selSt->bind_param('i', $sid);
+    $selSt->execute();
+    $selRow = $selSt->get_result()->fetch_assoc();
+    $selSt->close();
+    if (!$selRow) {
+        // Also accept already-submitted ones for idempotency
+        $selSt2 = $conn->prepare("SELECT id FROM subject_selections WHERE student_id = ? ORDER BY id DESC LIMIT 1");
+        $selSt2->bind_param('i', $sid);
+        $selSt2->execute();
+        $selRow = $selSt2->get_result()->fetch_assoc();
+        $selSt2->close();
+        if (!$selRow) {
+            jsonOut(['success' => false, 'message' => 'No subject selection found for this student.'], 404);
+        }
+    }
+
+    $selId       = (int)$selRow['id'];
+    $reviewerId  = (int)($authUser['user_id'] ?? 0);
+    $idsJson     = json_encode(array_values(array_unique($approvedIds)));
+    $semester    = trim($student['semester'] ?? '');
+    $programName = trim($student['program']  ?? '');
+    $yearLevel   = trim($student['year_level'] ?? '1st Year');
+
+    // Update subject_selections row
+    $updSel = $conn->prepare("UPDATE subject_selections SET status = ?, approved_course_ids = ?, registrar_notes = ?, reviewed_by = ?, reviewed_at = NOW() WHERE id = ?");
+    $updSel->bind_param('sssii', $action, $idsJson, $notes, $reviewerId, $selId);
+    $updSel->execute();
+    $updSel->close();
+
+    // Update student's selection status.
+    // FIX BUG-2: On Rejection, store 'Pending' (not 'Rejected') so the Angular
+    // enrollment wizard shows the subject-selection form again instead of routing
+    // the student to the dashboard. The rejection reason is preserved in
+    // subject_selections.registrar_notes and surfaced via get_subject_selection.
+    $statusForStudent = ($action === 'Rejected') ? 'Pending' : $action;
+    $approvedAt = ($action === 'Approved') ? date('Y-m-d H:i:s') : null;
+    $approvedBy = ($action === 'Approved') ? $reviewerId : null;
+    $updSt = $conn->prepare("UPDATE students SET subject_selection_status = ?, subject_selection_approved_at = ?, subject_selection_approved_by = ? WHERE id = ?");
+    $updSt->bind_param('ssii', $statusForStudent, $approvedAt, $approvedBy, $sid);
+    $updSt->execute();
+    $updSt->close();
+
+    // On Approval: compute tuition fees from approved units so payment step shows correct amount.
+    // FIX BUG-1: Do NOT call _buildFees() directly — it is defined later in this file and
+    // is unavailable when enrollment.php is require_once'd by registrar.php mid-execution
+    // (PHP does not hoist functions past complex closure/heredoc boundaries in large files).
+    // Instead, compute units inline and call computeFeesNew() which is defined earlier and
+    // internally delegates to _buildFees after resolving the correct unit count.
+    if ($action === 'Approved' && !empty($approvedIds)) {
+        // Compute total units from approved course list
+        $ph = implode(',', array_fill(0, count($approvedIds), '?'));
+        $ty = str_repeat('i', count($approvedIds));
+        $uSt = $conn->prepare("SELECT COALESCE(SUM(credits),0) AS total_units FROM courses WHERE id IN ($ph)");
+        $uSt->bind_param($ty, ...$approvedIds);
+        $uSt->execute();
+        $approvedUnits = (int)$uSt->get_result()->fetch_assoc()['total_units'];
+        $uSt->close();
+
+        // Scholar discount
+        $schCtxSS = $conn->query("SELECT COALESCE(SUM(scholarship_amount),0) AS total FROM student_scholarships WHERE student_id = $sid AND is_active = 1");
+        $discount = (float)($schCtxSS ? $schCtxSS->fetch_assoc()['total'] : 0);
+
+        // Get payment plan
+        $ppRow = $conn->query("SELECT payment_plan, student_category FROM students WHERE id = $sid LIMIT 1");
+        $ppData = $ppRow ? $ppRow->fetch_assoc() : [];
+        $paymentPlan = trim(($ppData['payment_plan'] ?? null) ?? 'full') ?: 'full';
+        $cat = strtoupper(trim($ppData['student_category'] ?? 'College'));
+
+        if ($approvedUnits > 0) {
+            // Temporarily write approved units into tuition_fees so computeFeesNew
+            // can read the correct count (it re-reads from DB, not from our $approvedUnits var).
+            // We pre-seed a tuition_fees row so the unit count is correct before the full
+            // recalculation runs. computeFeesNew will overwrite it with the full breakdown.
+            if ($cat === 'TVET') {
+                computeFeesTVET($conn, $sid, $semester, $paymentPlan);
+            } else {
+                // computeFeesNew detects subject_selection_status='Approved' and reads
+                // units from subject_selections.approved_course_ids automatically.
+                computeFeesNew($conn, $sid, $programName, $semester, $yearLevel, $paymentPlan, $discount);
+            }
+        }
+    }
+
+    logAuditShared($conn, $authUser, 'APPROVE_SUBJECT_SELECTION', 'student', $sid,
+        "Subject selection for student $sid $action by Registrar. Approved: " . count($approvedIds) . " subjects. Notes: $notes");
+
+    jsonOut([
+        'success'        => true,
+        'message'        => "Subject selection {$action} successfully." . ($action === 'Approved' ? " The student may now proceed to payment." : " The student must resubmit their selection."),
+        'status'         => $action,
+        'approvedCount'  => count($approvedIds),
+    ]);
+}
 
 function getStudentIdFromRequest($conn) {
     // Priority 1: explicit student_id GET param (DB primary key)
@@ -513,6 +1012,12 @@ function getPaymentStatus($conn) {
             // FIX REJECT-NOTES-01: Accounting rejection reason shown to student.
             // null when no rejection has occurred or a new payment was submitted.
             'rejectedNote'     => $rejectedNote,
+            // Subject selection status — needed by wizard to gate Step 3 (payment)
+            'subjectSelectionStatus' => (function() use ($conn, $student_id) {
+                $conn->query("ALTER TABLE students ADD COLUMN IF NOT EXISTS subject_selection_status VARCHAR(20) NOT NULL DEFAULT 'Pending'");
+                $r2 = $conn->query("SELECT subject_selection_status FROM students WHERE id = $student_id LIMIT 1");
+                return $r2 ? ($r2->fetch_assoc()['subject_selection_status'] ?? 'Pending') : 'Pending';
+            })(),
         ]);
     } else {
         echo json_encode(['success' => false, 'message' => 'Student not found']);
@@ -1050,6 +1555,35 @@ function registerTransferee($conn, $data) {
         return;
     }
 
+
+    // FIX NAME-DUP-01: Check for duplicate full name + date_of_birth.
+    // Same name AND same birthday is virtually impossible to be two different people.
+    $firstName   = trim($data['firstName']   ?? $data['first_name']   ?? '');
+    $lastName    = trim($data['lastName']    ?? $data['last_name']    ?? '');
+    $dateOfBirth = trim($data['dateOfBirth'] ?? $data['date_of_birth'] ?? '');
+
+    if ($firstName && $lastName && $dateOfBirth) {
+        $dupChk = $conn->prepare(
+            "SELECT id, student_number FROM students
+             WHERE LOWER(first_name) = LOWER(?) AND LOWER(last_name) = LOWER(?)
+               AND date_of_birth = ?
+             LIMIT 1"
+        );
+        $dupChk->bind_param('sss', $firstName, $lastName, $dateOfBirth);
+        $dupChk->execute();
+        $dupRow = $dupChk->get_result()->fetch_assoc();
+        $dupChk->close();
+        if ($dupRow) {
+            echo json_encode([
+                'success' => false,
+                'code'    => 'NAME_EXISTS',
+                'message' => "A student record already exists for {$firstName} {$lastName} with the same date of birth. "
+                           . "If this is you, please log in to your existing account (Student No. {$dupRow['student_number']}).",
+                'student_number' => $dupRow['student_number'],
+            ]);
+            return;
+        }
+    }
     // FIX E-05: Atomic student number — use transaction + FOR UPDATE
     $year   = date('Y');
     $prefix = "STU-$year-";
@@ -3472,6 +4006,33 @@ function computeFeesNew($conn, $student_id, $programName, $semester, $yearLevel,
     // the year_level filter was applied (e.g. stale 15-unit value from old code).
     $units = 0;
 
+    // FIX SUBJ-UNITS-02: If this student has an Approved subject selection,
+    // use ONLY the approved course IDs to count units — not the full enrollment list.
+    // This ensures the fee shown in the portal matches exactly what the Registrar approved.
+    $subjSelStatus = $conn->query(
+        "SELECT subject_selection_status FROM students WHERE id = $student_id LIMIT 1"
+    );
+    $sssRow = $subjSelStatus ? $subjSelStatus->fetch_assoc() : null;
+    $unitsFromApprovedSelection = false;
+    if (($sssRow['subject_selection_status'] ?? '') === 'Approved') {
+        $approvedSelRes = $conn->query(
+            "SELECT approved_course_ids FROM subject_selections
+             WHERE student_id = $student_id AND status = 'Approved'
+             ORDER BY id DESC LIMIT 1"
+        );
+        $approvedSelRow = $approvedSelRes ? $approvedSelRes->fetch_assoc() : null;
+        $approvedCourseIds = json_decode($approvedSelRow['approved_course_ids'] ?? '[]', true) ?: [];
+        if (!empty($approvedCourseIds)) {
+            $approvedPh = implode(',', array_map('intval', $approvedCourseIds));
+            $approvedUnitsRes = $conn->query(
+                "SELECT COALESCE(SUM(credits), 0) AS u FROM courses WHERE id IN ($approvedPh)"
+            );
+            $units = (int)(($approvedUnitsRes ? $approvedUnitsRes->fetch_assoc()['u'] : 0) ?: 0);
+            $unitsFromApprovedSelection = true; // skip all fallback sources
+        }
+    }
+
+    if (!$unitsFromApprovedSelection) {
     // Source 1: Actual enrolled units (most accurate — avoids format mismatches)
     // FIX BUG-UNITS-TOR-01: Also exclude any TOR-credited course IDs for students
     // who have a tor_evaluations record (e.g. re-enrolled Transferee→Continuing).
@@ -3715,10 +4276,17 @@ function _buildFees($conn, $student_id, $programName, $semester, $yearLevel, $un
         }
     }
 
+    } // end !$unitsFromApprovedSelection
+
     // Lab fee: based on total number of Laboratory rooms in the rooms table
     $conn->query("ALTER TABLE courses ADD COLUMN IF NOT EXISTS is_lab TINYINT(1) DEFAULT 0");
-    $labRoomRes = $conn->query("SELECT COUNT(*) AS cnt FROM rooms WHERE room_type = 'Laboratory'");
-    $lab_cnt    = (int)(($labRoomRes ? $labRoomRes->fetch_assoc()['cnt'] : 0) ?? 0);
+    if (!$unitsFromApprovedSelection) {
+        $labRoomRes = $conn->query("SELECT COUNT(*) AS cnt FROM rooms WHERE room_type = 'Laboratory'");
+        $lab_cnt    = (int)(($labRoomRes ? $labRoomRes->fetch_assoc()['cnt'] : 0) ?? 0);
+    } else {
+        $labRoomRes = $conn->query("SELECT COUNT(*) AS cnt FROM rooms WHERE room_type = 'Laboratory'");
+        $lab_cnt    = (int)(($labRoomRes ? $labRoomRes->fetch_assoc()['cnt'] : 0) ?? 0);
+    }
 
     // Load fee rates from fee_config table (managed by Accounting)
     $fc = loadFeeConfig($conn, 'College');
@@ -4626,7 +5194,48 @@ function getStudentContext($conn) {
         'nextSemester'  => $nextSemester,
         'nextYearLevel' => $nextYearLevel,
         'needsPlanSelection' => $needsPlanSelection ?? false,
-        // FIX BUG-CTX-COURSES-01: Include enrolled course list in context response.
+        // ── Subject Selection Status ───────────────────────────────────────────
+        // 'Pending'   = student has not submitted yet (show subject selection step)
+        // 'Submitted' = waiting for Registrar to review
+        // 'Approved'  = Registrar approved → student may proceed to payment step
+        // 'Rejected'  = Registrar rejected → student must resubmit
+        // Free SHS/TVET non-transferees are always 'Approved' (no selection needed).
+        //
+        // FIX REJECT-RESELECT-01: When the registrar rejects a selection:
+        //   subject_selections.status        = 'Rejected'   (table record)
+        //   students.subject_selection_status = 'Pending'   (allows resubmission)
+        // So subjectSelectionStatus is 'Pending' — Angular lands on the subject-selection
+        // step. We also return subjectSelectionRejectionNote so the component immediately
+        // shows the registrar's rejection reason without a separate API call.
+        // wasRejectedSubjectSelection=true triggers the rejection banner + pre-fills
+        // the previously requested subjects from subject_selections.requested_courses.
+        'subjectSelectionStatus' => (function() use ($conn, $student_id, $isSHSTVET, $isTransferee) {
+            if ($isSHSTVET && !$isTransferee) return 'Approved';
+            $conn->query("ALTER TABLE students ADD COLUMN IF NOT EXISTS subject_selection_status VARCHAR(20) NOT NULL DEFAULT 'Pending'");
+            $r = $conn->query("SELECT subject_selection_status FROM students WHERE id = $student_id LIMIT 1");
+            return $r ? ($r->fetch_assoc()['subject_selection_status'] ?? 'Pending') : 'Pending';
+        })(),
+        // FIX REJECT-RESELECT-01: Rejection note + flag for the enrollment wizard.
+        // Angular enrollment component checks wasRejectedSubjectSelection to decide
+        // whether to show a rejection banner above the subject-selection form.
+        // subjectSelectionRejectionNote holds the registrar's reason text.
+        // Both are null when the student has never been rejected (first-time selection).
+        'wasRejectedSubjectSelection' => (function() use ($conn, $student_id, $isSHSTVET, $isTransferee): bool {
+            if ($isSHSTVET && !$isTransferee) return false;
+            $r = $conn->query("SELECT status FROM subject_selections WHERE student_id = $student_id ORDER BY id DESC LIMIT 1");
+            if (!$r) return false;
+            $row = $r->fetch_assoc();
+            return ($row['status'] ?? '') === 'Rejected';
+        })(),
+        'subjectSelectionRejectionNote' => (function() use ($conn, $student_id, $isSHSTVET, $isTransferee): ?string {
+            if ($isSHSTVET && !$isTransferee) return null;
+            $r = $conn->query("SELECT status, registrar_notes FROM subject_selections WHERE student_id = $student_id ORDER BY id DESC LIMIT 1");
+            if (!$r) return null;
+            $row = $r->fetch_assoc();
+            if (($row['status'] ?? '') !== 'Rejected') return null;
+            $note = trim($row['registrar_notes'] ?? '');
+            return $note !== '' ? $note : null;
+        })(),
         // The frontend hasEnrollments check (res.courses?.length > 0) is used to
         // decide whether TVET non-transferees should skip to dashboard or show the
         // payment wizard. Without this key, hasEnrollments is always false →
@@ -4979,6 +5588,12 @@ function reEnroll($conn, $data) {
     // so the UI will always have a valid value once the student submits payment.
     // The old fix (preserving payment_method) caused the bug where a GCash student
     // who paid Cash in a previous semester was permanently shown as Cash in Accounting.
+    // FIX RE-ENROLL-SUBJSEL-01: Also reset subject_selection_status to 'Pending'
+    // and clear approval timestamps. Without this, the old 'Approved' status from
+    // the previous semester persists through re-enrollment — getStudentContext()
+    // returns subjectSelectionStatus='Approved', loadContext() skips the subject-
+    // selection gate, and the student is routed straight to dashboard instead of
+    // the subject-selection form for the new semester.
     $updStmt = $conn->prepare(
         "UPDATE students SET
             year_level        = ?,
@@ -4991,15 +5606,23 @@ function reEnroll($conn, $data) {
             payment_plan      = NULL,
             payment_method    = NULL,
             enrollment_date   = CURDATE(),
-            registrar_confirmed    = 'Pending',
-            registrar_confirmed_at = NULL,
-            registrar_confirmed_by = NULL,
-            registrar_notes        = NULL
+            registrar_confirmed           = 'Pending',
+            registrar_confirmed_at        = NULL,
+            registrar_confirmed_by        = NULL,
+            registrar_notes               = NULL,
+            subject_selection_status      = 'Pending',
+            subject_selection_approved_at = NULL,
+            subject_selection_approved_by = NULL
          WHERE id = ?"
     );
     $updStmt->bind_param('sssii', $newYL, $newSemLabel, $newType, $isIrregularVal, $student_id);
     $updStmt->execute();
     $updStmt->close();
+
+    // FIX RE-ENROLL-SUBJSEL-01 (continued): Delete the previous semester's
+    // subject_selections rows so the registrar sees a clean queue for the new
+    // semester and get_subject_selection returns no stale Approved/Rejected row.
+    $conn->query("DELETE FROM subject_selections WHERE student_id = $student_id");
 
     // ── Step 4 (NEW): Pre-seed the SOA for the new semester ────────────────
     // FIX RE-ENROLL-SOA-01: After re-enrollment the student must choose their

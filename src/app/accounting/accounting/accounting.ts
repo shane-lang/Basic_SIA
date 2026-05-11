@@ -531,7 +531,9 @@ export class Accounting implements OnInit, OnDestroy {
   // Cash-specific fields for accounting to fill in
   cashAmount: number = 0;
   cashDate:   string = new Date().toISOString().split('T')[0];
+  cashOrArNumber: string = '';
   cashAmountError: string = '';
+  gcashOrArError:  string = '';
 
   // ── Edit form ─────────────────────────────────────────────
   editForm: any = {};
@@ -1035,7 +1037,9 @@ export class Accounting implements OnInit, OnDestroy {
     this.modalMode  = 'approve';
     this.modalNotes = '';
     this.cashDate   = new Date().toISOString().split('T')[0];
+    this.cashOrArNumber = '';
     this.cashAmountError = '';
+    this.gcashOrArError  = '';
     // FIX CASH-PREFILL-01: Pre-fill cash amount in priority order:
     //   1. Student-submitted amount (gcashAmount from payment_logs) — most accurate;
     //      submit_installment_payment saves the amount the student typed in the modal.
@@ -1154,10 +1158,23 @@ export class Accounting implements OnInit, OnDestroy {
     if (this.modalMode === 'edit') { this.saveEdit(); return; }
     if (this.modalMode === 'editHistory') { this.saveEditHistory(); return; }
 
+    // Validate GCash OR/AR number
+    if (this.isGCash(this.selectedPayment) && this.modalMode === 'approve') {
+      if (!this.cashOrArNumber || this.cashOrArNumber.trim() === '') {
+        this.gcashOrArError = 'Please enter the OR / AR number for this GCash payment.';
+        return;
+      }
+      this.gcashOrArError = '';
+    }
+
     // Validate cash amount -- overpayment allowed (excess carries over to next term)
     if (this.isCash(this.selectedPayment) && this.modalMode === 'approve') {
       if (!this.cashAmount || this.cashAmount <= 0) {
         this.cashAmountError = 'Please enter the amount received.';
+        return;
+      }
+      if (!this.cashOrArNumber || this.cashOrArNumber.trim() === '') {
+        this.cashAmountError = 'Please enter the OR / AR number from the physical receipt.';
         return;
       }
       const total = this.selectedPayment.totalAssessment || 0;
@@ -1180,10 +1197,16 @@ export class Accounting implements OnInit, OnDestroy {
       payment_method:     this.selectedPayment.paymentMethod
     };
 
-    // For cash payments, include the amount and date entered by accounting
+    // For cash payments, include the amount, date, and OR/AR number entered by accounting
     if (this.isCash(this.selectedPayment) && this.modalMode === 'approve') {
-      payload.cash_amount = this.cashAmount;
-      payload.cash_date   = this.cashDate;
+      payload.cash_amount  = this.cashAmount;
+      payload.cash_date    = this.cashDate;
+      payload.or_ar_number = this.cashOrArNumber.trim();
+    }
+
+    // For GCash payments, include the OR/AR number issued by accounting
+    if (this.isGCash(this.selectedPayment) && this.modalMode === 'approve') {
+      payload.or_ar_number = this.cashOrArNumber.trim();
     }
 
     const action = this.modalMode === 'approve' ? 'verify_payment' : 'reject_payment';

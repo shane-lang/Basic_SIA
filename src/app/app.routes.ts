@@ -168,7 +168,7 @@ export const routes: Routes = [
       { path: 'add-subject',               component: AddSubjectComponent },
       { path: 'drop-subject',              component: DropSubjectComponent },
       { path: 'students',                  component: StudentEnrollmentReviewComponent },
-      { path: 'student-enrollment-review', component: StudentEnrollmentReviewComponent },
+      { path: 'student-review', component: StudentEnrollmentReviewComponent },
       { path: 'tor-evaluation',            component: TorEvaluation },
       { path: 'add-drop',                  component: AddDropComponent },
       { path: 'grade-submission',          component: GradeSubmission },

@@ -12,10 +12,7 @@ interface Schedule {
   prelim_paid: number; midterm_paid: number; finals_paid: number;
   prelim_status: string; midterm_status: string; finals_status: string;
   downpayment_paid: number;
-  total_paid?: number;  // server-side sum of all installment_payments — always accurate
-  // FIX DISPLAY-CARRY-01: approved permits map — period key → permit info.
-  // When a period has an approved permit, the student must NOT be shown a Pay
-  // button or a remaining balance — the period is cleared regardless of partial pay.
+  total_paid?: number;
   approved_permits?: Record<string, { permit_identifier: string; approved_at: string }>;
 }
 
@@ -29,7 +26,6 @@ interface Permit {
   semester: string; status: string; requested_at: string;
   approved_at: string; remarks: string;
   permit_identifier?: string;
-  // populated by get_permit_details
   student_number?: string; first_name?: string; last_name?: string;
   program?: string; year_level?: string;
   approved_by_first?: string; approved_by_last?: string;
@@ -39,7 +35,7 @@ interface Permit {
 interface PaymentRecord {
   id: number;
   orArNumber: string;
-  orArType: string;       // 'OR' | 'AR'
+  orArType: string;
   amount: number;
   paymentDate: string;
   paymentMethod: string;
@@ -61,7 +57,6 @@ export class PaymentSchedule implements OnInit, OnDestroy {
   private apiUrl      = environment.accountingApi;
   private enrollApi   = environment.enrollApi;
 
-  // BUG FIX: use students-table PK (studentDbId), NOT user.id
   studentId   = 0;
   studentInfo: any = {};
 
@@ -69,17 +64,16 @@ export class PaymentSchedule implements OnInit, OnDestroy {
   notices: Record<string, Notice> = {};
   permits: Permit[] = [];
   isLoading    = true;
+
   // ── Password gate inactivity lock (5 min) ─────────────────────────────────
   _locked          = true;
   private _lockTimer: any = null;
-  private readonly _LOCK_MS = 300000;  // 5 minutes
+  private readonly _LOCK_MS = 300000;
 
   _startLockTimer(): void {
     this._clearLockTimer();
     this._lockTimer = setTimeout(() => {
       this._locked = true;
-      // Clear the password-gate cache so re-navigating here after inactivity
-      // requires the student to re-enter their password.
       sessionStorage.removeItem('pgv_ts_soa___receipts');
       this.cdr.detectChanges();
     }, this._LOCK_MS);
@@ -93,39 +87,32 @@ export class PaymentSchedule implements OnInit, OnDestroy {
     if (!this._locked) this._startLockTimer();
   }
 
+  studentCategory = '';
+  studentType     = '';
 
-  studentCategory = '';   // 'SHS' | 'TVET' | '' (College)
-  studentType     = '';   // 'New' | 'Old' | 'Transferee'
-  // Free only when SHS/TVET AND not a Transferee (Transferees pay ₱20k)
-  // FIX TRANSFEREE-CASE-FE-01: Case-insensitive — DB may store 'transferee' (lowercase).
   get isFreeStudent(): boolean {
     const isSHSTVET = this.studentCategory === 'SHS' || this.studentCategory === 'TVET';
     return isSHSTVET && this.studentType.toLowerCase() !== 'transferee';
   }
+
   isRequesting = false;
   msg = ''; msgType: 'ok'|'err' = 'ok';
-  paymentPlan   = 'full';   // 'full' | 'installment' — loaded from get_student_context
-  paymentStatus = '';       // 'Paid' | 'Pending' — loaded from get_student_context
+  paymentPlan   = 'full';
+  paymentStatus = '';
 
   // ── Scholarship fields ────────────────────────────────────────────────────
   isScholar       = false;
-  isFullScholar   = false;   // true = full scholarship approved, no payment needed
-  scholarPending  = false;   // true = declared but not yet approved
-  scholarApproved = false;   // true = approved by accounting
+  isFullScholar   = false;
+  scholarPending  = false;
+  scholarApproved = false;
   scholarType     = '';
   scholarGrantor  = '';
   scholarshipAmount = 0;
 
-  // Full-payment students now see per-period cards (Prelim, Midterm, Finals)
-  // just like installment students. Each period unlocks independently when
-  // Accounting sends a notice for it — no single "Full" mega-card.
-  // The 'Full' value is kept only for legacy backend compatibility.
   get displayPeriods(): string[] {
     return ['Prelim', 'Midterm', 'Finals'];
   }
 
-  // Scholar permit section always shows the three individual periods (scholars never pay,
-  // they just request per-period permits as Accounting unlocks each one).
   readonly scholarPeriods = ['Prelim', 'Midterm', 'Finals'] as const;
 
   // ── Tab state ─────────────────────────────────────────────────────────────
@@ -135,7 +122,7 @@ export class PaymentSchedule implements OnInit, OnDestroy {
   paymentHistory: PaymentRecord[] = [];
   historyTotalPaid  = 0;
   isLoadingHistory  = false;
-  historyLoaded     = false;   // lazy-load: only fetch on first tab switch
+  historyLoaded     = false;
 
   // ── Payment modal ────────────────────────────────────────────────────────
   showPayModal   = false;
@@ -148,14 +135,12 @@ export class PaymentSchedule implements OnInit, OnDestroy {
   isSubmitting   = false;
   payMsg         = '';
   payMsgType: 'ok'|'err' = 'ok';
-  // After submitting — waiting for accounting approval
   paySubmitted   = false;
   payOrArNumber  = '';
   isPollingApproval = false;
   private pollTimer: any = null;
 
   // ── Pending payment guard ─────────────────────────────────────────────────
-  // Terms that already have a Pending payment_log — Pay button disabled for these
   pendingTerms: Set<string> = new Set();
 
   loadPendingTerms(): void {
@@ -182,12 +167,14 @@ export class PaymentSchedule implements OnInit, OnDestroy {
   showPermitViewer  = false;
   viewingPermit: Permit | null = null;
   isLoadingPermit   = false;
+
+  // ── QR Code ──────────────────────────────────────────────────────────────
+  // Encodes permit owner info. When scanned: shows student number, name, program, permit ID.
+  permitQrDataUrl   = '';
+
   constructor(private http: HttpClient, private cdr: ChangeDetectorRef, private gate: PasswordGateService) {}
 
   async ngOnInit(): Promise<void> {
-    // ── Password gate ─────────────────────────────────────────────────────────
-    // NOTE: Do NOT clear pgv_ts_soa___receipts here — if already verified within
-    // the last 5 minutes, skip the modal. Cache is cleared only on inactivity lock.
     const verified = await this.gate.requirePassword('SOA & Receipts');
     if (!verified) {
       this.isLoading = false;
@@ -205,7 +192,6 @@ export class PaymentSchedule implements OnInit, OnDestroy {
 
     this.payDate = new Date().toISOString().split('T')[0];
 
-    // ── Restore payment-submitted state so reload doesn't clear "awaiting approval" screen ──
     const pendingKey = `paySchedulePending_${this.studentId}`;
     const pendingRaw = sessionStorage.getItem(pendingKey);
     if (pendingRaw) {
@@ -217,13 +203,10 @@ export class PaymentSchedule implements OnInit, OnDestroy {
         this.payAmount         = pending.amount   || 0;
         this.showPayModal      = true;
         this.isPollingApproval = true;
-        // Restart polling — if already approved since last load, poll will close modal
         this.startApprovalPolling();
       } catch { sessionStorage.removeItem(pendingKey); }
     }
 
-    // Always fetch fresh from API — do not rely on sessionStorage cache
-    // load() is called inside the callback so category is set before rendering
     this.http.get<any>(`${this.enrollApi}?action=get_student_context&student_id=${this.studentId}`).subscribe({
       next: (res) => {
         if (res.success) {
@@ -232,7 +215,6 @@ export class PaymentSchedule implements OnInit, OnDestroy {
           this.paymentPlan   = res.student?.paymentPlan   === 'installment' ? 'installment' : 'full';
           this.paymentStatus = res.student?.paymentStatus ?? '';
 
-          // ── Scholarship status ───────────────────────────────────────────
           this.isScholar        = res.student?.isScholar        ?? false;
           this.isFullScholar    = res.student?.isFullScholar     ?? false;
           this.scholarPending   = res.student?.scholarPending    ?? false;
@@ -241,18 +223,14 @@ export class PaymentSchedule implements OnInit, OnDestroy {
           this.scholarGrantor   = res.student?.scholarGrantor    ?? '';
           this.scholarshipAmount = res.student?.scholarshipAmount ?? 0;
 
-          // ── Safe fallback: derive isFullScholar from existing fields ─────
-          // Even if enrollment.php doesn't return isFullScholar yet,
-          // scholar + Paid + scholarshipAmount > 0 = full scholar approved
           if (!this.isFullScholar && this.isScholar && this.scholarshipAmount > 0
               && (res.student?.paymentStatus === 'Paid'
                   || res.student?.approvalStatus === 'Approved')) {
             this.isFullScholar = true;
           }
 
-          // Full scholar = force full payment plan (no installment needed)
           if (this.isFullScholar) this.paymentPlan = 'full';
-          // Fallback: infer from student number if DB category is blank
+
           const studentNum: string = res.student?.id ?? '';
           if (cat) {
             this.studentCategory = cat;
@@ -263,11 +241,6 @@ export class PaymentSchedule implements OnInit, OnDestroy {
           }
           sessionStorage.setItem('studentCategory', this.studentCategory);
 
-          // FIX SOA-DUE-DATES: Capture the students-table PK (dbId) returned by
-          // get_student_context so that loadDueDates() sends the correct student_id.
-          // Without this, students who land here directly (skipping dashboard) keep
-          // this.studentId = users.id, which doesn't match students.id in the DB,
-          // so get_due_dates can't resolve semester → falls back to global dates.
           const resolvedDbId = res.student?.dbId ?? 0;
           if (resolvedDbId > 0) {
             this.studentId = resolvedDbId;
@@ -278,7 +251,6 @@ export class PaymentSchedule implements OnInit, OnDestroy {
         this.cdr.detectChanges();
       },
       error: () => {
-        // Fallback: try sessionStorage then just load
         const cached = sessionStorage.getItem('studentCategory');
         if (cached) this.studentCategory = cached.toUpperCase();
         this.load();
@@ -288,7 +260,7 @@ export class PaymentSchedule implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
-    this._clearLockTimer();  // stop JS timer only; lock state preserved across tabs
+    this._clearLockTimer();
     if (this.pollTimer) clearInterval(this.pollTimer);
   }
 
@@ -299,7 +271,6 @@ export class PaymentSchedule implements OnInit, OnDestroy {
         this.schedule = res.success ? res.schedule : null;
         this.notices  = res.notices  || {};
         this.isLoading = false;
-        // ── Fallback: detect full scholar from schedule total = 0 ──────────
         if (!this.isFullScholar && this.isScholar
             && this.schedule && (this.schedule.total_assessment ?? 1) <= 0) {
           this.isFullScholar = true;
@@ -322,16 +293,12 @@ export class PaymentSchedule implements OnInit, OnDestroy {
 
   loadDueDates(): void {
     const sid = this.studentId || 0;
-    // Pass student_id so the backend resolves semester from the student's record
-    // and returns the correctly scoped due dates for their current term.
     const url = sid > 0
       ? `${this.apiUrl}?action=get_due_dates&student_id=${sid}`
       : `${this.apiUrl}?action=get_due_dates`;
     this.http.get<any>(url).subscribe({
       next: (res) => {
         if (res.success && res.dueDates) {
-          // Merge with blank defaults so all four period keys always exist
-          // even if the API returns a partial result.
           const blank: Record<string, { label: string; date_range: string }> = {
             downpayment: { label: 'Downpayment', date_range: '' },
             prelim:      { label: 'Prelim',      date_range: '' },
@@ -358,9 +325,6 @@ export class PaymentSchedule implements OnInit, OnDestroy {
   loadPaymentHistory(): void {
     this.isLoadingHistory = true;
     this.cdr.detectChanges();
-    // BUG-SOA-05 FIX: Scope history to the student's current semester.
-    // Without ?semester=, the backend returns ALL semesters mixed together,
-    // making the SOA history show wrong totals and stale records.
     const sem = encodeURIComponent(this.studentInfo?.semester || '');
     this.http.get<any>(`${this.apiUrl}?action=get_student_payment_history&student_id=${this.studentId}&semester=${sem}`).subscribe({
       next: (res) => {
@@ -391,8 +355,6 @@ export class PaymentSchedule implements OnInit, OnDestroy {
   }
 
   getStatus(period: string): string {
-    // FIX DISPLAY-CARRY-01: Approved permit = period is PAID regardless of partial payment.
-    // Show 'paid' badge and hide Pay button for this period.
     if (period !== 'Full' && this.isPermitCleared(period)) return 'paid';
 
     if (period === 'Full') {
@@ -421,9 +383,6 @@ export class PaymentSchedule implements OnInit, OnDestroy {
     }
 
     if (this.paymentPlan === 'full') {
-      // Full-plan: period unlocks when Accounting sends a notice (or schedules row unlocked).
-      // If the student has no remaining balance → mark as 'paid' so the badge
-      // shows "✅ Paid" instead of "Unpaid" for someone who already settled in full.
       const hasNotice  = !!this.getNotice(period);
       const isUnlocked = schedStatus !== 'locked';
       if (!(hasNotice || isUnlocked)) return 'locked';
@@ -435,8 +394,6 @@ export class PaymentSchedule implements OnInit, OnDestroy {
 
   getDue(period: string): number {
     if (period === 'Full') return this.schedule ? (this.schedule.total_assessment || 0) : 0;
-    // Full-plan: all periods share the total — show total_assessment on each card
-    // (there is no per-period breakdown for lump-sum students)
     if (this.paymentPlan === 'full') {
       return this.schedule ? (this.schedule.total_assessment || 0) : 0;
     }
@@ -446,17 +403,12 @@ export class PaymentSchedule implements OnInit, OnDestroy {
 
   getPaid(period: string): number {
     if (period === 'Full') return this.totalPaid;
-    // Full-plan: all payment is one lump sum — show actual total paid on each card
-    if (this.paymentPlan === 'full') {
-      return this.totalPaid;
-    }
+    if (this.paymentPlan === 'full') return this.totalPaid;
     const p = period.toLowerCase() as any;
     return this.schedule ? ((this.schedule as any)[p+'_paid'] || 0) : 0;
   }
 
   getBalance(period: string): number {
-    // FIX DISPLAY-CARRY-01: Approved permit = period is cleared, balance is always ₱0.
-    // Do NOT show remaining balance even if paid < original due — shortfall was carried forward.
     if (this.isPermitCleared(period)) return 0;
     return Math.max(0, this.getDue(period) - this.getPaid(period));
   }
@@ -479,17 +431,11 @@ export class PaymentSchedule implements OnInit, OnDestroy {
 
   getNotice(period: string): Notice | null { return this.notices[period] || null; }
 
-  // FIX DISPLAY-CARRY-01: Returns true if the period has an approved exam permit.
-  // Uses this.permits (loaded via loadPermits()) — works even without new Accounting.php.
   isPermitCleared(period: string): boolean {
-    // Primary: check permits array — loaded independently, always up to date
     if (this.permits.some(p => p.exam_period === period && p.status === 'approved')) return true;
-    // Fallback: schedule.approved_permits from updated backend
     return !!(this.schedule?.approved_permits?.[period]);
   }
 
-  // BUG-FULLPAY-01 FIX: For the 'Full' card, find any permit across all three periods.
-  // Prefer approved > pending > any, so the card shows the most meaningful status.
   getPermit(period: string): Permit | undefined {
     if (period === 'Full') {
       const all = ['Prelim','Midterm','Finals'];
@@ -503,7 +449,6 @@ export class PaymentSchedule implements OnInit, OnDestroy {
   }
 
   canRequest(period: string): boolean {
-    // Full-card: for full-payment plan — check each period independently
     if (period === 'Full') {
       const allDone = ['Prelim','Midterm','Finals'].every(p => {
         const permit = this.permits.find(x => x.exam_period === p);
@@ -511,22 +456,16 @@ export class PaymentSchedule implements OnInit, OnDestroy {
       });
       if (allDone) return false;
       if (this.getStatus('Full') === 'locked') return false;
-      // Full-plan or scholar: notice sent is sufficient to request
       return this.paymentPlan === 'full' || this.isFullScholar;
     }
 
-    // Single period
     const permit = this.getPermit(period);
     if (permit && (permit.status === 'pending' || permit.status === 'approved')) return false;
 
     const status = this.getStatus(period);
     if (status === 'locked') return false;
     if (this.isFullScholar) return true;
-
-    // Full-plan: notice sent (status !== 'locked') is sufficient — no payment_status check
     if (this.paymentPlan === 'full') return true;
-
-    // Installment: must have an actual payment recorded (status = 'paid' or 'partial')
     return status === 'paid' || status === 'partial';
   }
 
@@ -553,7 +492,7 @@ export class PaymentSchedule implements OnInit, OnDestroy {
   // ── Payment modal ─────────────────────────────────────────────────────────
   openPayModal(period: string): void {
     this.payPeriod    = period;
-    this.payAmount    = 0;          // student enters their own amount — no minimum enforced
+    this.payAmount    = 0;
     this.payMethod    = 'Cash';
     this.payGcashRef  = '';
     this.payNote      = '';
@@ -570,7 +509,6 @@ export class PaymentSchedule implements OnInit, OnDestroy {
   closePayModal(): void {
     if (this.isSubmitting) return;
     if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = null; }
-    // Clear persisted pending state when user manually closes the modal
     sessionStorage.removeItem(`paySchedulePending_${this.studentId}`);
     this.showPayModal = false;
     this.paySubmitted = false;
@@ -579,7 +517,6 @@ export class PaymentSchedule implements OnInit, OnDestroy {
   }
 
   submitPayment(): void {
-    // Cash: auto-set amount to term balance — cashier records actual amount at the office
     if (this.payMethod === 'Cash') {
       this.payAmount = this.getBalance(this.payPeriod) || 0;
     }
@@ -596,7 +533,6 @@ export class PaymentSchedule implements OnInit, OnDestroy {
     this.isSubmitting = true;
     this.payMsg = '';
 
-    // Submit payment — goes to Accounting for approval (same as enrollment flow)
     this.http.post<any>(`${this.apiUrl}?action=submit_installment_payment`, {
       student_id:         this.studentId,
       amount:             this.payAmount,
@@ -613,14 +549,12 @@ export class PaymentSchedule implements OnInit, OnDestroy {
           this.payOrArNumber = res.orArNumber || '';
           this.payMsg        = '';
           if (this.payMethod === 'GCash') {
-            // Persist state so reload doesn't clear "awaiting approval" screen
             const pendingKey = `paySchedulePending_${this.studentId}`;
             sessionStorage.setItem(pendingKey, JSON.stringify({
               period:      this.payPeriod,
               orArNumber:  this.payOrArNumber,
               amount:      this.payAmount,
             }));
-            // Only poll for GCash — Cash is recorded by the cashier directly
             this.startApprovalPolling();
           }
         } else {
@@ -638,12 +572,9 @@ export class PaymentSchedule implements OnInit, OnDestroy {
     });
   }
 
-  // Poll accounting API every 5s to check if payment was approved
   startApprovalPolling(): void {
-    // Prevent duplicate intervals
     if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = null; }
     this.isPollingApproval = true;
-    // Check immediately on start
     this.checkApprovalPoll();
     this.pollTimer = setInterval(() => this.checkApprovalPoll(), 5000);
   }
@@ -655,19 +586,16 @@ export class PaymentSchedule implements OnInit, OnDestroy {
         const sched = res.schedule;
         const p = this.payPeriod.toLowerCase();
         const newStatus = sched ? sched[p + '_status'] : null;
-        // If status changed from unpaid → paid or partial, accounting approved it
         if (newStatus === 'paid' || newStatus === 'partial') {
           clearInterval(this.pollTimer);
           this.pollTimer = null;
           this.isPollingApproval = false;
           this.schedule = sched;
           this.notices  = res.notices || {};
-          // Clear persisted pending state
           sessionStorage.removeItem(`paySchedulePending_${this.studentId}`);
           this.pendingTerms.delete(this.payPeriod);
           this.loadPermits();
           this.loadPendingTerms();
-          // Invalidate history cache so next visit to History tab shows fresh data
           this.historyLoaded = false;
           this.closePayModal();
           this.msg     = `✅ Payment approved by Accounting!`;
@@ -684,24 +612,44 @@ export class PaymentSchedule implements OnInit, OnDestroy {
     this.isLoadingPermit  = true;
     this.viewingPermit    = permit;
     this.showPermitViewer = true;
+    this.permitQrDataUrl  = '';
     this.cdr.detectChanges();
 
-    // Fetch full permit details including courses + approver name
     this.http.get<any>(`${this.apiUrl}?action=get_permit_details&permit_id=${permit.id}&student_id=${this.studentId}`).subscribe({
       next: (res) => {
         this.isLoadingPermit = false;
         if (res.success) {
           this.viewingPermit = { ...permit, ...res.permit };
         }
+        // Generate QR after details are loaded
+        this.generatePermitQr(this.viewingPermit!);
         this.cdr.detectChanges();
       },
-      error: () => { this.isLoadingPermit = false; this.cdr.detectChanges(); }
+      error: () => {
+        this.isLoadingPermit = false;
+        if (this.viewingPermit) this.generatePermitQr(this.viewingPermit);
+        this.cdr.detectChanges();
+      }
     });
   }
 
   closePermitViewer(): void {
     this.showPermitViewer = false;
     this.viewingPermit = null;
+    this.permitQrDataUrl = '';
+    this.cdr.detectChanges();
+  }
+
+  // ── QR Code Generation ────────────────────────────────────────────────────
+  // Builds a QR code URL using the free QRServer API (no npm package needed).
+  // The encoded payload is a verification URL. When scanned, opens the permit
+  // verification page in the student's browser automatically.
+  generatePermitQr(permit: Permit): void {
+    if (!permit) return;
+    const verifyUrl = `https://steelblue-marten-571548.hostingersite.com/sia-api/Accounting.php?action=verify_permit&id=${encodeURIComponent(permit.permit_identifier || permit.id)}`;
+
+    this.permitQrDataUrl =
+      `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(verifyUrl)}&ecc=M&margin=4`;
     this.cdr.detectChanges();
   }
 
@@ -715,6 +663,9 @@ export class PaymentSchedule implements OnInit, OnDestroy {
     const extraRows = Math.max(0, 8 - (p.courses?.length || 0));
     const blankRows = Array(extraRows).fill('<tr><td>&nbsp;</td><td></td></tr>').join('');
 
+    const qrPayload = `https://steelblue-marten-571548.hostingersite.com/sia-api/Accounting.php?action=verify_permit&id=${encodeURIComponent(p.permit_identifier || p.id)}`;
+    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=110x110&data=${encodeURIComponent(qrPayload)}&ecc=M&margin=4`;
+
     const html = `<!DOCTYPE html>
 <html>
 <head>
@@ -723,76 +674,53 @@ export class PaymentSchedule implements OnInit, OnDestroy {
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: Arial, sans-serif; padding: 28px 32px; font-size: 12px; color: #000; }
-
-    /* Header */
     .header { display: flex; align-items: center; gap: 14px; padding-bottom: 8px; border-bottom: 2.5px solid #000; margin-bottom: 8px; }
-    .logo-circle { width: 62px; height: 62px; border: 2px solid #888; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 9px; text-align: center; color: #555; font-style: italic; }
+    .logo-circle { width: 62px; height: 62px; border: 2px solid #888; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 22px; }
     .school-info { flex: 1; }
     .school-name { font-size: 16px; font-weight: 900; text-transform: uppercase; letter-spacing: 1px; }
     .school-sub  { font-size: 9px; color: #444; margin-top: 1px; }
     .school-addr { font-size: 9px; color: #444; }
-    .reg-badges  { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; font-size: 8px; color: #555; }
-    .reg-badge   { border: 1px solid #aaa; padding: 2px 6px; border-radius: 3px; white-space: nowrap; }
-
-    /* Blue title bar */
+    .qr-corner { display: flex; flex-direction: column; align-items: center; gap: 3px; flex-shrink: 0; }
+    .qr-corner img { width: 90px; height: 90px; border: 1px solid #ccc; border-radius: 4px; }
+    .qr-label { font-size: 7px; color: #666; text-align: center; }
     .permit-bar { background: #1a4fa0; color: white; text-align: center; padding: 7px 10px; margin: 8px 0; }
     .permit-bar-title { font-size: 14px; font-weight: 900; letter-spacing: 2px; }
     .permit-bar-sub   { font-size: 10px; margin-top: 2px; }
     .permit-bar-date  { font-size: 10px; margin-top: 1px; font-style: italic; }
-
-    /* Student info */
     .info-section { display: grid; grid-template-columns: 1fr 1fr; gap: 0; margin: 8px 0; }
     .info-row { display: flex; gap: 4px; padding: 4px 0; border-bottom: 1px solid #ccc; }
-    .info-row:nth-child(odd) { padding-right: 12px; }
     .info-label { font-size: 10px; color: #555; white-space: nowrap; }
     .info-value { font-size: 12px; font-weight: 700; border-bottom: 1px solid #000; flex: 1; padding-bottom: 1px; }
-
-    /* Highlight box */
-    .highlight-box { background: #1a4fa0; color: white; padding: 4px 10px; font-size: 11px; font-weight: 700; margin: 6px 0; display: inline-block; }
-
-    /* Note */
+    .highlight-box { background: #1a4fa0; color: white; padding: 4px 10px; font-size: 11px; font-weight: 700; display: inline-block; }
     .note { color: #c00; font-weight: 700; font-size: 10px; margin: 6px 0; text-align: center; }
-
-    /* Subject table */
     table { width: 100%; border-collapse: collapse; margin-top: 6px; }
     th    { background: #f0f0f0; font-size: 11px; font-weight: 700; padding: 5px 8px; border: 1px solid #333; text-align: left; }
     td    { padding: 5px 8px; border: 1px solid #555; font-size: 11px; height: 22px; }
-
-    /* Signature */
     .sig-area { display: flex; justify-content: flex-start; margin-top: 28px; }
     .sig-block { text-align: center; min-width: 220px; }
     .sig-name  { font-size: 13px; font-weight: 900; color: #1a4fa0; letter-spacing: 0.5px; text-transform: uppercase; }
     .sig-line  { border-top: 1.5px solid #000; margin-top: 6px; padding-top: 4px; font-size: 10px; }
-
-    @media print {
-      body { padding: 14px 18px; }
-      @page { margin: 10mm; }
-    }
+    @media print { body { padding: 14px 18px; } @page { margin: 10mm; } }
   </style>
 </head>
 <body>
-
-  <!-- HEADER -->
   <div class="header">
-    <div class="logo-circle">ST.<br>BENILDE<br>LOGO</div>
+    <div class="logo-circle">🏫</div>
     <div class="school-info">
       <div class="school-name">ST. BENILDE</div>
       <div class="school-sub">CENTER FOR GLOBAL COMPETENCE, INC.</div>
       <div class="school-addr">#247 Rizal Avenue, West Bajac-Bajac, Olongapo City &nbsp;|&nbsp; Tel/Fax: (047) 223-3031</div>
     </div>
-    <div class="reg-badges">
-      <div class="reg-badge">Registered with:<br>CHED · TESDA · DepEd</div>
+    <div class="qr-corner">
+      <img src="${qrUrl}" alt="Permit QR Code" />
+      <div class="qr-label">Scan to verify permit owner</div>
     </div>
   </div>
-
-  <!-- PERMIT TITLE BAR -->
   <div class="permit-bar">
     <div class="permit-bar-title">${p.exam_period.toUpperCase()} EXAMINATION PERMIT</div>
     <div class="permit-bar-sub">${p.semester} &nbsp;&nbsp; A.Y. ${p.school_year}</div>
     <div class="permit-bar-date">Permit No.: <strong>${p.permit_identifier || '—'}</strong></div>
   </div>
-
-  <!-- STUDENT INFO -->
   <div class="info-section">
     <div class="info-row">
       <span class="info-label">Student No.:</span>
@@ -808,37 +736,20 @@ export class PaymentSchedule implements OnInit, OnDestroy {
     </div>
     <div class="info-row" style="grid-column:1/-1;">
       <span class="info-label">Course/Major:</span>
-      <span class="info-value">
-        <span class="highlight-box">${p.program || ''}</span>
-      </span>
+      <span class="info-value"><span class="highlight-box">${p.program || ''}</span></span>
     </div>
   </div>
-
-  <!-- NOTE -->
   <div class="note">NOTE: ANY ERASURE WILL INVALIDATE THIS ${p.exam_period.toUpperCase()} PERMIT</div>
-
-  <!-- SUBJECT TABLE -->
   <table>
-    <thead>
-      <tr>
-        <th style="width:65%">Subject</th>
-        <th style="width:35%">Instructor's Signature</th>
-      </tr>
-    </thead>
-    <tbody>
-      ${courses}
-      ${blankRows}
-    </tbody>
+    <thead><tr><th style="width:65%">Subject</th><th style="width:35%">Instructor's Signature</th></tr></thead>
+    <tbody>${courses}${blankRows}</tbody>
   </table>
-
-  <!-- SIGNATURE -->
   <div class="sig-area">
     <div class="sig-block">
       <div class="sig-name">${(p.approved_by_first || '') + ' ' + (p.approved_by_last || '')}</div>
       <div class="sig-line">Account Management Officer / Cashier</div>
     </div>
   </div>
-
   <script>window.onload = () => { window.print(); }<\/script>
 </body>
 </html>`;

@@ -29,6 +29,7 @@ interface Student {
   isScholar: number;
   scholarType: string;
   enrollmentDate: string;
+  subjectSelectionStatus?: string;  // 'Submitted' | 'Approved' | 'Rejected' | 'Pending' | 'None'
   // detail fields (loaded on demand)
   courses?: EnrolledCourse[];
   fees?: FeeBreakdown;
@@ -142,6 +143,8 @@ export class StudentEnrollmentReviewComponent implements OnInit {
           this.total      = res.total    ?? 0;
           this.totalPages = res.totalPages ?? 0;
           this.programs   = res.programs  ?? [];
+          // Load subject selection status for each student (batch, non-blocking)
+          setTimeout(() => this.loadSubjectSelectionStatuses(), 0);
         } else {
           this.error = res.message || 'Failed to load students';
         }
@@ -219,7 +222,17 @@ export class StudentEnrollmentReviewComponent implements OnInit {
       }
     });
 
-    // 2. Load fee breakdown from enrollment.php get_student_context
+    // 2. Load subject selection status (for approval panel visibility)
+    this.http.get<any>(`${ENROLLMENT_API}?action=get_subject_selection&student_id=${student.id}`).subscribe({
+      next: (res) => {
+        if (this.selectedStudent) {
+          this.selectedStudent.subjectSelectionStatus = res.status ?? res.selection?.status ?? 'None';
+          this.cdr.detectChanges();
+        }
+      }
+    });
+
+    // 3. Load fee breakdown from enrollment.php get_student_context
     this.http.get<any>(`${ENROLLMENT_API}?action=get_student_context&student_id=${student.id}`).subscribe({
       next: (res) => {
         if (res.success && res.fees && this.selectedStudent) {
@@ -304,5 +317,178 @@ export class StudentEnrollmentReviewComponent implements OnInit {
     return upper.startsWith('GE') || upper.startsWith('PE') ||
            upper.startsWith('NSTP') || upper.startsWith('OJT');
   }
+
+  // ── Subject Selection Status ──────────────────────────────────────────────
+  getSubjectSelectionStatus(student: Student | null): string {
+    return (student as any)?.subjectSelectionStatus ?? 'None';
+  }
+
+  /** Fetch subject_selection_status for all visible students in one batch */
+  loadSubjectSelectionStatuses(): void {
+    this.students.forEach(s => {
+      this.http.get<any>(
+        `${ENROLLMENT_API}?action=get_subject_selection&student_id=${s.id}`
+      ).subscribe({
+        next: (res) => {
+          s.subjectSelectionStatus = res.status ?? res.selection?.status ?? 'None';
+          this.cdr.detectChanges();
+        },
+        error: () => {}
+      });
+    });
+  }
+
+  /** Open detail panel then immediately open the subject approval modal */
+  viewDetailAndOpenApproval(student: Student): void {
+    this.viewDetail(student);
+    // Wait for detail to load then open modal
+    const attempt = (tries: number) => {
+      if (this.selectedStudent && !this.selectedStudent.loadingDetail) {
+        this.openSubjectApproval();
+      } else if (tries > 0) {
+        setTimeout(() => attempt(tries - 1), 400);
+      }
+    };
+    setTimeout(() => attempt(10), 300);
+  }
+
+  // ── Subject Approval ──────────────────────────────────────────────────────
+  subjectApprovalSubmitting = false;
+  subjectApprovalNotes = '';
+  showSubjectApprovalPanel = false;
+  stagedCourses: (EnrolledCourse & { approveFlag: boolean; course_id_ref: number })[] = [];
+
+  openSubjectApproval(): void {
+    if (!this.selectedStudent) return;
+    this.subjectApprovalSubmitting = true;
+    this.cdr.detectChanges();
+
+    this.http.get<any>(
+      `${ENROLLMENT_API}?action=get_subject_selection&student_id=${this.selectedStudent.id}`
+    ).subscribe({
+      next: (res) => {
+        this.subjectApprovalSubmitting = false;
+        const requestedCourses: any[] = res.selection?.requested_courses ?? res.courses ?? [];
+        if (requestedCourses.length === 0) {
+          this.stagedCourses = (this.selectedStudent?.courses ?? [])
+            .filter(c => c.status === 'Pending' || c.status === 'Enrolled')
+            .map(c => ({ ...c, approveFlag: true, course_id_ref: c.course_id }));
+        } else {
+          this.stagedCourses = requestedCourses.map((c: any) => ({
+            enrollment_id: 0,
+            course_id:     +(c.id ?? c.course_id ?? 0),
+            course_id_ref: +(c.id ?? c.course_id ?? 0),
+            code:          c.code,
+            name:          c.name,
+            credits:       +(c.credits ?? 0),
+            lecUnits:      +(c.lec_units ?? c.credits ?? 0),
+            labUnits:      +(c.lab_units ?? 0),
+            isGeneral:     false, isLab: false,
+            instructor: '—', day: '—', time: '—', room: '—',
+            semester:   this.selectedStudent?.semester ?? '',
+            status:     'Pending',
+            approveFlag: true,
+          }));
+        }
+        this.subjectApprovalNotes = res.selection?.registrar_notes ?? '';
+        this.showSubjectApprovalPanel = true;
+        this.cdr.detectChanges();
+      },
+      error: () => {
+        this.subjectApprovalSubmitting = false;
+        this.notify('error', 'Could not load subject selection. Make sure XAMPP is running.');
+        this.cdr.detectChanges();
+      }
+    });
+  }
+
+  closeSubjectApproval(): void {
+    this.showSubjectApprovalPanel = false;
+    this.cdr.detectChanges();
+  }
+
+  toggleStagedCourse(course: { approveFlag: boolean }): void {
+    course.approveFlag = !course.approveFlag;
+    this.cdr.detectChanges();
+  }
+
+  get stagedApprovedCount(): number { return this.stagedCourses.filter(c => c.approveFlag).length; }
+  get stagedRejectedCount(): number { return this.stagedCourses.filter(c => !c.approveFlag).length; }
+
+  approveSubjects(): void {
+    if (!this.selectedStudent) return;
+    if (this.stagedApprovedCount === 0) {
+      this.notify('error', 'At least one subject must be approved.'); return;
+    }
+    this.subjectApprovalSubmitting = true;
+    this.cdr.detectChanges();
+
+    const approvedIds = this.stagedCourses
+      .filter(c => c.approveFlag)
+      .map(c => c.course_id_ref)
+      .filter((id: number) => id > 0);
+
+    this.http.post<any>(`${REGISTRAR_API}?action=approve_subject_selection`, {
+      student_id:          this.selectedStudent.id,
+      action:              'Approved',
+      approved_course_ids: approvedIds,
+      notes:               this.subjectApprovalNotes || 'Subject selection approved.',
+    }).subscribe({
+      next: (res) => {
+        this.subjectApprovalSubmitting = false;
+        this.showSubjectApprovalPanel = false;
+        if (res.success) {
+          this.notify('success',
+            `✓ ${res.approvedCount} subject${res.approvedCount !== 1 ? 's' : ''} approved for ${this.selectedStudent?.firstName} ${this.selectedStudent?.lastName}. Student may now proceed.`
+          );
+          if (this.selectedStudent) this.viewDetail(this.selectedStudent);
+          this.loadStudents(); this.loadStats();
+        } else {
+          this.notify('error', res.message || 'Approval failed.');
+        }
+        this.cdr.detectChanges();
+      },
+      error: () => {
+        this.subjectApprovalSubmitting = false;
+        this.notify('error', 'Connection error. Check that XAMPP is running.');
+        this.cdr.detectChanges();
+      }
+    });
+  }
+
+  rejectSubjects(): void {
+    if (!this.selectedStudent) return;
+    if (!this.subjectApprovalNotes.trim()) {
+      this.notify('error', 'Please provide a reason for rejection.'); return;
+    }
+    this.subjectApprovalSubmitting = true;
+    this.cdr.detectChanges();
+
+    this.http.post<any>(`${REGISTRAR_API}?action=approve_subject_selection`, {
+      student_id:          this.selectedStudent.id,
+      action:              'Rejected',
+      approved_course_ids: [],
+      notes:               this.subjectApprovalNotes,
+    }).subscribe({
+      next: (res) => {
+        this.subjectApprovalSubmitting = false;
+        this.showSubjectApprovalPanel = false;
+        if (res.success) {
+          this.notify('success', 'Subject selection rejected. Student will be notified to resubmit.');
+          if (this.selectedStudent) this.viewDetail(this.selectedStudent);
+          this.loadStudents(); this.loadStats();
+        } else {
+          this.notify('error', res.message || 'Rejection failed.');
+        }
+        this.cdr.detectChanges();
+      },
+      error: () => {
+        this.subjectApprovalSubmitting = false;
+        this.notify('error', 'Connection error. Check that XAMPP is running.');
+        this.cdr.detectChanges();
+      }
+    });
+  }
+
 
 }

@@ -68,7 +68,7 @@ export class LoginComponent implements OnInit, OnDestroy {
   private otpTimer: any = null;
 
   // ── Wizard ───────────────────────────────────────────────────
-  enrollStep: 'program' | 'info' | 'documents' | 'tor-review' | 'account' | 'confirmed' = 'program';
+  enrollStep: 'program' | 'info' | 'subjects' | 'documents' | 'tor-review' | 'account' | 'confirmed' = 'program';
   enrollError = ''; isSubmitting = false;
   privacyConsentGiven = false;  // RA 10173 — must be true before account creation
   showPrivacyNotice   = false;
@@ -354,6 +354,56 @@ export class LoginComponent implements OnInit, OnDestroy {
   }
 
   /** Validate a single Step 4 account field and update accountErrors immediately. */
+  /** Real-time email availability check on blur — prevents duplicate accounts */
+  checkEmailAvailability(): void {
+    const email = (this.accountForm.email ?? '').trim();
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return;
+    this.http.get<any>(`${this.authUrl}?action=check_email&email=${encodeURIComponent(email)}`).subscribe({
+      next: (res) => {
+        if (!res.available) {
+          this.accountErrors['email'] = 'This email is already registered. Please use a different email or log in to your existing account.';
+          this.cdr.detectChanges();
+        } else {
+          // Clear any previous email error if now available
+          if (this.accountErrors['email']?.includes('already registered')) {
+            delete this.accountErrors['email'];
+            this.cdr.detectChanges();
+          }
+        }
+      }
+    });
+  }
+
+  /** Real-time name + DOB duplicate check on blur of any personal info field */
+  checkNameDuplicate(): void {
+    const first = (this.regForm.firstName   ?? '').trim();
+    const last  = (this.regForm.lastName    ?? '').trim();
+    const dob   = (this.regForm.dateOfBirth ?? '').trim();
+    if (!first || !last || !dob) return; // need all three to check
+
+    this.http.get<any>(
+      `${this.authUrl}?action=check_name` +
+      `&first_name=${encodeURIComponent(first)}` +
+      `&last_name=${encodeURIComponent(last)}` +
+      `&date_of_birth=${encodeURIComponent(dob)}`
+    ).subscribe({
+      next: (res) => {
+        if (!res.available) {
+          this.fieldErrors['lastName'] = res.message ||
+            'A student with this name and date of birth already exists. Please log in instead.';
+          this.enrollError = this.fieldErrors['lastName'];
+          this.cdr.detectChanges();
+        } else {
+          if (this.fieldErrors['lastName']?.includes('already exists')) {
+            delete this.fieldErrors['lastName'];
+            if (this.enrollError?.includes('already exists')) this.enrollError = '';
+            this.cdr.detectChanges();
+          }
+        }
+      }
+    });
+  }
+
   validateStep4Field(field: string): void {
     const a = this.accountForm;
     const set   = (msg: string) => { this.accountErrors[field] = msg; this.cdr.detectChanges(); };
@@ -811,6 +861,18 @@ export class LoginComponent implements OnInit, OnDestroy {
         if (this.studentTypeCategory) this.loadPrograms();
         // FIX SHS-YEARLEVEL-01 (restore): re-sync yearLevel after category is known
         this.syncYearLevelToCategory();
+
+        // FIX REFRESH-FEE-01: If restoring to the 'documents' step for non-transferee
+        // College students, feePreview is lost (not persisted). Reload it so the
+        // formula template in Step 4 has the data it needs after a refresh.
+        // We clear feePreview first so the template shows cleanly, not stale values.
+        this.feePreview = null;
+
+        // FIX REFRESH-PAYMENT-01: Ensure paymentPlan/paymentMethod always have
+        // a valid value after restore. Default 'full'/'Cash' if null/undefined.
+        if (!this.paymentPlan)   this.paymentPlan   = 'full';
+        if (!this.paymentMethod) this.paymentMethod = 'Cash';
+
         this.cdr.detectChanges();
         return;
       } catch (e) {
@@ -1052,7 +1114,354 @@ export class LoginComponent implements OnInit, OnDestroy {
 
   backToLogin(): void { this.view = 'login'; this.enrollError = ''; this.cdr.detectChanges(); }
 
-  get stepNumber(): number { return ({program:1,info:2,documents:3,'tor-review':3,account:4,confirmed:4} as any)[this.enrollStep] ?? 1; }
+  get stepNumber(): number { return ({program:1,info:2,subjects:3,documents:4,'tor-review':4,account:5,confirmed:5} as any)[this.enrollStep] ?? 1; }
+
+  // ── Subject Selection Step ────────────────────────────────────────────────
+  subjectSelectionCourses: {
+    id: number; code: string; name: string; credits: number;
+    yearLevel: string; semester: string; selected: boolean;
+  }[] = [];
+  isSubjectSelectionLoading = false;
+  subjectSelectionError = '';
+
+  get selectedSubjects() { return this.subjectSelectionCourses.filter(s => s.selected); }
+  get selectedSubjectUnits() { return this.selectedSubjects.reduce((t, s) => t + s.credits, 0); }
+
+  loadSubjectSelection(): void {
+    if (!this.selectedProgramName) return;
+    this.isSubjectSelectionLoading = true;
+    this.subjectSelectionError = '';
+    this.subjectSelectionCourses = [];
+    this.cdr.detectChanges();
+
+    // FIX SUBJ-FILTER-01: get_program_courses returns ALL subjects for the full
+    // curriculum (every year level & semester). We filter to the student's current
+    // year level + semester on the frontend so only the relevant term is shown.
+    // The backend `year_level` / `semester` query params are kept for servers that
+    // do support them, but we never rely on them for correctness.
+    this.http.get<any>(
+      `${environment.registrarApi}?action=get_program_courses&program=${encodeURIComponent(this.selectedProgramName)}`
+    ).subscribe({
+      next: (res) => {
+        this.isSubjectSelectionLoading = false;
+        if (res.success && res.courses) {
+          const studentYearLevel = (this.regForm.yearLevel || '1st Year').trim();
+          // Derive the semester term only (strip "AY YYYY-YYYY" suffix for matching)
+          // e.g. "1st Semester, AY 2025-2026" → "1st Semester"
+          const studentSemTerm = (this.fullSemester || '').split(',')[0].trim();
+
+          const all: typeof this.subjectSelectionCourses = res.courses.map((c: any) => ({
+            id:        +(c.courseId ?? c.id ?? 0),   // backend returns 'courseId'
+            code:      c.code,
+            name:      c.name,
+            credits:   +(c.credits ?? 0),
+            yearLevel: (c.yearLevel ?? c.year_level ?? '').trim(),
+            semester:  (c.semester  ?? '').trim(),
+            selected:  true,
+          }));
+
+          // Filter to current year level + semester only
+          const filtered = all.filter(c => {
+            const ylMatch  = !c.yearLevel  || c.yearLevel  === studentYearLevel;
+            const semMatch = !c.semester   || c.semester   === studentSemTerm
+                             // also try full semester string match as fallback
+                             || c.semester === this.fullSemester.trim();
+            return ylMatch && semMatch;
+          });
+
+          // If filtering yields nothing (curriculum data has no year/sem tags),
+          // fall back to showing the full list so the student isn't stranded.
+          this.subjectSelectionCourses = filtered.length > 0 ? filtered : all;
+        } else {
+          this.subjectSelectionError = 'Could not load subjects for this program.';
+        }
+        this.cdr.detectChanges();
+      },
+      error: () => {
+        this.isSubjectSelectionLoading = false;
+        this.subjectSelectionError = 'Could not connect to server.';
+        this.cdr.detectChanges();
+      }
+    });
+  }
+
+  // ── Year / Semester grouping helpers for Subject Selection step ───────────
+  // Separate from getYearLevels() / getSemesters() which operate on programCourses
+  // (the transferee TOR subject list). These operate on subjectSelectionCourses.
+  getSubjectYearLevels(): string[] {
+    const years = [...new Set(this.subjectSelectionCourses.map(c => c.yearLevel || '1st Year'))];
+    return years.sort((a, b) =>
+      (this.yearOrder.indexOf(a) - this.yearOrder.indexOf(b)) || a.localeCompare(b));
+  }
+
+  getSubjectSemesters(yearLevel: string): string[] {
+    const sems = [...new Set(
+      this.subjectSelectionCourses
+        .filter(c => (c.yearLevel || '1st Year') === yearLevel)
+        .map(c => c.semester || '1st Semester')
+    )];
+    return sems.sort((a, b) =>
+      (this.semOrder.indexOf(a) - this.semOrder.indexOf(b)) || a.localeCompare(b));
+  }
+
+  toggleSubject(course: { selected: boolean }): void {
+    course.selected = !course.selected;
+    this.cdr.detectChanges();
+  }
+
+  selectAllSubjects(): void {
+    this.subjectSelectionCourses.forEach(c => c.selected = true);
+    this.cdr.detectChanges();
+  }
+
+  // ── Subject Approval Waiting State ────────────────────────────────────────
+  // After the student submits subjects, the step stays on 'subjects' (waiting sub-view)
+  // until the registrar approves. We poll every few seconds.
+  subjectSubmissionStatus: 'idle' | 'submitting' | 'pending-account' | 'waiting' | 'approved' | 'rejected' = 'idle';
+  accountAlreadyCreated = false; // true after account creation + subject submission
+  subjectSubmittedStudentId = 0;
+  private subjectPollInterval: any = null;
+  subjectRegistrarNotes = '';
+
+  /** Navigate from Step 3 pending-account state to Step 4 Documents.
+   *  NOTE: Fee is NOT loaded here — it will only be loaded after Registrar approves
+   *  the subject selection (proceedAfterSubjectApproval). Showing fee before approval
+   *  would show wrong unit count. */
+  goToDocumentsFromSubjects(): void {
+    this.enrollStep = 'documents';
+    this.feePreview = null;           // clear any stale fee data
+    this.feePreviewError = '';
+    this.saveWizardState();
+    this.cdr.detectChanges();
+  }
+
+  proceedFromSubjects(): void {
+    if (this.selectedSubjects.length === 0) {
+      this.enrollError = 'Please select at least one subject before proceeding.';
+      this.cdr.detectChanges(); return;
+    }
+    this.enrollError = '';
+    // Save selection in memory + session for submitEnrollment() to POST later.
+    // Do NOT advance to Documents yet — show a waiting state inside Step 3.
+    // The student must stay here until the Registrar approves.
+    // Flow: subject submit → waiting screen → Registrar approves → Step 4 unlocked.
+    this._saveSelectedSubjectsToSession();
+    this.subjectSubmissionStatus = 'pending-account'; // waiting for account creation
+    this.saveWizardState();
+    this.cdr.detectChanges();
+  }
+
+  /** Called when Registrar approves — now allow proceed to Step 4 with correct units */
+  proceedAfterSubjectApproval(): void {
+    this._stopSubjectApprovalPoll();
+    this.subjectSubmissionStatus = 'idle';
+    this.cdr.detectChanges();
+
+    if (this.accountAlreadyCreated) {
+      // Account was created before approval — navigate to student portal.
+      // If token is already stored, navigate directly.
+      if (this.auth.getToken()) {
+        this.clearWizardState();
+        this.router.navigate(['/student/enrollment'], {
+          queryParams: { _pp: this.paymentPlan, _pm: this.paymentMethod }
+        });
+      } else {
+        // Token not available — do a login first then navigate
+        const a = this.accountForm;
+        this.http.post<any>(`${this.authUrl}?action=login`, {
+          email: a.email, password: a.password, portal: 'student'
+        }).subscribe({
+          next: (lr) => {
+            if (lr.success) this.auth.storeSession(lr.token, lr.user, 'student');
+            this.clearWizardState();
+            this.router.navigate(['/student/enrollment'], {
+              queryParams: { _pp: this.paymentPlan, _pm: this.paymentMethod }
+            });
+          },
+          error: () => {
+            // Can't auto-login — redirect to login page with success message
+            this.clearWizardState();
+            this.view = 'login';
+            this.successMessage = 'Your subjects are approved! Please log in to access your Student Portal.';
+            this.cdr.detectChanges();
+          }
+        });
+      }
+      return;
+    }
+
+    // Account not yet created — go to documents step with approved fee
+    this.enrollStep = 'documents';
+    this.saveWizardState();
+    if (!this.isTransfereeEnrolling && !this.isSHS && !this.isTVET) {
+      this.loadFeePreviewWithUnits(this.selectedSubjectUnits);
+    } else if (this.isSHS) {
+      this.loadSHSFee();
+    } else if (this.isTVET) {
+      this.loadTVETFee();
+    } else {
+      this.loadProgramCourses();
+    }
+    this.cdr.detectChanges();
+  }
+
+  /** Load fee preview with an explicit unit count (used after subject approval) */
+  loadFeePreviewWithUnits(approvedUnits: number): void {
+    if (!this.selectedProgramName) return;
+    this.isFeePreviewLoading = true;
+    this.feePreviewError = '';
+    this.feePreview = null;
+    this.cdr.detectChanges();
+    const discount = this.isScholar && this.scholarshipAmount > 0 ? this.scholarshipAmount : 0;
+    const hasInstallment = this.paymentPlan === 'installment';
+    this.http.get<any>(
+      `${this.accountingUrl}?action=get_fee_preview` +
+      `&program=${encodeURIComponent(this.selectedProgramName)}` +
+      `&year_level=${encodeURIComponent(this.regForm.yearLevel)}` +
+      `&semester=${encodeURIComponent(this.fullSemester)}` +
+      `&units=${approvedUnits}` +
+      `&discount=${discount}` +
+      `&has_installment=${hasInstallment ? 1 : 0}`
+    ).subscribe({
+      next: (res) => {
+        this.isFeePreviewLoading = false;
+        if (res.success && res.fees) {
+          this.feePreview = res.fees;
+          this.tuitionAmount = res.fees.totalAssessment;
+        } else {
+          this.feePreviewError = 'Could not load fee breakdown.';
+        }
+        this.cdr.detectChanges();
+      },
+      error: () => {
+        this.isFeePreviewLoading = false;
+        this.feePreviewError = 'Could not connect to server for fee calculation.';
+        this.cdr.detectChanges();
+      }
+    });
+  }
+
+  private _saveSelectedSubjectsToSession(): void {
+    if (typeof sessionStorage === 'undefined') return;
+    sessionStorage.setItem('pendingSubjectSelection', JSON.stringify(
+      this.selectedSubjects.map(s => ({
+        id:      (s as any).id ?? 0,   // already resolved from courseId in loadSubjectSelection
+        code:    s.code,
+        name:    s.name,
+        credits: s.credits
+      }))
+    ));
+  }
+
+  private _submitSubjectSelectionToBackend(studentId: number, userId: number = 0): void {
+    // The backend needs course_ids (DB integers). Since at this wizard stage we only
+    // have course codes from the program course API, we first resolve them via the
+    // same get_program_courses response (course.id should be present). Fall back to
+    // code-based matching in enrollSubjectsByCode if course.id is unavailable.
+    const courseIds = this.selectedSubjects
+      .map(s => (s as any).id)
+      .filter((id): id is number => id > 0);
+
+    this.subjectSubmissionStatus = 'submitting';
+    this.cdr.detectChanges();
+
+    const payload: any = { notes: '' };
+    if (studentId > 0) payload.student_id = studentId;
+    if (userId > 0) payload.user_id = userId;
+    if (courseIds.length > 0) {
+      payload.course_ids = courseIds;
+    } else {
+      // Fallback: send course codes; backend will resolve to IDs
+      payload.course_codes = this.selectedSubjects.map(s => s.code);
+    }
+
+    this.http.post<any>(
+      `${this.apiUrl}?action=submit_subject_selection`, payload
+    ).subscribe({
+      next: (res) => {
+        if (res.success) {
+          this.subjectSubmissionStatus = 'waiting';
+          if (studentId) this.subjectSubmittedStudentId = studentId;
+          this._saveSelectedSubjectsToSession();
+          this.saveWizardState();
+          this._startSubjectApprovalPoll(studentId, userId);
+        } else {
+          this.subjectSubmissionStatus = 'idle';
+          this.enrollError = res.message || 'Could not submit your subject selection. Please try again.';
+        }
+        this.cdr.detectChanges();
+      },
+      error: () => {
+        this.subjectSubmissionStatus = 'idle';
+        this.enrollError = 'Could not connect to server. Make sure XAMPP is running.';
+        this.cdr.detectChanges();
+      }
+    });
+  }
+
+  private _startSubjectApprovalPoll(studentId: number, userId: number = 0): void {
+    this._stopSubjectApprovalPoll();
+    const check = () => {
+      const url = studentId
+        ? `${this.apiUrl}?action=get_subject_selection&student_id=${studentId}`
+        : `${this.apiUrl}?action=get_subject_selection&user_id=${userId}`;
+      this.http.get<any>(url).subscribe({
+        next: (res) => {
+          const status = res.status ?? res.selection?.status ?? '';
+          if (status === 'Approved') {
+            this._stopSubjectApprovalPoll();
+            this.subjectSubmissionStatus = 'approved';
+            this.subjectRegistrarNotes = res.selection?.registrar_notes ?? '';
+            // Update selectedSubjects to reflect APPROVED courses only
+            const approvedCourses: any[] = res.selection?.approved_courses ?? [];
+            if (approvedCourses.length > 0) {
+              this.subjectSelectionCourses.forEach(c => {
+                c.selected = approvedCourses.some((a: any) =>
+                  a.id === (c as any).id || a.code === c.code);
+              });
+            }
+            // Account was already created before waiting — mark it so Step 5 is skipped
+            this.accountAlreadyCreated = true;
+            this.cdr.detectChanges();
+            // Auto-navigate to student portal immediately — no button press needed
+            setTimeout(() => {
+              this.clearWizardState();
+              this.router.navigate(['/student/enrollment'], {
+                queryParams: { _pp: this.paymentPlan, _pm: this.paymentMethod }
+              });
+            }, 1500); // brief delay so student sees the "Approved!" screen
+          } else if (status === 'Rejected') {
+            this._stopSubjectApprovalPoll();
+            this.subjectSubmissionStatus = 'rejected';
+            this.subjectRegistrarNotes = res.selection?.registrar_notes ?? '';
+            this.cdr.detectChanges();
+          }
+          // 'Submitted' | 'Pending' → keep polling
+        },
+        error: () => {} // silently ignore network hiccups during poll
+      });
+    };
+    check(); // immediate first check
+    this.subjectPollInterval = setInterval(check, 8000);
+  }
+
+  private _stopSubjectApprovalPoll(): void {
+    if (this.subjectPollInterval) {
+      clearInterval(this.subjectPollInterval);
+      this.subjectPollInterval = null;
+    }
+  }
+
+  /** Called after registrar approves — student clicks "Continue to Documents" */
+  /** Student wants to change selection after rejection */
+  resetSubjectSelection(): void {
+    this._stopSubjectApprovalPoll();
+    this.subjectSubmissionStatus = 'idle';
+    this.subjectRegistrarNotes = '';
+    // Re-select all (fresh start)
+    this.subjectSelectionCourses.forEach(c => c.selected = true);
+    this.cdr.detectChanges();
+  }
 
   studentTypeCategoryLabel(): string {
     return this.studentTypeCategory === 'College' ? '🎓 College' : this.studentTypeCategory === 'SHS' ? '📚 Senior High School' : this.studentTypeCategory === 'TVET' ? '🔧 TVET Program' : '';
@@ -1339,18 +1748,16 @@ export class LoginComponent implements OnInit, OnDestroy {
   // ── Step 2 entry point — College ─────────────────────────────────────────
   proceedFromInfo(): void {
     if (!this._validateStep2({ requireLrn: true, isTransferee: this.isTransfereeEnrolling })) return;
-
-    this.enrollError = ''; this.enrollStep = 'documents';
-    this.saveWizardState();
+    this.enrollError = '';
+    // Transferees skip subject selection (handled by TOR review); others go to subject step
     if (this.isTransfereeEnrolling) {
+      this.enrollStep = 'documents';
+      this.saveWizardState();
       this.loadProgramCourses();
-    } else if (this.isSHS) {
-      this.loadSHSFee();
-    } else if (this.isTVET) {
-      this.loadTVETFee();
     } else {
-      // College only
-      this.loadFeePreview();
+      this.enrollStep = 'subjects';
+      this.saveWizardState();
+      this.loadSubjectSelection();
     }
     this.cdr.detectChanges();
   }
@@ -1579,6 +1986,13 @@ export class LoginComponent implements OnInit, OnDestroy {
     return this.programCourses.filter(c => (c.yearLevel||'1st Year') === yearLevel && (c.semester||'1st Semester') === semester);
   }
 
+  /** Filter subjectSelectionCourses by year level + semester for template grouping */
+  getSubjectSelectionFor(yearLevel: string, semester: string) {
+    return this.subjectSelectionCourses.filter(
+      c => (c.yearLevel || '1st Year') === yearLevel && (c.semester || '1st Semester') === semester
+    );
+  }
+
   get totalProgramUnits(): number { return this.programCourses.reduce((s,c) => s + (c.credits||0), 0); }
 
   // Step 3 — File handlers
@@ -1718,8 +2132,34 @@ export class LoginComponent implements OnInit, OnDestroy {
     this.confirmedProgram       = program;
     this.confirmedNextStep      = nextStep;
     this.confirmedAutoLoginSec  = 5;
-    this.enrollStep             = 'confirmed';
     this.isSubmitting           = false;
+    // If subject approval is pending, stay on 'account' step so the waiting
+    // message box renders inside Step 5 — don't switch to 'confirmed'.
+    if (this.subjectSubmissionStatus === 'waiting' ||
+        this.subjectSubmissionStatus === 'approved' ||
+        this.subjectSubmissionStatus === 'rejected') {
+      // Account created — ensure session is stored so navigation works after approval.
+      this.accountAlreadyCreated = true;
+      // If register_student returned a token but it wasn't stored yet, store it now.
+      if (!this.auth.getToken()) {
+        // Token not stored — do a silent login to get it
+        const a = this.accountForm;
+        this.http.post<any>(`${this.authUrl}?action=login`, {
+          email: a.email, password: a.password, portal: 'student'
+        }).subscribe({
+          next: (lr) => {
+            if (lr.success) {
+              this.auth.storeSession(lr.token, lr.user, 'student');
+              console.log('[ENROLL] Silent login after subject submit — token stored');
+            }
+          },
+          error: () => console.warn('[ENROLL] Silent login failed — user must log in manually')
+        });
+      }
+      this.cdr.detectChanges();
+      return;
+    }
+    this.enrollStep = 'confirmed';
     this.cdr.detectChanges();
 
     // Start countdown — auto-proceeds after 5s
@@ -2028,6 +2468,7 @@ export class LoginComponent implements OnInit, OnDestroy {
   // SHS ENROLLMENT SUBMIT — separate function, does NOT modify College flow
   // ══════════════════════════════════════════════════════════
   submitEnrollmentSHS(): void {
+    if (this.enrollmentSubmitted) return;  // prevent double-submit
     const a = this.accountForm;
     this.accountErrors = {};
     if (!a.email?.trim())                    { this.setFieldError(this.accountErrors, 'email',    'Email is required.'); return; }
@@ -2038,6 +2479,7 @@ export class LoginComponent implements OnInit, OnDestroy {
     if (!a.confirmPassword)                  { this.setFieldError(this.accountErrors, 'confirmPassword', 'Please confirm your password.'); return; }
     if (a.password !== a.confirmPassword)    { this.setFieldError(this.accountErrors, 'confirmPassword', 'Passwords do not match.'); return; }
 
+    this.enrollmentSubmitted = true;
     this.isSubmitting = true; this.enrollError = ''; this.cdr.detectChanges();
 
     // STEP 1 — Create user account
@@ -2048,7 +2490,16 @@ export class LoginComponent implements OnInit, OnDestroy {
       next: (res) => {
         if (!res.success && !res.user_id) {
           this.isSubmitting = false;
-          this.enrollError = res.message || 'Failed to create account.';
+          this.enrollmentSubmitted = false; // allow retry
+          if (res.code === 'EMAIL_EXISTS') {
+            this.accountErrors['email'] = 'This email is already registered. Please use a different email or log in.';
+            this.enrollError = '';
+          } else if (res.code === 'NAME_EXISTS') {
+            this.enrollError = res.message || 'A student with this name and date of birth already exists. Please log in instead.';
+            this.enrollStep = 'info'; // send back to Personal Info to review
+          } else {
+            this.enrollError = res.message || 'Failed to create account.';
+          }
           this.cdr.detectChanges(); return;
         }
         const userId = res.user_id;
@@ -2181,7 +2632,16 @@ export class LoginComponent implements OnInit, OnDestroy {
       next: (res) => {
         if (!res.success && !res.user_id) {
           this.isSubmitting = false;
-          this.enrollError = res.message || 'Failed to create account.';
+          this.enrollmentSubmitted = false; // allow retry
+          if (res.code === 'EMAIL_EXISTS') {
+            this.accountErrors['email'] = 'This email is already registered. Please use a different email or log in.';
+            this.enrollError = '';
+          } else if (res.code === 'NAME_EXISTS') {
+            this.enrollError = res.message || 'A student with this name and date of birth already exists. Please log in instead.';
+            this.enrollStep = 'info'; // send back to Personal Info to review
+          } else {
+            this.enrollError = res.message || 'Failed to create account.';
+          }
           this.cdr.detectChanges(); return;
         }
         const userId = res.user_id;
@@ -2377,9 +2837,9 @@ export class LoginComponent implements OnInit, OnDestroy {
   proceedFromInfoSHS(): void {
     if (!this._validateStep2({ requireLrn: true, requireStrand: true })) return;
     this.enrollError = '';
-    this.enrollStep = 'documents';
+    this.enrollStep = this.isTransfereeEnrolling ? 'documents' : 'subjects';
     this.saveWizardState();
-    this.loadSHSFee();
+    if (!this.isTransfereeEnrolling) { this.loadSubjectSelection(); } else { this.loadSHSFee(); }
     this.cdr.detectChanges();
   }
 
@@ -2415,22 +2875,18 @@ export class LoginComponent implements OnInit, OnDestroy {
   proceedFromInfoTVET(): void {
     if (!this._validateStep2({ requireLrn: true, isTransferee: this.isTransfereeEnrolling })) return;
     this.enrollError = '';
-    this.enrollStep = 'documents';
-    this.saveWizardState();
-    // TVET-TRANSFEREE-FLOW-08: For transferees, fee is revealed only after TOR
-    // evaluation in the tor-review step — skip fee load here, matching College flow.
-    if (!this.isTransfereeEnrolling) {
-      this.loadTVETFee();
-    } else {
-      // FIX TVET-TRANSFEREE-SUBJECTS-01: TVET transferees need the program subject
-      // list at Step 3 (same as College transferees) so the "No subjects found"
-      // empty state is not shown. loadProgramCourses() was only called from
-      // proceedFromInfo() (College path) — it was never called here, leaving
-      // programCourses empty for TVET transferees.
+    if (this.isTransfereeEnrolling) {
+      this.enrollStep = 'documents';
+      this.saveWizardState();
       this.loadProgramCourses();
+    } else {
+      this.enrollStep = 'subjects';
+      this.saveWizardState();
+      this.loadSubjectSelection();
     }
     this.cdr.detectChanges();
   }
+
 
   loadTVETFee(): void {
     this.isTVETFeeLoading = true;
@@ -2541,11 +2997,19 @@ export class LoginComponent implements OnInit, OnDestroy {
       next: (res) => {
         console.log('[ENROLL] STEP 1 response:', res);
 
-        // FIX: If email already exists, auth.php returns success:false but we should continue
-        // by fetching the existing user_id, OR auth.php was updated to return user_id on duplicate
+        // FIX: If email already exists, show clear field error — don't let them proceed
         if (!res.success && !res.user_id) {
           this.isSubmitting = false;
-          this.enrollError = res.message || 'Failed to create account.';
+          this.enrollmentSubmitted = false; // allow retry with corrected email
+          if (res.code === 'EMAIL_EXISTS') {
+            this.accountErrors['email'] = 'This email is already registered. Please use a different email or log in.';
+            this.enrollError = '';
+          } else if (res.code === 'NAME_EXISTS') {
+            this.enrollError = res.message || 'A student with this name and date of birth already exists. Please log in instead.';
+            this.enrollStep = 'info'; // send back to Personal Info to review
+          } else {
+            this.enrollError = res.message || 'Failed to create account.';
+          }
           this.cdr.detectChanges();
           return;
         }
@@ -2632,8 +3096,10 @@ export class LoginComponent implements OnInit, OnDestroy {
             const isTransferee = this.regForm.studentType === 'Transferee';
             const studentId    = sRes.student_id || sRes.studentId;
 
+            // ── STEP 2c: Submit subject selection AFTER getting student_id ─────
+            // doAutoLogin must be declared FIRST so it can be called from inside
+            // the async subscribe callback below (const is not hoisted).
             const doAutoLogin = () => {
-              // Show confirmation screen — auto-login runs after countdown
               const fullName = `${this.regForm.firstName} ${this.regForm.lastName}`.trim();
               const nextStep = (this.isSHS || this.isTVET) && !this.isTransfereeEnrolling
                 ? 'free'
@@ -2645,6 +3111,87 @@ export class LoginComponent implements OnInit, OnDestroy {
                 nextStep
               );
             };
+
+            const savedSelection = (() => {
+              try {
+                const raw = typeof sessionStorage !== 'undefined'
+                  ? sessionStorage.getItem('pendingSubjectSelection') : null;
+                return raw ? JSON.parse(raw) : null;
+              } catch { return null; }
+            })();
+
+            // Collect all course IDs — prefer in-memory selectedSubjects, fall back to session
+            const inMemoryIds = this.selectedSubjects
+              .map(s => (s as any).id)
+              .filter((id: number) => id > 0);
+            const sessionIds = (savedSelection || [])
+              .map((s: any) => s.id)
+              .filter((id: number) => id > 0);
+            const courseIds = inMemoryIds.length > 0 ? inMemoryIds : sessionIds;
+
+            const hasSubjectSelection = !isTransferee && studentId
+              && (this.subjectSubmissionStatus === 'pending-account' || courseIds.length > 0);
+
+            if (hasSubjectSelection && courseIds.length > 0) {
+              const payload: any = { student_id: studentId, notes: '', course_ids: courseIds };
+              // Also send course_codes as fallback in case backend needs to re-resolve
+              const courseCodes = this.selectedSubjects.map(s => s.code).filter(Boolean);
+              if (courseCodes.length > 0) payload.course_codes = courseCodes;
+              console.log('[ENROLL] STEP 2c — Submitting subject selection for student', studentId, payload);
+              this.isSubmitting = false;
+              this.http.post<any>(`${this.apiUrl}?action=submit_subject_selection`, payload).subscribe({
+                next: (ssRes) => {
+                  console.log('[ENROLL] Subject selection submitted:', ssRes);
+                  if (ssRes.success) {
+                    this.subjectSubmittedStudentId = studentId;
+                    this.subjectSubmissionStatus = 'waiting';
+                    this.enrollStep = 'subjects';
+                    sessionStorage.removeItem('pendingSubjectSelection');
+                    this._startSubjectApprovalPoll(studentId);
+                    doAutoLogin();
+                  } else {
+                    console.warn('[ENROLL] Subject selection submit failed:', ssRes.message);
+                    doAutoLogin();
+                  }
+                },
+                error: (e) => {
+                  console.warn('[ENROLL] Subject selection submit error (non-fatal):', e);
+                  doAutoLogin();
+                }
+              });
+              return;
+            } else if (hasSubjectSelection && courseIds.length === 0) {
+              // IDs were all 0 — send course codes as fallback for backend to resolve
+              const courseCodes = [
+                ...this.selectedSubjects.map(s => s.code),
+                ...((savedSelection || []).map((s: any) => s.code))
+              ].filter((v, i, a) => v && a.indexOf(v) === i);
+
+              if (courseCodes.length > 0) {
+                const payload = { student_id: studentId, notes: '', course_codes: courseCodes };
+                console.log('[ENROLL] STEP 2c — Submitting via course_codes fallback', payload);
+                this.isSubmitting = false;
+                this.http.post<any>(`${this.apiUrl}?action=submit_subject_selection`, payload).subscribe({
+                  next: (ssRes) => {
+                    if (ssRes.success) {
+                      this.subjectSubmittedStudentId = studentId;
+                      this.subjectSubmissionStatus = 'waiting';
+                      this.enrollStep = 'subjects';
+                      sessionStorage.removeItem('pendingSubjectSelection');
+                      this._startSubjectApprovalPoll(studentId);
+                      doAutoLogin();
+                    } else {
+                      console.warn('[ENROLL] course_codes submit failed:', ssRes.message);
+                      doAutoLogin();
+                    }
+                  },
+                  error: () => doAutoLogin()
+                });
+                return;
+              } else {
+                console.warn('[ENROLL] No course IDs or codes — skipping subject submission.');
+              }
+            }
 
             // Handle TOR upload / auto-login
             const doAfterScholarProof = () => {

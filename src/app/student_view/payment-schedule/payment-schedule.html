@@ -532,6 +532,15 @@
               <div class="pp-subname">CENTER FOR GLOBAL COMPETENCE, INC.</div>
               <div class="pp-addr">#247 Rizal Avenue, West Bajac-Bajac, Olongapo City | Tel/Fax: (047) 223-3031</div>
             </div>
+            <!-- QR Code — top right corner: encodes permit owner identity for scanning -->
+            <div class="pp-qr-corner" *ngIf="permitQrDataUrl">
+              <img [src]="permitQrDataUrl" alt="Permit QR Code" class="pp-qr-img" />
+              <div class="pp-qr-label">Scan to verify</div>
+            </div>
+            <div class="pp-qr-corner pp-qr-loading" *ngIf="!permitQrDataUrl">
+              <div class="pp-qr-placeholder">⠿</div>
+              <div class="pp-qr-label">Generating QR…</div>
+            </div>
           </div>
 
           <!-- Blue title bar -->

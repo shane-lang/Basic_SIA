@@ -242,6 +242,11 @@ function getFeePreview($conn) {
     // Accept override discount and installment flag from login page (before student exists in DB)
     $override_discount    = isset($_GET['discount'])        ? (float)$_GET['discount']         : null;
     $override_installment = isset($_GET['has_installment']) ? (bool)(int)$_GET['has_installment'] : null;
+    // FIX SUBJ-UNITS-01: Accept explicit units override from frontend after subject approval.
+    // When the Registrar approves a subset of subjects, the approved unit count is sent
+    // directly here so the fee is computed from the actual approved subjects, not the
+    // full curriculum unit count.
+    $override_units = isset($_GET['units']) && (int)$_GET['units'] > 0 ? (int)$_GET['units'] : 0;
 
     if (!$program_name) {
         while (ob_get_level() > 0) { ob_end_clean(); }
@@ -281,7 +286,9 @@ function getFeePreview($conn) {
     }
 
     $pn    = $program_name;
-    $units = 0;
+    // FIX SUBJ-UNITS-01: If frontend sent explicit approved units, use them directly.
+    // This is set after subject approval so fees reflect only the approved subjects.
+    $units = $override_units > 0 ? $override_units : 0;
 
     // 1. For transferees: always use tor_evaluations.approved_units FIRST.
     //    This is the post-credit unit count the registrar approved — it overrides
@@ -1023,7 +1030,13 @@ function getTuitionFees($conn) {
 // ─────────────────────────────────────────────────────────────
 // RECORD INSTALLMENT PAYMENT
 // POST ?action=record_installment
-// Body: { student_id, amount, payment_date, payment_method, gcash_reference?, exam_period, notes?, accounting_user_id, or_ar_type }
+// Body: { student_id, amount, payment_date, payment_method, gcash_reference?, exam_period, notes?,
+//         accounting_user_id, or_ar_type, or_ar_number }
+//
+// CHANGE OR-MANUAL-01: or_ar_number is now a REQUIRED manual input from the cashier.
+// The cashier must type the exact OR number from the physical official receipt so that
+// the system record matches what the student physically holds.
+// The old auto-sequence logic (or_ar_sequences table) is no longer used here.
 // ─────────────────────────────────────────────────────────────
 function recordInstallment($conn, $data) {
     $student_id     = (int)($data['student_id']         ?? 0);
@@ -1036,18 +1049,35 @@ function recordInstallment($conn, $data) {
     $acc_user_id    = (int)($data['accounting_user_id'] ?? 0);
     $or_ar_type     = trim($data['or_ar_type']          ?? 'AR');
 
+    // CHANGE OR-MANUAL-01: Read the OR/AR number supplied by the cashier.
+    // This must match the number printed on the physical official receipt.
+    $or_ar_no = trim($data['or_ar_number'] ?? '');
+
     if (!$student_id || $amount <= 0) {
         while (ob_get_level() > 0) { ob_end_clean(); }
         echo json_encode(['success' => false, 'message' => 'student_id and amount required']); return;
     }
 
-    // Generate sequential OR/AR number: AR-20260001
-    // FIX AC-02: Atomic OR/AR via sequence table (avoids race condition)
-    $year = (int)date('Y');
-    $conn->query("INSERT INTO or_ar_sequences (year, last_seq) VALUES ($year, 1) ON DUPLICATE KEY UPDATE last_seq = last_seq + 1");
-    $seqRow   = (($_r=$conn->query("SELECT last_seq FROM or_ar_sequences WHERE year = $year")) ? $_r->fetch_assoc() : null);
-    $seq      = (int)($seqRow['last_seq'] ?? 1);
-    $or_ar_no = $or_ar_type . '-' . $year . str_pad($seq, 4, '0', STR_PAD_LEFT);
+    // CHANGE OR-MANUAL-01: Reject the request if the cashier did not provide an OR/AR number.
+    if ($or_ar_no === '') {
+        while (ob_get_level() > 0) { ob_end_clean(); }
+        echo json_encode(['success' => false, 'message' => 'OR/AR number is required. Please enter the number from the physical official receipt.']); return;
+    }
+
+    // CHANGE OR-MANUAL-01: Prevent duplicate OR/AR numbers across all payments.
+    // Two receipts with the same number would make reconciliation impossible.
+    $dupOrStmt = $conn->prepare("SELECT id FROM installment_payments WHERE or_ar_number = ? LIMIT 1");
+    if ($dupOrStmt) {
+        $dupOrStmt->bind_param('s', $or_ar_no);
+        $dupOrStmt->execute();
+        $dupOrRow = $dupOrStmt->get_result()->fetch_assoc();
+        $dupOrStmt->close();
+        if ($dupOrRow) {
+            while (ob_get_level() > 0) { ob_end_clean(); }
+            echo json_encode(['success' => false, 'message' => "OR/AR number '{$or_ar_no}' already exists in the system. Please check the physical receipt and enter the correct number."]);
+            return;
+        }
+    }
 
     $stmt = $conn->prepare("
         INSERT INTO installment_payments (student_id, or_ar_number, or_ar_type, amount, payment_date, payment_method, gcash_reference, exam_period, notes, recorded_by, semester)
@@ -3367,11 +3397,30 @@ function verifyPayment($conn, $data) {
     }
 
     if ($dupResult->num_rows === 0) {
-        // FIX AC-02: Atomic sequence for OR/AR number
-        $conn->query("INSERT INTO or_ar_sequences (year, last_seq) VALUES ($year, 1) ON DUPLICATE KEY UPDATE last_seq = last_seq + 1");
-        $seqRow2 = (($_r=$conn->query("SELECT last_seq FROM or_ar_sequences WHERE year = $year")) ? $_r->fetch_assoc() : null);
-        $seq2    = (int)($seqRow2['last_seq'] ?? 1);
-        $or_no   = $or_ar_type . '-' . $year . str_pad($seq2, 4, '0', STR_PAD_LEFT);
+        // CHANGE OR-MANUAL-01: OR/AR number is now entered manually by the cashier
+        // to match the number printed on the physical official receipt.
+        // The old auto-sequence logic (or_ar_sequences table) is no longer used here.
+        $or_no = trim($data['or_ar_number'] ?? '');
+
+        if ($or_no === '') {
+            while (ob_get_level() > 0) { ob_end_clean(); }
+            echo json_encode(['success' => false, 'message' => 'OR/AR number is required. Please enter the number from the physical official receipt.']);
+            return;
+        }
+
+        // CHANGE OR-MANUAL-01: Prevent duplicate OR/AR numbers.
+        $dupOrChk = $conn->prepare("SELECT id FROM installment_payments WHERE or_ar_number = ? LIMIT 1");
+        if ($dupOrChk) {
+            $dupOrChk->bind_param('s', $or_no);
+            $dupOrChk->execute();
+            $dupOrExisting = $dupOrChk->get_result()->fetch_assoc();
+            $dupOrChk->close();
+            if ($dupOrExisting) {
+                while (ob_get_level() > 0) { ob_end_clean(); }
+                echo json_encode(['success' => false, 'message' => "OR/AR number '{$or_no}' already exists in the system. Please check the physical receipt and enter the correct number."]);
+                return;
+            }
+        }
 
         if ($payment_method !== 'cash') {
             $grStmt = $conn->prepare("SELECT gcash_reference FROM payment_logs WHERE id = ? LIMIT 1");

@@ -61,6 +61,24 @@
     </div>
   </div>
 
+  <!-- REGISTRATION REJECTED BANNER -->
+  <!-- Shown when Registrar rejects full registration. -->
+  <!-- Student must reselect subjects and resubmit via Enrollment page. -->
+  <div *ngIf="enrollmentStatus === 'Rejected'" class="status-banner banner-rejected">
+    <div class="banner-icon">&#10060;</div>
+    <div class="banner-body">
+      <div class="banner-title">Enrollment Rejected by Registrar</div>
+      <div class="banner-desc">
+        Your enrollment was reviewed and <strong>rejected</strong> by the Registrar.
+        Please go to the <strong>Enrollment</strong> page to review the reason,
+        re-select your subjects, and resubmit for approval.
+      </div>
+    </div>
+    <a routerLink="/student/enrollment" class="banner-btn banner-btn-danger">
+      Re-select Subjects &#8594;
+    </a>
+  </div>
+
   <section class="welcome-section">
     <div class="welcome-card">
       <div class="welcome-icon">👋</div>

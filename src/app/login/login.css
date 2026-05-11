@@ -2026,3 +2026,270 @@ mat-error::before {
   transition: background 0.15s;
 }
 .scholar-badge-clear:hover { background: #dbeafe; }
+/* ── Step 3: Subject Selection ─────────────────────────────────────────── */
+.subject-loading {
+  display: flex; align-items: center; gap: .75rem;
+  padding: 2rem 0; color: #64748b; font-size: .9rem;
+}
+.btn-retry {
+  margin-left: .75rem; background: none; border: 1px solid #94a3b8;
+  border-radius: 6px; padding: .25rem .6rem; cursor: pointer; font-size: .8rem;
+}
+
+.subject-summary-bar {
+  display: flex; align-items: center; gap: .75rem;
+  padding: .65rem 1rem; background: #f8fafc; border: 1px solid #e2e8f0;
+  border-radius: 10px; margin-bottom: 1.25rem; flex-wrap: wrap;
+}
+.subj-count-badge { font-weight: 600; font-size: .875rem; color: #334155; }
+.subj-units-badge {
+  background: #0ea5e9; color: #fff; border-radius: 20px;
+  padding: .15rem .65rem; font-size: .78rem; font-weight: 700;
+}
+.btn-select-all {
+  margin-left: auto; background: none; border: 1px solid #0ea5e9;
+  color: #0ea5e9; border-radius: 6px; padding: .25rem .75rem;
+  font-size: .8rem; font-weight: 600; cursor: pointer;
+}
+
+.subj-group-header {
+  font-size: .78rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .04em; color: #94a3b8; padding: .75rem 0 .4rem;
+  border-bottom: 1px solid #f1f5f9; margin-bottom: .5rem;
+}
+
+.subject-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: .6rem; margin-bottom: .75rem;
+}
+.subject-card {
+  display: flex; align-items: center; gap: .65rem;
+  padding: .65rem .85rem; border-radius: 10px; cursor: pointer;
+  transition: all 0.15s; user-select: none;
+}
+.subject-card-selected {
+  background: #f0fdf4; border: 1.5px solid #86efac;
+}
+.subject-card-unselected {
+  background: #f8fafc; border: 1.5px solid #e2e8f0; opacity: .65;
+}
+.subject-card-selected:hover { background: #dcfce7; }
+.subject-card-unselected:hover { opacity: .9; }
+
+.subject-check { width: 20px; text-align: center; font-weight: 700; font-size: 1rem; }
+.check-icon { color: #16a34a; }
+.uncheck-icon { color: #94a3b8; }
+
+.subject-info { flex: 1; min-width: 0; }
+.subject-code { font-size: .78rem; font-weight: 700; color: #475569; font-family: monospace; }
+.subject-name { font-size: .82rem; color: #334155; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.units-pill {
+  background: #e0f2fe; color: #0369a1; border-radius: 12px;
+  padding: .1rem .5rem; font-size: .75rem; font-weight: 700; white-space: nowrap;
+}
+
+.subj-empty-notice {
+  color: #64748b; font-size: .875rem; text-align: center;
+  padding: 1.5rem; background: #f8fafc; border-radius: 10px; margin: 1rem 0;
+}
+
+.registrar-review-notice {
+  display: flex; gap: .85rem; align-items: flex-start;
+  padding: .9rem 1rem; background: #fefce8; border: 1px solid #fde68a;
+  border-radius: 10px; margin-top: 1.25rem; font-size: .85rem; color: #92400e;
+}
+.registrar-review-notice .notice-icon { font-size: 1.25rem; margin-top: .05rem; }
+.registrar-review-notice p { margin: .2rem 0 0; color: #78350f; }
+
+.btn-next {
+  background: #0ea5e9; color: #fff; border: none; border-radius: 10px;
+  padding: .7rem 1.4rem; font-size: .9rem; font-weight: 700; cursor: pointer;
+  transition: background 0.15s;
+}
+.btn-next:hover { background: #0284c7; }
+
+/* ── Subject Step: Waiting / Approved / Rejected sub-views ──────────────── */
+.subj-waiting-view,
+.subj-approved-view,
+.subj-rejected-view {
+  text-align: center; padding: 2rem 1rem;
+}
+
+.subj-waiting-icon,
+.subj-status-icon {
+  font-size: 3rem; margin-bottom: 1rem;
+}
+
+.subj-waiting-title,
+.subj-status-title { font-size: 1.4rem; font-weight: 700; margin-bottom: .75rem; }
+.approved-title { color: #16a34a; }
+.rejected-title { color: #dc2626; }
+
+.subj-waiting-desc { color: #64748b; font-size: .9rem; max-width: 440px; margin: 0 auto 1.5rem; }
+
+/* Submitted subjects list */
+.subj-submitted-list {
+  text-align: left; max-width: 480px; margin: 0 auto 1.5rem;
+  border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden;
+}
+.subj-submitted-header {
+  background: #f8fafc; padding: .6rem 1rem;
+  font-size: .8rem; font-weight: 700; color: #64748b; border-bottom: 1px solid #e2e8f0;
+}
+.subj-submitted-row {
+  display: flex; align-items: center; gap: .75rem;
+  padding: .5rem 1rem; border-bottom: 1px solid #f1f5f9;
+  font-size: .875rem;
+}
+.subj-submitted-row:last-child { border-bottom: none; }
+.subj-submitted-name { flex: 1; color: #334155; }
+
+/* Pulse animation for "waiting" indicator */
+.subj-waiting-pulse {
+  display: inline-flex; align-items: center; gap: .5rem;
+  font-size: .85rem; color: #94a3b8; margin-top: .5rem;
+}
+.pulse-dot {
+  width: 10px; height: 10px; border-radius: 50%; background: #0ea5e9;
+  animation: pulse 1.4s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.4; transform: scale(0.75); }
+}
+
+/* Registrar notes box */
+.subj-registrar-notes {
+  background: #f0fdf4; border: 1px solid #86efac;
+  border-radius: 8px; padding: .75rem 1rem;
+  font-size: .875rem; color: #15803d;
+  max-width: 480px; margin: 1rem auto; text-align: left;
+}
+.subj-registrar-notes.rejection {
+  background: #fff1f2; border-color: #fecdd3; color: #be123c;
+}
+
+/* ── Subject Approval Box (inside Step 5 after account creation) ────────── */
+.subj-approval-box {
+  text-align: center; padding: 2rem 1.5rem;
+  border-radius: 14px; margin-bottom: 1.5rem;
+}
+.waiting-box  { background: #eff6ff; border: 1.5px solid #bfdbfe; }
+.approved-box { background: #f0fdf4; border: 1.5px solid #86efac; }
+.rejected-box { background: #fff1f2; border: 1.5px solid #fecdd3; }
+
+.sab-icon  { font-size: 2.8rem; margin-bottom: .75rem; }
+.sab-title { font-size: 1.3rem; font-weight: 700; margin-bottom: .6rem; color: #1e293b; }
+.sab-desc  { font-size: .9rem; color: #475569; max-width: 500px; margin: 0 auto 1.25rem; line-height: 1.6; }
+
+.subj-submitted-list {
+  text-align: left; max-width: 500px; margin: 0 auto 1.25rem;
+  border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden;
+  background: #fff;
+}
+.subj-submitted-header {
+  background: #f8fafc; padding: .55rem 1rem;
+  font-size: .8rem; font-weight: 700; color: #64748b;
+  border-bottom: 1px solid #e2e8f0;
+}
+.subj-submitted-row {
+  display: flex; align-items: center; gap: .75rem;
+  padding: .5rem 1rem; border-bottom: 1px solid #f1f5f9; font-size: .875rem;
+}
+.subj-submitted-row:last-child { border-bottom: none; }
+.subj-submitted-name { flex: 1; color: #334155; }
+
+.subj-waiting-pulse {
+  display: inline-flex; align-items: center; gap: .5rem;
+  font-size: .85rem; color: #64748b; margin-top: .75rem;
+}
+.pulse-dot {
+  width: 10px; height: 10px; border-radius: 50%; background: #3b82f6;
+  animation: pulse 1.4s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: .35; transform: scale(.7); }
+}
+
+.subj-registrar-notes {
+  background: #f0fdf4; border: 1px solid #86efac; border-radius: 8px;
+  padding: .7rem 1rem; font-size: .875rem; color: #15803d;
+  max-width: 480px; margin: .75rem auto; text-align: left;
+}
+.subj-registrar-notes.rejection { background: #fff1f2; border-color: #fecdd3; color: #be123c; }
+
+/* ── Fee pending approval notice ─────────────────────────────────────────── */
+.fee-pending-approval {
+  display: flex; align-items: flex-start; gap: 1rem;
+  background: #fef3c7; border: 1.5px solid #fcd34d;
+  border-radius: 10px; padding: 1rem 1.25rem; margin-bottom: 1rem;
+}
+.fpa-icon { font-size: 1.5rem; margin-top: .1rem; }
+.fee-pending-approval p { margin: 0; font-size: .9rem; color: #78350f; line-height: 1.6; }
+
+/* ── Account already created notice (Step 5 when returning after waiting) ── */
+.account-created-notice {
+  background: #f0fdf4; border: 1.5px solid #86efac; border-radius: 10px;
+  padding: 1rem 1.25rem; font-size: .9rem; color: #166534; line-height: 1.7;
+  margin-bottom: 1rem; text-align: center;
+}
+.pending-fee-label {
+  color: #92400e; font-weight: 600; font-size: .875rem;
+}
+/* ══ Step 4: Fee Template (Formula-only, no actual amounts) ══ */
+.fee-template-card {
+  border: 2px dashed #d1d5db;
+  background: #f9fafb;
+}
+.fee-template-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 500;
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fcd34d;
+  border-radius: 4px;
+  padding: 2px 8px;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+.fb-template { opacity: 0.85; }
+.fb-template .formula-cell {
+  color: #374151;
+  font-style: italic;
+  font-size: 13px;
+}
+.fb-template-total .formula-cell {
+  font-style: italic;
+  color: #6b7280;
+}
+.fee-template-note {
+  margin-top: 12px;
+  padding: 10px 14px;
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  border-radius: 6px;
+  font-size: 13px;
+  color: #78350f;
+  line-height: 1.6;
+}
+
+/* ══ Step 5: Payment Plan required hint ══ */
+.step5-payment-section {
+  background: #f0f9ff;
+  border: 1px solid #bae6fd;
+  border-radius: 10px;
+  padding: 1.25rem;
+  margin-top: 1rem;
+}
+.plan-required-hint {
+  margin-top: 8px;
+  font-size: 13px;
+  color: #b45309;
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  border-radius: 5px;
+  padding: 6px 12px;
+}

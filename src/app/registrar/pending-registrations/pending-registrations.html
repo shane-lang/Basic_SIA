@@ -13,9 +13,24 @@
       <h1 class="pr-title">📋 Pending Registrations</h1>
       <p class="pr-subtitle">Review student registrations. Payment status is verified by Accounting — confirm to officially enroll.</p>
     </div>
-    <button class="btn-refresh" (click)="load()">↻ Refresh</button>
+    <button class="btn-refresh" (click)="activeTab==='registrations' ? load() : loadSubjectSelections()">↻ Refresh</button>
   </div>
 
+
+
+  <!-- Tab Switcher -->
+  <div class="pr-tabs">
+    <button class="pr-tab" [class.active]="activeTab==='registrations'" (click)="switchTab('registrations')">
+      📋 Pending Registrations
+    </button>
+    <button class="pr-tab" [class.active]="activeTab==='subjects'" (click)="switchTab('subjects')">
+      📚 Subject Approvals
+      <span class="tab-badge" *ngIf="activeTab!=='subjects'">!</span>
+    </button>
+  </div>
+
+  <!-- Registrations tab wrapper -->
+  <ng-container *ngIf="activeTab==='registrations'">
   <!-- Search -->
   <div class="pr-toolbar">
     <div class="search-wrap">
@@ -222,9 +237,22 @@
       </div>
     </div>
 
-    <!-- ── Enrolled Subjects ──────────────────────────────────── -->
+    <!-- ── Subjects (approved selection or enrolled) ──────────── -->
     <div class="subjects-box">
-      <h4 class="section-label">📚 Subjects</h4>
+      <!-- Header: title + selection status badge -->
+      <div class="subjects-header">
+        <h4 class="section-label" style="margin:0">📚 Subjects</h4>
+        <span *ngIf="selected.selectionStatus === 'Approved'" class="sel-badge sel-approved">
+          ✓ Registrar-Approved
+        </span>
+        <span *ngIf="selected.selectionStatus === 'Submitted'" class="sel-badge sel-submitted">
+          ⏳ Awaiting Approval
+        </span>
+        <span *ngIf="selected.approvedSubjectCount > 0" class="sel-units-pill">
+          {{ selected.approvedSubjectCount }} subject{{ selected.approvedSubjectCount !== 1 ? 's' : '' }}
+          &nbsp;·&nbsp; {{ selected.approvedUnits }} units
+        </span>
+      </div>
 
       <div class="subjects-loading" *ngIf="isLoadingSubjects">⏳ Loading subjects…</div>
 
@@ -245,7 +273,8 @@
             <td>
               <span class="subj-status-chip"
                     [class.chip-enrolled]="subj.status === 'Enrolled'"
-                    [class.chip-pending]="subj.status === 'Pending'"
+                    [class.chip-approved]="subj.status === 'Approved'"
+                    [class.chip-pending]="subj.status === 'Pending Approval' || subj.status === 'Pending'"
                     [class.chip-dropped]="subj.status === 'Dropped'"
                     [class.chip-credited]="subj.status === 'Credited'">
                 {{ subj.status || '—' }}
@@ -263,7 +292,12 @@
       </table>
 
       <div class="subjects-empty" *ngIf="!isLoadingSubjects && enrolledSubjects.length === 0">
-        📋 No subjects enrolled yet — they will be auto-enrolled after confirmation.
+        <ng-container *ngIf="selected.studentType === 'New' || selected.studentType === 'Regular'">
+          📋 No subject selection on file — subjects will be auto-enrolled from the curriculum after confirmation.
+        </ng-container>
+        <ng-container *ngIf="selected.studentType !== 'New' && selected.studentType !== 'Regular'">
+          📋 No approved subjects found — check the Subject Approvals tab.
+        </ng-container>
       </div>
     </div>
 
@@ -397,4 +431,124 @@
     </div>
   </div>
 
+  </ng-container><!-- /registrations tab -->
+
+  <!-- ══ SUBJECT APPROVALS TAB ══ -->
+  <ng-container *ngIf="activeTab==='subjects'">
+
+    <div class="subj-filter-bar">
+      <span class="filter-label">Show:</span>
+      <button class="filter-btn" [class.active]="subjectFilter==='Submitted'"
+              (click)="subjectFilter='Submitted'; loadSubjectSelections()">⏳ Waiting ({{ subjectFilter==='Submitted' ? subjectSelections.length : '?' }})</button>
+      <button class="filter-btn" [class.active]="subjectFilter==='Approved'"
+              (click)="subjectFilter='Approved'; loadSubjectSelections()">✓ Approved</button>
+      <button class="filter-btn" [class.active]="subjectFilter==='Rejected'"
+              (click)="subjectFilter='Rejected'; loadSubjectSelections()">✕ Rejected</button>
+      <button class="filter-btn" [class.active]="subjectFilter==='All'"
+              (click)="subjectFilter='All'; loadSubjectSelections()">All</button>
+    </div>
+
+    <div class="loading-row" *ngIf="isLoadingSubjectSelections">⏳ Loading…</div>
+
+    <div class="subj-empty" *ngIf="!isLoadingSubjectSelections && subjectSelections.length === 0">
+      <div class="subj-empty-icon">📭</div>
+      <p>No subject selections found for this filter.</p>
+    </div>
+
+    <table class="subj-table" *ngIf="!isLoadingSubjectSelections && subjectSelections.length > 0">
+      <thead>
+        <tr>
+          <th>Student</th>
+          <th>Program / Year</th>
+          <th>Subjects</th>
+          <th>Submitted</th>
+          <th>Status</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr *ngFor="let row of subjectSelections">
+          <td>
+            <strong>{{ row.first_name }} {{ row.last_name }}</strong><br>
+            <small class="text-muted">{{ row.student_number }}</small>
+          </td>
+          <td>{{ row.program }}<br><small class="text-muted">{{ row.year_level }} · {{ row.semester }}</small></td>
+          <td class="center">
+            {{ row.requested_courses?.length ?? 0 }} subjects<br>
+            <small class="text-muted">{{ row.total_requested_units }} units</small>
+          </td>
+          <td><small>{{ row.created_at | date:'MMM d, y h:mm a' }}</small></td>
+          <td><span class="badge" [ngClass]="subjectStatusClass(row.status)">{{ row.status }}</span></td>
+          <td>
+            <button class="btn-review-subj" (click)="openSubjectModal(row)">
+              {{ row.status === 'Submitted' ? 'Review' : 'View' }}
+            </button>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+
+  </ng-container><!-- /subjects tab -->
+
+
+</div>
+
+<!-- ══ SUBJECT APPROVAL MODAL ══ -->
+<div class="modal-overlay" *ngIf="showSubjectModal" (click)="closeSubjectModal()"></div>
+<div class="subj-modal" *ngIf="showSubjectModal && subjectModalRow">
+
+  <div class="subj-modal-header">
+    <div>
+      <h2>📋 Subject Review</h2>
+      <p>{{ subjectModalRow.first_name }} {{ subjectModalRow.last_name }} &nbsp;·&nbsp;
+         {{ subjectModalRow.student_number }} &nbsp;·&nbsp;
+         {{ subjectModalRow.program }} &nbsp;·&nbsp; {{ subjectModalRow.year_level }}</p>
+    </div>
+    <button class="btn-modal-x" (click)="closeSubjectModal()">✕</button>
+  </div>
+
+  <!-- Already decided badge -->
+  <div class="already-decided" *ngIf="subjectModalRow.status !== 'Submitted'">
+    Status: <span class="badge" [ngClass]="subjectStatusClass(subjectModalRow.status)">{{ subjectModalRow.status }}</span>
+    <span *ngIf="subjectModalRow.registrar_notes"> — {{ subjectModalRow.registrar_notes }}</span>
+  </div>
+
+  <div class="subj-modal-summary">
+    <span>{{ stagedApprovedCount }} of {{ stagedCourses.length }} subjects selected</span>
+    <span class="badge-units">{{ getStagedUnits() }} units</span>
+  </div>
+
+  <div class="subj-modal-list">
+    <div *ngFor="let c of stagedCourses"
+         class="subj-modal-row"
+         [class.row-yes]="c.approved"
+         [class.row-no]="!c.approved"
+         [class.clickable]="subjectModalRow.status === 'Submitted'"
+         (click)="subjectModalRow.status === 'Submitted' && toggleStagedCourse(c)">
+      <span class="row-check">{{ c.approved ? '✓' : '✕' }}</span>
+      <span class="row-code mono">{{ c.code }}</span>
+      <span class="row-name">{{ c.name }}</span>
+      <span class="row-units">{{ c.credits }} units</span>
+    </div>
+    <div *ngIf="stagedCourses.length === 0" class="subj-modal-empty">No subjects in this selection.</div>
+  </div>
+
+  <div class="subj-modal-notes" *ngIf="subjectModalRow.status === 'Submitted'">
+    <label>Registrar Notes <small>(required when rejecting)</small></label>
+    <textarea [(ngModel)]="subjectModalNotes" rows="3" placeholder="Optional for approval…"
+              [disabled]="subjectModalSubmitting"></textarea>
+  </div>
+
+  <div class="subj-modal-actions">
+    <button class="btn-modal-cancel" (click)="closeSubjectModal()" [disabled]="subjectModalSubmitting">Cancel</button>
+    <ng-container *ngIf="subjectModalRow.status === 'Submitted'">
+      <button class="btn-modal-reject" (click)="submitSubjectAction('Rejected')" [disabled]="subjectModalSubmitting">
+        {{ subjectModalSubmitting ? '⏳…' : '✕ Reject' }}
+      </button>
+      <button class="btn-modal-approve" (click)="submitSubjectAction('Approved')"
+              [disabled]="subjectModalSubmitting || stagedApprovedCount === 0">
+        {{ subjectModalSubmitting ? '⏳…' : '✓ Approve ' + stagedApprovedCount + ' Subject(s)' }}
+      </button>
+    </ng-container>
+  </div>
 </div>

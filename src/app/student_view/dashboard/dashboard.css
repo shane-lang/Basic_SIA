@@ -864,6 +864,10 @@ body {
 .banner-confirmed { background: #ecfdf5; border-color: #10b981; color: #065f46; }
 .banner-confirmed .banner-btn { color: #065f46; }
 .banner-confirmed .banner-btn:hover { background: #d1fae5; }
+.banner-rejected  { background: #fef2f2; border-color: #ef4444; color: #7f1d1d; }
+.banner-rejected .banner-icon { color: #dc2626; }
+.banner-btn-danger { background: #ef4444 !important; color: #fff !important; border-color: #dc2626 !important; }
+.banner-btn-danger:hover { background: #dc2626 !important; }
 /* ── Scholar Badges & Bars ─────────────────────────────────────────────── */
 .wchip-scholar {
   background: linear-gradient(135deg, #d1fae5, #a7f3d0) !important;

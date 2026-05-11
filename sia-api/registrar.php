@@ -220,6 +220,15 @@ switch ($action) {
     case 'get_add_drop_window':
         require_once __DIR__ . '/enrollment.php';
         getAddDropWindow($conn); exit();
+    // ── Subject Selection (GET) ──────────────────────────────────────────────
+    case 'get_pending_subject_selections':
+        require_once __DIR__ . '/enrollment.php';
+        $GLOBALS['authUser'] = $authUser;
+        getPendingSubjectSelections($conn); exit();
+    case 'get_subject_selection':
+        require_once __DIR__ . '/enrollment.php';
+        $GLOBALS['authUser'] = $authUser;
+        getSubjectSelection($conn); exit();
     case 'search_students':
         require_once __DIR__ . '/enrollment.php';
         searchStudents($conn); exit();
@@ -265,6 +274,11 @@ switch ($action) {
     case 'registrar_drop_subject':
         require_once __DIR__ . '/enrollment.php';
         registrarDropSubject($conn, $data); exit();
+    // ── Subject Selection (POST) ─────────────────────────────────────────────
+    case 'approve_subject_selection':
+        require_once __DIR__ . '/enrollment.php';
+        $GLOBALS['authUser'] = $authUser;
+        approveSubjectSelection($conn, $data); exit();
     case 'process_add_drop':
         require_once __DIR__ . '/enrollment.php';
         try { processAddDropRequest($conn, $data); }
@@ -4225,6 +4239,88 @@ function getPendingRegistrations(mysqli $conn): void {
     }
     $stmt->close();
 
+    // ── Attach approved subjects from subject_selections to each student ──────
+    // This shows the registrar exactly which subjects were approved for the student
+    // so they can review them in the Pending Approvals panel before confirming.
+    // Priority: approved_course_ids (if registrar already reviewed) → requested_course_ids.
+    if (!empty($students)) {
+        $sidList = implode(',', array_map(fn($s) => (int)$s['id'], $students));
+
+        // Fetch the latest subject_selection row per student
+        $selRes = $conn->query("
+            SELECT ss.student_id,
+                   COALESCE(ss.approved_course_ids, ss.requested_course_ids) AS course_ids_json,
+                   ss.status AS selection_status,
+                   ss.registrar_notes AS selection_notes
+            FROM subject_selections ss
+            INNER JOIN (
+                SELECT student_id, MAX(id) AS max_id
+                FROM subject_selections
+                WHERE student_id IN ($sidList)
+                GROUP BY student_id
+            ) latest ON latest.student_id = ss.student_id AND latest.max_id = ss.id
+        ");
+
+        // Build map: student_id → [course_ids, status]
+        $selMap = [];
+        $allCourseIds = [];
+        if ($selRes) {
+            while ($selRow = $selRes->fetch_assoc()) {
+                $ids = json_decode($selRow['course_ids_json'] ?? '[]', true) ?: [];
+                $ids = array_values(array_filter(array_map('intval', $ids)));
+                $selMap[(int)$selRow['student_id']] = [
+                    'course_ids' => $ids,
+                    'status'     => $selRow['selection_status'] ?? '',
+                    'notes'      => $selRow['selection_notes']  ?? '',
+                ];
+                foreach ($ids as $cid) $allCourseIds[$cid] = true;
+            }
+        }
+
+        // Bulk-fetch course details for all referenced IDs
+        $courseMap = [];
+        if (!empty($allCourseIds)) {
+            $ph = implode(',', array_keys($allCourseIds));
+            $cRes = $conn->query("
+                SELECT c.id, c.code, c.name, c.credits,
+                       COALESCE(c.lec_units, c.credits) AS lec_units,
+                       COALESCE(c.lab_units, 0)         AS lab_units
+                FROM courses c
+                WHERE c.id IN ($ph)
+            ");
+            if ($cRes) {
+                while ($c = $cRes->fetch_assoc()) {
+                    $c['code'] = cleanCode($c['code']);
+                    $courseMap[(int)$c['id']] = $c;
+                }
+            }
+        }
+
+        // Attach subjects array to each student
+        foreach ($students as &$stu) {
+            $sid2 = (int)$stu['id'];
+            if (isset($selMap[$sid2])) {
+                $sel = $selMap[$sid2];
+                $stu['approvedSubjects']      = array_values(array_filter(
+                    array_map(fn($id) => $courseMap[$id] ?? null, $sel['course_ids'])
+                ));
+                $stu['selectionStatus']       = $sel['status'];
+                $stu['selectionNotes']        = $sel['notes'];
+                $stu['approvedSubjectCount']  = count($stu['approvedSubjects']);
+                $stu['approvedUnits']         = array_sum(array_column($stu['approvedSubjects'], 'credits'));
+            } else {
+                // No subject selection recorded — student may be New (auto-enrolled)
+                $stu['approvedSubjects']      = [];
+                $stu['selectionStatus']       = '';
+                $stu['selectionNotes']        = '';
+                $stu['approvedSubjectCount']  = 0;
+                $stu['approvedUnits']         = 0;
+            }
+        }
+        unset($stu);
+    }
+    // ── End approved subjects attachment ──────────────────────────────────────
+
     while (ob_get_level() > 0) { ob_end_clean(); }
     global $authUser;
     $students = applyPrivacyList($students, $authUser, 'student');
@@ -4548,7 +4644,41 @@ function confirmRegistration(mysqli $conn, array $data = []): void {
     $semester = trim($semRow['semester'] ?? '');
     if ($prevStatus !== 'Enrolled') {
         require_once __DIR__ . '/enrollment.php';
-        if (function_exists('autoEnrollAll')) {
+
+        // ── FIX SUBJECT-SEL-ENROLL-01: If the student has an approved subject selection,
+        //    enroll ONLY the registrar-approved courses instead of the full program curriculum.
+        //    This respects the subject selection step where the Registrar may have removed
+        //    overloaded, prerequisite-blocked, or schedule-conflicting subjects.
+        $selApproved = false;
+        $conn->query("ALTER TABLE students ADD COLUMN IF NOT EXISTS subject_selection_status VARCHAR(20) NOT NULL DEFAULT 'Pending'");
+        $selStatusR = $conn->query("SELECT subject_selection_status FROM students WHERE id=$sid LIMIT 1");
+        $selStatusVal = $selStatusR ? ($selStatusR->fetch_assoc()['subject_selection_status'] ?? 'Pending') : 'Pending';
+
+        if ($selStatusVal === 'Approved') {
+            // Fetch approved course IDs from subject_selections
+            $selCidsR = $conn->query("SELECT approved_course_ids FROM subject_selections WHERE student_id=$sid ORDER BY id DESC LIMIT 1");
+            $selRow = $selCidsR ? $selCidsR->fetch_assoc() : null;
+            $approvedCids = $selRow ? (json_decode($selRow['approved_course_ids'] ?? '[]', true) ?: []) : [];
+            if (!empty($approvedCids)) {
+                $selApproved = true;
+                // Build a course list matching the format expected by insertEnrollments()
+                $ph = implode(',', array_fill(0, count($approvedCids), '?'));
+                $ty = str_repeat('i', count($approvedCids));
+                $cSt = $conn->prepare("SELECT id, name, semester FROM courses WHERE id IN ($ph)");
+                $cSt->bind_param($ty, ...$approvedCids);
+                $cSt->execute();
+                $approvedCourses = $cSt->get_result()->fetch_all(MYSQLI_ASSOC);
+                $cSt->close();
+                // Determine note based on student type
+                $selNoteType = strcasecmp(trim($data['student_type'] ?? ''), 'Transferee') === 0
+                    ? 'Auto-enrolled (Transferee)'
+                    : 'Auto-enrolled';
+                insertEnrollments($conn, $sid, $approvedCourses, $semester, $selNoteType);
+            }
+        }
+
+        // Fall back to full auto-enroll if no approved selection exists
+        if (!$selApproved && function_exists('autoEnrollAll')) {
             autoEnrollAll($conn, ['student_id' => $sid, 'semester' => $semester], false);
         }
     }
@@ -4880,10 +5010,19 @@ function rejectRegistration(mysqli $conn, array $data = []): void {
     while (ob_get_level() > 0) { ob_end_clean(); }
     if (!$student) { echo json_encode(['success'=>false,'message'=>'Student not found.']); return; }
 
-    $upd = $conn->prepare("UPDATE students SET enrollment_status='Rejected', approval_status='Rejected', accounting_notes=? WHERE id=?");
+    // FIX REG-REJECT-SUBJSEL-01: Reset subject_selection_status to 'Pending' so
+    // the student is forced back to subject-selection on next login.
+    // Without this, subject_selection_status stays 'Approved' after rejection →
+    // the enrollment.ts subject-selection routing check is skipped → student is
+    // sent to the payment step instead of the re-selection form.
+    $upd = $conn->prepare("UPDATE students SET enrollment_status='Rejected', approval_status='Rejected', accounting_notes=?, subject_selection_status='Pending' WHERE id=?");
     $upd->bind_param('si', $reason, $sid);
     $upd->execute();
     $upd->close();
+
+    // Also reset the subject_selections record to Pending so wasRejectedSubjectSelection=true
+    // triggers the pre-fill logic in the enrollment wizard (student sees their previous choices).
+    $conn->query("UPDATE subject_selections SET status='Rejected', registrar_notes='" . $conn->real_escape_string($reason) . "' WHERE student_id=$sid ORDER BY id DESC LIMIT 1");
 
     logAuditShared($conn, $authUser ?? null, 'REJECT_REGISTRATION', 'student', $sid,
         "Registration rejected for {$student['first_name']} {$student['last_name']} ({$student['student_number']}). Reason: $reason");

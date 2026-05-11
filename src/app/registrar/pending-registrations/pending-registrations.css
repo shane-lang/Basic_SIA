@@ -445,3 +445,188 @@
   transition: background .15s;
 }
 .btn-dismiss-coe-alt:hover { background: #e2e8f0; }
+/* ── Tab Switcher ───────────────────────────────────────────────────────── */
+.pr-tabs {
+  display: flex; gap: .5rem; margin-bottom: 1.5rem;
+  border-bottom: 2px solid #e2e8f0; padding-bottom: 0;
+}
+.pr-tab {
+  padding: .6rem 1.25rem; font-size: .9rem; font-weight: 600;
+  border: none; background: none; cursor: pointer; color: #64748b;
+  border-bottom: 3px solid transparent; margin-bottom: -2px;
+  transition: color .15s, border-color .15s;
+}
+.pr-tab.active { color: #0ea5e9; border-bottom-color: #0ea5e9; }
+.pr-tab:hover:not(.active) { color: #334155; }
+
+/* ── Subject Approvals Tab ─────────────────────────────────────────────── */
+.subj-filter-bar {
+  display: flex; align-items: center; gap: .5rem;
+  margin-bottom: 1rem; flex-wrap: wrap;
+}
+.filter-label { font-size: .82rem; font-weight: 600; color: #64748b; }
+.filter-btn {
+  padding: .35rem .85rem; border-radius: 20px; font-size: .82rem; font-weight: 600;
+  border: 1.5px solid #e2e8f0; background: #fff; cursor: pointer; color: #64748b;
+  transition: all .15s;
+}
+.filter-btn.active { background: #0ea5e9; border-color: #0ea5e9; color: #fff; }
+.filter-btn:hover:not(.active) { border-color: #0ea5e9; color: #0ea5e9; }
+.filter-count { margin-left: auto; font-size: .8rem; color: #94a3b8; }
+
+.subj-empty { text-align: center; padding: 3rem 1rem; color: #94a3b8; }
+.subj-empty-icon { font-size: 2.5rem; margin-bottom: .75rem; }
+.subj-empty p { font-size: .9rem; }
+
+.subj-table-wrap { overflow-x: auto; }
+.subj-table {
+  width: 100%; border-collapse: collapse; font-size: .875rem;
+}
+.subj-table th {
+  background: #f8fafc; padding: .65rem 1rem; text-align: left;
+  font-size: .78rem; font-weight: 700; color: #64748b;
+  border-bottom: 1px solid #e2e8f0; white-space: nowrap;
+}
+.subj-table td {
+  padding: .75rem 1rem; border-bottom: 1px solid #f1f5f9; vertical-align: middle;
+}
+.subj-table tr:hover td { background: #f8fafc; }
+.subj-student-name { font-weight: 600; color: #1e293b; }
+.subj-student-num { font-size: .78rem; color: #94a3b8; }
+.subj-sem { font-size: .78rem; color: #94a3b8; }
+.subj-date { font-size: .8rem; color: #64748b; white-space: nowrap; }
+.subj-units-small { font-size: .75rem; color: #94a3b8; }
+.center { text-align: center; }
+
+.units-pill {
+  background: #e0f2fe; color: #0369a1; border-radius: 12px;
+  padding: .15rem .55rem; font-size: .75rem; font-weight: 700; white-space: nowrap;
+}
+
+.btn-review {
+  background: #0ea5e9; color: #fff; border: none; border-radius: 7px;
+  padding: .4rem .85rem; font-size: .8rem; font-weight: 600; cursor: pointer;
+}
+.btn-review:hover { background: #0284c7; }
+.btn-view-approved {
+  background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0; border-radius: 7px;
+  padding: .4rem .85rem; font-size: .8rem; cursor: pointer;
+}
+
+/* ── Subject Approval Modal ─────────────────────────────────────────────── */
+.overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 1000;
+}
+.subj-modal {
+  position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  background: #fff; border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,.25);
+  z-index: 1100; width: min(680px, 95vw); max-height: 90vh;
+  overflow-y: auto; padding: 1.5rem; display: flex; flex-direction: column; gap: 1rem;
+}
+.subj-modal-header {
+  display: flex; justify-content: space-between; align-items: flex-start;
+}
+.subj-modal-header h2 { margin: 0 0 .25rem; font-size: 1.15rem; }
+.subj-modal-header p  { margin: 0; color: #64748b; font-size: .85rem; }
+.btn-close-modal {
+  background: none; border: none; font-size: 1.2rem; cursor: pointer;
+  color: #94a3b8; padding: .25rem .5rem; border-radius: 6px;
+}
+.btn-close-modal:hover { background: #f1f5f9; color: #334155; }
+
+.subj-modal-decided {
+  padding: .65rem 1rem; background: #f8fafc;
+  border-radius: 8px; font-size: .875rem; color: #475569;
+}
+
+.subj-modal-summary {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: .5rem .75rem; background: #f8fafc; border-radius: 8px;
+  font-size: .82rem; color: #64748b; font-weight: 600;
+}
+
+.subj-modal-list { display: flex; flex-direction: column; gap: .35rem; }
+.subj-modal-row {
+  display: flex; align-items: center; gap: .75rem;
+  padding: .6rem .75rem; border-radius: 8px; cursor: pointer; transition: background .1s;
+}
+.subj-modal-row.row-approved { background: #f0fdf4; border: 1px solid #bbf7d0; }
+.subj-modal-row.row-excluded { background: #fff1f2; border: 1px solid #fecdd3; opacity: .75; }
+.subj-modal-row.row-readonly { cursor: default !important; }
+.subj-modal-row:not(.row-readonly):hover { filter: brightness(.97); }
+
+.modal-check { width: 22px; text-align: center; font-weight: 700; font-size: .95rem; }
+.check-yes { color: #16a34a; }
+.check-no  { color: #dc2626; }
+.modal-subj-info { flex: 1; display: flex; gap: .6rem; align-items: center; font-size: .875rem; }
+.modal-subj-name { color: #334155; }
+.subj-modal-empty { color: #94a3b8; text-align: center; padding: 1.5rem 0; font-size: .9rem; }
+
+.subj-modal-notes-row label {
+  display: block; font-size: .82rem; font-weight: 600; color: #475569; margin-bottom: .4rem;
+}
+.notes-hint { font-weight: 400; color: #94a3b8; font-size: .78rem; }
+.subj-modal-notes {
+  width: 100%; padding: .6rem .75rem; border: 1px solid #cbd5e1;
+  border-radius: 8px; font-size: .875rem; resize: vertical; box-sizing: border-box;
+}
+
+.subj-modal-actions {
+  display: flex; justify-content: flex-end; gap: .65rem; flex-wrap: wrap;
+}
+.btn-modal-cancel {
+  background: #f1f5f9; border: 1px solid #e2e8f0; color: #475569;
+  border-radius: 8px; padding: .6rem 1rem; font-weight: 600; cursor: pointer;
+}
+.btn-modal-reject {
+  background: #fff; border: 1.5px solid #ef4444; color: #ef4444;
+  border-radius: 8px; padding: .6rem 1rem; font-weight: 600; cursor: pointer;
+}
+.btn-modal-reject:hover:not(:disabled) { background: #fef2f2; }
+.btn-modal-reject:disabled { opacity: .5; cursor: not-allowed; }
+.btn-modal-approve {
+  background: #16a34a; color: #fff; border: none;
+  border-radius: 8px; padding: .6rem 1.25rem; font-weight: 600; cursor: pointer;
+}
+.btn-modal-approve:hover:not(:disabled) { background: #15803d; }
+.btn-modal-approve:disabled { opacity: .5; cursor: not-allowed; }
+
+/* Badge helpers (reused) */
+.badge-yellow { background: #fef3c7; color: #92400e; border-radius: 12px; padding: .15rem .6rem; font-size: .78rem; font-weight: 700; }
+.badge-green  { background: #dcfce7; color: #166534; border-radius: 12px; padding: .15rem .6rem; font-size: .78rem; font-weight: 700; }
+.badge-red    { background: #fee2e2; color: #991b1b; border-radius: 12px; padding: .15rem .6rem; font-size: .78rem; font-weight: 700; }
+.badge-gray   { background: #f1f5f9; color: #64748b; border-radius: 12px; padding: .15rem .6rem; font-size: .78rem; font-weight: 700; }
+/* ── Subjects section header row ── */
+.subjects-header {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.75rem;
+}
+
+/* ── Selection status badges ── */
+.sel-badge {
+  border-radius: 20px;
+  padding: 2px 10px;
+  font-size: 0.76rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.sel-approved { background: #d1fae5; color: #065f46; border: 1px solid #6ee7b7; }
+.sel-submitted { background: #fef9c3; color: #854d0e; border: 1px solid #fde68a; }
+
+.sel-units-pill {
+  margin-left: auto;
+  font-size: 0.8rem;
+  color: #6b7280;
+  background: #f3f4f6;
+  border-radius: 20px;
+  padding: 2px 10px;
+}
+
+
+/* ── Approved chip ── */
+.chip-approved { background: #dbeafe; color: #1e40af; }
+.chip-dropped  { background: #fee2e2; color: #991b1b; }
+.chip-credited { background: #ede9fe; color: #5b21b6; }

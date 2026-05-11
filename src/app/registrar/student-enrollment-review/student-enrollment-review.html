@@ -99,6 +99,7 @@
           <th>Enrollment</th>
           <th>Payment</th>
           <th>Approval</th>
+          <th>Subject Selection</th>
           <th>Enrolled On</th>
           <th></th>
         </tr>
@@ -121,6 +122,20 @@
           <td><span class="badge" [ngClass]="statusClass(s.enrollmentStatus)">{{ s.enrollmentStatus }}</span></td>
           <td><span class="badge" [ngClass]="statusClass(s.paymentStatus)">{{ s.paymentStatus }}</span></td>
           <td><span class="badge" [ngClass]="statusClass(s.approvalStatus)">{{ s.approvalStatus }}</span></td>
+          <td>
+            <span class="badge subj-sel-badge"
+                  [class.badge-yellow]="(s.subjectSelectionStatus||'None')==='Submitted'"
+                  [class.badge-green]="(s.subjectSelectionStatus||'None')==='Approved'"
+                  [class.badge-red]="(s.subjectSelectionStatus||'None')==='Rejected'"
+                  [class.badge-gray]="!s.subjectSelectionStatus || s.subjectSelectionStatus==='None' || s.subjectSelectionStatus==='Pending'">
+              {{ s.subjectSelectionStatus || 'None' }}
+            </span>
+            <button class="btn-review-subj-inline"
+                    *ngIf="(s.subjectSelectionStatus||'None')==='Submitted'"
+                    (click)="$event.stopPropagation(); viewDetailAndOpenApproval(s)">
+              Review
+            </button>
+          </td>
           <td class="date-cell">{{ s.enrollmentDate }}</td>
           <td><button class="btn-view" (click)="$event.stopPropagation(); viewDetail(s)">View</button></td>
         </tr>
@@ -270,4 +285,107 @@
     </table>
   </div>
 
+  <!-- ── Subject Approval Action ─────────────────────────────────────────── -->
+  <div class="detail-section subject-approval-section"
+       *ngIf="!selectedStudent.loadingDetail && getSubjectSelectionStatus(selectedStudent) === 'Submitted'">
+    <h3>✅ Subject Approval</h3>
+    <p class="approval-hint">
+      This student has submitted their subject selection and is waiting for your approval.
+      Review the list, deselect any subject to exclude, then click Approve.
+    </p>
+    <button class="btn-open-approval" (click)="openSubjectApproval()">
+      📋 Review &amp; Approve Subjects
+    </button>
+  </div>
+
+  <div class="approval-done-banner"
+       *ngIf="!selectedStudent.loadingDetail && getSubjectSelectionStatus(selectedStudent) === 'Approved'">
+    ✓ Subject selection approved. Student may now proceed to upload documents.
+  </div>
+
+  <div class="approval-rejected-banner"
+       *ngIf="!selectedStudent.loadingDetail && getSubjectSelectionStatus(selectedStudent) === 'Rejected'">
+    ✕ Subject selection rejected. Student must resubmit.
+  </div>
+
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════════════
+     SUBJECT APPROVAL MODAL
+     ══════════════════════════════════════════════════════════════════════════ -->
+<div class="overlay" *ngIf="showSubjectApprovalPanel" (click)="closeSubjectApproval()"></div>
+<div class="approval-panel" *ngIf="showSubjectApprovalPanel && selectedStudent">
+
+  <div class="approval-panel-header">
+    <div>
+      <h2>📋 Subject Approval</h2>
+      <p>{{ selectedStudent.firstName }} {{ selectedStudent.lastName }} · {{ selectedStudent.program }}</p>
+    </div>
+    <button class="detail-close" (click)="closeSubjectApproval()">✕</button>
+  </div>
+
+  <!-- Loading spinner while fetching selection -->
+  <div class="subject-loading" *ngIf="subjectApprovalSubmitting && stagedCourses.length === 0">
+    <div class="spinner"></div>
+    <span>Loading subject selection…</span>
+  </div>
+
+  <!-- Subject toggle list -->
+  <div class="approval-subject-list" *ngIf="stagedCourses.length > 0">
+    <div class="approval-list-header">
+      <span>Click a subject to include or exclude it from approval</span>
+      <span class="approval-count-badge">
+        {{ stagedApprovedCount }} approved · {{ stagedRejectedCount }} excluded
+      </span>
+    </div>
+
+    <div
+      *ngFor="let c of stagedCourses"
+      class="approval-subject-row"
+      [class.row-approved]="c.approveFlag"
+      [class.row-excluded]="!c.approveFlag"
+      (click)="toggleStagedCourse(c)"
+    >
+      <div class="approval-subject-check">
+        <span *ngIf="c.approveFlag"  class="check-yes">✓</span>
+        <span *ngIf="!c.approveFlag" class="check-no">✕</span>
+      </div>
+      <div class="approval-subject-info">
+        <span class="mono">{{ c.code }}</span>
+        <span>{{ c.name }}</span>
+      </div>
+      <div class="approval-subject-units">{{ c.credits }} units</div>
+      <span class="badge" [ngClass]="statusClass(c.status)">{{ c.status }}</span>
+    </div>
+
+    <div class="approval-empty" *ngIf="stagedCourses.length === 0">
+      No pending subjects to review.
+    </div>
+  </div>
+
+  <!-- Notes -->
+  <div class="approval-notes-row">
+    <label>Registrar Notes <span *ngIf="stagedRejectedCount > 0 || true">(required when rejecting all)</span></label>
+    <textarea
+      [(ngModel)]="subjectApprovalNotes"
+      placeholder="Optional for approval; required when rejecting…"
+      rows="3"
+      class="approval-notes-input"
+      [disabled]="subjectApprovalSubmitting">
+    </textarea>
+  </div>
+
+  <!-- Action buttons -->
+  <div class="approval-actions">
+    <button class="btn-reject-subjects"
+            (click)="rejectSubjects()"
+            [disabled]="subjectApprovalSubmitting">
+      {{ subjectApprovalSubmitting ? '⏳ Submitting…' : '✕ Reject All Subjects' }}
+    </button>
+    <button class="btn-approve-subjects"
+            (click)="approveSubjects()"
+            [disabled]="subjectApprovalSubmitting || stagedApprovedCount === 0">
+      {{ subjectApprovalSubmitting ? '⏳ Submitting…' : '✓ Approve ' + stagedApprovedCount + ' Subject' + (stagedApprovedCount !== 1 ? 's' : '') }}
+    </button>
+  </div>
 </div>

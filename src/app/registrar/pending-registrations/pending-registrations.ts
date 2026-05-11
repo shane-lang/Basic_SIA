@@ -49,6 +49,21 @@ interface PendingStudent {
   guardianEmail: string;
   // ── Free enrollment flag (SHS/TVET) ──
   isFreeEnrollment: boolean;
+  // ── Approved subjects from subject_selections (injected by PHP) ──
+  approvedSubjects:     ApprovedSubject[];
+  selectionStatus:      string;
+  selectionNotes:       string;
+  approvedSubjectCount: number;
+  approvedUnits:        number;
+}
+
+interface ApprovedSubject {
+  id:        number;
+  code:      string;
+  name:      string;
+  credits:   number;
+  lec_units: number;
+  lab_units: number;
 }
 
 interface EnrolledSubject {
@@ -80,6 +95,25 @@ interface CoeRecord {
   student_category: string;
   enrollment_status: string;
   approved_by_name: string;
+}
+
+
+interface SubjectSelectionRow {
+  id: number;
+  student_id: number;
+  first_name: string;
+  last_name:  string;
+  student_number: string;
+  program:    string;
+  year_level: string;
+  semester:   string;
+  status:     string;
+  registrar_notes?: string;
+  requested_courses: { id: number; code: string; name: string; credits: number }[];
+  approved_courses:  { id: number; code: string; name: string; credits: number }[];
+  total_requested_units: number;
+  total_approved_units:  number;
+  created_at: string;
 }
 
 @Component({
@@ -163,11 +197,29 @@ export class PendingRegistrationsComponent implements OnInit {
       return;
     }
     this.selected         = s;
-    this.enrolledSubjects = [];
     this.justApprovedCoe  = null;
     this.showCoePanel     = false;
-    this.cdr.detectChanges();
-    this.loadEnrolledSubjects(s.id);
+
+    // ── Use approvedSubjects from PHP response immediately (no extra API call) ──
+    // approvedSubjects = registrar-approved course list from subject_selections.
+    // This is shown BEFORE the student is confirmed so the registrar can see
+    // exactly what subjects will be enrolled on confirmation.
+    const approved: ApprovedSubject[] = s.approvedSubjects ?? [];
+    if (approved.length > 0) {
+      this.enrolledSubjects = approved.map(subj => ({
+        course_code: subj.code,
+        course_name: subj.name,
+        units:       Number(subj.credits ?? 0),
+        status:      s.selectionStatus === 'Approved' ? 'Approved' : 'Pending Approval',
+      }));
+      this.isLoadingSubjects = false;
+      this.cdr.detectChanges();
+    } else {
+      // No subject selection on file — check if already enrolled (re-enrolling student)
+      this.enrolledSubjects = [];
+      this.cdr.detectChanges();
+      this.loadEnrolledSubjects(s.id);
+    }
   }
 
   loadEnrolledSubjects(studentId: number): void {
@@ -533,7 +585,7 @@ export class PendingRegistrationsComponent implements OnInit {
   }
 
   totalEnrolledUnits(): number {
-    return this.enrolledSubjects.reduce((sum, s) => sum + (s.units || 0), 0);
+    return this.enrolledSubjects.reduce((sum, s) => sum + (Number(s.units) || 0), 0);
   }
 
   // ── Guardian email inline edit ───────────────────────────────────────────
@@ -624,4 +676,133 @@ export class PendingRegistrationsComponent implements OnInit {
     if (!d) return '—';
     return new Date(d).toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric' });
   }
+  // ════════════════════════════════════════════════════════════════
+  // SUBJECT APPROVALS TAB
+  // Uses: registrar.php?action=get_pending_subject_selections (GET)
+  //       registrar.php?action=approve_subject_selection     (POST)
+  // ════════════════════════════════════════════════════════════════
+
+  activeTab: 'registrations' | 'subjects' = 'registrations';
+
+  subjectSelections: SubjectSelectionRow[] = [];
+  isLoadingSubjectSelections = false;
+  subjectFilter: 'Submitted' | 'Approved' | 'Rejected' | 'All' = 'Submitted';
+
+  showSubjectModal       = false;
+  subjectModalRow: SubjectSelectionRow | null = null;
+  subjectModalNotes      = '';
+  subjectModalSubmitting = false;
+  stagedCourses: { id: number; code: string; name: string; credits: number; approved: boolean }[] = [];
+
+  get stagedApprovedCount(): number { return this.stagedCourses.filter(c => c.approved).length; }
+
+  switchTab(tab: 'registrations' | 'subjects'): void {
+    this.activeTab = tab;
+    if (tab === 'subjects') this.loadSubjectSelections();
+    this.cdr.detectChanges();
+  }
+
+  loadSubjectSelections(): void {
+    this.isLoadingSubjectSelections = true;
+    this.subjectSelections = [];
+    this.cdr.detectChanges();
+    this.http.get<any>(
+      `${this.api}?action=get_pending_subject_selections&status=${this.subjectFilter}`
+    ).subscribe({
+      next: (res) => {
+        this.isLoadingSubjectSelections = false;
+        if (res.success) {
+          this.subjectSelections = res.selections ?? [];
+        } else {
+          this.notify('error', res.message || 'Failed to load subject selections.');
+        }
+        this.cdr.detectChanges();
+      },
+      error: (err) => {
+        this.isLoadingSubjectSelections = false;
+        this.notify('error', 'Cannot connect to server. Make sure XAMPP is running.');
+        this.cdr.detectChanges();
+      }
+    });
+  }
+
+  openSubjectModal(row: SubjectSelectionRow): void {
+    this.subjectModalRow    = row;
+    this.subjectModalNotes  = row.registrar_notes ?? '';
+    this.stagedCourses      = (row.requested_courses ?? []).map(c => ({
+      ...c,
+      credits:  +(c.credits ?? 0),   // coerce to number — backend may return string
+      approved: true
+    }));
+    this.showSubjectModal   = true;
+    this.cdr.detectChanges();
+  }
+
+  closeSubjectModal(): void {
+    this.showSubjectModal      = false;
+    this.subjectModalRow       = null;
+    this.subjectModalSubmitting = false;
+    this.cdr.detectChanges();
+  }
+
+  toggleStagedCourse(c: { approved: boolean }): void {
+    c.approved = !c.approved;
+    this.cdr.detectChanges();
+  }
+
+  submitSubjectAction(action: 'Approved' | 'Rejected'): void {
+    if (!this.subjectModalRow) return;
+    if (action === 'Rejected' && !this.subjectModalNotes.trim()) {
+      this.notify('error', 'Please provide a reason for rejection.'); return;
+    }
+    if (action === 'Approved' && this.stagedApprovedCount === 0) {
+      this.notify('error', 'Select at least one subject to approve.'); return;
+    }
+    this.subjectModalSubmitting = true;
+    this.cdr.detectChanges();
+
+    const approvedIds = action === 'Approved'
+      ? this.stagedCourses.filter(c => c.approved && c.id > 0).map(c => c.id)
+      : [];
+
+    this.http.post<any>(`${this.api}?action=approve_subject_selection`, {
+      student_id:          this.subjectModalRow.student_id,
+      action,
+      approved_course_ids: approvedIds,
+      notes:               this.subjectModalNotes || (action === 'Approved' ? 'Approved by Registrar.' : ''),
+    }).subscribe({
+      next: (res) => {
+        this.subjectModalSubmitting = false;
+        if (res.success) {
+          const name = `${this.subjectModalRow!.first_name} ${this.subjectModalRow!.last_name}`;
+          this.notify('success', action === 'Approved'
+            ? `✓ ${res.approvedCount} subject(s) approved for ${name}. Student may now proceed.`
+            : `Subject selection rejected. ${name} will be notified to resubmit.`
+          );
+          this.closeSubjectModal();
+          this.loadSubjectSelections();
+        } else {
+          this.notify('error', res.message || 'Action failed.');
+          this.subjectModalSubmitting = false;
+        }
+        this.cdr.detectChanges();
+      },
+      error: () => {
+        this.subjectModalSubmitting = false;
+        this.notify('error', 'Connection error.');
+        this.cdr.detectChanges();
+      }
+    });
+  }
+
+  subjectStatusClass(s: string): string {
+    const m: Record<string,string> = { Submitted: 'badge-yellow', Approved: 'badge-green', Rejected: 'badge-red' };
+    return m[s] ?? 'badge-gray';
+  }
+
+  getStagedUnits(): number {
+    return this.stagedCourses.filter(c => c.approved).reduce((t, c) => t + +(c.credits ?? 0), 0);
+  }
+
+
 }

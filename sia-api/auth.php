@@ -251,6 +251,34 @@ if ($action === 'validate_token') {
 // =============================================================================
 // REGISTER — POST ?action=register
 // =============================================================================
+if ($action === 'check_name') {
+    $fn  = strtolower(trim($_GET['first_name']   ?? ''));
+    $ln  = strtolower(trim($_GET['last_name']    ?? ''));
+    $dob = trim($_GET['date_of_birth'] ?? '');
+    if (!$fn || !$ln || !$dob) { respond(['available' => true]); }
+    $st = $conn->prepare("SELECT id, student_number FROM students WHERE LOWER(first_name)=? AND LOWER(last_name)=? AND date_of_birth=? LIMIT 1");
+    $st->bind_param('sss', $fn, $ln, $dob);
+    $st->execute();
+    $row = $st->get_result()->fetch_assoc();
+    $st->close();
+    if ($row) {
+        respond(['available' => false, 'code' => 'NAME_EXISTS', 'student_number' => $row['student_number'],
+                 'message' => 'A student with this name and date of birth already exists (Student No. ' . $row['student_number'] . '). Please log in instead.']);
+    }
+    respond(['available' => true]);
+}
+
+if ($action === 'check_email') {
+    $email = strtolower(trim($_GET['email'] ?? ''));
+    if (!$email || !filter_var($email, FILTER_VALIDATE_EMAIL)) { respond(['available' => false, 'message' => 'Invalid email.']); }
+    $st = $conn->prepare("SELECT id FROM users WHERE email=? LIMIT 1");
+    $st->bind_param('s', $email);
+    $st->execute();
+    $exists = $st->get_result()->num_rows > 0;
+    $st->close();
+    respond(['available' => !$exists, 'message' => $exists ? 'This email is already registered.' : 'Email is available.']);
+}
+
 if ($action === 'register') {
     $data = json_decode($rawInput, true);
     if (!$data) respond(['success' => false, 'message' => 'Invalid JSON'], 400);
